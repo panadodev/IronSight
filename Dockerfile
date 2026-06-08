@@ -10,28 +10,26 @@ RUN npm run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
+# Application defaults
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ironsight
-ENV REDIS_URL=redis://redis:6379
-# JWT_SECRET must be set at runtime — the server refuses to start if it is empty
-ENV JWT_SECRET=""
 ENV SESSION_TTL_SECONDS=86400
 ENV LOGIN_RATE_LIMIT_PER_MINUTE=10
 ENV PG_POOL_MAX=20
 ENV PG_IDLE_TIMEOUT_MS=30000
-# Discord OAuth — must be provided at runtime
-ENV DISCORD_CLIENT_ID=""
-ENV DISCORD_CLIENT_SECRET=""
-# Public-facing base URL used to derive OAuth callback URIs
-ENV APP_URL=""
-# Optional: override the derived Discord redirect URI
-ENV DISCORD_REDIRECT_URI=""
-# Optional: override the derived Steam return URL / realm
-ENV STEAM_RETURN_URL=""
-ENV STEAM_REALM=""
-# Discord ID of the configured system administrator account
-ENV SYS_ADMIN_DISCORD_ID=""
+
+# Required at runtime (injected by container orchestrator):
+#   - DATABASE_URL or POSTGRESQL_URI (PostgreSQL connection string)
+#   - REDIS_URL or REDIS_URI (Redis connection string)
+#   - JWT_SECRET (session signing secret; server refuses to start if empty)
+#   - DISCORD_CLIENT_ID (Discord OAuth app ID)
+#   - DISCORD_CLIENT_SECRET (Discord OAuth app secret)
+#   - APP_URL (public base URL for OAuth callbacks)
+# Optional at runtime:
+#   - DISCORD_REDIRECT_URI (override callback URL derivation)
+#   - STEAM_RETURN_URL (override Steam OpenID return URL derivation)
+#   - STEAM_REALM (override Steam OpenID realm derivation)
+#   - SYS_ADMIN_DISCORD_ID (Discord ID of system administrator)
 
 COPY --from=build /app /app
 
