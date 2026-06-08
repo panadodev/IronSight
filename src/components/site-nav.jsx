@@ -51,6 +51,7 @@ function SiteNav() {
   const canPlayerList = selectedMaxRank >= 2;
   const canThreatTriggers = selectedMaxRank >= 3;
   const [sessionUser, setSessionUser] = useState(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [draft, setDraft] = useState(profile);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -88,6 +89,8 @@ function SiteNav() {
         }
       } catch {
         if (!cancelled) setSessionUser(null);
+      } finally {
+        if (!cancelled) setSessionChecked(true);
       }
     }
 
@@ -232,7 +235,8 @@ function SiteNav() {
       ]
     }
   ].map((g) => ({ ...g, links: g.links.filter((l) => l.show !== false) })).filter((g) => g.links.length > 0);
-  const groups = view === "public" ? publicGroups : staffGroups;
+  const effectiveView = sessionUser ? view : "public";
+  const groups = effectiveView === "public" ? publicGroups : staffGroups;
   const todos = useTodos();
   const lastVisits = useLastVisits();
   const meId = activeStaff?.id;
@@ -245,10 +249,10 @@ function SiteNav() {
     (t) => t.assigneeId === meId && new Date(t.createdAt).getTime() > supportLastVisit
   );
   useEffect(() => {
-    if (view !== "staff") return;
+    if (effectiveView !== "staff") return;
     if (path === "/") lastVisitStore.mark("/");
     else if (path.startsWith("/todo")) lastVisitStore.mark("/todo");
-  }, [path, view]);
+  }, [path, effectiveView]);
   const selectedOrgsLabel = selectedOrgIds.length === orgs.length ? "All orgs" : selectedOrgIds.length === 0 ? "No orgs" : selectedOrgIds.map((id) => orgs.find((o) => o.id === id)?.short).filter(Boolean).join(" \xB7 ");
   return <>
       <aside className="fixed inset-y-0 left-0 z-30 w-56 border-r border-border bg-background flex flex-col">
@@ -260,14 +264,14 @@ function SiteNav() {
             IronSight
           </span>
           <span className="ml-2 text-[9px] font-mono uppercase tracking-widest text-brand">
-            {view}
+            {effectiveView}
           </span>
         </div>
 
         {
     /* Org selector (staff only) */
   }
-        {view === "staff" && <div className="p-2 border-b border-border">
+        {effectiveView === "staff" && sessionUser && <div className="p-2 border-b border-border">
             <Popover>
               <PopoverTrigger asChild>
                 <button className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface transition-colors">
@@ -363,7 +367,7 @@ function SiteNav() {
     /* Footer actions */
   }
         <div className="border-t border-border p-2 space-y-1.5 shrink-0">
-          {view === "staff" && isImpersonating && <button
+          {effectiveView === "staff" && isImpersonating && <button
     onClick={stopImpersonating}
     className="w-full flex items-center gap-1.5 px-2.5 py-1.5 ring-1 ring-warning/40 bg-warning/10 text-warning rounded-md hover:bg-warning/20 transition-colors text-[10px] font-mono uppercase tracking-widest"
     title="Stop impersonating"
@@ -375,7 +379,7 @@ function SiteNav() {
 
 
 
-          {view === "staff" && (sessionUser || activeStaff) ? <button
+          {effectiveView === "staff" && (sessionUser || activeStaff) ? <button
     onClick={openProfile}
     className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-surface/60 ring-1 ring-border rounded-md hover:bg-surface transition-colors cursor-pointer"
     title="Open profile"
@@ -419,6 +423,7 @@ function SiteNav() {
               <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
                 {["public", "staff"].map((v) => <button
     key={v}
+    disabled={!sessionUser && v === "staff"}
     onClick={() => switchView(v)}
     className={"px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " + (view === v ? "bg-brand text-brand-foreground" : "text-muted-foreground hover:text-foreground")}
   >
