@@ -18,10 +18,25 @@ const SYSADMIN = {
   username: "panado"
 };
 
+function chooseConnectionUrl(primary, secondary) {
+  const first = primary?.trim();
+  const second = secondary?.trim();
+
+  if (first && second) {
+    // Coolify often injects localhost defaults in DATABASE_URL/REDIS_URL while
+    // POSTGRESQL_URI/REDIS_URI points to the actual service.
+    const firstIsLocal = /localhost|127\.0\.0\.1|\[::1\]|::1/i.test(first);
+    const secondIsLocal = /localhost|127\.0\.0\.1|\[::1\]|::1/i.test(second);
+    if (firstIsLocal && !secondIsLocal) return second;
+  }
+
+  return first || second;
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  databaseUrl: process.env.DATABASE_URL ?? process.env.POSTGRESQL_URI,
-  redisUrl: process.env.REDIS_URL ?? process.env.REDIS_URI,
+  databaseUrl: chooseConnectionUrl(process.env.DATABASE_URL, process.env.POSTGRESQL_URI),
+  redisUrl: chooseConnectionUrl(process.env.REDIS_URL, process.env.REDIS_URI),
   jwtSecret: process.env.JWT_SECRET,
   sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 60 * 60 * 24),
   loginRateLimitPerMinute: Number(process.env.LOGIN_RATE_LIMIT_PER_MINUTE ?? 10),
