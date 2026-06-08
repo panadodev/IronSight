@@ -13,6 +13,6 @@ export default defineConfig({
     server: { entry: "server" },
   },
   preview: {
-    allowedHosts: ["ironsight.panado.dev"],
+    allowedHosts: ["https://ironsight.panado.dev"],
   },
 });
