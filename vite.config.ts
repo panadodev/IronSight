@@ -16,7 +16,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     tsconfigPaths(),
-    cloudflare(),
+    ...(process.env.ENABLE_CLOUDFLARE_VITE === "true" ? [cloudflare()] : []),
   ],
   resolve: {
     alias: {
