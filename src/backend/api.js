@@ -168,6 +168,22 @@ function signPendingLink(payload) {
   return jwt.sign({ kind: "pending-link", ...payload }, env.jwtSecret, { expiresIn: 60 * 15 });
 }
 
+function signDiscordState(payload) {
+  return jwt.sign({ kind: "discord-oauth-state", ...payload }, env.jwtSecret, { expiresIn: 60 * 10 });
+}
+
+function verifyDiscordState(stateToken) {
+  try {
+    const payload = jwt.verify(stateToken, env.jwtSecret);
+    if (payload?.kind !== "discord-oauth-state") return null;
+    return {
+      next: sanitizeNext(payload.next)
+    };
+  } catch {
+    return null;
+  }
+}
+
 function clearPendingLinkHeaders(headers = new Headers()) {
   headers.append("set-cookie", pendingLinkCookie("", 0));
   return headers;
@@ -910,10 +926,12 @@ async function handleDiscordStart(request) {
   if (!env.discordClientId || !env.discordClientSecret) {
     return json({ error: "Discord OAuth is not configured." }, 503);
   }
+  if (!env.jwtSecret) {
+    return json({ error: "JWT secret is not configured." }, 503);
+  }
 
   const next = sanitizeNext(new URL(request.url).searchParams.get("next"));
-  const state = crypto.randomUUID();
-  await redis.set(`oauth:discord:${state}`, JSON.stringify({ next }), "EX", 60 * 10);
+  const state = signDiscordState({ next });
 
   const authorizeParams = new URLSearchParams({
     client_id: env.discordClientId,
@@ -934,14 +952,10 @@ async function handleDiscordCallback(request) {
     return redirect("/login?error=discord_callback_invalid");
   }
 
-  const stateKey = `oauth:discord:${state}`;
-  const stateRaw = await redis.get(stateKey);
-  await redis.del(stateKey);
-  if (!stateRaw) {
+  const stateData = verifyDiscordState(state);
+  if (!stateData) {
     return redirect("/login?error=discord_state_invalid");
   }
-
-  const stateData = JSON.parse(stateRaw);
 
   try {
     const discordUser = await exchangeDiscordCode(request, code);
@@ -1838,6 +1852,14 @@ export async function initializeInfra() {
 }
 
 export async function handleApiRequest(request) {
+  const earlyUrl = new URL(request.url);
+  const earlyPath = earlyUrl.pathname;
+
+  // Discord OAuth start does not require DB/Redis initialization.
+  if (earlyPath === "/api/auth/discord/start" && request.method === "GET") {
+    return handleDiscordStart(request);
+  }
+
   return withStartupGuard(async () => {
     const url = new URL(request.url);
     const { pathname } = url;
@@ -1845,10 +1867,6 @@ export async function handleApiRequest(request) {
     if (pathname === "/api/health" && request.method === "GET") {
       await pingDependencies();
       return json({ ok: true, postgres: true, redis: true, queue: true });
-    }
-
-    if (pathname === "/api/auth/discord/start" && request.method === "GET") {
-      return handleDiscordStart(request);
     }
 
     if (pathname === "/api/auth/discord/callback" && request.method === "GET") {
