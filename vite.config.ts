@@ -25,7 +25,10 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  server: {
+    allowedHosts: true,
+  },
   preview: {
-    allowedHosts: ["ironsight.panado.dev"],
+    allowedHosts: true,
   },
 });
