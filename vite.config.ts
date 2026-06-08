@@ -12,4 +12,7 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  preview: {
+    allowedHosts: ["ironsight.panado.dev"],
+  },
 });
