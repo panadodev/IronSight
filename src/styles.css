@@ -1,0 +1,95 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-surface: var(--surface);
+  --color-surface-bright: var(--surface-bright);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  --radius: 0.5rem;
+  /* Post-apocalyptic utilitarian — zinc base, rust orange accent */
+  --background: oklch(0.145 0.005 285);
+  --foreground: oklch(0.92 0.005 285);
+  --surface: oklch(0.205 0.006 285);
+  --surface-bright: oklch(0.255 0.007 285);
+  --card: oklch(0.205 0.006 285);
+  --card-foreground: oklch(0.92 0.005 285);
+  --popover: oklch(0.205 0.006 285);
+  --popover-foreground: oklch(0.92 0.005 285);
+  --primary: oklch(0.58 0.19 38);
+  --primary-foreground: oklch(0.98 0 0);
+  --brand: oklch(0.58 0.19 38);
+  --brand-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.255 0.007 285);
+  --secondary-foreground: oklch(0.92 0.005 285);
+  --muted: oklch(0.255 0.007 285);
+  --muted-foreground: oklch(0.6 0.008 285);
+  --accent: oklch(0.255 0.007 285);
+  --accent-foreground: oklch(0.92 0.005 285);
+  --destructive: oklch(0.6 0.22 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --danger: oklch(0.62 0.22 27);
+  --danger-foreground: oklch(0.98 0 0);
+  --success: oklch(0.68 0.16 145);
+  --warning: oklch(0.78 0.15 80);
+  --border: oklch(0.27 0.006 285);
+  --input: oklch(0.27 0.006 285);
+  --ring: oklch(0.58 0.19 38);
+}
+
+.dark {
+  /* dark is the default */
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html, body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+  body {
+    padding-left: 14rem;
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--brand) 30%, transparent);
+    color: white;
+  }
+}

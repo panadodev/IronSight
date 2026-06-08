@@ -1,0 +1,62 @@
+users
+- user_id (uuid, pk)
+- username
+- email
+- discord_id (unique)
+- steam_id (unique)
+- created_at (timestamp)
+- updated_at (timestamp)
+
+sessions
+- session_id (uuid, pk)
+- user_id (fk)
+- token_hash
+- created_at
+- expires_at
+- ip_address
+- user_agent
+- revoked
+
+organizations
+- org_id (pk)
+- guild_id (unique)
+- name
+- created_at
+
+organization_members
+- org_id
+- user_id
+- role_id
+
+api_keys
+- key_id
+- org_id
+- key_hash
+- name
+- created_at
+- last_used_at
+- revoked
+
+roles
+- role_id
+- role_name
+
+permissions
+- permission_id
+- permission_name
+
+role_permissions
+- role_id
+- permission_id
+
+todos
+- todo_id (uuid)
+- org_id (fk)
+- title
+- description
+- status
+- created_by
+- assigned_to
+- created_at
+- updated_at
+- completed_at
