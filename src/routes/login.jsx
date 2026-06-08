@@ -20,6 +20,7 @@ const ERROR_LABELS = {
   discord_token_exchange_failed: "Discord rejected the OAuth code exchange. Check client ID/secret and registered callback URL.",
   discord_user_lookup_failed: "Discord authentication succeeded, but fetching your Discord profile failed.",
   discord_auth_failed: "Discord authentication failed.",
+  service_unavailable: "Login service is temporarily unavailable. Please try again in a moment.",
   steam_requires_discord: "Start with Discord before linking Steam.",
   steam_state_invalid: "Steam login state is missing.",
   steam_state_expired: "Steam login state expired. Start again.",

@@ -959,6 +959,13 @@ async function handleDiscordCallback(request) {
 
   try {
     const discordUser = await exchangeDiscordCode(request, code);
+
+    try {
+      await init();
+    } catch {
+      return redirect("/login?error=service_unavailable");
+    }
+
     const existingRes = await pool.query(
       "SELECT user_id, username, discord_id, steam_id FROM users WHERE discord_id = $1 LIMIT 1",
       [discordUser.discordId]
@@ -1855,9 +1862,12 @@ export async function handleApiRequest(request) {
   const earlyUrl = new URL(request.url);
   const earlyPath = earlyUrl.pathname;
 
-  // Discord OAuth start does not require DB/Redis initialization.
+  // Discord OAuth start/callback should not be blocked by the global startup guard.
   if (earlyPath === "/api/auth/discord/start" && request.method === "GET") {
     return handleDiscordStart(request);
+  }
+  if (earlyPath === "/api/auth/discord/callback" && request.method === "GET") {
+    return handleDiscordCallback(request);
   }
 
   return withStartupGuard(async () => {
@@ -1867,10 +1877,6 @@ export async function handleApiRequest(request) {
     if (pathname === "/api/health" && request.method === "GET") {
       await pingDependencies();
       return json({ ok: true, postgres: true, redis: true, queue: true });
-    }
-
-    if (pathname === "/api/auth/discord/callback" && request.method === "GET") {
-      return handleDiscordCallback(request);
     }
 
     if (pathname === "/api/auth/steam/start" && request.method === "GET") {
