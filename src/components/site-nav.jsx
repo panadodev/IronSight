@@ -14,6 +14,7 @@ import {
     PopoverContent,
     PopoverTrigger
 } from "@/components/ui/popover";
+import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
 import { lastVisitStore, useLastVisits } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
@@ -61,40 +62,30 @@ function SiteNav() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadSession() {
-      try {
-        const res = await fetch("/api/auth/me", { credentials: "include" });
-        if (!res.ok) {
-          if (!cancelled) setSessionUser(null);
-          return;
-        }
+    // Re-use the cached /api/auth/me result that the root beforeLoad already
+    // fetched. In the common case this is a synchronous cache-hit (no extra
+    // network request). Only on first mount (or after invalidation) does a
+    // real fetch occur — and even then it is shared with the guard above.
+    getAuthMe().then(({ status, user }) => {
+      if (cancelled) return;
 
-        const body = await res.json();
-        if (cancelled) return;
+      setSessionUser(user);
 
-        const user = body?.user ?? null;
-        setSessionUser(user);
+      if (user) {
+        const linkedSteam    = user.steamId    ? { id: user.steamId,    name: user.username } : null;
+        const linkedDiscord  = user.discordId  ? { id: user.discordId,  name: user.username } : null;
 
-        if (user) {
-          const linkedSteam = user.steamId ? { id: user.steamId, name: user.username } : null;
-          const linkedDiscord = user.discordId ? { id: user.discordId, name: user.username } : null;
-
-          setDraft((current) => ({
-            ...current,
-            displayName: user.username,
-            steamLinked: linkedSteam,
-            discordLinked: linkedDiscord
-          }));
-
-        }
-      } catch {
-        if (!cancelled) setSessionUser(null);
-      } finally {
-        if (!cancelled) setSessionChecked(true);
+        setDraft((current) => ({
+          ...current,
+          displayName:    user.username,
+          steamLinked:    linkedSteam,
+          discordLinked:  linkedDiscord,
+        }));
       }
-    }
 
-    loadSession();
+      setSessionChecked(true);
+    });
+
     return () => {
       cancelled = true;
     };
@@ -136,6 +127,7 @@ function SiteNav() {
         const body = await res.json();
         nextSessionUser = body?.user ?? sessionUser;
         setSessionUser(nextSessionUser);
+        invalidateAuthMe(); // stale username in cache — evict so next load is fresh
       }
 
       updateProfile({
@@ -179,6 +171,7 @@ function SiteNav() {
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } finally {
+      invalidateAuthMe();
       window.location.assign(`/login?next=${encodeURIComponent(path || "/")}`);
     }
   };

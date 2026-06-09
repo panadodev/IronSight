@@ -433,8 +433,10 @@ function AuthProvider({ children }) {
     return { ok: true };
   };
   const hasStaffAccount = myOrgIds.length > 0;
-  return <AuthContext.Provider
-    value={{
+  // Memoize the context object so that consumers whose selected slice of state
+  // hasn't changed don't re-render every time any piece of AuthProvider state
+  // changes (e.g. profile edit shouldn't re-render ban-config consumers).
+  const contextValue = useMemo(() => ({
       view,
       setView,
       orgs,
@@ -487,8 +489,17 @@ function AuthProvider({ children }) {
       activeRank,
       rankOf,
       maxRankAcross
-    }}
-  >
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      view, orgs, staff, activeStaffId, selectedOrgIds, publicSignedIn, profile,
+      orgMembers, orgToxicity, orgPredefines, orgBanConfigs, orgMuteConfigs, orgTicketTypes,
+      activeStaff, myOrgIds, manageableOrgIds, adminableOrgIds,
+      realManageableOrgIds, realAdminableOrgIds, realStaff,
+      isOwner, realIsOwner, hasStaffAccount, isImpersonating, activeRank,
+    ]
+  );
+  return <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>;
 }

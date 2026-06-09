@@ -1,3 +1,4 @@
+import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { AuthProvider } from "@/lib/auth-context";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -71,8 +72,13 @@ const Route = createRootRouteWithContext()({
     // Only run this guard in the browser. API routes still enforce auth server-side.
     if (typeof window === "undefined") return;
 
-    const res = await fetch("/api/auth/me", { credentials: "include" });
-    if (res.status !== 401) return;
+    // Use the shared cache so SiteNav's identical fetch is a cache-hit,
+    // not a second round-trip (was causing ~2 s of serial latency per nav).
+    const { status } = await getAuthMe();
+    if (status !== 401) return;
+
+    // Evict the cache so the next login attempt gets a fresh response.
+    invalidateAuthMe();
 
     const next = `${location.pathname}${location.search ?? ""}${location.hash ?? ""}`;
     throw redirect({
