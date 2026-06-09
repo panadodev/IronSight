@@ -12,9 +12,11 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { BAN_CATEGORIES, TICKET_TYPE_KEYS, TICKET_TYPE_LABELS, useAuth } from "@/lib/auth-context";
 import { OWNER_STEAM_ID, TEAM_IDS, TEAM_META } from "@/lib/mock-data";
+import { Link } from "@tanstack/react-router";
 import {
     Check,
     ChevronLeft,
+    ClipboardList,
     Crown,
     Gavel,
     ListChecks,
@@ -108,10 +110,12 @@ function ManageOrgDialog({
   const [selectedOrgId, setSelectedOrgId] = useState(null);
   const [section, setSection] = useState(null);
   const effectiveOrgId = manageable.length === 1 ? manageable[0].id : selectedOrgId;
+  const [memberName, setMemberName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [newTeam, setNewTeam] = useState("support");
   const [err, setErr] = useState(null);
   const reset = () => {
+    setMemberName("");
     setIdentifier("");
     setErr(null);
     setNewTeam("support");
@@ -125,6 +129,7 @@ function ManageOrgDialog({
     }
     const isSteam = value.startsWith("76561198");
     const res = addOrgMember(effectiveOrgId, {
+      name: memberName.trim() || void 0,
       steamId: isSteam ? value : void 0,
       discordId: isSteam ? void 0 : value,
       team: newTeam
@@ -273,6 +278,15 @@ function ManageOrgDialog({
                   </Label>
                   <div className="flex flex-wrap gap-2">
                     <Input
+    placeholder="Name (optional)"
+    value={memberName}
+    onChange={(e) => {
+      setMemberName(e.target.value);
+      setErr(null);
+    }}
+    className="min-w-[180px]"
+  />
+                    <Input
     placeholder="Discord ID or Steam ID"
     value={identifier}
     onChange={(e) => {
@@ -331,6 +345,21 @@ function ManageOrgDialog({
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <Button
+      size="sm"
+      variant="outline"
+      asChild
+      className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+      title="View audit log"
+    >
+                            <Link to="/staff-audit" search={{ staff: m.staffId }}>
+                              <ClipboardList className="size-3" />
+                              Audit
+                            </Link>
+                          </Button>
+                          <span className="text-[9px] font-mono uppercase tracking-widest text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                            WIP
+                          </span>
                           <Button
       size="sm"
       variant={activeStaffId === m.staffId ? "default" : "outline"}

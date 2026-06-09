@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { OWNER_STEAM_ID, TEAM_IDS, TEAM_META } from "@/lib/mock-data";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Activity, Crown, Trash2, UserCog, UserPlus } from "lucide-react";
+import { ClipboardList, Crown, Trash2, UserCog, UserPlus } from "lucide-react";
 import { useState } from "react";
 
 export const Route = createFileRoute("/manage/staff")({
@@ -29,6 +29,7 @@ function StaffPage() {
   } = useAuth();
   const orgId = useManageOrgId();
 
+  const [memberName, setMemberName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [newTeam, setNewTeam] = useState("support");
   const [err, setErr] = useState(null);
@@ -45,6 +46,7 @@ function StaffPage() {
     }
     const isSteam = value.startsWith("76561198");
     const res = addOrgMember(orgId, {
+      name: memberName.trim() || undefined,
       steamId: isSteam ? value : undefined,
       discordId: isSteam ? undefined : value,
       team: newTeam,
@@ -53,6 +55,7 @@ function StaffPage() {
       setErr(res.error ?? "Failed to add member.");
       return;
     }
+    setMemberName("");
     setIdentifier("");
     setNewTeam("support");
     setErr(null);
@@ -75,6 +78,15 @@ function StaffPage() {
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Input
+            placeholder="Name (optional)"
+            value={memberName}
+            onChange={(e) => {
+              setMemberName(e.target.value);
+              setErr(null);
+            }}
+            className="min-w-[180px]"
+          />
           <Input
             placeholder="Discord ID or Steam ID"
             value={identifier}
@@ -146,10 +158,13 @@ function StaffPage() {
                   title="View audit log"
                 >
                   <Link to="/staff-audit" search={{ staff: m.staffId }}>
-                    <Activity className="size-3" />
-                    Audit log
+                    <ClipboardList className="size-3" />
+                    Audit
                   </Link>
                 </Button>
+                <span className="text-[9px] font-mono uppercase tracking-widest text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                  WIP
+                </span>
                 <Button
                   size="sm"
                   variant={activeStaffId === m.staffId ? "default" : "outline"}
