@@ -19,16 +19,13 @@ const manageOrgStore = {
       else localStorage.removeItem(KEY);
     }
     for (const l of listeners) l();
-  }
+  },
 };
 function useManageOrgId() {
   return useSyncExternalStore(
     manageOrgStore.subscribe,
     manageOrgStore.get,
-    () => null
+    () => null,
   );
 }
-export {
-  manageOrgStore,
-  useManageOrgId
-};
+export { manageOrgStore, useManageOrgId };

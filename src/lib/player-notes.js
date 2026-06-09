@@ -8,8 +8,8 @@ const SEED = [
     authorName: "Zedge",
     createdAt: "2026-05-20T14:00:00Z",
     minRank: 2,
-    pinned: true
-  }
+    pinned: true,
+  },
 ];
 let state = SEED;
 const listeners = /* @__PURE__ */ new Set();
@@ -25,23 +25,27 @@ const playerNotesStore = {
       {
         ...input,
         id: `pn_${Math.random().toString(36).slice(2, 9)}`,
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+        createdAt: /* @__PURE__ */ new Date().toISOString(),
       },
-      ...state
+      ...state,
     ];
     emit();
   },
   update(id, patch) {
-    state = state.map((n) => n.id === id ? { ...n, ...patch } : n);
+    state = state.map((n) => (n.id === id ? { ...n, ...patch } : n));
     emit();
   },
   remove(id) {
     state = state.filter((n) => n.id !== id);
     emit();
-  }
+  },
 };
 function usePlayerNotes(subjectId) {
-  const all = useSyncExternalStore(playerNotesStore.subscribe, playerNotesStore.get, playerNotesStore.get);
+  const all = useSyncExternalStore(
+    playerNotesStore.subscribe,
+    playerNotesStore.get,
+    playerNotesStore.get,
+  );
   if (!subjectId) return [];
   return all.filter((n) => n.subjectId === subjectId);
 }
@@ -49,10 +53,12 @@ const NOTE_RANK_OPTIONS = [
   { value: 1, label: "Support and above" },
   { value: 2, label: "Admin and above" },
   { value: 3, label: "Sr. Admin and above" },
-  { value: 4, label: "Management only" }
+  { value: 4, label: "Management only" },
 ];
 function rankLabel(rank) {
-  return NOTE_RANK_OPTIONS.find((o) => o.value === rank)?.label ?? `Rank ${rank}+`;
+  return (
+    NOTE_RANK_OPTIONS.find((o) => o.value === rank)?.label ?? `Rank ${rank}+`
+  );
 }
 function timeAgo(iso) {
   const ms = Date.now() - Date.parse(iso);
@@ -71,5 +77,5 @@ export {
   playerNotesStore,
   rankLabel,
   timeAgo,
-  usePlayerNotes
+  usePlayerNotes,
 };

@@ -25,7 +25,4 @@ const getRouter = () => {
   });
   return router;
 };
-export {
-    getRouter
-};
-
+export { getRouter };

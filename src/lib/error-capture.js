@@ -5,9 +5,8 @@ function record(error) {
 }
 if (typeof globalThis.addEventListener === "function") {
   globalThis.addEventListener("error", (event) => record(event.error ?? event));
-  globalThis.addEventListener(
-    "unhandledrejection",
-    (event) => record(event.reason)
+  globalThis.addEventListener("unhandledrejection", (event) =>
+    record(event.reason),
   );
 }
 function consumeLastCapturedError() {
@@ -20,6 +19,4 @@ function consumeLastCapturedError() {
   lastCapturedError = void 0;
   return error;
 }
-export {
-  consumeLastCapturedError
-};
+export { consumeLastCapturedError };

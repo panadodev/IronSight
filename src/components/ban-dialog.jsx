@@ -4,7 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,10 +26,10 @@ const LENGTH_OPTIONS = [
   { id: "7d", label: "7 days" },
   { id: "14d", label: "14 days" },
   { id: "30d", label: "30 days" },
-  { id: "permanent", label: "Permanent" }
+  { id: "permanent", label: "Permanent" },
 ];
 const LENGTH_LABEL = Object.fromEntries(
-  LENGTH_OPTIONS.map((o) => [o.id, o.label])
+  LENGTH_OPTIONS.map((o) => [o.id, o.label]),
 );
 function BanDialog({
   open,
@@ -38,22 +38,26 @@ function BanDialog({
   category,
   subjectName,
   onSubmit,
-  mode = "ban"
+  mode = "ban",
 }) {
   const { orgBanConfigs, orgMuteConfigs } = useAuth();
   const isMute = mode === "mute";
   const isOther = !isMute && category === "other";
   const banCategory = isOther ? null : category;
-  const config = isMute ? orgMuteConfigs[orgId] ?? null : banCategory && orgBanConfigs[orgId] ? orgBanConfigs[orgId][banCategory] : null;
+  const config = isMute
+    ? (orgMuteConfigs[orgId] ?? null)
+    : banCategory && orgBanConfigs[orgId]
+      ? orgBanConfigs[orgId][banCategory]
+      : null;
   const reasons = config?.reasons ?? [];
-  const noteFormat = isOther ? "" : config?.noteFormat ?? "";
+  const noteFormat = isOther ? "" : (config?.noteFormat ?? "");
   const [reasonId, setReasonId] = useState("");
   const [customReason, setCustomReason] = useState("");
   const [length, setLength] = useState("7d");
   const [note, setNote] = useState("");
   useEffect(() => {
     if (!open) return;
-    setReasonId(isOther ? "__custom__" : reasons[0]?.id ?? "__custom__");
+    setReasonId(isOther ? "__custom__" : (reasons[0]?.id ?? "__custom__"));
     setCustomReason("");
     setLength("7d");
     setNote(noteFormat);
@@ -69,21 +73,25 @@ function BanDialog({
       reason: reasonLabel,
       length,
       lengthLabel: LENGTH_LABEL[length],
-      note: note.trim()
+      note: note.trim(),
     });
     onOpenChange(false);
   };
-  return <Dialog open={open} onOpenChange={onOpenChange}>
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {isMute ? "Mute" : "Ban"} {subjectName}
           </DialogTitle>
           <DialogDescription>
-            {isMute ? "Issue a mute. Reasons and note format come from this org's mute config." : category === "other" ? "Other \u2014 enter a custom reason. No pre-set note format for this category." : `Issue a ${category} ban. Reasons and note format come from this org's ban configs.`}
+            {isMute
+              ? "Issue a mute. Reasons and note format come from this org's mute config."
+              : category === "other"
+                ? "Other \u2014 enter a custom reason. No pre-set note format for this category."
+                : `Issue a ${category} ban. Reasons and note format come from this org's ban configs.`}
           </DialogDescription>
         </DialogHeader>
-
 
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
@@ -92,26 +100,32 @@ function BanDialog({
             </Label>
 
             <select
-    value={reasonId}
-    onChange={(e) => setReasonId(e.target.value)}
-    className="w-full bg-surface border border-border rounded px-2 py-2 text-sm"
-  >
-              {reasons.map((r) => <option key={r.id} value={r.id}>
+              value={reasonId}
+              onChange={(e) => setReasonId(e.target.value)}
+              className="w-full bg-surface border border-border rounded px-2 py-2 text-sm"
+            >
+              {reasons.map((r) => (
+                <option key={r.id} value={r.id}>
                   {r.label}
-                </option>)}
+                </option>
+              ))}
               <option value="__custom__">Custom ban reason…</option>
             </select>
-            {reasonId === "__custom__" && <Input
-    value={customReason}
-    onChange={(e) => setCustomReason(e.target.value)}
-    placeholder="Type custom reason"
-    className="h-8 text-xs"
-    autoFocus
-  />}
-            {reasons.length === 0 && !isOther && <p className="text-[11px] text-muted-foreground italic">
-                No pre-set reasons configured — add some in Manage org → Ban configs.
-              </p>}
-
+            {reasonId === "__custom__" && (
+              <Input
+                value={customReason}
+                onChange={(e) => setCustomReason(e.target.value)}
+                placeholder="Type custom reason"
+                className="h-8 text-xs"
+                autoFocus
+              />
+            )}
+            {reasons.length === 0 && !isOther && (
+              <p className="text-[11px] text-muted-foreground italic">
+                No pre-set reasons configured — add some in Manage org → Ban
+                configs.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -119,13 +133,15 @@ function BanDialog({
               {isMute ? "Mute length" : "Ban length"}
             </Label>
             <select
-    value={length}
-    onChange={(e) => setLength(e.target.value)}
-    className="w-full bg-surface border border-border rounded px-2 py-2 text-sm"
-  >
-              {LENGTH_OPTIONS.map((o) => <option key={o.id} value={o.id}>
+              value={length}
+              onChange={(e) => setLength(e.target.value)}
+              className="w-full bg-surface border border-border rounded px-2 py-2 text-sm"
+            >
+              {LENGTH_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
                   {o.label}
-                </option>)}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -134,16 +150,20 @@ function BanDialog({
               {isMute ? "Mute note" : "Ban note"}
             </Label>
             <Textarea
-    value={note}
-    onChange={(e) => setNote(e.target.value)}
-    placeholder={isOther ? "Add internal notes about this ban\u2026" : ""}
-    className="min-h-[160px] text-xs font-mono"
-  />
-            {!isOther && <p className="text-[10px] font-mono text-muted-foreground">
-                Pre-filled from the {isMute ? "mute" : "category's ban"} note format. Edit in Manage org → Ban configs.
-              </p>}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={
+                isOther ? "Add internal notes about this ban\u2026" : ""
+              }
+              className="min-h-[160px] text-xs font-mono"
+            />
+            {!isOther && (
+              <p className="text-[10px] font-mono text-muted-foreground">
+                Pre-filled from the {isMute ? "mute" : "category's ban"} note
+                format. Edit in Manage org → Ban configs.
+              </p>
+            )}
           </div>
-
         </div>
 
         <div className="flex justify-end gap-2">
@@ -151,19 +171,15 @@ function BanDialog({
             Cancel
           </Button>
           <Button
-    variant="destructive"
-    disabled={!canSubmit}
-    onClick={handleSubmit}
-  >
+            variant="destructive"
+            disabled={!canSubmit}
+            onClick={handleSubmit}
+          >
             {isMute ? "Mute player" : "Ban player"}
           </Button>
-
         </div>
       </DialogContent>
-    </Dialog>;
+    </Dialog>
+  );
 }
-export {
-  BanDialog,
-  LENGTH_LABEL,
-  LENGTH_OPTIONS
-};
+export { BanDialog, LENGTH_LABEL, LENGTH_OPTIONS };

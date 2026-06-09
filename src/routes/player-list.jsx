@@ -2,18 +2,25 @@ import { PlayerLinks } from "@/components/player-links";
 import { SiteNav } from "@/components/site-nav";
 import { Input } from "@/components/ui/input";
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { SERVERS, getPlayer } from "@/lib/mock-data";
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, ShieldAlert } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Copy,
+  ShieldAlert,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 const Route = createFileRoute("/player-list")({
   head: () => ({ meta: [{ title: "Player List \u2014 IronSight" }] }),
-  component: PlayerListPage
+  component: PlayerListPage,
 });
 const FIRST = [
   "Frost",
@@ -45,7 +52,7 @@ const FIRST = [
   "Bear",
   "Hawk",
   "Viper",
-  "Storm"
+  "Storm",
 ];
 const LAST = [
   "Beast",
@@ -72,22 +79,45 @@ const LAST = [
   "Tank",
   "Diver",
   "Spike",
-  "Junkie"
+  "Junkie",
 ];
-const TAGS = ["", "[RU]", "[EU]", "[NA]", "[SWE]", "[DE]", "[BR]", "[AU]", "[GB]"];
-const COUNTRIES = ["US", "RU", "DE", "GB", "FR", "CA", "SE", "NL", "AU", "BR", "PL", "FI"];
+const TAGS = [
+  "",
+  "[RU]",
+  "[EU]",
+  "[NA]",
+  "[SWE]",
+  "[DE]",
+  "[BR]",
+  "[AU]",
+  "[GB]",
+];
+const COUNTRIES = [
+  "US",
+  "RU",
+  "DE",
+  "GB",
+  "FR",
+  "CA",
+  "SE",
+  "NL",
+  "AU",
+  "BR",
+  "PL",
+  "FI",
+];
 function rng(seed) {
   let s = seed | 0;
   return () => {
-    s = s * 1664525 + 1013904223 | 0;
-    return (s >>> 0) % 1e5 / 1e5;
+    s = (s * 1664525 + 1013904223) | 0;
+    return ((s >>> 0) % 1e5) / 1e5;
   };
 }
 function hashStr(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
-    h = h * 16777619 >>> 0;
+    h = (h * 16777619) >>> 0;
   }
   return h >>> 0;
 }
@@ -111,7 +141,7 @@ function generateSyntheticPlayers(serverId, count, seedOffset) {
       priorOffenses: r() < 0.2 ? Math.floor(r() * 4) : 0,
       serverHoursThisWipe: Math.floor(r() * 100),
       country: COUNTRIES[Math.floor(r() * COUNTRIES.length)],
-      profileCreated: "\u2014"
+      profileCreated: "\u2014",
     });
   }
   return out;
@@ -145,7 +175,7 @@ function deriveLive(p, serverId) {
     bmHours,
     proxy,
     ping,
-    threat: +Math.min(threat, 1.5).toFixed(2)
+    threat: +Math.min(threat, 1.5).toFixed(2),
   };
 }
 const LIVE_PLAYERS = SERVERS.flatMap((srv, idx) => {
@@ -162,7 +192,7 @@ const SORT_LABEL = {
   playtimeHours: "Steam Hours",
   bmHours: "BM Hours",
   ping: "Ping",
-  name: "Name"
+  name: "Name",
 };
 function threatColor(t) {
   if (t >= 1) return "bg-danger/15 text-danger ring-danger/40";
@@ -174,7 +204,7 @@ function PlayerListPage() {
   const canAccess = maxRankAcross(selectedOrgIds) >= 2;
   const visibleServers = useMemo(
     () => SERVERS.filter((s) => selectedOrgIds.includes(s.orgId)),
-    [selectedOrgIds]
+    [selectedOrgIds],
   );
   const [serverIds, setServerIds] = useState(SERVERS.map((s) => s.id));
   const [sortKey, setSortKey] = useState("threat");
@@ -190,7 +220,7 @@ function PlayerListPage() {
     let list = LIVE_PLAYERS.filter((p) => set.has(p.serverId));
     if (q) {
       list = list.filter(
-        (p) => p.name.toLowerCase().includes(q) || p.steamId.includes(q)
+        (p) => p.name.toLowerCase().includes(q) || p.steamId.includes(q),
       );
     }
     list = [...list].sort((a, b) => {
@@ -211,59 +241,77 @@ function PlayerListPage() {
   const pageRows = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const setSort = (k) => {
     if (k === sortKey) {
-      setSortDir((d) => d === "desc" ? "asc" : "desc");
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     } else {
       setSortKey(k);
       setSortDir(k === "name" ? "asc" : "desc");
     }
   };
   const toggleServer = (id) => {
-    setServerIds(
-      (cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    setServerIds((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
     );
   };
   const copySteamId = async (id) => {
     try {
       await navigator.clipboard.writeText(id);
       setCopiedId(id);
-      setTimeout(() => setCopiedId((cur) => cur === id ? null : cur), 1500);
-    } catch {
-    }
+      setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
+    } catch {}
   };
-  const effectiveServerIds = serverIds.filter(
-    (id) => visibleServers.some((s) => s.id === id)
+  const effectiveServerIds = serverIds.filter((id) =>
+    visibleServers.some((s) => s.id === id),
   );
-  const serverLabel = effectiveServerIds.length === visibleServers.length ? "All servers" : effectiveServerIds.length === 0 ? "No servers" : effectiveServerIds.map((id) => visibleServers.find((s) => s.id === id)?.name.replace(/^\[[^\]]+\]\s*/, "")).filter(Boolean).join(" \xB7 ");
+  const serverLabel =
+    effectiveServerIds.length === visibleServers.length
+      ? "All servers"
+      : effectiveServerIds.length === 0
+        ? "No servers"
+        : effectiveServerIds
+            .map((id) =>
+              visibleServers
+                .find((s) => s.id === id)
+                ?.name.replace(/^\[[^\]]+\]\s*/, ""),
+            )
+            .filter(Boolean)
+            .join(" \xB7 ");
   if (!canAccess) {
-    return <div className="h-screen w-full flex flex-col bg-background">
+    return (
+      <div className="h-screen w-full flex flex-col bg-background">
         <SiteNav />
         <div className="flex-1 grid place-items-center px-6">
           <div className="max-w-md text-center space-y-3">
             <ShieldAlert className="size-10 text-warning mx-auto" />
             <h1 className="text-lg font-semibold">Admin access required</h1>
             <p className="text-sm text-muted-foreground">
-              The player list is restricted to <span className="font-mono text-foreground">Admin</span>{" "}
-              and above. You don't have that rank in any of the currently selected orgs
-              ({selectedOrgIds.map((id) => orgs.find((o) => o.id === id)?.short).filter(Boolean).join(", ") || "none"}).
-              Try selecting a different organization from the top-left selector.
+              The player list is restricted to{" "}
+              <span className="font-mono text-foreground">Admin</span> and
+              above. You don't have that rank in any of the currently selected
+              orgs (
+              {selectedOrgIds
+                .map((id) => orgs.find((o) => o.id === id)?.short)
+                .filter(Boolean)
+                .join(", ") || "none"}
+              ). Try selecting a different organization from the top-left
+              selector.
             </p>
           </div>
         </div>
-      </div>;
+      </div>
+    );
   }
-  return <div className="h-screen w-full flex flex-col bg-background">
+  return (
+    <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-          {
-    /* Header */
-  }
+          {/* Header */}
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-xl font-bold tracking-tight">Player List</h1>
               <p className="text-xs text-muted-foreground mt-1">
-                Every player currently connected to your servers. Threat score uses
-                the same weights as Threat Triggers.
+                Every player currently connected to your servers. Threat score
+                uses the same weights as Threat Triggers.
               </p>
             </div>
             <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
@@ -271,34 +319,42 @@ function PlayerListPage() {
             </div>
           </div>
 
-          {
-    /* Filters */
-  }
+          {/* Filters */}
           <div className="flex items-center gap-2 flex-wrap">
             <Input
-    placeholder="Search name or Steam ID…"
-    value={query}
-    onChange={(e) => setQuery(e.target.value)}
-    className="h-9 max-w-xs"
-  />
+              placeholder="Search name or Steam ID…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-9 max-w-xs"
+            />
             <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
-              Sorted by {SORT_LABEL[sortKey]} {sortDir === "desc" ? "\u2193" : "\u2191"} · click a column to change
+              Sorted by {SORT_LABEL[sortKey]}{" "}
+              {sortDir === "desc" ? "\u2193" : "\u2191"} · click a column to
+              change
             </div>
           </div>
 
-
-          {
-    /* Table */
-  }
+          {/* Table */}
           <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
             <div className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_70px_60px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
-              <HeaderCell label="Player" k="name" sortKey={sortKey} sortDir={sortDir} onClick={setSort} />
+              <HeaderCell
+                label="Player"
+                k="name"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+              />
               <Popover>
                 <PopoverTrigger asChild>
                   <button
-    className={"px-1 flex items-center gap-1 hover:text-foreground transition-colors text-left " + (effectiveServerIds.length !== visibleServers.length ? "text-brand" : "")}
-    title={serverLabel}
-  >
+                    className={
+                      "px-1 flex items-center gap-1 hover:text-foreground transition-colors text-left " +
+                      (effectiveServerIds.length !== visibleServers.length
+                        ? "text-brand"
+                        : "")
+                    }
+                    title={serverLabel}
+                  >
                     <span>Server</span>
                     <ChevronDown className="size-3" />
                   </button>
@@ -309,30 +365,40 @@ function PlayerListPage() {
                       Filter servers
                     </span>
                     <button
-    onClick={() => {
-      const all = visibleServers.map((s) => s.id);
-      setServerIds(effectiveServerIds.length === all.length ? [] : all);
-    }}
-    className="text-[10px] font-semibold text-brand hover:underline"
-  >
-                      {effectiveServerIds.length === visibleServers.length ? "Clear" : "Select all"}
+                      onClick={() => {
+                        const all = visibleServers.map((s) => s.id);
+                        setServerIds(
+                          effectiveServerIds.length === all.length ? [] : all,
+                        );
+                      }}
+                      className="text-[10px] font-semibold text-brand hover:underline"
+                    >
+                      {effectiveServerIds.length === visibleServers.length
+                        ? "Clear"
+                        : "Select all"}
                     </button>
                   </div>
                   <div className="space-y-0.5">
-                    {visibleServers.length === 0 && <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                    {visibleServers.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
                         No servers in the selected orgs.
-                      </div>}
+                      </div>
+                    )}
                     {visibleServers.map((s) => {
-    const checked = serverIds.includes(s.id);
-    const org = orgs.find((o) => o.id === s.orgId);
-    return <button
-      key={s.id}
-      onClick={() => toggleServer(s.id)}
-      className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
-    >
+                      const checked = serverIds.includes(s.id);
+                      const org = orgs.find((o) => o.id === s.orgId);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => toggleServer(s.id)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
+                        >
                           <span
-      className={"size-3.5 rounded-sm ring-1 " + (checked ? "bg-brand ring-brand" : "ring-border")}
-    />
+                            className={
+                              "size-3.5 rounded-sm ring-1 " +
+                              (checked ? "bg-brand ring-brand" : "ring-border")
+                            }
+                          />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate normal-case tracking-normal">
                               {s.name}
@@ -341,37 +407,97 @@ function PlayerListPage() {
                               {s.region} · {org?.short}
                             </div>
                           </div>
-                        </button>;
-  })}
+                        </button>
+                      );
+                    })}
                   </div>
                 </PopoverContent>
               </Popover>
 
-
-              <HeaderCell label="Threat" k="threat" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
-              <HeaderCell label="Kills" k="kills" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
-              <HeaderCell label="Deaths" k="deaths" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
-              <HeaderCell label="K/D" k="kd" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
-              <HeaderCell label="Hit %" k="hitPct" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
-              <HeaderCell label="Steam h" k="playtimeHours" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
-              <HeaderCell label="BM h" k="bmHours" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
+              <HeaderCell
+                label="Threat"
+                k="threat"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
+              <HeaderCell
+                label="Kills"
+                k="kills"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
+              <HeaderCell
+                label="Deaths"
+                k="deaths"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
+              <HeaderCell
+                label="K/D"
+                k="kd"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
+              <HeaderCell
+                label="Hit %"
+                k="hitPct"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
+              <HeaderCell
+                label="Steam h"
+                k="playtimeHours"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
+              <HeaderCell
+                label="BM h"
+                k="bmHours"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
               <div className="px-1 text-right">Proxy</div>
-              <HeaderCell label="Ping" k="ping" sortKey={sortKey} sortDir={sortDir} onClick={setSort} align="right" />
+              <HeaderCell
+                label="Ping"
+                k="ping"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onClick={setSort}
+                align="right"
+              />
             </div>
 
             <div className="divide-y divide-border/60">
               {pageRows.map((p) => {
-    const srv = SERVERS.find((s) => s.id === p.serverId);
-    return <div
-      key={p.steamId}
-      className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_70px_60px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
-    >
+                const srv = SERVERS.find((s) => s.id === p.serverId);
+                return (
+                  <div
+                    key={p.steamId}
+                    className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_70px_60px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
+                  >
                     <div className="flex items-center gap-2 min-w-0">
                       <div
-      className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[10px] text-background shrink-0"
-      style={{ background: p.avatarColor }}
-    >
-                        {p.name.replace(/\[[^\]]*\]\s*/g, "").slice(0, 2).toUpperCase()}
+                        className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[10px] text-background shrink-0"
+                        style={{ background: p.avatarColor }}
+                      >
+                        {p.name
+                          .replace(/\[[^\]]*\]\s*/g, "")
+                          .slice(0, 2)
+                          .toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <div className="font-medium truncate flex items-center gap-1.5">
@@ -381,101 +507,134 @@ function PlayerListPage() {
                         <div className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1">
                           {p.steamId}
                           <button
-      onClick={() => copySteamId(p.steamId)}
-      className="inline-flex items-center justify-center rounded hover:text-foreground transition-colors"
-      title="Copy Steam ID"
-    >
-                            {copiedId === p.steamId ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+                            onClick={() => copySteamId(p.steamId)}
+                            className="inline-flex items-center justify-center rounded hover:text-foreground transition-colors"
+                            title="Copy Steam ID"
+                          >
+                            {copiedId === p.steamId ? (
+                              <Check className="size-3 text-success" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
                           </button>
                         </div>
                       </div>
-
                     </div>
-                    <div className="text-[10px] font-mono text-muted-foreground truncate" title={srv?.name}>
+                    <div
+                      className="text-[10px] font-mono text-muted-foreground truncate"
+                      title={srv?.name}
+                    >
                       {srv?.name.replace(/^\[[^\]]+\]\s*/, "")}
                     </div>
                     <div className="text-right">
                       <span
-      className={"px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " + threatColor(p.threat)}
-    >
+                        className={
+                          "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                          threatColor(p.threat)
+                        }
+                      >
                         {p.threat.toFixed(2)}
                       </span>
                     </div>
                     <div className="text-right font-mono">{p.kills}</div>
                     <div className="text-right font-mono">{p.deaths}</div>
-                    <div className="text-right font-mono">{p.kd.toFixed(2)}</div>
-                    <div className="text-right font-mono">{p.hitPct.toFixed(1)}%</div>
-                    <div className="text-right font-mono">{p.playtimeHours}</div>
+                    <div className="text-right font-mono">
+                      {p.kd.toFixed(2)}
+                    </div>
+                    <div className="text-right font-mono">
+                      {p.hitPct.toFixed(1)}%
+                    </div>
+                    <div className="text-right font-mono">
+                      {p.playtimeHours}
+                    </div>
                     <div className="text-right font-mono">{p.bmHours}</div>
                     <div className="text-right">
                       <span
-      className={"px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ring-1 " + (p.proxy ? "bg-danger/15 text-danger ring-danger/40" : "bg-surface ring-border text-muted-foreground")}
-    >
+                        className={
+                          "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ring-1 " +
+                          (p.proxy
+                            ? "bg-danger/15 text-danger ring-danger/40"
+                            : "bg-surface ring-border text-muted-foreground")
+                        }
+                      >
                         {p.proxy ? "YES" : "NO"}
                       </span>
                     </div>
                     <div
-      className={"text-right font-mono " + (p.ping > 150 ? "text-danger" : p.ping > 80 ? "text-warning" : "text-foreground")}
-    >
+                      className={
+                        "text-right font-mono " +
+                        (p.ping > 150
+                          ? "text-danger"
+                          : p.ping > 80
+                            ? "text-warning"
+                            : "text-foreground")
+                      }
+                    >
                       {p.ping}
                     </div>
-                  </div>;
-  })}
-              {rows.length === 0 && <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  </div>
+                );
+              })}
+              {rows.length === 0 && (
+                <div className="px-4 py-10 text-center text-xs text-muted-foreground">
                   No players match your filters.
-                </div>}
+                </div>
+              )}
             </div>
           </div>
 
-          {
-    /* Pagination */
-  }
-          {rows.length > PAGE_SIZE && <div className="flex items-center justify-between text-xs">
+          {/* Pagination */}
+          {rows.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between text-xs">
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, rows.length)} of {rows.length}
+                Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                {Math.min(safePage * PAGE_SIZE, rows.length)} of {rows.length}
               </div>
               <div className="flex items-center gap-1">
                 <button
-    onClick={() => setPage((p) => Math.max(1, p - 1))}
-    disabled={safePage === 1}
-    className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
-  >
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
+                >
                   Prev
                 </button>
                 <span className="font-mono px-2">
                   {safePage} / {totalPages}
                 </span>
                 <button
-    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-    disabled={safePage === totalPages}
-    className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
-  >
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                  className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
+                >
                   Next
                 </button>
               </div>
-            </div>}
+            </div>
+          )}
         </div>
       </div>
-    </div>;
+    </div>
+  );
 }
-function HeaderCell({
-  label,
-  k,
-  sortKey,
-  sortDir,
-  onClick,
-  align = "left"
-}) {
+function HeaderCell({ label, k, sortKey, sortDir, onClick, align = "left" }) {
   const active = sortKey === k;
-  return <button
-    onClick={() => onClick(k)}
-    className={"px-1 flex items-center gap-1 hover:text-foreground transition-colors " + (align === "right" ? "justify-end" : "justify-start") + (active ? " text-foreground" : "")}
-  >
+  return (
+    <button
+      onClick={() => onClick(k)}
+      className={
+        "px-1 flex items-center gap-1 hover:text-foreground transition-colors " +
+        (align === "right" ? "justify-end" : "justify-start") +
+        (active ? " text-foreground" : "")
+      }
+    >
       <span>{label}</span>
-      {active && (sortDir === "desc" ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
-    </button>;
+      {active &&
+        (sortDir === "desc" ? (
+          <ArrowDown className="size-3" />
+        ) : (
+          <ArrowUp className="size-3" />
+        ))}
+    </button>
+  );
 }
-export {
-    Route
-};
-
+export { Route };

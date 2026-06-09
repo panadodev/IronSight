@@ -7,13 +7,13 @@ import { useAuth } from "@/lib/auth-context";
 import {
   Popover,
   PopoverContent,
-  PopoverTrigger
+  PopoverTrigger,
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 const Route = createFileRoute("/chat")({
   head: () => ({ meta: [{ title: "Chat Logs \u2014 IronSight" }] }),
-  component: ChatPage
+  component: ChatPage,
 });
 const SAMPLES = [
   "anyone got scrap?",
@@ -40,13 +40,13 @@ const SAMPLES = [
   "anyone selling guns",
   "we just got raided",
   "snipe from harbor",
-  "rcon lag?"
+  "rcon lag?",
 ];
 function rng(seed) {
   let s = seed | 0;
   return () => {
-    s = s * 1664525 + 1013904223 | 0;
-    return (s >>> 0) % 1e5 / 1e5;
+    s = (s * 1664525 + 1013904223) | 0;
+    return ((s >>> 0) % 1e5) / 1e5;
   };
 }
 const NOW = Date.now();
@@ -59,7 +59,7 @@ const CHAT_BY_SERVER = (() => {
       continue;
     }
     const r = rng(
-      srv.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) * 31
+      srv.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) * 31,
     );
     const lines = [];
     const COUNT = 220;
@@ -68,7 +68,13 @@ const CHAT_BY_SERVER = (() => {
       const ts = NOW - Math.floor(r() * WINDOW);
       const sid = players[Math.floor(r() * players.length)];
       const text = SAMPLES[Math.floor(r() * SAMPLES.length)];
-      lines.push({ id: `${srv.id}_${i}`, serverId: srv.id, steamId: sid, ts, text });
+      lines.push({
+        id: `${srv.id}_${i}`,
+        serverId: srv.id,
+        steamId: sid,
+        ts,
+        text,
+      });
     }
     lines.sort((a, b) => a.ts - b.ts);
     out[srv.id] = lines;
@@ -91,15 +97,17 @@ function ChatPage() {
   const { selectedOrgIds } = useAuth();
   const availableServers = useMemo(
     () => SERVERS.filter((s) => selectedOrgIds.includes(s.orgId)),
-    [selectedOrgIds]
+    [selectedOrgIds],
   );
   const [serverId, setServerId] = useState(
-    availableServers[0]?.id ?? SERVERS[0]?.id ?? ""
+    availableServers[0]?.id ?? SERVERS[0]?.id ?? "",
   );
   const [start, setStart] = useState(fmtLocalInput(NOW - 6 * 60 * 60 * 1e3));
   const [end, setEnd] = useState(fmtLocalInput(NOW));
   const [query, setQuery] = useState("");
-  const [selectedPlayers, setSelectedPlayers] = useState(/* @__PURE__ */ new Set());
+  const [selectedPlayers, setSelectedPlayers] = useState(
+    /* @__PURE__ */ new Set(),
+  );
   const startMs = parseLocal(start);
   const endMs = parseLocal(end);
   const inWindow = useMemo(() => {
@@ -113,7 +121,8 @@ function ChatPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return inWindow.filter((l) => {
-      if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId)) return false;
+      if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId))
+        return false;
       if (q && !l.text.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -126,15 +135,23 @@ function ChatPage() {
       return next;
     });
   };
-  const playersLabel = selectedPlayers.size === 0 ? "All players" : selectedPlayers.size === 1 ? getPlayer(Array.from(selectedPlayers)[0])?.name ?? "1 player" : `${selectedPlayers.size} players`;
+  const playersLabel =
+    selectedPlayers.size === 0
+      ? "All players"
+      : selectedPlayers.size === 1
+        ? (getPlayer(Array.from(selectedPlayers)[0])?.name ?? "1 player")
+        : `${selectedPlayers.size} players`;
   const activeServer = SERVERS.find((s) => s.id === serverId);
-  return <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+  return (
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />
       <main className="flex-1 overflow-hidden flex flex-col">
         <div className="border-b border-border bg-surface/30 px-6 py-3 space-y-3 shrink-0">
           <div className="flex items-center gap-2">
             <MessageSquare className="size-4 text-brand" />
-            <h1 className="text-sm font-semibold tracking-tight">Server Chat Logs</h1>
+            <h1 className="text-sm font-semibold tracking-tight">
+              Server Chat Logs
+            </h1>
             <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
               {filtered.length} / {inWindow.length} lines
             </span>
@@ -146,17 +163,21 @@ function ChatPage() {
                 Server
               </Label>
               <select
-    value={serverId}
-    onChange={(e) => {
-      setServerId(e.target.value);
-      setSelectedPlayers(/* @__PURE__ */ new Set());
-    }}
-    className="h-8 px-2 text-xs bg-background ring-1 ring-border rounded-md"
-  >
-                {availableServers.map((s) => <option key={s.id} value={s.id}>
+                value={serverId}
+                onChange={(e) => {
+                  setServerId(e.target.value);
+                  setSelectedPlayers(/* @__PURE__ */ new Set());
+                }}
+                className="h-8 px-2 text-xs bg-background ring-1 ring-border rounded-md"
+              >
+                {availableServers.map((s) => (
+                  <option key={s.id} value={s.id}>
                     {s.name}
-                  </option>)}
-                {availableServers.length === 0 && <option value="">No servers in selected orgs</option>}
+                  </option>
+                ))}
+                {availableServers.length === 0 && (
+                  <option value="">No servers in selected orgs</option>
+                )}
               </select>
             </div>
 
@@ -165,22 +186,22 @@ function ChatPage() {
                 From
               </Label>
               <Input
-    type="datetime-local"
-    value={start}
-    onChange={(e) => setStart(e.target.value)}
-    className="h-8 w-[195px] text-xs"
-  />
+                type="datetime-local"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                className="h-8 w-[195px] text-xs"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                 To
               </Label>
               <Input
-    type="datetime-local"
-    value={end}
-    onChange={(e) => setEnd(e.target.value)}
-    className="h-8 w-[195px] text-xs"
-  />
+                type="datetime-local"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                className="h-8 w-[195px] text-xs"
+              />
             </div>
 
             <div className="space-y-1">
@@ -190,7 +211,9 @@ function ChatPage() {
               <Popover>
                 <PopoverTrigger asChild>
                   <button className="h-8 px-2.5 text-xs bg-background ring-1 ring-border rounded-md flex items-center gap-1.5 min-w-[160px]">
-                    <span className="flex-1 text-left truncate">{playersLabel}</span>
+                    <span className="flex-1 text-left truncate">
+                      {playersLabel}
+                    </span>
                     <ChevronDown className="size-3 text-muted-foreground" />
                   </button>
                 </PopoverTrigger>
@@ -200,34 +223,47 @@ function ChatPage() {
                       In timeframe ({playersInWindow.length})
                     </span>
                     <button
-    onClick={() => setSelectedPlayers(/* @__PURE__ */ new Set())}
-    className="text-[10px] font-semibold text-brand hover:underline"
-  >
+                      onClick={() =>
+                        setSelectedPlayers(/* @__PURE__ */ new Set())
+                      }
+                      className="text-[10px] font-semibold text-brand hover:underline"
+                    >
                       Clear
                     </button>
                   </div>
                   <div className="max-h-72 overflow-y-auto space-y-0.5">
-                    {playersInWindow.length === 0 && <p className="text-[11px] text-muted-foreground px-2 py-2">
+                    {playersInWindow.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground px-2 py-2">
                         No players spoke in this window.
-                      </p>}
+                      </p>
+                    )}
                     {playersInWindow.map((p) => {
-    const checked = selectedPlayers.has(p.steamId);
-    return <button
-      key={p.steamId}
-      onClick={() => toggle(p.steamId)}
-      className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
-    >
+                      const checked = selectedPlayers.has(p.steamId);
+                      return (
+                        <button
+                          key={p.steamId}
+                          onClick={() => toggle(p.steamId)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
+                        >
                           <span
-      className={"size-4 rounded-sm grid place-items-center ring-1 " + (checked ? "bg-brand ring-brand text-brand-foreground" : "ring-border text-transparent")}
-    >
+                            className={
+                              "size-4 rounded-sm grid place-items-center ring-1 " +
+                              (checked
+                                ? "bg-brand ring-brand text-brand-foreground"
+                                : "ring-border text-transparent")
+                            }
+                          >
                             <Check className="size-3" />
                           </span>
-                          <span className="text-xs font-medium flex-1 truncate">{p.name}</span>
+                          <span className="text-xs font-medium flex-1 truncate">
+                            {p.name}
+                          </span>
                           <span className="text-[9px] font-mono text-muted-foreground truncate">
                             {p.steamId.slice(-6)}
                           </span>
-                        </button>;
-  })}
+                        </button>
+                      );
+                    })}
                   </div>
                 </PopoverContent>
               </Popover>
@@ -238,47 +274,56 @@ function ChatPage() {
                 Search text
               </Label>
               <Input
-    value={query}
-    onChange={(e) => setQuery(e.target.value)}
-    placeholder="Search chat content…"
-    className="h-8 text-xs"
-  />
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search chat content…"
+                className="h-8 text-xs"
+              />
             </div>
           </div>
 
-          {activeServer && <p className="text-[10px] font-mono text-muted-foreground">
+          {activeServer && (
+            <p className="text-[10px] font-mono text-muted-foreground">
               {activeServer.name} · {activeServer.region}
-            </p>}
+            </p>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {filtered.length === 0 ? <p className="text-sm text-muted-foreground text-center py-12">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-12">
               No chat lines match these filters.
-            </p> : <div className="space-y-0.5 font-mono text-[12px] max-w-4xl mx-auto">
+            </p>
+          ) : (
+            <div className="space-y-0.5 font-mono text-[12px] max-w-4xl mx-auto">
               {filtered.map((l) => {
-    const p = getPlayer(l.steamId);
-    return <div
-      key={l.id}
-      className="flex gap-3 px-2 py-1 hover:bg-surface/50 rounded"
-    >
+                const p = getPlayer(l.steamId);
+                return (
+                  <div
+                    key={l.id}
+                    className="flex gap-3 px-2 py-1 hover:bg-surface/50 rounded"
+                  >
                     <span className="text-muted-foreground shrink-0 w-[140px]">
                       {fmtTime(l.ts)}
                     </span>
                     <span
-      className="font-semibold shrink-0 w-[140px] truncate"
-      style={{ color: p?.avatarColor }}
-      title={p?.steamId}
-    >
+                      className="font-semibold shrink-0 w-[140px] truncate"
+                      style={{ color: p?.avatarColor }}
+                      title={p?.steamId}
+                    >
                       {p?.name ?? l.steamId}
                     </span>
-                    <span className="text-foreground/90 break-words">{l.text}</span>
-                  </div>;
-  })}
-            </div>}
+                    <span className="text-foreground/90 break-words">
+                      {l.text}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </main>
-    </div>;
+    </div>
+  );
 }
-export {
-  Route
-};
+export { Route };

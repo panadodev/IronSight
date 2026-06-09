@@ -15,7 +15,7 @@ const SYSADMIN = {
   steamId: "76561198825911004",
   globalOrgId: "__global__",
   sysadminRoleId: "sysadmin",
-  username: "panado"
+  username: "panado",
 };
 
 function chooseConnectionUrl(primary, secondary) {
@@ -35,33 +35,48 @@ function chooseConnectionUrl(primary, secondary) {
 
 const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  databaseUrl: chooseConnectionUrl(process.env.DATABASE_URL, process.env.POSTGRESQL_URI),
+  databaseUrl: chooseConnectionUrl(
+    process.env.DATABASE_URL,
+    process.env.POSTGRESQL_URI,
+  ),
   redisUrl: chooseConnectionUrl(process.env.REDIS_URL, process.env.REDIS_URI),
   jwtSecret: process.env.JWT_SECRET,
   sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 60 * 60 * 24),
-  loginRateLimitPerMinute: Number(process.env.LOGIN_RATE_LIMIT_PER_MINUTE ?? 10),
+  loginRateLimitPerMinute: Number(
+    process.env.LOGIN_RATE_LIMIT_PER_MINUTE ?? 10,
+  ),
   appUrl: process.env.APP_URL ?? process.env.PUBLIC_APP_URL,
   discordClientId: process.env.DISCORD_CLIENT_ID,
   discordClientSecret: process.env.DISCORD_CLIENT_SECRET,
   sysAdminDiscordId: process.env.SYS_ADMIN_DISCORD_ID,
   // DISCORD_AUTH_CALLBACK is the legacy key used in .env; DISCORD_REDIRECT_URI takes precedence
-  discordRedirectUri: process.env.DISCORD_REDIRECT_URI ?? process.env.DISCORD_AUTH_CALLBACK,
+  discordRedirectUri:
+    process.env.DISCORD_REDIRECT_URI ?? process.env.DISCORD_AUTH_CALLBACK,
   steamRealm: process.env.STEAM_REALM,
   // STEAM_AUTH_CALLBACK is the legacy key used in .env; STEAM_RETURN_URL takes precedence
-  steamReturnUrl: process.env.STEAM_RETURN_URL ?? process.env.STEAM_AUTH_CALLBACK
+  steamReturnUrl:
+    process.env.STEAM_RETURN_URL ?? process.env.STEAM_AUTH_CALLBACK,
 };
 
 if (!env.databaseUrl) {
-  console.warn("[config] Missing DATABASE_URL (or POSTGRESQL_URI). API routes will return 503 until fixed.");
+  console.warn(
+    "[config] Missing DATABASE_URL (or POSTGRESQL_URI). API routes will return 503 until fixed.",
+  );
 }
 if (!env.redisUrl) {
-  console.warn("[config] Missing REDIS_URL (or REDIS_URI). API routes will return 503 until fixed.");
+  console.warn(
+    "[config] Missing REDIS_URL (or REDIS_URI). API routes will return 503 until fixed.",
+  );
 }
 if (!env.jwtSecret) {
-  console.warn("[config] Missing JWT_SECRET. API routes will return 503 until fixed.");
+  console.warn(
+    "[config] Missing JWT_SECRET. API routes will return 503 until fixed.",
+  );
 }
 if (!env.discordClientId || !env.discordClientSecret) {
-  console.warn("[config] Missing DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET. Discord OAuth will return 503.");
+  console.warn(
+    "[config] Missing DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET. Discord OAuth will return 503.",
+  );
 }
 
 let pool;
@@ -81,7 +96,7 @@ function nowUnix() {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" }
+    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
 
@@ -109,7 +124,10 @@ function parseMaybeList(value) {
       // fall back to csv
     }
   }
-  return str.split(",").map((s) => s.trim()).filter(Boolean);
+  return str
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function canWriteTodos(session) {
@@ -142,7 +160,9 @@ function getBaseUrl(request) {
 }
 
 function getDiscordRedirectUri(request) {
-  return env.discordRedirectUri ?? `${getBaseUrl(request)}/api/auth/discord/callback`;
+  return (
+    env.discordRedirectUri ?? `${getBaseUrl(request)}/api/auth/discord/callback`
+  );
 }
 
 function getSteamRealm(request) {
@@ -165,7 +185,7 @@ function sessionCookie(value, maxAgeSeconds) {
     secure: env.nodeEnv === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: maxAgeSeconds
+    maxAge: maxAgeSeconds,
   });
 }
 
@@ -175,16 +195,20 @@ function pendingLinkCookie(value, maxAgeSeconds) {
     secure: env.nodeEnv === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: maxAgeSeconds
+    maxAge: maxAgeSeconds,
   });
 }
 
 function signPendingLink(payload) {
-  return jwt.sign({ kind: "pending-link", ...payload }, env.jwtSecret, { expiresIn: 60 * 15 });
+  return jwt.sign({ kind: "pending-link", ...payload }, env.jwtSecret, {
+    expiresIn: 60 * 15,
+  });
 }
 
 function signDiscordState(payload) {
-  return jwt.sign({ kind: "discord-oauth-state", ...payload }, env.jwtSecret, { expiresIn: 60 * 10 });
+  return jwt.sign({ kind: "discord-oauth-state", ...payload }, env.jwtSecret, {
+    expiresIn: 60 * 10,
+  });
 }
 
 function verifyDiscordState(stateToken) {
@@ -192,7 +216,7 @@ function verifyDiscordState(stateToken) {
     const payload = jwt.verify(stateToken, env.jwtSecret);
     if (payload?.kind !== "discord-oauth-state") return null;
     return {
-      next: sanitizeNext(payload.next)
+      next: sanitizeNext(payload.next),
     };
   } catch {
     return null;
@@ -215,7 +239,7 @@ function getPendingLink(request) {
     return {
       discordId: String(payload.discordId),
       username: String(payload.username),
-      next: sanitizeNext(payload.next)
+      next: sanitizeNext(payload.next),
     };
   } catch {
     return null;
@@ -320,21 +344,33 @@ async function ensureSchema() {
     )
   `);
 
-  // Legacy compatibility: ensure old table names exist so older tooling won't fail if queried.
-  await pool.query(`CREATE TABLE IF NOT EXISTS groups (group_id TEXT PRIMARY KEY, admin BOOLEAN DEFAULT FALSE, edit_users BOOLEAN DEFAULT TRUE, edit_groups BOOLEAN DEFAULT TRUE)`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS orgs (org_id TEXT PRIMARY KEY, guild_id TEXT, discord_ids TEXT, plugin_api_key TEXT)`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS org_admins (org_id TEXT NOT NULL, discord_id TEXT NOT NULL, created_unix BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT, PRIMARY KEY (org_id, discord_id))`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS todo (todo_id TEXT PRIMARY KEY, todo_heading TEXT NOT NULL, todo_description TEXT DEFAULT '', todo_status TEXT DEFAULT 'todo', assigned_to TEXT, org_id TEXT, created_unix BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT, completed_unix BIGINT, created_by TEXT)`);
-
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_steam_id ON users(steam_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_org_members_org_id ON organization_members(org_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON organization_members(user_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_todos_org_id ON todos(org_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_todos_assigned_to ON todos(assigned_to)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)`);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_users_steam_id ON users(steam_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_members_org_id ON organization_members(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON organization_members(user_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_todos_org_id ON todos(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_todos_assigned_to ON todos(assigned_to)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)`,
+  );
 }
 
 async function ensureRolePermissionSeed() {
@@ -344,7 +380,7 @@ async function ensureRolePermissionSeed() {
       ('org_member', 'Member'),
       ('org_admin', 'Organization Admin'),
       ('sysadmin', 'System Administrator')
-     ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name`
+     ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name`,
   );
 
   await pool.query(
@@ -355,7 +391,7 @@ async function ensureRolePermissionSeed() {
       ('users_edit', 'Can edit users'),
       ('groups_edit', 'Can edit groups and role mappings'),
       ('global_admin', 'Global administrative access')
-     ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`
+     ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 
   await pool.query(
@@ -369,15 +405,19 @@ async function ensureRolePermissionSeed() {
       ('sysadmin', 'users_edit'),
       ('sysadmin', 'groups_edit'),
       ('sysadmin', 'global_admin')
-     ON CONFLICT (role_id, permission_id) DO NOTHING`
+     ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
 }
 
 async function migrateLegacyData() {
-  const legacyOrgsExists = await pool.query(`SELECT to_regclass('public.orgs') IS NOT NULL AS exists`);
+  const legacyOrgsExists = await pool.query(
+    `SELECT to_regclass('public.orgs') IS NOT NULL AS exists`,
+  );
   if (!legacyOrgsExists.rows[0]?.exists) return;
 
-  const { rows: legacyOrgs } = await pool.query("SELECT org_id, guild_id, discord_ids FROM orgs");
+  const { rows: legacyOrgs } = await pool.query(
+    "SELECT org_id, guild_id, discord_ids FROM orgs",
+  );
   for (const org of legacyOrgs) {
     const orgId = String(org.org_id);
     const guildId = org.guild_id == null ? null : String(org.guild_id);
@@ -388,7 +428,7 @@ async function migrateLegacyData() {
        ON CONFLICT (org_id)
        DO UPDATE SET guild_id = COALESCE(EXCLUDED.guild_id, organizations.guild_id),
                      name = COALESCE(organizations.name, EXCLUDED.name)`,
-      [orgId, guildId, orgId]
+      [orgId, guildId, orgId],
     );
 
     for (const discordId of parseMaybeList(org.discord_ids)) {
@@ -400,25 +440,29 @@ async function migrateLegacyData() {
           `INSERT INTO users (user_id, username, discord_id)
            VALUES ($1, $2, $3)
            ON CONFLICT (discord_id) DO NOTHING`,
-          [userId, `user_${discordId.slice(-6)}`, discordId]
+          [userId, `user_${discordId.slice(-6)}`, discordId],
         );
       }
 
-      const resolved = existing ?? await getUserByDiscordId(discordId);
+      const resolved = existing ?? (await getUserByDiscordId(discordId));
       if (!resolved) continue;
 
       await pool.query(
         `INSERT INTO organization_members (org_id, user_id, role_id)
          VALUES ($1, $2, 'org_member')
          ON CONFLICT (org_id, user_id) DO NOTHING`,
-        [orgId, resolved.userId]
+        [orgId, resolved.userId],
       );
     }
   }
 
-  const legacyOrgAdminsExists = await pool.query(`SELECT to_regclass('public.org_admins') IS NOT NULL AS exists`);
+  const legacyOrgAdminsExists = await pool.query(
+    `SELECT to_regclass('public.org_admins') IS NOT NULL AS exists`,
+  );
   if (legacyOrgAdminsExists.rows[0]?.exists) {
-    const { rows } = await pool.query("SELECT org_id, discord_id FROM org_admins");
+    const { rows } = await pool.query(
+      "SELECT org_id, discord_id FROM org_admins",
+    );
     for (const row of rows) {
       const orgId = String(row.org_id);
       const discordId = String(row.discord_id);
@@ -430,24 +474,30 @@ async function migrateLegacyData() {
          VALUES ($1, $2, 'org_admin')
          ON CONFLICT (org_id, user_id)
          DO UPDATE SET role_id = 'org_admin'`,
-        [orgId, user.userId]
+        [orgId, user.userId],
       );
     }
   }
 
-  const legacyTodoExists = await pool.query(`SELECT to_regclass('public.todo') IS NOT NULL AS exists`);
+  const legacyTodoExists = await pool.query(
+    `SELECT to_regclass('public.todo') IS NOT NULL AS exists`,
+  );
   if (legacyTodoExists.rows[0]?.exists) {
     const { rows } = await pool.query(
       `SELECT todo_id, todo_heading, todo_description, todo_status, assigned_to, org_id, created_unix, completed_unix, created_by
-       FROM todo`
+       FROM todo`,
     );
 
     for (const row of rows) {
       const todoId = String(row.todo_id);
       if (!/^[0-9a-fA-F-]{36}$/.test(todoId)) continue;
 
-      const assignedUser = row.assigned_to ? await getUserByDiscordId(String(row.assigned_to)) : null;
-      const createdByUser = row.created_by ? await getUserByDiscordId(String(row.created_by)) : null;
+      const assignedUser = row.assigned_to
+        ? await getUserByDiscordId(String(row.assigned_to))
+        : null;
+      const createdByUser = row.created_by
+        ? await getUserByDiscordId(String(row.created_by))
+        : null;
 
       const createdAt = Number.isFinite(Number(row.created_unix))
         ? new Date(Number(row.created_unix) * 1000).toISOString()
@@ -469,8 +519,8 @@ async function migrateLegacyData() {
           createdByUser?.userId ?? null,
           assignedUser?.userId ?? null,
           createdAt,
-          completedAt
-        ]
+          completedAt,
+        ],
       );
     }
   }
@@ -481,7 +531,7 @@ async function ensureSysadminSeed() {
     `INSERT INTO organizations (org_id, guild_id, name)
      VALUES ($1, NULL, 'Global')
      ON CONFLICT (org_id) DO UPDATE SET name = EXCLUDED.name`,
-    [SYSADMIN.globalOrgId]
+    [SYSADMIN.globalOrgId],
   );
 
   const existingRes = await pool.query(
@@ -489,7 +539,7 @@ async function ensureSysadminSeed() {
      FROM users
      WHERE discord_id = $1 OR steam_id = $2
      LIMIT 1`,
-    [SYSADMIN.discordId, SYSADMIN.steamId]
+    [SYSADMIN.discordId, SYSADMIN.steamId],
   );
 
   const existing = existingRes.rows[0];
@@ -503,14 +553,14 @@ async function ensureSysadminSeed() {
            steam_id = $4,
            updated_at = NOW()
        WHERE user_id = $1`,
-      [userId, SYSADMIN.username, SYSADMIN.discordId, SYSADMIN.steamId]
+      [userId, SYSADMIN.username, SYSADMIN.discordId, SYSADMIN.steamId],
     );
   } else {
     userId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO users (user_id, username, discord_id, steam_id)
        VALUES ($1, $2, $3, $4)`,
-      [userId, SYSADMIN.username, SYSADMIN.discordId, SYSADMIN.steamId]
+      [userId, SYSADMIN.username, SYSADMIN.discordId, SYSADMIN.steamId],
     );
   }
 
@@ -519,7 +569,7 @@ async function ensureSysadminSeed() {
      VALUES ($1, $2, $3)
      ON CONFLICT (org_id, user_id)
      DO UPDATE SET role_id = EXCLUDED.role_id`,
-    [SYSADMIN.globalOrgId, userId, SYSADMIN.sysadminRoleId]
+    [SYSADMIN.globalOrgId, userId, SYSADMIN.sysadminRoleId],
   );
 }
 
@@ -535,7 +585,7 @@ async function loadUserAccess(userId) {
      FROM organization_members om
      LEFT JOIN role_permissions rp ON rp.role_id = om.role_id
      WHERE om.user_id = $1`,
-    [userId]
+    [userId],
   );
 
   const permissions = new Set();
@@ -545,17 +595,20 @@ async function loadUserAccess(userId) {
   for (const row of rows) {
     const orgId = String(row.org_id);
     const roleId = String(row.role_id);
-    const permissionId = row.permission_id == null ? null : String(row.permission_id);
+    const permissionId =
+      row.permission_id == null ? null : String(row.permission_id);
 
     if (permissionId) permissions.add(permissionId);
-    if (roleId === "sysadmin" || permissionId === "global_admin") globalAdmin = true;
+    if (roleId === "sysadmin" || permissionId === "global_admin")
+      globalAdmin = true;
 
-    if (orgId !== SYSADMIN.globalOrgId && (
-      roleId === "org_admin" ||
-      roleId === "sysadmin" ||
-      permissionId === "org_manage" ||
-      permissionId === "global_admin"
-    )) {
+    if (
+      orgId !== SYSADMIN.globalOrgId &&
+      (roleId === "org_admin" ||
+        roleId === "sysadmin" ||
+        permissionId === "org_manage" ||
+        permissionId === "global_admin")
+    ) {
       orgAdminOrgIds.add(orgId);
     }
   }
@@ -563,13 +616,20 @@ async function loadUserAccess(userId) {
   const canWrite = globalAdmin || permissions.has("todo_write");
   const groups = globalAdmin
     ? [{ groupId: "sysadmin", admin: true, editUsers: true, editGroups: true }]
-    : [{ groupId: "member", admin: false, editUsers: false, editGroups: false }];
+    : [
+        {
+          groupId: "member",
+          admin: false,
+          editUsers: false,
+          editGroups: false,
+        },
+      ];
 
   return {
     groups,
     globalAdmin,
     canWrite,
-    orgAdminOrgIds: Array.from(orgAdminOrgIds)
+    orgAdminOrgIds: Array.from(orgAdminOrgIds),
   };
 }
 
@@ -579,31 +639,33 @@ async function init() {
 
   initializationPromise = (async () => {
     if (!env.databaseUrl || !env.redisUrl || !env.jwtSecret) {
-      throw new Error("Required environment variables are missing for API startup.");
+      throw new Error(
+        "Required environment variables are missing for API startup.",
+      );
     }
 
     pool = new Pool({
       connectionString: env.databaseUrl,
       max: Number(process.env.PG_POOL_MAX ?? 20),
-      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30000)
+      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30000),
     });
 
     redis = new Redis(env.redisUrl, {
       maxRetriesPerRequest: 2,
-      enableReadyCheck: true
+      enableReadyCheck: true,
     });
 
     const bullRedis = new Redis(env.redisUrl, {
       maxRetriesPerRequest: null,
-      enableReadyCheck: true
+      enableReadyCheck: true,
     });
 
     queue = new Queue("panel-jobs", {
       connection: bullRedis,
       defaultJobOptions: {
         removeOnComplete: true,
-        removeOnFail: 100
-      }
+        removeOnFail: 100,
+      },
     });
 
     await ensureSchema();
@@ -628,7 +690,9 @@ async function createSessionForUser(user, options = {}) {
   const access = await loadUserAccess(user.userId);
 
   const sid = crypto.randomUUID();
-  const token = jwt.sign({ sid }, env.jwtSecret, { expiresIn: env.sessionTtlSeconds });
+  const token = jwt.sign({ sid }, env.jwtSecret, {
+    expiresIn: env.sessionTtlSeconds,
+  });
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const ipAddress = options.ipAddress ?? null;
   const userAgent = options.userAgent ?? null;
@@ -642,14 +706,26 @@ async function createSessionForUser(user, options = {}) {
     groups: access.groups,
     orgAdminOrgIds: access.orgAdminOrgIds,
     globalAdmin: access.globalAdmin,
-    canWrite: access.canWrite
+    canWrite: access.canWrite,
   };
 
-  await redis.set(`session:${sid}`, JSON.stringify(session), "EX", env.sessionTtlSeconds);
+  await redis.set(
+    `session:${sid}`,
+    JSON.stringify(session),
+    "EX",
+    env.sessionTtlSeconds,
+  );
   await pool.query(
     `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, revoked)
      VALUES ($1, $2, $3, NOW(), $4, $5, $6, FALSE)`,
-    [sid, session.userId, tokenHash, expiresAt.toISOString(), ipAddress, userAgent]
+    [
+      sid,
+      session.userId,
+      tokenHash,
+      expiresAt.toISOString(),
+      ipAddress,
+      userAgent,
+    ],
   );
 
   if (options.redirectTo) {
@@ -666,11 +742,14 @@ async function createSessionForUser(user, options = {}) {
       discordId: session.discordId,
       steamId: session.steamId,
       groups: session.groups,
-      orgAdminOrgIds: session.orgAdminOrgIds
-    }
+      orgAdminOrgIds: session.orgAdminOrgIds,
+    },
   });
 
-  response.headers.append("set-cookie", sessionCookie(token, env.sessionTtlSeconds));
+  response.headers.append(
+    "set-cookie",
+    sessionCookie(token, env.sessionTtlSeconds),
+  );
   return response;
 }
 
@@ -693,7 +772,7 @@ async function getSession(request) {
          AND revoked = FALSE
          AND expires_at > NOW()
        LIMIT 1`,
-      [sid, tokenHash]
+      [sid, tokenHash],
     );
     if (!dbSessionRes.rows[0]) return null;
 
@@ -727,14 +806,16 @@ async function listUserOrganizations(userId) {
        AND o.org_id <> $2
      GROUP BY o.org_id, o.guild_id, o.name
      ORDER BY o.org_id`,
-    [userId, SYSADMIN.globalOrgId]
+    [userId, SYSADMIN.globalOrgId],
   );
 
   return rows.map((row) => ({
     orgId: String(row.org_id),
     guildId: row.guild_id == null ? null : String(row.guild_id),
     name: row.name == null ? null : String(row.name),
-    discordIds: Array.isArray(row.discord_ids) ? row.discord_ids.filter(Boolean).map(String) : []
+    discordIds: Array.isArray(row.discord_ids)
+      ? row.discord_ids.filter(Boolean).map(String)
+      : [],
   }));
 }
 
@@ -750,14 +831,16 @@ async function listAllOrganizations() {
      WHERE o.org_id <> $1
      GROUP BY o.org_id, o.guild_id, o.name
      ORDER BY o.org_id`,
-    [SYSADMIN.globalOrgId]
+    [SYSADMIN.globalOrgId],
   );
 
   return rows.map((row) => ({
     orgId: String(row.org_id),
     guildId: row.guild_id == null ? null : String(row.guild_id),
     name: row.name == null ? null : String(row.name),
-    discordIds: Array.isArray(row.discord_ids) ? row.discord_ids.filter(Boolean).map(String) : []
+    discordIds: Array.isArray(row.discord_ids)
+      ? row.discord_ids.filter(Boolean).map(String)
+      : [],
   }));
 }
 
@@ -770,14 +853,14 @@ async function loadUsersByOrgIds(orgIds) {
      JOIN organization_members om ON om.user_id = u.user_id
      WHERE om.org_id = ANY($1::text[])
        AND om.org_id <> $2`,
-    [orgIds, SYSADMIN.globalOrgId]
+    [orgIds, SYSADMIN.globalOrgId],
   );
 
   return rows.map((row) => ({
     userId: String(row.user_id),
     username: String(row.username),
     discordId: row.discord_id == null ? null : String(row.discord_id),
-    steamId: row.steam_id == null ? null : String(row.steam_id)
+    steamId: row.steam_id == null ? null : String(row.steam_id),
   }));
 }
 
@@ -787,7 +870,7 @@ async function getUserByDiscordId(discordId) {
      FROM users
      WHERE discord_id = $1
      LIMIT 1`,
-    [discordId]
+    [discordId],
   );
   const row = rows[0];
   if (!row) return null;
@@ -795,7 +878,7 @@ async function getUserByDiscordId(discordId) {
     userId: String(row.user_id),
     username: String(row.username),
     discordId: String(row.discord_id),
-    steamId: row.steam_id == null ? null : String(row.steam_id)
+    steamId: row.steam_id == null ? null : String(row.steam_id),
   };
 }
 
@@ -817,7 +900,7 @@ async function getTodoRowsForOrgs(orgIds) {
      LEFT JOIN users creator ON creator.user_id = t.created_by
      WHERE t.org_id = ANY($1::text[])
      ORDER BY t.created_at DESC`,
-    [orgIds]
+    [orgIds],
   );
 
   return rows.map((row) => ({
@@ -825,11 +908,16 @@ async function getTodoRowsForOrgs(orgIds) {
     title: String(row.title),
     details: row.description == null ? "" : String(row.description),
     status: row.status == null ? "todo" : String(row.status),
-    assigneeDiscordId: row.assignee_discord_id == null ? null : String(row.assignee_discord_id),
+    assigneeDiscordId:
+      row.assignee_discord_id == null ? null : String(row.assignee_discord_id),
     orgId: row.org_id == null ? "" : String(row.org_id),
     createdUnix: Number(row.created_unix ?? 0),
-    completedUnix: row.completed_unix == null ? null : Number(row.completed_unix),
-    createdBy: row.created_by_discord_id == null ? null : String(row.created_by_discord_id)
+    completedUnix:
+      row.completed_unix == null ? null : Number(row.completed_unix),
+    createdBy:
+      row.created_by_discord_id == null
+        ? null
+        : String(row.created_by_discord_id),
   }));
 }
 
@@ -837,10 +925,13 @@ async function withStartupGuard(handler) {
   try {
     await init();
   } catch {
-    return json({
-      error: "Service dependencies are unavailable.",
-      detail: initError?.message ?? "Unknown startup failure"
-    }, 503);
+    return json(
+      {
+        error: "Service dependencies are unavailable.",
+        detail: initError?.message ?? "Unknown startup failure",
+      },
+      503,
+    );
   }
 
   return handler();
@@ -854,7 +945,10 @@ async function rateLimitLogin(request) {
     await redis.expire(limiterKey, 60);
   }
   if (attempts > env.loginRateLimitPerMinute) {
-    return json({ error: "Too many login attempts. Try again in a minute." }, 429);
+    return json(
+      { error: "Too many login attempts. Try again in a minute." },
+      429,
+    );
   }
   return null;
 }
@@ -872,8 +966,8 @@ async function exchangeDiscordCode(request, code) {
       client_secret: env.discordClientSecret,
       grant_type: "authorization_code",
       code,
-      redirect_uri: getDiscordRedirectUri(request)
-    })
+      redirect_uri: getDiscordRedirectUri(request),
+    }),
   });
 
   if (!tokenRes.ok) {
@@ -881,7 +975,7 @@ async function exchangeDiscordCode(request, code) {
     console.error("[auth:discord] token exchange failed", {
       status: tokenRes.status,
       redirectUri: getDiscordRedirectUri(request),
-      body: tokenErrorText
+      body: tokenErrorText,
     });
     throw new Error("discord_token_exchange_failed");
   }
@@ -890,19 +984,19 @@ async function exchangeDiscordCode(request, code) {
   if (!tokenBody?.access_token) {
     console.error("[auth:discord] token response missing access_token", {
       redirectUri: getDiscordRedirectUri(request),
-      tokenBody
+      tokenBody,
     });
     throw new Error("discord_token_exchange_failed");
   }
 
   const userRes = await fetch(DISCORD_ME_URL, {
-    headers: { authorization: `Bearer ${tokenBody.access_token}` }
+    headers: { authorization: `Bearer ${tokenBody.access_token}` },
   });
   if (!userRes.ok) {
     const userErrorText = await userRes.text();
     console.error("[auth:discord] user lookup failed", {
       status: userRes.status,
-      body: userErrorText
+      body: userErrorText,
     });
     throw new Error("discord_user_lookup_failed");
   }
@@ -910,7 +1004,9 @@ async function exchangeDiscordCode(request, code) {
   const me = await userRes.json();
   return {
     discordId: String(me.id),
-    username: String(me.global_name || me.username || `user_${String(me.id).slice(-6)}`)
+    username: String(
+      me.global_name || me.username || `user_${String(me.id).slice(-6)}`,
+    ),
   };
 }
 
@@ -924,7 +1020,7 @@ async function verifySteamResponse(params) {
   const response = await fetch(STEAM_OPENID_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: verification.toString()
+    body: verification.toString(),
   });
 
   if (!response.ok) {
@@ -953,7 +1049,7 @@ async function handleDiscordStart(request) {
     response_type: "code",
     redirect_uri: getDiscordRedirectUri(request),
     scope: "identify",
-    state
+    state,
   });
 
   return redirect(`${DISCORD_AUTHORIZE_URL}?${authorizeParams.toString()}`);
@@ -983,27 +1079,30 @@ async function handleDiscordCallback(request) {
 
     const existingRes = await pool.query(
       "SELECT user_id, username, discord_id, steam_id FROM users WHERE discord_id = $1 LIMIT 1",
-      [discordUser.discordId]
+      [discordUser.discordId],
     );
 
     const existing = existingRes.rows[0];
     if (existing?.steam_id) {
-      return createSessionForUser({
-        userId: String(existing.user_id),
-        username: String(existing.username),
-        discordId: String(existing.discord_id),
-        steamId: String(existing.steam_id)
-      }, {
-        redirectTo: sanitizeNext(stateData.next),
-        ipAddress: getClientIp(request),
-        userAgent: request.headers.get("user-agent") ?? null
-      });
+      return createSessionForUser(
+        {
+          userId: String(existing.user_id),
+          username: String(existing.username),
+          discordId: String(existing.discord_id),
+          steamId: String(existing.steam_id),
+        },
+        {
+          redirectTo: sanitizeNext(stateData.next),
+          ipAddress: getClientIp(request),
+          userAgent: request.headers.get("user-agent") ?? null,
+        },
+      );
     }
 
     const pendingToken = signPendingLink({
       discordId: discordUser.discordId,
       username: existing ? String(existing.username) : discordUser.username,
-      next: sanitizeNext(stateData.next)
+      next: sanitizeNext(stateData.next),
     });
 
     const headers = new Headers();
@@ -1014,7 +1113,7 @@ async function handleDiscordCallback(request) {
     const known = new Set([
       "discord_config_missing",
       "discord_token_exchange_failed",
-      "discord_user_lookup_failed"
+      "discord_user_lookup_failed",
     ]);
     const code = known.has(reason) ? reason : "discord_auth_failed";
     return redirect(`/login?error=${encodeURIComponent(code)}`);
@@ -1041,7 +1140,7 @@ async function handleSteamStart(request) {
     "openid.return_to": `${getSteamReturnUrl(request)}?nonce=${encodeURIComponent(nonce)}`,
     "openid.realm": getSteamRealm(request),
     "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
-    "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select"
+    "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
   });
 
   return redirect(`${STEAM_OPENID_URL}?${params.toString()}`);
@@ -1053,14 +1152,20 @@ async function handleSteamCallback(request) {
   const pending = getPendingLink(request);
 
   if (!nonce || !pending) {
-    return redirect("/login?error=steam_state_invalid", clearPendingLinkHeaders(new Headers()));
+    return redirect(
+      "/login?error=steam_state_invalid",
+      clearPendingLinkHeaders(new Headers()),
+    );
   }
 
   const nonceKey = `openid:steam:${nonce}`;
   const nonceExists = await redis.get(nonceKey);
   await redis.del(nonceKey);
   if (!nonceExists) {
-    return redirect("/login?error=steam_state_expired", clearPendingLinkHeaders(new Headers()));
+    return redirect(
+      "/login?error=steam_state_expired",
+      clearPendingLinkHeaders(new Headers()),
+    );
   }
 
   try {
@@ -1074,16 +1179,22 @@ async function handleSteamCallback(request) {
     const steamId = match[1];
     const conflictingSteam = await pool.query(
       "SELECT user_id, discord_id FROM users WHERE steam_id = $1 LIMIT 1",
-      [steamId]
+      [steamId],
     );
     const conflictingRow = conflictingSteam.rows[0];
-    if (conflictingRow && String(conflictingRow.discord_id) !== pending.discordId) {
-      return redirect("/login?error=steam_already_linked", clearPendingLinkHeaders(new Headers()));
+    if (
+      conflictingRow &&
+      String(conflictingRow.discord_id) !== pending.discordId
+    ) {
+      return redirect(
+        "/login?error=steam_already_linked",
+        clearPendingLinkHeaders(new Headers()),
+      );
     }
 
     const existingUserRes = await pool.query(
       "SELECT user_id, username, discord_id, steam_id FROM users WHERE discord_id = $1 LIMIT 1",
-      [pending.discordId]
+      [pending.discordId],
     );
     const existingUser = existingUserRes.rows[0];
 
@@ -1094,40 +1205,49 @@ async function handleSteamCallback(request) {
              steam_id = $3,
              updated_at = NOW()
          WHERE user_id = $1`,
-        [String(existingUser.user_id), pending.username, steamId]
+        [String(existingUser.user_id), pending.username, steamId],
       );
 
-      return createSessionForUser({
-        userId: String(existingUser.user_id),
-        username: pending.username,
-        discordId: pending.discordId,
-        steamId
-      }, {
-        redirectTo: pending.next,
-        ipAddress: getClientIp(request),
-        userAgent: request.headers.get("user-agent") ?? null
-      });
+      return createSessionForUser(
+        {
+          userId: String(existingUser.user_id),
+          username: pending.username,
+          discordId: pending.discordId,
+          steamId,
+        },
+        {
+          redirectTo: pending.next,
+          ipAddress: getClientIp(request),
+          userAgent: request.headers.get("user-agent") ?? null,
+        },
+      );
     }
 
     const userId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO users (user_id, username, discord_id, steam_id)
        VALUES ($1, $2, $3, $4)`,
-      [userId, pending.username, pending.discordId, steamId]
+      [userId, pending.username, pending.discordId, steamId],
     );
 
-    return createSessionForUser({
-      userId,
-      username: pending.username,
-      discordId: pending.discordId,
-      steamId
-    }, {
-      redirectTo: pending.next,
-      ipAddress: getClientIp(request),
-      userAgent: request.headers.get("user-agent") ?? null
-    });
+    return createSessionForUser(
+      {
+        userId,
+        username: pending.username,
+        discordId: pending.discordId,
+        steamId,
+      },
+      {
+        redirectTo: pending.next,
+        ipAddress: getClientIp(request),
+        userAgent: request.headers.get("user-agent") ?? null,
+      },
+    );
   } catch {
-    return redirect("/login?error=steam_auth_failed", clearPendingLinkHeaders(new Headers()));
+    return redirect(
+      "/login?error=steam_auth_failed",
+      clearPendingLinkHeaders(new Headers()),
+    );
   }
 }
 
@@ -1139,7 +1259,10 @@ async function handleLogout(request) {
       const decoded = jwt.verify(token, env.jwtSecret);
       if (decoded?.sid && typeof decoded.sid === "string") {
         await redis.del(`session:${decoded.sid}`);
-        await pool.query("UPDATE sessions SET revoked = TRUE WHERE session_id = $1", [decoded.sid]);
+        await pool.query(
+          "UPDATE sessions SET revoked = TRUE WHERE session_id = $1",
+          [decoded.sid],
+        );
       }
     } catch {
       // ignore invalid token
@@ -1168,8 +1291,8 @@ async function handleAuthMe(request) {
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
       globalAdmin,
-      isSysAdmin
-    }
+      isSysAdmin,
+    },
   });
 }
 
@@ -1197,7 +1320,7 @@ async function handleUpdateAuthMe(request) {
      SET username = $2,
          updated_at = NOW()
      WHERE user_id = $1`,
-    [session.userId, username]
+    [session.userId, username],
   );
 
   const cookies = parseCookie(request.headers.get("cookie") ?? "");
@@ -1211,7 +1334,12 @@ async function handleUpdateAuthMe(request) {
         if (raw) {
           const cached = JSON.parse(raw);
           cached.username = username;
-          await redis.set(`session:${sid}`, JSON.stringify(cached), "EX", env.sessionTtlSeconds);
+          await redis.set(
+            `session:${sid}`,
+            JSON.stringify(cached),
+            "EX",
+            env.sessionTtlSeconds,
+          );
         }
       }
     } catch {
@@ -1232,8 +1360,8 @@ async function handleUpdateAuthMe(request) {
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
       globalAdmin,
-      isSysAdmin
-    }
+      isSysAdmin,
+    },
   });
 }
 
@@ -1260,11 +1388,13 @@ async function handleCreateOrganization(request) {
     return json({ error: "name is required" }, 400);
   }
 
-  const derivedOrgId = explicitOrgId || name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 64);
+  const derivedOrgId =
+    explicitOrgId ||
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 64);
 
   if (!derivedOrgId || !/^[a-z0-9_\-]+$/.test(derivedOrgId)) {
     return json({ error: "orgId is invalid" }, 400);
@@ -1274,22 +1404,31 @@ async function handleCreateOrganization(request) {
     return json({ error: "orgId is reserved" }, 400);
   }
 
-  const existing = await pool.query("SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1", [derivedOrgId]);
+  const existing = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [derivedOrgId],
+  );
   if (existing.rows[0]) {
     return json({ error: "Organization ID already exists" }, 409);
   }
 
   if (guildId) {
-    const guildConflict = await pool.query("SELECT org_id FROM organizations WHERE guild_id = $1 LIMIT 1", [guildId]);
+    const guildConflict = await pool.query(
+      "SELECT org_id FROM organizations WHERE guild_id = $1 LIMIT 1",
+      [guildId],
+    );
     if (guildConflict.rows[0]) {
-      return json({ error: "guildId is already linked to an organization" }, 409);
+      return json(
+        { error: "guildId is already linked to an organization" },
+        409,
+      );
     }
   }
 
   await pool.query(
     `INSERT INTO organizations (org_id, guild_id, name)
      VALUES ($1, $2, $3)`,
-    [derivedOrgId, guildId || null, name]
+    [derivedOrgId, guildId || null, name],
   );
 
   await pool.query(
@@ -1297,17 +1436,20 @@ async function handleCreateOrganization(request) {
      VALUES ($1, $2, $3)
      ON CONFLICT (org_id, user_id)
      DO UPDATE SET role_id = EXCLUDED.role_id`,
-    [derivedOrgId, session.userId, SYSADMIN.sysadminRoleId]
+    [derivedOrgId, session.userId, SYSADMIN.sysadminRoleId],
   );
 
-  return json({
-    ok: true,
-    organization: {
-      orgId: derivedOrgId,
-      guildId: guildId || null,
-      name
-    }
-  }, 201);
+  return json(
+    {
+      ok: true,
+      organization: {
+        orgId: derivedOrgId,
+        guildId: guildId || null,
+        name,
+      },
+    },
+    201,
+  );
 }
 
 async function handleTodoBootstrap(request) {
@@ -1345,13 +1487,13 @@ async function handleTodoBootstrap(request) {
       discordId: session.discordId,
       steamId: session.steamId,
       groups: session.groups,
-      orgAdminOrgIds: session.orgAdminOrgIds
+      orgAdminOrgIds: session.orgAdminOrgIds,
     },
     orgs: userOrgs,
     members,
     todos,
     canWrite: canWriteTodos(session),
-    globalAdmin: isGlobalAdmin(session)
+    globalAdmin: isGlobalAdmin(session),
   });
 }
 
@@ -1368,11 +1510,17 @@ async function handleCreateTodo(request) {
 
   const title = String(body?.title ?? "").trim();
   const details = String(body?.details ?? "").trim();
-  const assigneeDiscordId = body?.assigneeDiscordId == null ? null : String(body.assigneeDiscordId).trim();
+  const assigneeDiscordId =
+    body?.assigneeDiscordId == null
+      ? null
+      : String(body.assigneeDiscordId).trim();
   const orgId = String(body?.orgId ?? "").trim();
 
   if (!title || !orgId || !assigneeDiscordId) {
-    return json({ error: "title, orgId, and assigneeDiscordId are required" }, 400);
+    return json(
+      { error: "title, orgId, and assigneeDiscordId are required" },
+      400,
+    );
   }
 
   if (!canWriteTodos(session, orgId)) {
@@ -1392,10 +1540,13 @@ async function handleCreateTodo(request) {
 
   const assigneeMember = await pool.query(
     `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
-    [orgId, assignee.userId]
+    [orgId, assignee.userId],
   );
   if (!assigneeMember.rows[0]) {
-    return json({ error: "Assignee Discord ID is not a member of this organization" }, 400);
+    return json(
+      { error: "Assignee Discord ID is not a member of this organization" },
+      400,
+    );
   }
 
   const todoId = crypto.randomUUID();
@@ -1403,7 +1554,7 @@ async function handleCreateTodo(request) {
   await pool.query(
     `INSERT INTO todos (todo_id, title, description, status, assigned_to, org_id, created_by)
      VALUES ($1, $2, $3, 'todo', $4, $5, $6)`,
-    [todoId, title, details, assignee.userId, orgId, session.userId]
+    [todoId, title, details, assignee.userId, orgId, session.userId],
   );
 
   await queue.add("todo-created", {
@@ -1411,22 +1562,25 @@ async function handleCreateTodo(request) {
     orgId,
     assigneeDiscordId,
     createdByDiscordId: session.discordId,
-    createdUnix
+    createdUnix,
   });
 
-  return json({
-    todo: {
-      id: todoId,
-      title,
-      details,
-      status: "todo",
-      assigneeDiscordId,
-      orgId,
-      createdUnix,
-      completedUnix: null,
-      createdBy: session.discordId
-    }
-  }, 201);
+  return json(
+    {
+      todo: {
+        id: todoId,
+        title,
+        details,
+        status: "todo",
+        assigneeDiscordId,
+        orgId,
+        createdUnix,
+        completedUnix: null,
+        createdBy: session.discordId,
+      },
+    },
+    201,
+  );
 }
 
 async function handleUpdateTodo(request, todoId) {
@@ -1443,9 +1597,15 @@ async function handleUpdateTodo(request, todoId) {
   const title = body?.title == null ? null : String(body.title).trim();
   const details = body?.details == null ? null : String(body.details).trim();
   const status = body?.status == null ? null : String(body.status).trim();
-  const assigneeDiscordId = body?.assigneeDiscordId == null ? null : String(body.assigneeDiscordId).trim();
+  const assigneeDiscordId =
+    body?.assigneeDiscordId == null
+      ? null
+      : String(body.assigneeDiscordId).trim();
 
-  const existingRes = await pool.query("SELECT todo_id, org_id, status FROM todos WHERE todo_id = $1 LIMIT 1", [todoId]);
+  const existingRes = await pool.query(
+    "SELECT todo_id, org_id, status FROM todos WHERE todo_id = $1 LIMIT 1",
+    [todoId],
+  );
   const existing = existingRes.rows[0];
   if (!existing) return json({ error: "Todo not found" }, 404);
 
@@ -1468,15 +1628,19 @@ async function handleUpdateTodo(request, todoId) {
 
     const assigneeMember = await pool.query(
       `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
-      [String(existing.org_id), assigneeUserId]
+      [String(existing.org_id), assigneeUserId],
     );
     if (!assigneeMember.rows[0]) {
-      return json({ error: "Assignee Discord ID is not in this organization" }, 400);
+      return json(
+        { error: "Assignee Discord ID is not in this organization" },
+        400,
+      );
     }
   }
 
   const nextStatus = status || String(existing.status);
-  const completedAt = nextStatus === "completed" ? new Date().toISOString() : null;
+  const completedAt =
+    nextStatus === "completed" ? new Date().toISOString() : null;
 
   await pool.query(
     `UPDATE todos
@@ -1487,7 +1651,7 @@ async function handleUpdateTodo(request, todoId) {
          completed_at = $6,
          updated_at = NOW()
      WHERE todo_id = $1`,
-    [todoId, title, details, status, assigneeUserId, completedAt]
+    [todoId, title, details, status, assigneeUserId, completedAt],
   );
 
   return json({ ok: true });
@@ -1499,7 +1663,7 @@ async function handleDeleteTodo(request, todoId) {
 
   const existingRes = await pool.query(
     "SELECT todo_id, org_id FROM todos WHERE todo_id = $1 LIMIT 1",
-    [todoId]
+    [todoId],
   );
   const existing = existingRes.rows[0];
   if (!existing) return json({ error: "Todo not found" }, 404);
@@ -1532,11 +1696,15 @@ async function handleAddOrgMember(request, orgId) {
   }
 
   const discordId = String(body?.discordId ?? "").trim();
+  const username = String(body?.username ?? "").trim();
   if (!discordId) {
     return json({ error: "discordId is required" }, 400);
   }
 
-  const orgRes = await pool.query("SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1", [orgId]);
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
   const org = orgRes.rows[0];
   if (!org) {
     return json({ error: "Organization not found" }, 404);
@@ -1545,17 +1713,17 @@ async function handleAddOrgMember(request, orgId) {
   let member = await getUserByDiscordId(discordId);
   if (!member) {
     const userId = crypto.randomUUID();
-    const fallbackName = `user_${discordId.slice(-6)}`;
+    const fallbackName = username || `user_${discordId.slice(-6)}`;
     await pool.query(
       `INSERT INTO users (user_id, username, discord_id)
        VALUES ($1, $2, $3)`,
-      [userId, fallbackName, discordId]
+      [userId, fallbackName, discordId],
     );
     member = {
       userId,
       username: fallbackName,
       discordId,
-      steamId: null
+      steamId: null,
     };
   }
 
@@ -1563,7 +1731,7 @@ async function handleAddOrgMember(request, orgId) {
     `INSERT INTO organization_members (org_id, user_id, role_id)
      VALUES ($1, $2, 'org_member')
      ON CONFLICT (org_id, user_id) DO NOTHING`,
-    [orgId, member.userId]
+    [orgId, member.userId],
   );
 
   const cacheKeys = await redis.keys("cache:members:*");
@@ -1578,7 +1746,10 @@ async function handleGrantOrgAdmin(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!isGlobalAdmin(session)) {
-    return json({ error: "Forbidden: global admin required to grant org admin" }, 403);
+    return json(
+      { error: "Forbidden: global admin required to grant org admin" },
+      403,
+    );
   }
 
   let body;
@@ -1593,7 +1764,10 @@ async function handleGrantOrgAdmin(request, orgId) {
     return json({ error: "discordId is required" }, 400);
   }
 
-  const orgRes = await pool.query("SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1", [orgId]);
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
   const org = orgRes.rows[0];
   if (!org) {
     return json({ error: "Organization not found" }, 404);
@@ -1601,22 +1775,28 @@ async function handleGrantOrgAdmin(request, orgId) {
 
   const member = await getUserByDiscordId(discordId);
   if (!member) {
-    return json({ error: "discordId must be a member of this organization first" }, 400);
+    return json(
+      { error: "discordId must be a member of this organization first" },
+      400,
+    );
   }
 
   const membershipRes = await pool.query(
     `SELECT org_id FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
-    [orgId, member.userId]
+    [orgId, member.userId],
   );
   if (!membershipRes.rows[0]) {
-    return json({ error: "discordId must be a member of this organization first" }, 400);
+    return json(
+      { error: "discordId must be a member of this organization first" },
+      400,
+    );
   }
 
   await pool.query(
     `UPDATE organization_members
      SET role_id = 'org_admin'
      WHERE org_id = $1 AND user_id = $2`,
-    [orgId, member.userId]
+    [orgId, member.userId],
   );
 
   return json({ ok: true, orgId, discordId });
@@ -1631,7 +1811,7 @@ async function handleGetOrgDetails(request, orgId) {
 
   const orgRes = await pool.query(
     "SELECT org_id, guild_id, name, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
-    [orgId]
+    [orgId],
   );
   const org = orgRes.rows[0];
   if (!org) {
@@ -1643,8 +1823,9 @@ async function handleGetOrgDetails(request, orgId) {
       orgId: String(org.org_id),
       guildId: org.guild_id == null ? null : String(org.guild_id),
       name: String(org.name),
-      createdAt: org.created_at == null ? null : new Date(org.created_at).toISOString()
-    }
+      createdAt:
+        org.created_at == null ? null : new Date(org.created_at).toISOString(),
+    },
   });
 }
 
@@ -1672,10 +1853,13 @@ async function handleUpdateOrgDetails(request, orgId) {
   if (guildId) {
     const conflict = await pool.query(
       "SELECT org_id FROM organizations WHERE guild_id = $1 AND org_id <> $2 LIMIT 1",
-      [guildId, orgId]
+      [guildId, orgId],
     );
     if (conflict.rows[0]) {
-      return json({ error: "guildId is already linked to another organization" }, 409);
+      return json(
+        { error: "guildId is already linked to another organization" },
+        409,
+      );
     }
   }
 
@@ -1685,7 +1869,7 @@ async function handleUpdateOrgDetails(request, orgId) {
          guild_id = $3
      WHERE org_id = $1
      RETURNING org_id, guild_id, name, created_at`,
-    [orgId, name, guildId || null]
+    [orgId, name, guildId || null],
   );
 
   const updated = result.rows[0];
@@ -1699,8 +1883,11 @@ async function handleUpdateOrgDetails(request, orgId) {
       orgId: String(updated.org_id),
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       name: String(updated.name),
-      createdAt: updated.created_at == null ? null : new Date(updated.created_at).toISOString()
-    }
+      createdAt:
+        updated.created_at == null
+          ? null
+          : new Date(updated.created_at).toISOString(),
+    },
   });
 }
 
@@ -1712,14 +1899,14 @@ async function handleListRoles(request) {
   }
 
   const res = await pool.query(
-    `SELECT role_id, role_name FROM roles ORDER BY role_name ASC`
+    `SELECT role_id, role_name FROM roles ORDER BY role_name ASC`,
   );
 
   return json({
     roles: res.rows.map((row) => ({
       roleId: String(row.role_id),
-      roleName: String(row.role_name)
-    }))
+      roleName: String(row.role_name),
+    })),
   });
 }
 
@@ -1742,30 +1929,33 @@ async function handleCreateRole(request) {
     return json({ error: "roleName is required" }, 400);
   }
 
-  const roleId = roleName.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  const roleId = roleName
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
   if (!roleId) {
     return json({ error: "Could not generate roleId from roleName" }, 400);
   }
 
   const existing = await pool.query(
     `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
-    [roleId]
+    [roleId],
   );
   if (existing.rows[0]) {
     return json({ error: "Role already exists with that ID" }, 409);
   }
 
-  await pool.query(
-    `INSERT INTO roles (role_id, role_name) VALUES ($1, $2)`,
-    [roleId, roleName]
-  );
+  await pool.query(`INSERT INTO roles (role_id, role_name) VALUES ($1, $2)`, [
+    roleId,
+    roleName,
+  ]);
 
   return json({
     ok: true,
     role: {
       roleId,
-      roleName
-    }
+      roleName,
+    },
   });
 }
 
@@ -1777,14 +1967,14 @@ async function handleListPermissions(request) {
   }
 
   const res = await pool.query(
-    `SELECT permission_id, permission_name FROM permissions ORDER BY permission_name ASC`
+    `SELECT permission_id, permission_name FROM permissions ORDER BY permission_name ASC`,
   );
 
   return json({
     permissions: res.rows.map((row) => ({
       permissionId: String(row.permission_id),
-      permissionName: String(row.permission_name)
-    }))
+      permissionName: String(row.permission_name),
+    })),
   });
 }
 
@@ -1800,7 +1990,7 @@ async function handleGetRolePermissions(request, roleId) {
      FROM permissions p
      LEFT JOIN role_permissions rp ON p.permission_id = rp.permission_id AND rp.role_id = $1
      ORDER BY p.permission_name ASC`,
-    [roleId]
+    [roleId],
   );
 
   return json({
@@ -1808,8 +1998,8 @@ async function handleGetRolePermissions(request, roleId) {
     permissions: res.rows.map((row) => ({
       permissionId: String(row.permission_id),
       permissionName: String(row.permission_name),
-      granted: Boolean(row.granted)
-    }))
+      granted: Boolean(row.granted),
+    })),
   });
 }
 
@@ -1827,11 +2017,13 @@ async function handleUpdateRolePermissions(request, roleId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const permissionIds = Array.isArray(body?.permissionIds) ? body.permissionIds.map(String) : [];
+  const permissionIds = Array.isArray(body?.permissionIds)
+    ? body.permissionIds.map(String)
+    : [];
 
   const roleExists = await pool.query(
     `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
-    [roleId]
+    [roleId],
   );
   if (!roleExists.rows[0]) {
     return json({ error: "Role not found" }, 404);
@@ -1840,15 +2032,14 @@ async function handleUpdateRolePermissions(request, roleId) {
   await pool.query(`BEGIN`);
 
   try {
-    await pool.query(
-      `DELETE FROM role_permissions WHERE role_id = $1`,
-      [roleId]
-    );
+    await pool.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
+      roleId,
+    ]);
 
     for (const permId of permissionIds) {
       await pool.query(
         `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)`,
-        [roleId, permId]
+        [roleId, permId],
       );
     }
 
@@ -1857,7 +2048,7 @@ async function handleUpdateRolePermissions(request, roleId) {
     return json({
       ok: true,
       roleId,
-      permissionIds
+      permissionIds,
     });
   } catch (err) {
     await pool.query(`ROLLBACK`);
@@ -1937,12 +2128,16 @@ export async function handleApiRequest(request) {
       return handleDeleteTodo(request, todoMatch[1]);
     }
 
-    const orgMembersMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members$/);
+    const orgMembersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members$/,
+    );
     if (orgMembersMatch && request.method === "POST") {
       return handleAddOrgMember(request, orgMembersMatch[1]);
     }
 
-    const orgAdminsMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/admins$/);
+    const orgAdminsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/admins$/,
+    );
     if (orgAdminsMatch && request.method === "POST") {
       return handleGrantOrgAdmin(request, orgAdminsMatch[1]);
     }
@@ -1967,7 +2162,9 @@ export async function handleApiRequest(request) {
       return handleListPermissions(request);
     }
 
-    const rolePermissionsMatch = pathname.match(/^\/api\/roles\/([a-zA-Z0-9_-]+)\/permissions$/);
+    const rolePermissionsMatch = pathname.match(
+      /^\/api\/roles\/([a-zA-Z0-9_-]+)\/permissions$/,
+    );
     if (rolePermissionsMatch && request.method === "GET") {
       return handleGetRolePermissions(request, rolePermissionsMatch[1]);
     }

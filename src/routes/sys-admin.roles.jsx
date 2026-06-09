@@ -8,11 +8,13 @@ import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/sys-admin/roles")({
   head: () => ({ meta: [{ title: "Roles — IronSight" }] }),
-  component: RolesPage
+  component: RolesPage,
 });
 
 function redirectToLogin() {
-  window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+  window.location.assign(
+    `/login?next=${encodeURIComponent(window.location.pathname)}`,
+  );
 }
 
 async function authFetch(url, init) {
@@ -82,7 +84,7 @@ function RolesPage() {
       try {
         const [rolesRes, permsRes] = await Promise.all([
           authFetch("/api/roles"),
-          authFetch("/api/permissions")
+          authFetch("/api/permissions"),
         ]);
 
         if (!cancelled) {
@@ -163,7 +165,7 @@ function RolesPage() {
       const res = await authFetch("/api/roles", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ roleName: newRoleName.trim() })
+        body: JSON.stringify({ roleName: newRoleName.trim() }),
       });
 
       const body = await safeJson(res);
@@ -202,8 +204,8 @@ function RolesPage() {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          permissionIds: Object.keys(newPerms).filter((pid) => newPerms[pid])
-        })
+          permissionIds: Object.keys(newPerms).filter((pid) => newPerms[pid]),
+        }),
       });
 
       const body = await safeJson(res);
@@ -211,7 +213,7 @@ function RolesPage() {
         setError(body?.error ?? "Failed to update permissions.");
         setRolePermissions((prev) => ({
           ...prev,
-          [permissionId]: isCurrentlyGranted
+          [permissionId]: isCurrentlyGranted,
         }));
       }
     } catch (err) {
@@ -219,7 +221,7 @@ function RolesPage() {
         setError("Failed to update permissions.");
         setRolePermissions((prev) => ({
           ...prev,
-          [permissionId]: isCurrentlyGranted
+          [permissionId]: isCurrentlyGranted,
         }));
       }
     } finally {
@@ -302,9 +304,13 @@ function RolesPage() {
                   All Roles
                 </h3>
                 {loading ? (
-                  <div className="text-xs text-muted-foreground">Loading...</div>
+                  <div className="text-xs text-muted-foreground">
+                    Loading...
+                  </div>
                 ) : roles.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No roles created yet.</div>
+                  <div className="text-xs text-muted-foreground">
+                    No roles created yet.
+                  </div>
                 ) : (
                   <div className="space-y-1">
                     {roles.map((role) => (
@@ -327,31 +333,41 @@ function RolesPage() {
 
             {/* Permissions Section */}
             <div className="lg:col-span-2">
-              {selectedRoleId && roles.find((r) => r.roleId === selectedRoleId) ? (
+              {selectedRoleId &&
+              roles.find((r) => r.roleId === selectedRoleId) ? (
                 <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-4">
                   <div>
                     <h2 className="text-sm font-semibold">
-                      {roles.find((r) => r.roleId === selectedRoleId)?.roleName} — Permissions
+                      {roles.find((r) => r.roleId === selectedRoleId)?.roleName}{" "}
+                      — Permissions
                     </h2>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Toggle permissions for this role. Click to grant or revoke.
+                      Toggle permissions for this role. Click to grant or
+                      revoke.
                     </p>
                   </div>
 
                   {loading ? (
-                    <div className="text-xs text-muted-foreground">Loading permissions...</div>
+                    <div className="text-xs text-muted-foreground">
+                      Loading permissions...
+                    </div>
                   ) : permissions.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">No permissions available.</div>
+                    <div className="text-xs text-muted-foreground">
+                      No permissions available.
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {permissions.map((perm) => {
-                        const isGranted = rolePermissions[perm.permissionId] ?? false;
+                        const isGranted =
+                          rolePermissions[perm.permissionId] ?? false;
                         const isUpdating = updatingRoleId === selectedRoleId;
 
                         return (
                           <button
                             key={perm.permissionId}
-                            onClick={() => handleTogglePermission(perm.permissionId)}
+                            onClick={() =>
+                              handleTogglePermission(perm.permissionId)
+                            }
                             disabled={isUpdating}
                             className={`w-full flex items-center gap-3 px-3 py-2 rounded text-xs font-medium transition-all ${
                               isGranted
@@ -368,9 +384,13 @@ function RolesPage() {
                             >
                               {isGranted ? <Check className="size-3" /> : null}
                             </span>
-                            <span className="flex-1 text-left">{perm.permissionName}</span>
+                            <span className="flex-1 text-left">
+                              {perm.permissionName}
+                            </span>
                             {isUpdating && (
-                              <span className="text-[9px] text-muted-foreground">Updating...</span>
+                              <span className="text-[9px] text-muted-foreground">
+                                Updating...
+                              </span>
                             )}
                           </button>
                         );

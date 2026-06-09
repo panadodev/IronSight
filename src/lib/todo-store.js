@@ -16,8 +16,8 @@ const todoStore = {
     const c = {
       ...card,
       id: `td_${Math.random().toString(36).slice(2, 9)}`,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: card.status ?? "todo"
+      createdAt: /* @__PURE__ */ new Date().toISOString(),
+      status: card.status ?? "todo",
     };
     state = [c, ...state];
     emit();
@@ -27,7 +27,7 @@ const todoStore = {
       if (c.id !== id) return c;
       const next = { ...c, ...patch };
       if (patch.status === "completed" && !next.completedAt) {
-        next.completedAt = (/* @__PURE__ */ new Date()).toISOString();
+        next.completedAt = /* @__PURE__ */ new Date().toISOString();
       }
       if (patch.status && patch.status !== "completed") {
         next.completedAt = void 0;
@@ -48,33 +48,39 @@ const todoStore = {
   },
   removeBoardMember(orgId, staffId) {
     const cur = boardMembers[orgId] ?? [];
-    boardMembers = { ...boardMembers, [orgId]: cur.filter((id) => id !== staffId) };
+    boardMembers = {
+      ...boardMembers,
+      [orgId]: cur.filter((id) => id !== staffId),
+    };
     emit();
-  }
+  },
 };
 function useTodos() {
   return useSyncExternalStore(
     todoStore.subscribe,
     todoStore.get,
-    todoStore.get
+    todoStore.get,
   );
 }
 function useBoardMembers() {
   return useSyncExternalStore(
     todoStore.subscribe,
     todoStore.getBoardMembers,
-    todoStore.getBoardMembers
+    todoStore.getBoardMembers,
   );
 }
 const PRIORITY_META = {
-  1: { label: "P1 \xB7 Urgent", color: "bg-danger/15 text-danger ring-danger/40" },
-  2: { label: "P2 \xB7 Normal", color: "bg-warning/15 text-warning ring-warning/40" },
-  3: { label: "P3 \xB7 Low", color: "bg-surface text-muted-foreground ring-border" }
+  1: {
+    label: "P1 \xB7 Urgent",
+    color: "bg-danger/15 text-danger ring-danger/40",
+  },
+  2: {
+    label: "P2 \xB7 Normal",
+    color: "bg-warning/15 text-warning ring-warning/40",
+  },
+  3: {
+    label: "P3 \xB7 Low",
+    color: "bg-surface text-muted-foreground ring-border",
+  },
 };
-export {
-    PRIORITY_META,
-    todoStore,
-    useBoardMembers,
-    useTodos
-};
-
+export { PRIORITY_META, todoStore, useBoardMembers, useTodos };

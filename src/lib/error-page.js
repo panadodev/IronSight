@@ -28,6 +28,4 @@ function renderErrorPage() {
   </body>
 </html>`;
 }
-export {
-  renderErrorPage
-};
+export { renderErrorPage };

@@ -7,11 +7,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/manage/details")({
-  component: ManageDetailsPage
+  component: ManageDetailsPage,
 });
 
 function redirectToLogin() {
-  window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+  window.location.assign(
+    `/login?next=${encodeURIComponent(window.location.pathname)}`,
+  );
 }
 
 async function authFetch(url, init) {
@@ -76,7 +78,8 @@ function ManageDetailsPage() {
         const res = await authFetch(`/api/orgs/${orgId}`);
         if (!res.ok) {
           const body = await safeJson(res);
-          if (!cancelled) setError(body?.error ?? "Failed to load organization details.");
+          if (!cancelled)
+            setError(body?.error ?? "Failed to load organization details.");
           return;
         }
 
@@ -114,8 +117,8 @@ function ManageDetailsPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          guildId: guildId.trim()
-        })
+          guildId: guildId.trim(),
+        }),
       });
 
       if (!res.ok) {
@@ -150,10 +153,15 @@ function ManageDetailsPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <SectionHeader title="Manage" blurb="Update core organization details." />
+        <SectionHeader
+          title="Manage"
+          blurb="Update core organization details."
+        />
 
         {error ? (
-          <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>
+          <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {error}
+          </div>
         ) : null}
         {message ? (
           <div className="rounded-md ring-1 ring-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
@@ -161,7 +169,10 @@ function ManageDetailsPage() {
           </div>
         ) : null}
 
-        <form onSubmit={handleSave} className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-4 max-w-xl">
+        <form
+          onSubmit={handleSave}
+          className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-4 max-w-xl"
+        >
           <div className="space-y-1">
             <Label htmlFor="org-id">Organization ID</Label>
             <Input id="org-id" value={orgId} disabled />
@@ -204,7 +215,8 @@ function ManageDetailsPage() {
             </span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            This organization does not directly manage roles. Go to SYS_ADMIN section to create or modify global roles.
+            This organization does not directly manage roles. Go to SYS_ADMIN
+            section to create or modify global roles.
           </p>
         </div>
       )}

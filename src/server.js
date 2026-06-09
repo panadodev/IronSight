@@ -8,7 +8,7 @@ let serverEntryPromise;
 async function getServerEntry() {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
-      (m) => m.default ?? m
+      (m) => m.default ?? m,
     );
   }
   return serverEntryPromise;
@@ -16,7 +16,7 @@ async function getServerEntry() {
 function brandedErrorResponse() {
   return new Response(renderErrorPage(), {
     status: 500,
-    headers: { "content-type": "text/html; charset=utf-8" }
+    headers: { "content-type": "text/html; charset=utf-8" },
   });
 }
 function isCatastrophicSsrErrorBody(body, responseStatus) {
@@ -30,11 +30,19 @@ function isCatastrophicSsrErrorBody(body, responseStatus) {
     return false;
   }
   const fields = payload;
-  const expectedKeys = /* @__PURE__ */ new Set(["message", "status", "unhandled"]);
+  const expectedKeys = /* @__PURE__ */ new Set([
+    "message",
+    "status",
+    "unhandled",
+  ]);
   if (!Object.keys(fields).every((key) => expectedKeys.has(key))) {
     return false;
   }
-  return fields.unhandled === true && fields.message === "HTTPError" && (fields.status === void 0 || fields.status === responseStatus);
+  return (
+    fields.unhandled === true &&
+    fields.message === "HTTPError" &&
+    (fields.status === void 0 || fields.status === responseStatus)
+  );
 }
 async function normalizeCatastrophicSsrResponse(response) {
   if (response.status < 500) return response;
@@ -44,7 +52,9 @@ async function normalizeCatastrophicSsrResponse(response) {
   if (!isCatastrophicSsrErrorBody(body, response.status)) {
     return response;
   }
-  console.error(consumeLastCapturedError() ?? new Error(`h3 swallowed SSR error: ${body}`));
+  console.error(
+    consumeLastCapturedError() ?? new Error(`h3 swallowed SSR error: ${body}`),
+  );
   return brandedErrorResponse();
 }
 var server_default = {
@@ -62,9 +72,6 @@ var server_default = {
       console.error(error);
       return brandedErrorResponse();
     }
-  }
+  },
 };
-export {
-    server_default as default
-};
-
+export { server_default as default };

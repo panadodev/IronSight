@@ -18,7 +18,7 @@ const docsStore = {
     const c = {
       id: `cat_${Math.random().toString(36).slice(2, 9)}`,
       ...input,
-      name: input.name.trim()
+      name: input.name.trim(),
     };
     if (!c.name) return null;
     categories = [...categories, c];
@@ -29,14 +29,16 @@ const docsStore = {
   renameCategory(id, name) {
     const n = name.trim();
     if (!n) return;
-    categories = categories.map((c) => c.id === id ? { ...c, name: n } : c);
+    categories = categories.map((c) => (c.id === id ? { ...c, name: n } : c));
     refreshSnap();
     emit();
   },
   removeCategory(id) {
-    categories = categories.filter((c) => c.id !== id).map((c) => c.parentId === id ? { ...c, parentId: null } : c);
-    articles = articles.map(
-      (a) => a.categoryId === id ? { ...a, categoryId: null } : a
+    categories = categories
+      .filter((c) => c.id !== id)
+      .map((c) => (c.parentId === id ? { ...c, parentId: null } : c));
+    articles = articles.map((a) =>
+      a.categoryId === id ? { ...a, categoryId: null } : a,
     );
     refreshSnap();
     emit();
@@ -49,9 +51,9 @@ const docsStore = {
       title: input.title.trim() || "Untitled",
       body: input.body,
       minRank: input.minRank,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: /* @__PURE__ */ new Date().toISOString(),
       updatedByName: input.authorName,
-      versions: []
+      versions: [],
     };
     articles = [a, ...articles];
     refreshSnap();
@@ -67,17 +69,18 @@ const docsStore = {
         body: a.body,
         savedAt: a.updatedAt,
         savedById: editor.id,
-        savedByName: a.updatedByName
+        savedByName: a.updatedByName,
       };
       return {
         ...a,
         title: patch.title?.trim() || a.title,
         body: patch.body ?? a.body,
         minRank: patch.minRank ?? a.minRank,
-        categoryId: patch.categoryId !== void 0 ? patch.categoryId : a.categoryId,
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        categoryId:
+          patch.categoryId !== void 0 ? patch.categoryId : a.categoryId,
+        updatedAt: /* @__PURE__ */ new Date().toISOString(),
         updatedByName: editor.name,
-        versions: [v, ...a.versions]
+        versions: [v, ...a.versions],
       };
     });
     refreshSnap();
@@ -94,23 +97,25 @@ const docsStore = {
         body: a.body,
         savedAt: a.updatedAt,
         savedById: editor.id,
-        savedByName: a.updatedByName
+        savedByName: a.updatedByName,
       };
       return {
         ...a,
         title: v.title,
         body: v.body,
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        updatedAt: /* @__PURE__ */ new Date().toISOString(),
         updatedByName: editor.name,
-        versions: [cur, ...a.versions]
+        versions: [cur, ...a.versions],
       };
     });
     refreshSnap();
     emit();
   },
   deleteVersion(articleId, versionId) {
-    articles = articles.map(
-      (a) => a.id === articleId ? { ...a, versions: a.versions.filter((v) => v.id !== versionId) } : a
+    articles = articles.map((a) =>
+      a.id === articleId
+        ? { ...a, versions: a.versions.filter((v) => v.id !== versionId) }
+        : a,
     );
     refreshSnap();
     emit();
@@ -119,24 +124,22 @@ const docsStore = {
     articles = articles.filter((a) => a.id !== id);
     refreshSnap();
     emit();
-  }
+  },
 };
 function useDocs() {
-  return useSyncExternalStore(docsStore.subscribe, docsStore.get, docsStore.get);
+  return useSyncExternalStore(
+    docsStore.subscribe,
+    docsStore.get,
+    docsStore.get,
+  );
 }
 const DOC_RANK_OPTIONS = [
   { value: 1, label: "Support and above" },
   { value: 2, label: "Admin and above" },
   { value: 3, label: "Sr. Admin and above" },
-  { value: 4, label: "Management only" }
+  { value: 4, label: "Management only" },
 ];
 function docRankLabel(r) {
   return DOC_RANK_OPTIONS.find((o) => o.value === r)?.label ?? `Rank ${r}+`;
 }
-export {
-    DOC_RANK_OPTIONS,
-    docRankLabel,
-    docsStore,
-    useDocs
-};
-
+export { DOC_RANK_OPTIONS, docRankLabel, docsStore, useDocs };

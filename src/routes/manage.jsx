@@ -1,11 +1,16 @@
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
-import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { ShieldAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 const Route = createFileRoute("/manage")({
-  component: ManageLayout
+  component: ManageLayout,
 });
 function ManageLayout() {
   const { adminableOrgIds, orgs } = useAuth();
@@ -51,7 +56,7 @@ function ManageLayout() {
 
   const manageable = useMemo(
     () => orgs.filter((o) => manageableOrgIds.includes(o.id)),
-    [orgs, manageableOrgIds]
+    [orgs, manageableOrgIds],
   );
   useEffect(() => {
     if (manageable.length === 0) {
@@ -68,32 +73,35 @@ function ManageLayout() {
     }
   }, [path, navigate]);
   if (manageable.length === 0) {
-    return <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
+    return (
+      <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
         <SiteNav />
         <main className="flex-1 overflow-y-auto">
           <div className="p-10 max-w-xl mx-auto">
             <div className="rounded-lg ring-1 ring-border bg-surface/40 p-8 text-center">
               <ShieldAlert className="size-8 mx-auto text-warning mb-3" />
-              <h1 className="text-lg font-semibold mb-1">Manage Org — Admin+ only</h1>
+              <h1 className="text-lg font-semibold mb-1">
+                Manage Org — Admin+ only
+              </h1>
               <p className="text-sm text-muted-foreground">
                 You don't have admin permissions on any organization.
               </p>
             </div>
           </div>
         </main>
-      </div>;
+      </div>
+    );
   }
   void manageable;
-  return <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
+  return (
+    <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-6 space-y-5">
           <Outlet />
         </div>
       </main>
-    </div>;
+    </div>
+  );
 }
-export {
-    Route
-};
-
+export { Route };

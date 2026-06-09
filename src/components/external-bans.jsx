@@ -5,7 +5,7 @@ const PARTNER_ORGS = [
   { id: "rustafied", name: "Rustafied", short: "RFD" },
   { id: "rustoria", name: "Rustoria", short: "RTA" },
   { id: "moose", name: "Moose Gaming", short: "MG" },
-  { id: "reddit", name: "Reddit.com", short: "RDT" }
+  { id: "reddit", name: "Reddit.com", short: "RDT" },
 ];
 const REASONS = [
   "Cheating - Aim assist",
@@ -19,7 +19,7 @@ const REASONS = [
   "Stream sniping",
   "Exploiting (door glitching)",
   "Macro / scripting",
-  "EAC bypass attempt"
+  "EAC bypass attempt",
 ];
 const STAFF = [
   "Vex",
@@ -31,7 +31,7 @@ const STAFF = [
   "Kade",
   "Mira",
   "Juno",
-  "Briar"
+  "Briar",
 ];
 const NOTE_TEMPLATES = [
   "Caught on demo, clear snaps to multiple targets behind walls within 0.2s. Reviewed twice with senior team.",
@@ -43,13 +43,13 @@ const NOTE_TEMPLATES = [
   "Snap aim on naked target at 180m through a wall, then immediately swapped to second target behind rock.",
   "Repeated bypass attempts logged by anti-cheat. Pattern matches known cheat loader signature.",
   "Toxic in global for entire wipe despite warnings and mutes. Escalated to perm after 5th offense.",
-  "Caught teaming with 6 players on a duo server, full base shared, kits exchanged on camera."
+  "Caught teaming with 6 players on a duo server, full base shared, kits exchanged on camera.",
 ];
 const STATUSES = [
   { label: "Permanent", tone: "danger", weight: 6 },
   { label: "Expires in 14d", tone: "warning", weight: 1 },
   { label: "Expires in 3d", tone: "warning", weight: 1 },
-  { label: "Expired", tone: "muted", weight: 3 }
+  { label: "Expired", tone: "muted", weight: 3 },
 ];
 function hash(s) {
   let h = 2166136261;
@@ -62,11 +62,11 @@ function hash(s) {
 function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
-    a = a + 1831565813 >>> 0;
+    a = (a + 1831565813) >>> 0;
     let t = a;
-    t = Math.imul(t ^ t >>> 15, t | 1);
-    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 function pickWeighted(rng, items) {
@@ -109,7 +109,7 @@ function buildExternalBans(subjectId) {
       when: relTime(rng),
       status: status.label,
       statusTone: status.tone,
-      note: NOTE_TEMPLATES[Math.floor(rng() * NOTE_TEMPLATES.length)]
+      note: NOTE_TEMPLATES[Math.floor(rng() * NOTE_TEMPLATES.length)],
     });
   }
   return bans;
@@ -118,7 +118,8 @@ function ExternalBansSection({ subjectId }) {
   const bans = useMemo(() => buildExternalBans(subjectId), [subjectId]);
   const [openId, setOpenId] = useState(null);
   const open = bans.find((b) => b.id === openId) ?? null;
-  return <section>
+  return (
+    <section>
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>
           Bans on Other Orgs
@@ -130,9 +131,12 @@ function ExternalBansSection({ subjectId }) {
           {bans.length}
         </span>
       </h2>
-      {bans.length === 0 ? <p className="text-xs text-muted-foreground italic">
+      {bans.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
           No bans on partner orgs.
-        </p> : <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
+        </p>
+      ) : (
+        <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
           <table className="w-full text-[10px] font-mono">
             <thead>
               <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
@@ -146,61 +150,77 @@ function ExternalBansSection({ subjectId }) {
             </thead>
             <tbody>
               {bans.map((b) => {
-    const statusColor = b.statusTone === "danger" ? "text-danger" : b.statusTone === "warning" ? "text-warning" : "text-muted-foreground";
-    return <tr key={b.id} className="border-t border-border">
-                    <td className="px-1.5 py-1 text-foreground font-semibold" title={b.orgName}>
+                const statusColor =
+                  b.statusTone === "danger"
+                    ? "text-danger"
+                    : b.statusTone === "warning"
+                      ? "text-warning"
+                      : "text-muted-foreground";
+                return (
+                  <tr key={b.id} className="border-t border-border">
+                    <td
+                      className="px-1.5 py-1 text-foreground font-semibold"
+                      title={b.orgName}
+                    >
                       {b.orgName}
                     </td>
                     <td className={`px-1.5 py-1 ${statusColor}`}>{b.status}</td>
                     <td className="px-1.5 py-1 text-foreground">{b.reason}</td>
-                    <td className="px-1.5 py-1 text-muted-foreground">{b.by}</td>
+                    <td className="px-1.5 py-1 text-muted-foreground">
+                      {b.by}
+                    </td>
                     <td className="px-1.5 py-1">
                       <button
-      onClick={() => setOpenId(b.id)}
-      className="text-brand hover:underline"
-    >
+                        onClick={() => setOpenId(b.id)}
+                        className="text-brand hover:underline"
+                      >
                         view
                       </button>
                     </td>
                     <td className="px-1.5 py-1 text-right text-muted-foreground">
                       {b.when}
                     </td>
-                  </tr>;
-  })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>}
-      {open && <div
-    className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-    onClick={() => setOpenId(null)}
-  >
+        </div>
+      )}
+      {open && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+          onClick={() => setOpenId(null)}
+        >
           <div
-    className="bg-background ring-1 ring-border rounded-lg p-5 max-w-md w-full shadow-xl"
-    onClick={(e) => e.stopPropagation()}
-  >
+            className="bg-background ring-1 ring-border rounded-lg p-5 max-w-md w-full shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold">
                 <span className="text-danger">Ban</span> · {open.reason}
               </h3>
               <button
-    onClick={() => setOpenId(null)}
-    className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
-  >
+                onClick={() => setOpenId(null)}
+                className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+              >
                 close
               </button>
             </div>
             <p className="text-[10px] font-mono text-muted-foreground uppercase mb-2">
               {open.orgName} · by {open.by} · {open.when} · {open.status}
             </p>
-            <p className="text-sm text-foreground leading-relaxed">{open.note}</p>
+            <p className="text-sm text-foreground leading-relaxed">
+              {open.note}
+            </p>
             <p className="mt-4 text-[10px] font-mono text-muted-foreground uppercase tracking-wider border-t border-border pt-3">
-              Read-only · shared from {open.orgName}'s banlist. Cannot be
-              edited or removed here.
+              Read-only · shared from {open.orgName}'s banlist. Cannot be edited
+              or removed here.
             </p>
           </div>
-        </div>}
-    </section>;
+        </div>
+      )}
+    </section>
+  );
 }
-export {
-  ExternalBansSection
-};
+export { ExternalBansSection };

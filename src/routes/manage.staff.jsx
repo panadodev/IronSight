@@ -113,7 +113,8 @@ function StaffPage() {
         </div>
         {!isOwner && newTeam === "management" && (
           <p className="text-[11px] text-muted-foreground">
-            Heads-up: adding someone to Management gives them the same powers as you.
+            Heads-up: adding someone to Management gives them the same powers as
+            you.
           </p>
         )}
         {err && <p className="text-[11px] text-danger">{err}</p>}
@@ -189,7 +190,11 @@ function StaffPage() {
                     setOrgMemberTeam(orgId, m.staffId, e.target.value)
                   }
                   className="bg-surface border border-border rounded px-2 py-1 text-[11px] font-mono disabled:opacity-50"
-                  title={isOwnerRow ? "Owner's team cannot be changed" : "Change team"}
+                  title={
+                    isOwnerRow
+                      ? "Owner's team cannot be changed"
+                      : "Change team"
+                  }
                 >
                   {TEAM_IDS.map((id) => (
                     <option key={id} value={id}>
@@ -203,7 +208,9 @@ function StaffPage() {
                   disabled={isOwnerRow}
                   onClick={() => removeOrgMember(orgId, m.staffId)}
                   className="size-7"
-                  title={isOwnerRow ? "Owner cannot be removed" : "Remove from org"}
+                  title={
+                    isOwnerRow ? "Owner cannot be removed" : "Remove from org"
+                  }
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
@@ -212,7 +219,9 @@ function StaffPage() {
           );
         })}
         {currentMembers.length === 0 && (
-          <p className="text-xs text-muted-foreground italic">No members yet.</p>
+          <p className="text-xs text-muted-foreground italic">
+            No members yet.
+          </p>
         )}
       </div>
     </GateRank>

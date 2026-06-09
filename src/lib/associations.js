@@ -13,8 +13,7 @@ function writeAll(rows) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(KEY, JSON.stringify(rows));
-  } catch {
-  }
+  } catch {}
 }
 function pairKey(a, b) {
   return [a, b].sort().join("|");
@@ -32,8 +31,7 @@ function writeHidden(set) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(HIDE_KEY, JSON.stringify(Array.from(set)));
-  } catch {
-  }
+  } catch {}
 }
 function hideAssociation(a, b) {
   const s = readHidden();
@@ -60,7 +58,7 @@ function addAssociationReports(subject, others) {
       aName: subject.name,
       b: o.steamId,
       bName: o.name,
-      at: now
+      at: now,
     });
     hidden.delete(pairKey(subject.steamId, o.steamId));
   }
@@ -92,7 +90,7 @@ function getAssociationsFor(subjectId) {
 }
 function getAssociationCount(a, b) {
   return readAll().filter(
-    (r) => r.a === a && r.b === b || r.a === b && r.b === a
+    (r) => (r.a === a && r.b === b) || (r.a === b && r.b === a),
   ).length;
 }
 export {
@@ -101,5 +99,5 @@ export {
   getAssociationsFor,
   hideAssociation,
   isAssociationHidden,
-  unhideAssociation
+  unhideAssociation,
 };

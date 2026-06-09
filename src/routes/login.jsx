@@ -1,5 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
@@ -7,25 +13,29 @@ export const Route = createFileRoute("/login")({
   validateSearch: (search) => ({
     next: typeof search.next === "string" ? search.next : "/todo",
     step: typeof search.step === "string" ? search.step : "discord",
-    error: typeof search.error === "string" ? search.error : ""
+    error: typeof search.error === "string" ? search.error : "",
   }),
   head: () => ({ meta: [{ title: "Login - IronSight" }] }),
-  component: LoginPage
+  component: LoginPage,
 });
 
 const ERROR_LABELS = {
   discord_callback_invalid: "Discord login returned an invalid callback.",
   discord_state_invalid: "Discord login state expired. Start again.",
   discord_config_missing: "Discord OAuth is not configured on the server.",
-  discord_token_exchange_failed: "Discord rejected the OAuth code exchange. Check client ID/secret and registered callback URL.",
-  discord_user_lookup_failed: "Discord authentication succeeded, but fetching your Discord profile failed.",
+  discord_token_exchange_failed:
+    "Discord rejected the OAuth code exchange. Check client ID/secret and registered callback URL.",
+  discord_user_lookup_failed:
+    "Discord authentication succeeded, but fetching your Discord profile failed.",
   discord_auth_failed: "Discord authentication failed.",
-  service_unavailable: "Login service is temporarily unavailable. Please try again in a moment.",
+  service_unavailable:
+    "Login service is temporarily unavailable. Please try again in a moment.",
   steam_requires_discord: "Start with Discord before linking Steam.",
   steam_state_invalid: "Steam login state is missing.",
   steam_state_expired: "Steam login state expired. Start again.",
   steam_auth_failed: "Steam authentication failed.",
-  steam_already_linked: "That Steam account is already linked to another Discord account."
+  steam_already_linked:
+    "That Steam account is already linked to another Discord account.",
 };
 
 function LoginPage() {
@@ -40,12 +50,16 @@ function LoginPage() {
 
     async function load() {
       setChecking(true);
-      setPageError(search.error ? ERROR_LABELS[search.error] ?? "Authentication failed." : "");
+      setPageError(
+        search.error
+          ? (ERROR_LABELS[search.error] ?? "Authentication failed.")
+          : "",
+      );
 
       try {
         const [meRes, pendingRes] = await Promise.all([
           fetch("/api/auth/me"),
-          fetch("/api/auth/pending-link")
+          fetch("/api/auth/pending-link"),
         ]);
 
         if (!cancelled && meRes.ok) {
@@ -77,7 +91,9 @@ function LoginPage() {
   }, [search.error, search.next]);
 
   function startDiscord() {
-    window.location.assign(`/api/auth/discord/start?next=${encodeURIComponent(search.next || "/todo")}`);
+    window.location.assign(
+      `/api/auth/discord/start?next=${encodeURIComponent(search.next || "/todo")}`,
+    );
   }
 
   function startSteam() {
@@ -93,15 +109,30 @@ function LoginPage() {
     <div className="min-h-screen bg-background text-foreground px-4 py-10">
       <div className="mx-auto max-w-4xl grid gap-6 lg:grid-cols-[1.15fr_0.85fr] items-start">
         <section className="space-y-4">
-          <p className="text-[11px] uppercase tracking-[0.28em] text-brand">IronSight Panel</p>
-          <h1 className="text-4xl font-semibold leading-tight">Sign in with verified Discord and Steam identity.</h1>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-brand">
+            IronSight Panel
+          </p>
+          <h1 className="text-4xl font-semibold leading-tight">
+            Sign in with verified Discord and Steam identity.
+          </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            First-time access starts with Discord OAuth2, then Steam OpenID links your Steam account. After that, Discord alone is enough to sign in.
+            First-time access starts with Discord OAuth2, then Steam OpenID
+            links your Steam account. After that, Discord alone is enough to
+            sign in.
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Feature title="Discord OAuth2" body="Uses provider-issued user identity instead of typed IDs." />
-            <Feature title="Steam OpenID" body="Links the Steam account through Steam's login verifier." />
-            <Feature title="Session Security" body="Stores server-side session state in Redis with httpOnly cookies." />
+            <Feature
+              title="Discord OAuth2"
+              body="Uses provider-issued user identity instead of typed IDs."
+            />
+            <Feature
+              title="Steam OpenID"
+              body="Links the Steam account through Steam's login verifier."
+            />
+            <Feature
+              title="Session Security"
+              body="Stores server-side session state in Redis with httpOnly cookies."
+            />
           </div>
         </section>
 
@@ -119,14 +150,26 @@ function LoginPage() {
               </div>
             ) : null}
 
-            {checking ? <p className="text-sm text-muted-foreground">Checking authentication state...</p> : null}
+            {checking ? (
+              <p className="text-sm text-muted-foreground">
+                Checking authentication state...
+              </p>
+            ) : null}
 
             {!checking && sessionUser ? (
               <div className="space-y-3">
                 <p className="text-sm">Signed in as {sessionUser.username}</p>
                 <div className="flex gap-2">
-                  <Button onClick={() => window.location.assign(search.next || "/todo")}>Continue</Button>
-                  <Button variant="outline" onClick={logout}>Sign out</Button>
+                  <Button
+                    onClick={() =>
+                      window.location.assign(search.next || "/todo")
+                    }
+                  >
+                    Continue
+                  </Button>
+                  <Button variant="outline" onClick={logout}>
+                    Sign out
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -148,13 +191,18 @@ function LoginPage() {
                     <p className="text-xs text-muted-foreground">
                       Finish first-time setup by linking Steam.
                     </p>
-                    <Button className="w-full" variant="secondary" onClick={startSteam}>
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      onClick={startSteam}
+                    >
                       Continue with Steam
                     </Button>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Start with Discord. If this is your first login, you will be prompted to link Steam after Discord returns.
+                    Start with Discord. If this is your first login, you will be
+                    prompted to link Steam after Discord returns.
                   </p>
                 )}
               </div>

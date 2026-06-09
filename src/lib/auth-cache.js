@@ -8,7 +8,7 @@
  */
 
 let _promise = null;
-let _result  = null;
+let _result = null;
 let _fetchedAt = 0;
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -33,9 +33,9 @@ export function getAuthMe() {
       const user = res.ok
         ? ((await res.json().catch(() => null))?.user ?? null)
         : null;
-      _result    = { status: res.status, user };
+      _result = { status: res.status, user };
       _fetchedAt = Date.now();
-      _promise   = null;
+      _promise = null;
       return _result;
     })
     .catch(() => {
@@ -49,7 +49,7 @@ export function getAuthMe() {
 
 /** Evict the cache (call after login, logout, or a PATCH to the profile). */
 export function invalidateAuthMe() {
-  _promise   = null;
-  _result    = null;
+  _promise = null;
+  _result = null;
   _fetchedAt = 0;
 }

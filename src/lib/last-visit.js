@@ -25,16 +25,13 @@ const lastVisitStore = {
   mark(path) {
     map = { ...map, [path]: Date.now() };
     persist();
-  }
+  },
 };
 function useLastVisits() {
   return useSyncExternalStore(
     lastVisitStore.subscribe,
     lastVisitStore.get,
-    lastVisitStore.get
+    lastVisitStore.get,
   );
 }
-export {
-  lastVisitStore,
-  useLastVisits
-};
+export { lastVisitStore, useLastVisits };

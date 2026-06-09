@@ -2,13 +2,13 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { OWNER_STEAM_ID, TEAM_META } from "./mock-data";
 const ORGS = [
   { id: "builders_sanctuary", name: "Builders Sanctuary", short: "BS" },
-  { id: "willjums", name: "Willjums", short: "WJ" }
+  { id: "willjums", name: "Willjums", short: "WJ" },
 ];
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
 const BAN_CATEGORY_LABEL = {
   cheating: "Cheating",
   teaming: "Teaming",
-  toxicity: "Toxicity"
+  toxicity: "Toxicity",
 };
 const TICKET_TYPE_KEYS = [
   "cheating",
@@ -17,7 +17,7 @@ const TICKET_TYPE_KEYS = [
   "other",
   "support",
   "vip",
-  "appeal"
+  "appeal",
 ];
 const TICKET_TYPE_LABELS = {
   cheating: "Cheating",
@@ -26,7 +26,7 @@ const TICKET_TYPE_LABELS = {
   other: "Other",
   support: "Support",
   vip: "VIP",
-  appeal: "Appeal"
+  appeal: "Appeal",
 };
 const AuthContext = createContext(null);
 function AuthProvider({ children }) {
@@ -44,7 +44,9 @@ function AuthProvider({ children }) {
 
     async function loadCurrentOrgs() {
       try {
-        const res = await fetch("/api/todo/bootstrap", { credentials: "include" });
+        const res = await fetch("/api/todo/bootstrap", {
+          credentials: "include",
+        });
         if (!res.ok) return;
 
         const body = await res.json();
@@ -52,17 +54,21 @@ function AuthProvider({ children }) {
 
         const nextOrgs = (body?.orgs ?? []).map((org) => {
           const name = org?.name ? String(org.name) : String(org?.orgId ?? "");
-          const short = name
-            .split(/\s+/)
-            .filter(Boolean)
-            .map((part) => part[0])
-            .join("")
-            .slice(0, 3)
-            .toUpperCase() || String(org?.orgId ?? "").slice(0, 3).toUpperCase();
+          const short =
+            name
+              .split(/\s+/)
+              .filter(Boolean)
+              .map((part) => part[0])
+              .join("")
+              .slice(0, 3)
+              .toUpperCase() ||
+            String(org?.orgId ?? "")
+              .slice(0, 3)
+              .toUpperCase();
           return {
             id: String(org.orgId),
             name,
-            short
+            short,
           };
         });
 
@@ -74,8 +80,7 @@ function AuthProvider({ children }) {
             return filtered.length > 0 ? filtered : nextOrgs.map((o) => o.id);
           });
         }
-      } catch {
-      }
+      } catch {}
     }
 
     loadCurrentOrgs();
@@ -88,7 +93,7 @@ function AuthProvider({ children }) {
     displayName: "",
     steamLinked: null,
     discordLinked: null,
-    battlemetricsToken: ""
+    battlemetricsToken: "",
   });
   const [orgMembers, setOrgMembers] = useState({});
   const [orgToxicity, setOrgToxicity] = useState({});
@@ -97,7 +102,7 @@ function AuthProvider({ children }) {
     const cleaned = phrases.map((p) => p.trim()).filter((p) => p.length > 0);
     setOrgToxicity((all) => ({
       ...all,
-      [orgId]: { ...all[orgId] ?? { yellow: [], red: [] }, [kind]: cleaned }
+      [orgId]: { ...(all[orgId] ?? { yellow: [], red: [] }), [kind]: cleaned },
     }));
     return { ok: true };
   };
@@ -108,14 +113,19 @@ function AuthProvider({ children }) {
     const content = input.content.trim();
     if (!keyword) return { ok: false, error: "Keyword is required." };
     if (!content) return { ok: false, error: "Content is required." };
-    const extras = input.extraKeywords.map((k) => k.trim()).filter((k) => k.length > 0);
+    const extras = input.extraKeywords
+      .map((k) => k.trim())
+      .filter((k) => k.length > 0);
     const pd = {
       id: `pd_${Math.random().toString(36).slice(2, 9)}`,
       keyword,
       extraKeywords: extras,
-      content
+      content,
     };
-    setOrgPredefines((all) => ({ ...all, [orgId]: [...all[orgId] ?? [], pd] }));
+    setOrgPredefines((all) => ({
+      ...all,
+      [orgId]: [...(all[orgId] ?? []), pd],
+    }));
     return { ok: true };
   };
   const updateOrgPredefine = (orgId, id, patch) => {
@@ -132,11 +142,15 @@ function AuthProvider({ children }) {
       cleanPatch.content = c;
     }
     if (cleanPatch.extraKeywords !== void 0) {
-      cleanPatch.extraKeywords = cleanPatch.extraKeywords.map((k) => k.trim()).filter((k) => k.length > 0);
+      cleanPatch.extraKeywords = cleanPatch.extraKeywords
+        .map((k) => k.trim())
+        .filter((k) => k.length > 0);
     }
     setOrgPredefines((all) => ({
       ...all,
-      [orgId]: (all[orgId] ?? []).map((p) => p.id === id ? { ...p, ...cleanPatch } : p)
+      [orgId]: (all[orgId] ?? []).map((p) =>
+        p.id === id ? { ...p, ...cleanPatch } : p,
+      ),
     }));
     return { ok: true };
   };
@@ -144,19 +158,31 @@ function AuthProvider({ children }) {
     if (!isSrOrMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
     setOrgPredefines((all) => ({
       ...all,
-      [orgId]: (all[orgId] ?? []).filter((p) => p.id !== id)
+      [orgId]: (all[orgId] ?? []).filter((p) => p.id !== id),
     }));
     return { ok: true };
   };
   const DEFAULT_NOTE_FORMATS = {
-    cheating: "Ban issued for cheating.\n\nEvidence: \nDemo/clip link: \nDate of offense: \nReviewed by: ",
-    teaming: "Ban issued for teaming.\n\nGroup size limit: \nPlayers involved: \nEvidence: \nReviewed by: ",
-    toxicity: "Ban issued for toxicity.\n\nChat log excerpt:\n\nContext: \nPrevious warnings: \nReviewed by: "
+    cheating:
+      "Ban issued for cheating.\n\nEvidence: \nDemo/clip link: \nDate of offense: \nReviewed by: ",
+    teaming:
+      "Ban issued for teaming.\n\nGroup size limit: \nPlayers involved: \nEvidence: \nReviewed by: ",
+    toxicity:
+      "Ban issued for toxicity.\n\nChat log excerpt:\n\nContext: \nPrevious warnings: \nReviewed by: ",
   };
   const DEFAULT_REASONS = {
-    cheating: ["Aimbot", "ESP / Wallhack", "Scripts / Macros", "Closet cheating"],
-    teaming: ["Group size violation", "Cross-team coordination", "Trade-killing"],
-    toxicity: ["Slurs / Hate speech", "Harassment", "Threats / Doxxing"]
+    cheating: [
+      "Aimbot",
+      "ESP / Wallhack",
+      "Scripts / Macros",
+      "Closet cheating",
+    ],
+    teaming: [
+      "Group size violation",
+      "Cross-team coordination",
+      "Trade-killing",
+    ],
+    toxicity: ["Slurs / Hate speech", "Harassment", "Threats / Doxxing"],
   };
   const [orgBanConfigs, setOrgBanConfigs] = useState({});
   const ensureBanConfig = (all, orgId) => {
@@ -173,13 +199,19 @@ function AuthProvider({ children }) {
     if (!trimmed) return { ok: false, error: "Reason cannot be empty." };
     setOrgBanConfigs((all) => {
       const org = ensureBanConfig(all, orgId);
-      const reason = { id: `br_${Math.random().toString(36).slice(2, 9)}`, label: trimmed };
+      const reason = {
+        id: `br_${Math.random().toString(36).slice(2, 9)}`,
+        label: trimmed,
+      };
       return {
         ...all,
         [orgId]: {
           ...org,
-          [category]: { ...org[category], reasons: [...org[category].reasons, reason] }
-        }
+          [category]: {
+            ...org[category],
+            reasons: [...org[category].reasons, reason],
+          },
+        },
       };
     });
     return { ok: true };
@@ -194,9 +226,9 @@ function AuthProvider({ children }) {
           ...org,
           [category]: {
             ...org[category],
-            reasons: org[category].reasons.filter((r) => r.id !== reasonId)
-          }
-        }
+            reasons: org[category].reasons.filter((r) => r.id !== reasonId),
+          },
+        },
       };
     });
     return { ok: true };
@@ -213,11 +245,11 @@ function AuthProvider({ children }) {
           ...org,
           [category]: {
             ...org[category],
-            reasons: org[category].reasons.map(
-              (r) => r.id === reasonId ? { ...r, label: trimmed } : r
-            )
-          }
-        }
+            reasons: org[category].reasons.map((r) =>
+              r.id === reasonId ? { ...r, label: trimmed } : r,
+            ),
+          },
+        },
       };
     });
     return { ok: true };
@@ -228,15 +260,25 @@ function AuthProvider({ children }) {
       const org = ensureBanConfig(all, orgId);
       return {
         ...all,
-        [orgId]: { ...org, [category]: { ...org[category], noteFormat: format } }
+        [orgId]: {
+          ...org,
+          [category]: { ...org[category], noteFormat: format },
+        },
       };
     });
     return { ok: true };
   };
-  const DEFAULT_MUTE_NOTE = "Mute issued for toxicity.\n\nChat log excerpt:\n\nContext: \nPrevious warnings: \nReviewed by: ";
-  const DEFAULT_MUTE_REASONS = ["Slurs / Hate speech", "Spam", "Harassment", "Mic abuse"];
+  const DEFAULT_MUTE_NOTE =
+    "Mute issued for toxicity.\n\nChat log excerpt:\n\nContext: \nPrevious warnings: \nReviewed by: ";
+  const DEFAULT_MUTE_REASONS = [
+    "Slurs / Hate speech",
+    "Spam",
+    "Harassment",
+    "Mic abuse",
+  ];
   const [orgMuteConfigs, setOrgMuteConfigs] = useState({});
-  const ensureMuteConfig = (all, orgId) => all[orgId] ?? { reasons: [], noteFormat: DEFAULT_MUTE_NOTE };
+  const ensureMuteConfig = (all, orgId) =>
+    all[orgId] ?? { reasons: [], noteFormat: DEFAULT_MUTE_NOTE };
   const addMuteReason = (orgId, label) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
     const trimmed = label.trim();
@@ -245,7 +287,7 @@ function AuthProvider({ children }) {
       const cfg = ensureMuteConfig(all, orgId);
       const reason = {
         id: `mr_${Math.random().toString(36).slice(2, 9)}`,
-        label: trimmed
+        label: trimmed,
       };
       return { ...all, [orgId]: { ...cfg, reasons: [...cfg.reasons, reason] } };
     });
@@ -257,7 +299,10 @@ function AuthProvider({ children }) {
       const cfg = ensureMuteConfig(all, orgId);
       return {
         ...all,
-        [orgId]: { ...cfg, reasons: cfg.reasons.filter((r) => r.id !== reasonId) }
+        [orgId]: {
+          ...cfg,
+          reasons: cfg.reasons.filter((r) => r.id !== reasonId),
+        },
       };
     });
     return { ok: true };
@@ -272,10 +317,10 @@ function AuthProvider({ children }) {
         ...all,
         [orgId]: {
           ...cfg,
-          reasons: cfg.reasons.map(
-            (r) => r.id === reasonId ? { ...r, label: trimmed } : r
-          )
-        }
+          reasons: cfg.reasons.map((r) =>
+            r.id === reasonId ? { ...r, label: trimmed } : r,
+          ),
+        },
       };
     });
     return { ok: true };
@@ -292,27 +337,30 @@ function AuthProvider({ children }) {
   const setOrgTicketTypeEnabled = (orgId, key, enabled) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
     setOrgTicketTypes((all) => {
-      const cur = all[orgId] ?? TICKET_TYPE_KEYS.reduce(
-        (acc, k) => ({ ...acc, [k]: true }),
-        {}
-      );
+      const cur =
+        all[orgId] ??
+        TICKET_TYPE_KEYS.reduce((acc, k) => ({ ...acc, [k]: true }), {});
       return { ...all, [orgId]: { ...cur, [key]: enabled } };
     });
     return { ok: true };
   };
-  const toggleOrg = (id) => setSelectedOrgIds(
-    (prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-  );
+  const toggleOrg = (id) =>
+    setSelectedOrgIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   const updateProfile = (patch) => setProfile((p) => ({ ...p, ...patch }));
-  const setStaffTeam = (staffId, team) => setStaff((all) => all.map((s) => s.id === staffId ? { ...s, team } : s));
+  const setStaffTeam = (staffId, team) =>
+    setStaff((all) => all.map((s) => (s.id === staffId ? { ...s, team } : s)));
   const activeStaff = useMemo(
     () => staff.find((s) => s.id === activeStaffId) ?? null,
-    [staff, activeStaffId]
+    [staff, activeStaffId],
   );
   const activeRank = activeStaff ? TEAM_META[activeStaff.team].rank : 0;
   const rankOf = (orgId) => {
     if (isOwner) return 4;
-    const m = (orgMembers[orgId] ?? []).find((x) => x.staffId === activeStaffId);
+    const m = (orgMembers[orgId] ?? []).find(
+      (x) => x.staffId === activeStaffId,
+    );
     return m ? TEAM_META[m.team].rank : 0;
   };
   const maxRankAcross = (orgIds) => {
@@ -327,30 +375,36 @@ function AuthProvider({ children }) {
   const isOwner = activeStaff?.steamId === OWNER_STEAM_ID;
   const myOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
-    return orgs.filter(
-      (o) => (orgMembers[o.id] ?? []).some((m) => m.staffId === activeStaffId)
-    ).map((o) => o.id);
+    return orgs
+      .filter((o) =>
+        (orgMembers[o.id] ?? []).some((m) => m.staffId === activeStaffId),
+      )
+      .map((o) => o.id);
   }, [orgMembers, activeStaffId, isOwner, orgs]);
   const manageableOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
-    return orgs.filter(
-      (o) => (orgMembers[o.id] ?? []).some(
-        (m) => m.staffId === activeStaffId && m.team === "management"
+    return orgs
+      .filter((o) =>
+        (orgMembers[o.id] ?? []).some(
+          (m) => m.staffId === activeStaffId && m.team === "management",
+        ),
       )
-    ).map((o) => o.id);
+      .map((o) => o.id);
   }, [orgMembers, activeStaffId, isOwner, orgs]);
   const realStaff = useMemo(
     () => staff.find((s) => s.id === realStaffId) ?? null,
-    [staff, realStaffId]
+    [staff, realStaffId],
   );
   const realIsOwner = realStaff?.steamId === OWNER_STEAM_ID;
   const realManageableOrgIds = useMemo(() => {
     if (realIsOwner) return orgs.map((o) => o.id);
-    return orgs.filter(
-      (o) => (orgMembers[o.id] ?? []).some(
-        (m) => m.staffId === realStaffId && m.team === "management"
+    return orgs
+      .filter((o) =>
+        (orgMembers[o.id] ?? []).some(
+          (m) => m.staffId === realStaffId && m.team === "management",
+        ),
       )
-    ).map((o) => o.id);
+      .map((o) => o.id);
   }, [orgMembers, realStaffId, realIsOwner, orgs]);
   const realRankOf = (orgId) => {
     if (realIsOwner) return 4;
@@ -359,19 +413,23 @@ function AuthProvider({ children }) {
   };
   const realAdminableOrgIds = useMemo(() => {
     if (realIsOwner) return orgs.map((o) => o.id);
-    return orgs.filter(
-      (o) => (orgMembers[o.id] ?? []).some(
-        (m) => m.staffId === realStaffId && TEAM_META[m.team].rank >= 3
+    return orgs
+      .filter((o) =>
+        (orgMembers[o.id] ?? []).some(
+          (m) => m.staffId === realStaffId && TEAM_META[m.team].rank >= 3,
+        ),
       )
-    ).map((o) => o.id);
+      .map((o) => o.id);
   }, [orgMembers, realStaffId, realIsOwner, orgs]);
   const adminableOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
-    return orgs.filter(
-      (o) => (orgMembers[o.id] ?? []).some(
-        (m) => m.staffId === activeStaffId && TEAM_META[m.team].rank >= 3
+    return orgs
+      .filter((o) =>
+        (orgMembers[o.id] ?? []).some(
+          (m) => m.staffId === activeStaffId && TEAM_META[m.team].rank >= 3,
+        ),
       )
-    ).map((o) => o.id);
+      .map((o) => o.id);
   }, [orgMembers, activeStaffId, isOwner, orgs]);
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
@@ -380,20 +438,27 @@ function AuthProvider({ children }) {
   const stopImpersonating = () => setActiveStaffId(realStaffId);
   const addOrgMember = (orgId, input) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
-    if (!input.steamId && !input.discordId) return { ok: false, error: "Steam or Discord ID required" };
+    if (!input.steamId && !input.discordId)
+      return { ok: false, error: "Steam or Discord ID required" };
     let target = staff.find(
-      (s) => input.steamId && s.steamId === input.steamId || input.discordId && s.discordId === input.discordId
+      (s) =>
+        (input.steamId && s.steamId === input.steamId) ||
+        (input.discordId && s.discordId === input.discordId),
     );
     if (!target) {
       const id = `u_${Math.random().toString(36).slice(2, 8)}`;
       const newStaff = {
         id,
-        name: input.name || (input.steamId ? `steam:${input.steamId.slice(-4)}` : `discord:${input.discordId}`),
+        name:
+          input.name ||
+          (input.steamId
+            ? `steam:${input.steamId.slice(-4)}`
+            : `discord:${input.discordId}`),
         role: TEAM_META[input.team].label,
         avatar: (input.name || "??").slice(0, 1).toUpperCase(),
         team: input.team,
         steamId: input.steamId,
-        discordId: input.discordId
+        discordId: input.discordId,
       };
       setStaff((all) => [...all, newStaff]);
       target = newStaff;
@@ -402,7 +467,10 @@ function AuthProvider({ children }) {
     setOrgMembers((all) => {
       const existing = all[orgId] ?? [];
       if (existing.some((m) => m.staffId === targetId)) return all;
-      return { ...all, [orgId]: [...existing, { staffId: targetId, team: input.team }] };
+      return {
+        ...all,
+        [orgId]: [...existing, { staffId: targetId, team: input.team }],
+      };
     });
     return { ok: true };
   };
@@ -414,7 +482,7 @@ function AuthProvider({ children }) {
     }
     setOrgMembers((all) => ({
       ...all,
-      [orgId]: (all[orgId] ?? []).filter((m) => m.staffId !== staffId)
+      [orgId]: (all[orgId] ?? []).filter((m) => m.staffId !== staffId),
     }));
     return { ok: true };
   };
@@ -426,9 +494,9 @@ function AuthProvider({ children }) {
     }
     setOrgMembers((all) => ({
       ...all,
-      [orgId]: (all[orgId] ?? []).map(
-        (m) => m.staffId === staffId ? { ...m, team } : m
-      )
+      [orgId]: (all[orgId] ?? []).map((m) =>
+        m.staffId === staffId ? { ...m, team } : m,
+      ),
     }));
     return { ok: true };
   };
@@ -436,7 +504,8 @@ function AuthProvider({ children }) {
   // Memoize the context object so that consumers whose selected slice of state
   // hasn't changed don't re-render every time any piece of AuthProvider state
   // changes (e.g. profile edit shouldn't re-render ban-config consumers).
-  const contextValue = useMemo(() => ({
+  const contextValue = useMemo(
+    () => ({
       view,
       setView,
       orgs,
@@ -488,20 +557,40 @@ function AuthProvider({ children }) {
       activeStaff,
       activeRank,
       rankOf,
-      maxRankAcross
+      maxRankAcross,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      view, orgs, staff, activeStaffId, selectedOrgIds, publicSignedIn, profile,
-      orgMembers, orgToxicity, orgPredefines, orgBanConfigs, orgMuteConfigs, orgTicketTypes,
-      activeStaff, myOrgIds, manageableOrgIds, adminableOrgIds,
-      realManageableOrgIds, realAdminableOrgIds, realStaff,
-      isOwner, realIsOwner, hasStaffAccount, isImpersonating, activeRank,
-    ]
+      view,
+      orgs,
+      staff,
+      activeStaffId,
+      selectedOrgIds,
+      publicSignedIn,
+      profile,
+      orgMembers,
+      orgToxicity,
+      orgPredefines,
+      orgBanConfigs,
+      orgMuteConfigs,
+      orgTicketTypes,
+      activeStaff,
+      myOrgIds,
+      manageableOrgIds,
+      adminableOrgIds,
+      realManageableOrgIds,
+      realAdminableOrgIds,
+      realStaff,
+      isOwner,
+      realIsOwner,
+      hasStaffAccount,
+      isImpersonating,
+      activeRank,
+    ],
   );
-  return <AuthContext.Provider value={contextValue}>
-      {children}
-    </AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
+  );
 }
 function useAuth() {
   const ctx = useContext(AuthContext);
@@ -509,12 +598,11 @@ function useAuth() {
   return ctx;
 }
 export {
-    AuthProvider,
-    BAN_CATEGORIES,
-    BAN_CATEGORY_LABEL,
-    ORGS,
-    TICKET_TYPE_KEYS,
-    TICKET_TYPE_LABELS,
-    useAuth
+  AuthProvider,
+  BAN_CATEGORIES,
+  BAN_CATEGORY_LABEL,
+  ORGS,
+  TICKET_TYPE_KEYS,
+  TICKET_TYPE_LABELS,
+  useAuth,
 };
-

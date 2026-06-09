@@ -1,15 +1,34 @@
 import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { createFileRoute } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown, Plus, Trash2, UserPlus } from "lucide-react";
+import {
+  Building2,
+  Check,
+  ChevronDown,
+  Plus,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 function redirectToLogin() {
-  window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+  window.location.assign(
+    `/login?next=${encodeURIComponent(window.location.pathname)}`,
+  );
 }
 
 function authFetch(url, init) {
@@ -30,21 +49,21 @@ function isAuthExpired(error) {
 
 export const Route = createFileRoute("/todo")({
   head: () => ({ meta: [{ title: "Todo - IronSight" }] }),
-  component: TodoPage
+  component: TodoPage,
 });
 
 const STATUS_COLORS = {
   todo: "bg-yellow-500/15 ring-yellow-500/40 hover:bg-yellow-500/20",
   completed: "bg-emerald-500/15 ring-emerald-500/40 hover:bg-emerald-500/20",
   "in progress": "bg-red-500/15 ring-red-500/40 hover:bg-red-500/20",
-  blocked: "bg-blue-500/15 ring-blue-500/40 hover:bg-blue-500/20"
+  blocked: "bg-blue-500/15 ring-blue-500/40 hover:bg-blue-500/20",
 };
 
 const ROLE_ABBREV = {
   support: "SUP",
-  "senior": "SR",
+  senior: "SR",
   admin: "ADM",
-  management: "MGMT"
+  management: "MGMT",
 };
 
 function TodoPage() {
@@ -94,7 +113,11 @@ function TodoPage() {
 
       const firstOrgId = data.orgs?.[0]?.orgId ?? "";
       setSelectedOrgId((current) => current || firstOrgId);
-      setBoardOrgIds((current) => current.length > 0 ? current : (data.orgs ?? []).map((org) => org.orgId));
+      setBoardOrgIds((current) =>
+        current.length > 0
+          ? current
+          : (data.orgs ?? []).map((org) => org.orgId),
+      );
 
       // Initialize board staff with org members
       if (data.members && data.members.length > 0) {
@@ -138,7 +161,9 @@ function TodoPage() {
     if (orgs.length === 0) return "No orgs";
     if (effectiveBoardOrgIds.length === 0) return "No orgs selected";
     if (effectiveBoardOrgIds.length === orgs.length) return "All my orgs";
-    return effectiveBoardOrgIds.map((orgId) => orgNameById.get(orgId) ?? orgId).join(" · ");
+    return effectiveBoardOrgIds
+      .map((orgId) => orgNameById.get(orgId) ?? orgId)
+      .join(" · ");
   }, [effectiveBoardOrgIds, orgNameById, orgs.length]);
 
   const visibleTodos = useMemo(() => {
@@ -146,14 +171,18 @@ function TodoPage() {
     const filtered = todos.filter(
       (t) =>
         allowedOrgIds.has(t.orgId) &&
-        (view === "board" ? t.status !== "completed" : t.status === "completed")
+        (view === "board"
+          ? t.status !== "completed"
+          : t.status === "completed"),
     );
     return filtered;
   }, [todos, effectiveBoardOrgIds, view]);
 
   function toggleBoardOrg(orgId) {
     setBoardOrgIds((current) =>
-      current.includes(orgId) ? current.filter((id) => id !== orgId) : [...current, orgId]
+      current.includes(orgId)
+        ? current.filter((id) => id !== orgId)
+        : [...current, orgId],
     );
   }
 
@@ -177,7 +206,9 @@ function TodoPage() {
   }
 
   function removeStaffFromBoard(discordId) {
-    setBoardStaff((current) => current.filter((s) => s.discordId !== discordId));
+    setBoardStaff((current) =>
+      current.filter((s) => s.discordId !== discordId),
+    );
   }
 
   function handleDragStart(todo) {
@@ -194,7 +225,7 @@ function TodoPage() {
       setReassignmentPending({
         todo: draggedTodo,
         newAssigneeDiscordId: staffDiscordId,
-        newAssigneeName: newAssignee?.username || staffDiscordId
+        newAssigneeName: newAssignee?.username || staffDiscordId,
       });
     }
     setDraggedTodo(null);
@@ -228,8 +259,8 @@ function TodoPage() {
         body: JSON.stringify({
           title: selectedTodoTitle,
           details: selectedTodoDetails,
-          status: selectedTodoStatus
-        })
+          status: selectedTodoStatus,
+        }),
       });
 
       if (!res.ok) {
@@ -246,10 +277,10 @@ function TodoPage() {
                 ...t,
                 title: selectedTodoTitle,
                 details: selectedTodoDetails,
-                status: selectedTodoStatus
+                status: selectedTodoStatus,
               }
-            : t
-        )
+            : t,
+        ),
       );
       closeTodoEditor();
     } catch (error) {
@@ -268,7 +299,7 @@ function TodoPage() {
 
     try {
       const res = await authFetch(`/api/todo/${selectedTodo.id}`, {
-        method: "DELETE"
+        method: "DELETE",
       });
 
       if (!res.ok) {
@@ -299,8 +330,8 @@ function TodoPage() {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          assigneeDiscordId: reassignmentPending.newAssigneeDiscordId
-        })
+          assigneeDiscordId: reassignmentPending.newAssigneeDiscordId,
+        }),
       });
 
       if (!res.ok) {
@@ -313,9 +344,12 @@ function TodoPage() {
       setTodos((current) =>
         current.map((t) =>
           t.id === reassignmentPending.todo.id
-            ? { ...t, assigneeDiscordId: reassignmentPending.newAssigneeDiscordId }
-            : t
-        )
+            ? {
+                ...t,
+                assigneeDiscordId: reassignmentPending.newAssigneeDiscordId,
+              }
+            : t,
+        ),
       );
       setReassignmentPending(null);
     } catch (error) {
@@ -357,8 +391,8 @@ function TodoPage() {
           details: createTaskDetails,
           assigneeDiscordId: createTaskStaff.discordId,
           orgId: createTaskOrgId,
-          status: "todo"
-        })
+          status: "todo",
+        }),
       });
 
       if (!res.ok) {
@@ -380,8 +414,11 @@ function TodoPage() {
   }
 
   const availableStaff = useMemo(
-    () => members.filter((m) => !boardStaff.find((s) => s.discordId === m.discordId)),
-    [members, boardStaff]
+    () =>
+      members.filter(
+        (m) => !boardStaff.find((s) => s.discordId === m.discordId),
+      ),
+    [members, boardStaff],
   );
 
   if (loading) {
@@ -404,7 +441,8 @@ function TodoPage() {
             <div>
               <h1 className="text-xl font-bold tracking-tight">Todo</h1>
               <p className="text-xs text-muted-foreground mt-1">
-                Assign tasks across staff. Cards respect the visibility tier they were created with.
+                Assign tasks across staff. Cards respect the visibility tier
+                they were created with.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -438,7 +476,9 @@ function TodoPage() {
                       <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
                         Board Orgs
                       </span>
-                      <span className="text-xs font-semibold truncate max-w-[240px]">{boardOrgLabel}</span>
+                      <span className="text-xs font-semibold truncate max-w-[240px]">
+                        {boardOrgLabel}
+                      </span>
                     </div>
                     <ChevronDown className="size-3 text-muted-foreground ml-1" />
                   </button>
@@ -451,11 +491,17 @@ function TodoPage() {
                     <button
                       onClick={() => {
                         const allOrgIds = orgs.map((org) => org.orgId);
-                        setBoardOrgIds(effectiveBoardOrgIds.length === allOrgIds.length ? [] : allOrgIds);
+                        setBoardOrgIds(
+                          effectiveBoardOrgIds.length === allOrgIds.length
+                            ? []
+                            : allOrgIds,
+                        );
                       }}
                       className="text-[10px] font-semibold text-brand hover:underline"
                     >
-                      {effectiveBoardOrgIds.length === orgs.length ? "Clear" : "Select all"}
+                      {effectiveBoardOrgIds.length === orgs.length
+                        ? "Clear"
+                        : "Select all"}
                     </button>
                   </div>
                   <div className="space-y-0.5">
@@ -468,11 +514,18 @@ function TodoPage() {
                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
                         >
                           <span
-                            className={"size-4 rounded-sm grid place-items-center ring-1 " + (checked ? "bg-brand ring-brand text-brand-foreground" : "ring-border text-transparent")}
+                            className={
+                              "size-4 rounded-sm grid place-items-center ring-1 " +
+                              (checked
+                                ? "bg-brand ring-brand text-brand-foreground"
+                                : "ring-border text-transparent")
+                            }
                           >
                             <Check className="size-3" />
                           </span>
-                          <span className="text-xs font-medium flex-1 truncate">{org.name}</span>
+                          <span className="text-xs font-medium flex-1 truncate">
+                            {org.name}
+                          </span>
                         </button>
                       );
                     })}
@@ -501,7 +554,9 @@ function TodoPage() {
                 >
                   <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2 sticky top-0 bg-surface/80 backdrop-blur rounded-t-md">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{staff.username}</div>
+                      <div className="text-sm font-semibold truncate">
+                        {staff.username}
+                      </div>
                       <div className="text-[9px] font-mono uppercase tracking-widest text-brand">
                         {roleAbbr} · {staffTodos.length}
                       </div>
@@ -534,7 +589,8 @@ function TodoPage() {
                       </div>
                     ) : (
                       staffTodos.map((todo) => {
-                        const colorClass = STATUS_COLORS[todo.status] || STATUS_COLORS.todo;
+                        const colorClass =
+                          STATUS_COLORS[todo.status] || STATUS_COLORS.todo;
 
                         return (
                           <button
@@ -544,10 +600,13 @@ function TodoPage() {
                             onClick={() => openTodoEditor(todo)}
                             className={`w-full text-left rounded-md ring-1 p-2.5 space-y-1.5 cursor-grab active:cursor-grabbing ${colorClass}`}
                           >
-                            <div className="text-xs font-medium leading-snug">{todo.title}</div>
+                            <div className="text-xs font-medium leading-snug">
+                              {todo.title}
+                            </div>
                             <div className="text-[10px] font-mono text-muted-foreground flex items-center justify-between gap-2">
                               <span className="truncate">
-                                {orgNameById.get(todo.orgId) ?? todo.orgId} · {todo.visibility || "Public"}
+                                {orgNameById.get(todo.orgId) ?? todo.orgId} ·{" "}
+                                {todo.visibility || "Public"}
                               </span>
                               {todo.status === "in progress" && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-bold ring-1 bg-brand/15 text-brand ring-brand/40">
@@ -581,7 +640,10 @@ function TodoPage() {
             )}
           </div>
 
-          <Dialog open={createTaskStaff !== null} onOpenChange={(open) => !open && closeCreateTaskDialog()}>
+          <Dialog
+            open={createTaskStaff !== null}
+            onOpenChange={(open) => !open && closeCreateTaskDialog()}
+          >
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Create Task</DialogTitle>
@@ -599,7 +661,9 @@ function TodoPage() {
                     disabled={isCreatingTask}
                     required
                   >
-                    <option value="" disabled>Select org_id</option>
+                    <option value="" disabled>
+                      Select org_id
+                    </option>
                     {orgs.map((org) => (
                       <option key={org.orgId} value={org.orgId}>
                         {org.name || org.orgId}
@@ -636,7 +700,14 @@ function TodoPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isCreatingTask || !createTaskOrgId || !createTaskTitle.trim()}>
+                  <Button
+                    type="submit"
+                    disabled={
+                      isCreatingTask ||
+                      !createTaskOrgId ||
+                      !createTaskTitle.trim()
+                    }
+                  >
                     {isCreatingTask ? "Creating..." : "Create Task"}
                   </Button>
                 </div>
@@ -644,20 +715,28 @@ function TodoPage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={reassignmentPending !== null} onOpenChange={(open) => !open && setReassignmentPending(null)}>
+          <Dialog
+            open={reassignmentPending !== null}
+            onOpenChange={(open) => !open && setReassignmentPending(null)}
+          >
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Reassign Task</DialogTitle>
                 <DialogDescription>
-                  Move "{reassignmentPending?.todo.title}" to {reassignmentPending?.newAssigneeName}?
+                  Move "{reassignmentPending?.todo.title}" to{" "}
+                  {reassignmentPending?.newAssigneeName}?
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4">
                 <div className="rounded-md bg-surface/60 ring-1 ring-border p-3">
                   <div className="text-sm font-medium mb-1">Task</div>
-                  <div className="text-xs text-muted-foreground">{reassignmentPending?.todo.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {reassignmentPending?.todo.title}
+                  </div>
                   {reassignmentPending?.todo.details && (
-                    <div className="text-xs text-muted-foreground mt-2">{reassignmentPending.todo.details}</div>
+                    <div className="text-xs text-muted-foreground mt-2">
+                      {reassignmentPending.todo.details}
+                    </div>
                   )}
                 </div>
                 <div className="flex gap-2 justify-end">
@@ -681,7 +760,10 @@ function TodoPage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={selectedTodo !== null} onOpenChange={(open) => !open && closeTodoEditor()}>
+          <Dialog
+            open={selectedTodo !== null}
+            onOpenChange={(open) => !open && closeTodoEditor()}
+          >
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Task Details</DialogTitle>
@@ -745,7 +827,10 @@ function TodoPage() {
                     >
                       Mark Complete
                     </Button>
-                    <Button type="submit" disabled={isSavingTodo || !selectedTodoTitle.trim()}>
+                    <Button
+                      type="submit"
+                      disabled={isSavingTodo || !selectedTodoTitle.trim()}
+                    >
                       {isSavingTodo ? "Saving..." : "Save Changes"}
                     </Button>
                   </div>

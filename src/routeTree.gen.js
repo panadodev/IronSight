@@ -22,111 +22,112 @@ import { Route as ManageBanConfigsRouteImport } from "./routes/manage.ban-config
 const ViewOrgRoute = ViewOrgRouteImport.update({
   id: "/view-org",
   path: "/view-org",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const TodoRoute = TodoRouteImport.update({
   id: "/todo",
   path: "/todo",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const ThreatTriggersRoute = ThreatTriggersRouteImport.update({
   id: "/threat-triggers",
   path: "/threat-triggers",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const SupportRoute = SupportRouteImport.update({
   id: "/support",
   path: "/support",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const SubmitRoute = SubmitRouteImport.update({
   id: "/submit",
   path: "/submit",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const StaffAuditRoute = StaffAuditRouteImport.update({
   id: "/staff-audit",
   path: "/staff-audit",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const PlayerLookupRoute = PlayerLookupRouteImport.update({
   id: "/player-lookup",
   path: "/player-lookup",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const PlayerListRoute = PlayerListRouteImport.update({
   id: "/player-list",
   path: "/player-list",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const PanelRoute = PanelRouteImport.update({
   id: "/panel",
   path: "/panel",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const MyReportsRoute = MyReportsRouteImport.update({
   id: "/my-reports",
   path: "/my-reports",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const ManageRoute = ManageRouteImport.update({
   id: "/manage",
   path: "/manage",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const DocsRoute = DocsRouteImport.update({
   id: "/docs",
   path: "/docs",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const ChatRoute = ChatRouteImport.update({
   id: "/chat",
   path: "/chat",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const BansMutesRoute = BansMutesRouteImport.update({
   id: "/bans-mutes",
   path: "/bans-mutes",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => rootRouteImport
+  getParentRoute: () => rootRouteImport,
 });
 const ManageToxicityRoute = ManageToxicityRouteImport.update({
   id: "/toxicity",
   path: "/toxicity",
-  getParentRoute: () => ManageRoute
+  getParentRoute: () => ManageRoute,
 });
 const ManageTicketsRoute = ManageTicketsRouteImport.update({
   id: "/tickets",
   path: "/tickets",
-  getParentRoute: () => ManageRoute
+  getParentRoute: () => ManageRoute,
 });
 const ManageStaffRoute = ManageStaffRouteImport.update({
   id: "/staff",
   path: "/staff",
-  getParentRoute: () => ManageRoute
+  getParentRoute: () => ManageRoute,
 });
 const ManagePredefinesRoute = ManagePredefinesRouteImport.update({
   id: "/predefines",
   path: "/predefines",
-  getParentRoute: () => ManageRoute
+  getParentRoute: () => ManageRoute,
 });
 const ManageBanConfigsRoute = ManageBanConfigsRouteImport.update({
   id: "/ban-configs",
   path: "/ban-configs",
-  getParentRoute: () => ManageRoute
+  getParentRoute: () => ManageRoute,
 });
 const ManageRouteChildren = {
   ManageBanConfigsRoute,
   ManagePredefinesRoute,
   ManageStaffRoute,
   ManageTicketsRoute,
-  ManageToxicityRoute
+  ManageToxicityRoute,
 };
-const ManageRouteWithChildren = ManageRoute._addFileChildren(ManageRouteChildren);
+const ManageRouteWithChildren =
+  ManageRoute._addFileChildren(ManageRouteChildren);
 const rootRouteChildren = {
   IndexRoute,
   BansMutesRoute,
@@ -142,9 +143,9 @@ const rootRouteChildren = {
   SupportRoute,
   ThreatTriggersRoute,
   TodoRoute,
-  ViewOrgRoute
+  ViewOrgRoute,
 };
-const routeTree = rootRouteImport._addFileChildren(rootRouteChildren)._addFileTypes();
-export {
-  routeTree
-};
+const routeTree = rootRouteImport
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes();
+export { routeTree };

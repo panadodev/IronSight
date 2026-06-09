@@ -3,15 +3,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  Building2,
+  ClipboardList,
+  Trash2,
+  UserCog,
+  UserPlus,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 export const Route = createFileRoute("/view-org")({
   head: () => ({ meta: [{ title: "Staff - IronSight" }] }),
-  component: ViewOrgPage
+  component: ViewOrgPage,
 });
 
 function redirectToLogin() {
-  window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+  window.location.assign(
+    `/login?next=${encodeURIComponent(window.location.pathname)}`,
+  );
 }
 
 function authFetch(url, init) {
@@ -33,13 +42,16 @@ function isAuthExpired(error) {
 function ViewOrgPage() {
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
+  const [pageNotice, setPageNotice] = useState("");
   const [sessionUser, setSessionUser] = useState(null);
   const [globalAdmin, setGlobalAdmin] = useState(false);
   const [orgs, setOrgs] = useState([]);
   const [members, setMembers] = useState([]);
   const [selectedOrgId, setSelectedOrgId] = useState("");
 
-  const [newMemberDiscordId, setNewMemberDiscordId] = useState("");
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberIdentifier, setNewMemberIdentifier] = useState("");
+  const [newTeam, setNewTeam] = useState("support");
   const [isAdding, setIsAdding] = useState(false);
 
   async function fetchBootstrap() {
@@ -87,7 +99,7 @@ function ViewOrgPage() {
 
   const selectedOrg = useMemo(
     () => orgs.find((org) => org.orgId === selectedOrgId) ?? null,
-    [orgs, selectedOrgId]
+    [orgs, selectedOrgId],
   );
 
   const orgMembers = useMemo(() => {
@@ -99,34 +111,48 @@ function ViewOrgPage() {
         userId: null,
         username: `user_${discordId.slice(-6)}`,
         discordId,
-        steamId: null
+        steamId: null,
       };
     });
   }, [selectedOrg, memberMap]);
 
   const canManageSelectedOrg = useMemo(() => {
     if (!sessionUser || !selectedOrgId) return false;
-    return Boolean(globalAdmin || sessionUser.orgAdminOrgIds?.includes(selectedOrgId));
+    return Boolean(
+      globalAdmin || sessionUser.orgAdminOrgIds?.includes(selectedOrgId),
+    );
   }, [sessionUser, globalAdmin, selectedOrgId]);
 
   async function handleAddMember(event) {
     event.preventDefault();
     if (!selectedOrgId || !canManageSelectedOrg) return;
 
-    const discordId = newMemberDiscordId.trim();
-    if (!discordId) {
+    const identifier = newMemberIdentifier.trim();
+    if (!identifier) {
       setPageError("Discord ID is required.");
+      setPageNotice("");
+      return;
+    }
+    const isSteam = identifier.startsWith("76561198");
+    if (isSteam) {
+      setPageError("Adding by Steam ID is not available yet on this page.");
+      setPageNotice("Use a Discord ID for now. Steam ID support is WIP.");
       return;
     }
 
     setIsAdding(true);
     setPageError("");
+    setPageNotice("");
 
     try {
       const res = await authFetch(`/api/orgs/${selectedOrgId}/members`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ discordId })
+        body: JSON.stringify({
+          discordId: identifier,
+          username: newMemberName.trim() || undefined,
+          team: newTeam,
+        }),
       });
 
       if (!res.ok) {
@@ -135,7 +161,9 @@ function ViewOrgPage() {
         return;
       }
 
-      setNewMemberDiscordId("");
+      setNewMemberName("");
+      setNewMemberIdentifier("");
+      setNewTeam("support");
       await fetchBootstrap();
     } catch (error) {
       if (isAuthExpired(error)) return;
@@ -149,12 +177,12 @@ function ViewOrgPage() {
     <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+        <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
           <header className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h1 className="text-2xl font-semibold">Staff</h1>
               <p className="text-sm text-muted-foreground">
-                Manage organization members and access by Discord identity.
+                Manage organization members and access.
               </p>
             </div>
           </header>
@@ -165,13 +193,31 @@ function ViewOrgPage() {
             </div>
           ) : null}
 
-          {loading ? <div className="rounded-md ring-1 ring-border bg-surface/40 p-4 text-sm">Loading...</div> : null}
+          {pageNotice ? (
+            <div className="rounded-md ring-1 ring-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+              {pageNotice}
+            </div>
+          ) : null}
+
+          {loading ? (
+            <div className="rounded-md ring-1 ring-border bg-surface/40 p-4 text-sm">
+              Loading...
+            </div>
+          ) : null}
 
           {!loading ? (
-            <section className="rounded-md ring-1 ring-border bg-surface/40 p-4 space-y-4">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1 min-w-[220px]">
-                  <Label>Organization</Label>
+            <section className="rounded-lg ring-1 ring-border bg-surface/30 p-4 space-y-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <h2 className="text-sm font-semibold">Manage staff</h2>
+                  <p className="text-[11px] text-muted-foreground">
+                    Add, review, and manage members in this organization.
+                  </p>
+                </div>
+                <div className="w-full sm:w-auto sm:min-w-[260px]">
+                  <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground mb-1 block">
+                    <Building2 className="inline size-3 mr-1" /> Organization
+                  </Label>
                   <select
                     className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
                     value={selectedOrgId}
@@ -184,54 +230,166 @@ function ViewOrgPage() {
                     ))}
                   </select>
                 </div>
+              </div>
 
-                <form onSubmit={handleAddMember} className="flex flex-wrap items-end gap-2">
-                  <div className="space-y-1 min-w-[240px]">
-                    <Label htmlFor="new-discord-id">Add member (Discord ID)</Label>
+              <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
+                <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Add staff
+                </Label>
+                <form
+                  onSubmit={handleAddMember}
+                  className="flex flex-wrap items-end gap-2"
+                >
+                  <div className="space-y-1 min-w-[180px]">
+                    <Label htmlFor="new-member-name" className="text-[11px]">
+                      Name (optional)
+                    </Label>
                     <Input
-                      id="new-discord-id"
-                      value={newMemberDiscordId}
-                      onChange={(e) => setNewMemberDiscordId(e.target.value)}
-                      placeholder="476047124694433822"
+                      id="new-member-name"
+                      value={newMemberName}
+                      onChange={(e) => {
+                        setNewMemberName(e.target.value);
+                        setPageError("");
+                      }}
+                      placeholder="OlathVlos"
                       disabled={!canManageSelectedOrg || isAdding}
                     />
                   </div>
-                  <Button type="submit" disabled={!canManageSelectedOrg || isAdding}>
-                    {isAdding ? "Adding..." : "Add member"}
+                  <div className="space-y-1 min-w-[240px] flex-1">
+                    <Label
+                      htmlFor="new-member-identifier"
+                      className="text-[11px]"
+                    >
+                      Discord ID or Steam ID
+                    </Label>
+                    <Input
+                      id="new-member-identifier"
+                      value={newMemberIdentifier}
+                      onChange={(e) => {
+                        setNewMemberIdentifier(e.target.value);
+                        setPageError("");
+                        setPageNotice("");
+                      }}
+                      placeholder="olath#0001 or 76561199084351346"
+                      disabled={!canManageSelectedOrg || isAdding}
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-[140px]">
+                    <Label className="text-[11px]">Team</Label>
+                    <select
+                      className="h-9 w-full rounded-md border border-border bg-background px-2 text-xs"
+                      value={newTeam}
+                      onChange={(e) => setNewTeam(e.target.value)}
+                      disabled={!canManageSelectedOrg || isAdding}
+                    >
+                      <option value="management">Management</option>
+                      <option value="sr_admins">Sr. Admins</option>
+                      <option value="admins">Admins</option>
+                      <option value="support">Support</option>
+                    </select>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={!canManageSelectedOrg || isAdding}
+                    className="h-9"
+                  >
+                    <UserPlus className="size-3.5 mr-1" />
+                    {isAdding ? "Adding..." : "Add"}
                   </Button>
                 </form>
+                <p className="text-[11px] text-muted-foreground">
+                  Team selection and Steam ID adds are currently WIP for this
+                  API-backed page.
+                </p>
+                {!canManageSelectedOrg ? (
+                  <p className="text-xs text-muted-foreground">
+                    You need org admin or global admin permissions to add
+                    members.
+                  </p>
+                ) : null}
               </div>
 
-              {!canManageSelectedOrg ? (
-                <p className="text-xs text-muted-foreground">
-                  You need org admin or global admin permissions to add members.
-                </p>
-              ) : null}
-
-              <div className="rounded-md ring-1 ring-border bg-background/50 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-surface/60">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-medium">Username</th>
-                      <th className="text-left px-3 py-2 font-medium">Discord ID</th>
-                      <th className="text-left px-3 py-2 font-medium">Steam ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orgMembers.map((member) => (
-                      <tr key={member.discordId} className="border-t border-border">
-                        <td className="px-3 py-2">{member.username}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{member.discordId}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{member.steamId ?? "-"}</td>
-                      </tr>
-                    ))}
-                    {!orgMembers.length ? (
-                      <tr>
-                        <td className="px-3 py-4 text-muted-foreground" colSpan={3}>No members in this organization.</td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
+              <div className="space-y-1.5">
+                {orgMembers.map((member) => {
+                  const displayName =
+                    member.username ||
+                    `user_${String(member.discordId || "").slice(-6)}`;
+                  const avatar = displayName.slice(0, 1).toUpperCase() || "?";
+                  return (
+                    <div
+                      key={member.discordId}
+                      className="flex items-center justify-between gap-2 bg-background ring-1 ring-border rounded-md p-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="size-7 rounded bg-brand/20 text-brand text-[10px] font-mono font-bold grid place-items-center shrink-0">
+                          {avatar}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {displayName}
+                          </p>
+                          <p className="text-[10px] font-mono text-muted-foreground truncate">
+                            {member.steamId ? `steam:${member.steamId}` : ""}
+                            {member.steamId && member.discordId ? " · " : ""}
+                            {member.discordId
+                              ? `discord:${member.discordId}`
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled
+                          className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                          title="Audit logs are WIP"
+                        >
+                          <ClipboardList className="size-3" />
+                          Audit
+                        </Button>
+                        <span className="text-[9px] font-mono uppercase tracking-widest text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                          WIP
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled
+                          className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                          title="Impersonation is WIP"
+                        >
+                          <UserCog className="size-3" />
+                          Impersonate
+                        </Button>
+                        <select
+                          value="support"
+                          disabled
+                          className="bg-surface border border-border rounded px-2 py-1 text-[11px] font-mono disabled:opacity-50"
+                          title="Team assignment is WIP"
+                        >
+                          <option value="management">Management</option>
+                          <option value="sr_admins">Sr. Admins</option>
+                          <option value="admins">Admins</option>
+                          <option value="support">Support</option>
+                        </select>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled
+                          className="size-7"
+                          title="Remove member is WIP"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!orgMembers.length ? (
+                  <p className="text-xs text-muted-foreground italic">
+                    No members yet.
+                  </p>
+                ) : null}
               </div>
             </section>
           ) : null}

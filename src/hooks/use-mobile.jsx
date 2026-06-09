@@ -13,6 +13,4 @@ function useIsMobile() {
   }, []);
   return !!isMobile;
 }
-export {
-  useIsMobile
-};
+export { useIsMobile };
