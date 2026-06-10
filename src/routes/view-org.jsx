@@ -57,6 +57,7 @@ function ViewOrgPage() {
   const [memberTeams, setMemberTeams] = useState(new Map());
   const [impersonateModalOpen, setImpersonateModalOpen] = useState(false);
   const [impersonateTarget, setImpersonateTarget] = useState(null);
+  const [orgMemberRoles, setOrgMemberRoles] = useState(new Map()); // userId → roleId
 
   async function fetchBootstrap() {
     setLoading(true);
@@ -85,6 +86,23 @@ function ViewOrgPage() {
     }
   }
 
+  async function fetchOrgMemberRoles(orgId) {
+    if (!orgId) return;
+    try {
+      const res = await authFetch(`/api/orgs/${orgId}/members`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const roleMap = new Map();
+      for (const m of data.members ?? []) {
+        if (m.userId) roleMap.set(m.userId, m.roleId);
+      }
+      setOrgMemberRoles(roleMap);
+      setMemberTeams(new Map()); // clear pending overrides
+    } catch {
+      // non-fatal
+    }
+  }
+
   useEffect(() => {
     fetchBootstrap().catch((error) => {
       if (isAuthExpired(error)) return;
@@ -92,6 +110,12 @@ function ViewOrgPage() {
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (selectedOrgId) {
+      fetchOrgMemberRoles(selectedOrgId);
+    }
+  }, [selectedOrgId]);
 
   const memberMap = useMemo(() => {
     const map = new Map();
@@ -236,6 +260,7 @@ function ViewOrgPage() {
         });
       } else {
         await fetchBootstrap();
+        await fetchOrgMemberRoles(selectedOrgId);
       }
     } catch (error) {
       if (isAuthExpired(error)) return;
@@ -435,6 +460,12 @@ function ViewOrgPage() {
                     member.username ||
                     `user_${String(member.discordId || "").slice(-6)}`;
                   const avatar = displayName.slice(0, 1).toUpperCase() || "?";
+                  const hasUserId = Boolean(member.userId);
+                  // Pending local override takes priority, then server role, then fallback
+                  const currentRole =
+                    memberTeams.get(member.userId) ||
+                    orgMemberRoles.get(member.userId) ||
+                    "org_member";
                   return (
                     <div
                       key={member.discordId}
@@ -469,8 +500,9 @@ function ViewOrgPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleImpersonate(member.userId, member.username)}
-                          disabled={!canManageSelectedOrg || actionInProgress.has(`impersonate-${member.userId}`)}
+                          disabled={!canManageSelectedOrg || !hasUserId || actionInProgress.has(`impersonate-${member.userId}`)}
                           className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                          title={!hasUserId ? "Member not yet in the system" : undefined}
                         >
                           <UserCog className="size-3" />
                           {actionInProgress.has(`impersonate-${member.userId}`)
@@ -478,21 +510,19 @@ function ViewOrgPage() {
                             : "Impersonate"}
                         </Button>
                         <select
-                          value={memberTeams.get(member.userId) || "support"}
+                          value={currentRole}
                           onChange={(e) => handleChangeTeam(member.userId, e.target.value)}
-                          disabled={!canManageSelectedOrg || actionInProgress.has(`team-${member.userId}`)}
+                          disabled={!canManageSelectedOrg || !hasUserId || actionInProgress.has(`team-${member.userId}`)}
                           className="bg-surface border border-border rounded px-2 py-1 text-[11px] font-mono disabled:opacity-50"
                         >
-                          <option value="support">Support</option>
-                          <option value="admins">Admins</option>
-                          <option value="sr_admins">Sr. Admins</option>
-                          <option value="management">Management</option>
+                          <option value="org_member">Member</option>
+                          <option value="org_admin">Admin</option>
                         </select>
                         <Button
                           size="icon"
                           variant="ghost"
                           onClick={() => handleRemoveMember(member.userId)}
-                          disabled={!canManageSelectedOrg || actionInProgress.has(`remove-${member.userId}`)}
+                          disabled={!canManageSelectedOrg || !hasUserId || actionInProgress.has(`remove-${member.userId}`)}
                           className="size-7"
                         >
                           <Trash2 className="size-3.5" />

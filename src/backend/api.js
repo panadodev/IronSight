@@ -2113,7 +2113,13 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
 
   // Validate team is a valid role
   const validTeams = ["org_member", "org_admin"];
-  const mappedTeam = newTeam === "management" ? "org_admin" : "org_member";
+  // Accept both direct role IDs and legacy friendly names
+  let mappedTeam;
+  if (newTeam === "org_admin" || newTeam === "management") {
+    mappedTeam = "org_admin";
+  } else {
+    mappedTeam = "org_member";
+  }
   if (!validTeams.includes(mappedTeam)) {
     return json({ error: "Invalid team value" }, 400);
   }
@@ -2180,6 +2186,32 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   return json({ ok: true, orgId, userId });
 }
 
+async function handleGetOrgMembers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, om.role_id
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1`,
+    [orgId],
+  );
+
+  return json({
+    members: rows.map((row) => ({
+      userId: String(row.user_id),
+      username: String(row.username),
+      discordId: row.discord_id == null ? null : String(row.discord_id),
+      steamId: row.steam_id == null ? null : String(row.steam_id),
+      roleId: String(row.role_id),
+    })),
+  });
+}
+
 async function handleGetStaffAuditLog(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -2243,39 +2275,48 @@ async function handleImpersonateOrgMember(request, orgId, userId) {
     return json({ error: "Forbidden: org admin role required" }, 403);
   }
 
-  const targetUserId = userId;
-  if (!targetUserId) {
+  if (!userId) {
     return json({ error: "userId is required" }, 400);
   }
 
-  // Verify target user is a member of the organization
+  // Verify target user is a member of the organization and fetch full user data
   const memberRes = await pool.query(
-    `SELECT u.user_id, u.username FROM users u
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id
+     FROM users u
      JOIN organization_members om ON om.user_id = u.user_id
      WHERE om.org_id = $1 AND u.user_id = $2`,
-    [orgId, targetUserId],
+    [orgId, userId],
   );
 
   if (!memberRes.rows[0]) {
-    return json({
-      error: "Target user is not a member of this organization",
-    }, 404);
+    return json({ error: "Target user is not a member of this organization" }, 404);
   }
 
   const targetUser = memberRes.rows[0];
 
-  // Create impersonation session
-  const token = crypto.randomBytes(32).toString("hex");
+  // Build a full session for the target user (same as normal login)
+  const access = await loadUserAccess(targetUser.user_id);
+
   const sid = crypto.randomUUID();
+  // Use JWT just like createSessionForUser so getSession() can verify it
+  const token = jwt.sign({ sid }, env.jwtSecret, {
+    expiresIn: env.sessionTtlSeconds,
+  });
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const expiresAt = new Date(Date.now() + env.sessionTtlSeconds * 1000);
   const ipAddress = getClientIp(request);
   const userAgent = request.headers.get("user-agent") ?? "unknown";
 
-  // Create minimal session for impersonated user
   const impersonatedSession = {
-    userId: targetUser.user_id,
-    username: targetUser.username,
+    userId: String(targetUser.user_id),
+    username: String(targetUser.username),
+    discordId: targetUser.discord_id == null ? null : String(targetUser.discord_id),
+    steamId: targetUser.steam_id == null ? null : String(targetUser.steam_id),
+    groups: access.groups,
+    orgAdminOrgIds: access.orgAdminOrgIds,
+    globalAdmin: access.globalAdmin,
+    canWrite: access.canWrite,
+    // Track that this is an impersonation session
     impersonatedBy: session.userId,
     impersonatedAt: new Date().toISOString(),
   };
@@ -2313,21 +2354,17 @@ async function handleImpersonateOrgMember(request, orgId, userId) {
     metadata: {
       username: targetUser.username,
     },
-    beforeState: {
-      sessionUser: session.userId,
-    },
+    beforeState: { sessionUser: session.userId },
     afterState: {
       sessionUser: targetUser.user_id,
       impersonatedBy: session.userId,
     },
   });
 
-  // Return response with session cookie
   const response = json({
     ok: true,
     userId: targetUser.user_id,
     username: targetUser.username,
-    message: `Impersonating ${targetUser.username}`,
   });
 
   response.headers.append(
@@ -3267,6 +3304,9 @@ export async function handleApiRequest(request) {
     );
     if (orgMembersMatch && request.method === "POST") {
       return handleAddOrgMember(request, orgMembersMatch[1]);
+    }
+    if (orgMembersMatch && request.method === "GET") {
+      return handleGetOrgMembers(request, orgMembersMatch[1]);
     }
 
     const orgAdminsMatch = pathname.match(
