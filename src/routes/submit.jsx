@@ -1,21 +1,7 @@
-import { PlayerCombobox } from "@/components/player-combobox";
-import { SiteNav } from "@/components/site-nav";
-import { addAssociationReports } from "@/lib/associations";
-import { useAuth } from "@/lib/auth-context";
-import {
-  REPORT_CATEGORIES,
-  REPORT_CATEGORY_LABEL,
-  SERVERS,
-  TEAM_META,
-  TICKETS,
-  TICKET_TYPES,
-  TICKET_TYPE_ROUTING,
-  getPlayer,
-  getServerPlayers,
-} from "@/lib/mock-data";
+﻿import { SiteNav } from "@/components/site-nav";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
-import { X as XIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+
 const Route = createFileRoute("/submit")({
   validateSearch: (s) => ({
     org: typeof s.org === "string" ? s.org : void 0,
@@ -35,12 +21,121 @@ const Route = createFileRoute("/submit")({
   }),
   component: SubmitPage,
 });
-const CURRENT_USER_ID = "76561198000000002";
+
+const REPORT_CATEGORIES = [
+  { id: "cheating", label: "Cheating", blurb: "Aimbot, ESP, scripts, macros." },
+  { id: "teaming", label: "Teaming", blurb: "Group size violation / cross-team play." },
+  { id: "toxicity", label: "Toxicity", blurb: "Slurs, harassment, hate speech." },
+  { id: "other", label: "Other", blurb: "Rule break not covered above." },
+];
+
 function SubmitPage() {
-  const me = getPlayer(CURRENT_USER_ID);
   const { org: orgId } = Route.useSearch();
-  const { orgs, publicSignedIn, setPublicSignedIn } = useAuth();
-  const org = orgs.find((o) => o.id === orgId);
+  const [session, setSession] = useState(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [org, setOrg] = useState(null);
+  const [orgLoading, setOrgLoading] = useState(true);
+  const [ticketTypes, setTicketTypes] = useState([]);
+  const [selectedTypeId, setSelectedTypeId] = useState(null);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [targetSteamId, setTargetSteamId] = useState("");
+  const [reportCategory, setReportCategory] = useState("cheating");
+  const [evidence, setEvidence] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [submitted, setSubmitted] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) { setSession(data?.user ?? null); setSessionChecked(true); }
+      })
+      .catch(() => { if (!cancelled) setSessionChecked(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    Promise.all([
+      fetch("/api/orgs").then((r) => (r.ok ? r.json() : { orgs: [] })),
+      fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`).then((r) =>
+        r.ok ? r.json() : { ticketTypes: [] },
+      ),
+    ])
+      .then(([orgsBody, typesBody]) => {
+        if (cancelled) return;
+        const found = (orgsBody.orgs ?? []).find((o) => o.orgId === orgId);
+        setOrg(found ?? null);
+        setTicketTypes(typesBody.ticketTypes ?? []);
+        setOrgLoading(false);
+      })
+      .catch(() => { if (!cancelled) setOrgLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId]);
+
+  const selectedType = ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
+  const isPlayerReport = selectedType?.name?.toLowerCase().includes("report");
+
+  function startSteamAuth() {
+    const currentUrl = `/submit?org=${encodeURIComponent(orgId)}`;
+    window.location.assign(
+      `/api/auth/steam/public/start?org=${encodeURIComponent(orgId)}&next=${encodeURIComponent(currentUrl)}`,
+    );
+  }
+
+  async function handleSubmit() {
+    if (!selectedTypeId || !orgId) return;
+    let ticketTitle = title.trim();
+    let message = body.trim();
+    if (isPlayerReport) {
+      const steamId = targetSteamId.trim();
+      if (!steamId || !message) return;
+      ticketTitle = ticketTitle || `${reportCategory} \u2014 ${steamId}`;
+      const evidenceText = evidence.trim();
+      if (evidenceText) message = `${message}\n\nEvidence:\n${evidenceText}`;
+      message = `Target Steam ID: ${steamId}\nCategory: ${reportCategory}\n\n${message}`;
+    } else {
+      if (!ticketTitle || !message) return;
+    }
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/tickets", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orgId, ticketTypeId: selectedTypeId, title: ticketTitle, message }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data?.error ?? "Failed to submit ticket."); return; }
+      setSubmitted({ ticketId: data.ticketId });
+    } catch {
+      setSubmitError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function resetForm() {
+    setSubmitted(null); setSelectedTypeId(null); setTitle(""); setBody("");
+    setTargetSteamId(""); setReportCategory("cheating"); setEvidence(""); setSubmitError("");
+  }
+
+  if (!sessionChecked || orgLoading) {
+    return (
+      <div className="h-screen flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center">
+          <p className="text-sm text-muted-foreground">Loading\u2026</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!org) {
     return (
       <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
@@ -50,13 +145,9 @@ function SubmitPage() {
             <div className="rounded-lg ring-1 ring-border bg-surface/40 p-6 space-y-2">
               <h1 className="text-lg font-semibold">Organization not found</h1>
               <p className="text-sm text-muted-foreground">
-                The selected organization is not available for your current
-                session.
+                The organization "{orgId}" does not exist or is unavailable.
               </p>
-              <Link
-                to="/support"
-                className="text-sm font-semibold text-brand hover:underline"
-              >
+              <Link to="/support" className="text-sm font-semibold text-brand hover:underline">
                 Back to organization selection
               </Link>
             </div>
@@ -65,165 +156,28 @@ function SubmitPage() {
       </div>
     );
   }
-  const [type, setType] = useState(null);
-  const [category, setCategory] = useState("cheating");
-  const [serverId, setServerId] = useState(SERVERS[0].id);
-  const [subjectId, setSubjectId] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [evidence, setEvidence] = useState("");
-  const [body, setBody] = useState("");
-  const [associatedIds, setAssociatedIds] = useState([]);
-  const [submitted, setSubmitted] = useState(null);
-  const MAX_ASSOCIATED = 5;
-  const routedTeam = type ? TICKET_TYPE_ROUTING[type] : null;
-  const players = useMemo(() => getServerPlayers(serverId), [serverId]);
-  const subject = useMemo(() => {
-    if (type !== "player_report" || !subjectId) return null;
-    return getPlayer(subjectId);
-  }, [type, subjectId]);
-  const associatedPlayers = associatedIds
-    .map((id) => getPlayer(id))
-    .filter((p) => Boolean(p));
-  const canAddAssociated =
-    category === "teaming" && associatedIds.length < MAX_ASSOCIATED;
-  const associatedCandidates = players.filter(
-    (p) => p.steamId !== subjectId && !associatedIds.includes(p.steamId),
-  );
-  const existingCase = useMemo(() => {
-    if (type !== "player_report" || !subjectId) return null;
-    return (
-      TICKETS.find(
-        (t) =>
-          t.type === "player_report" &&
-          t.subjectId === subjectId &&
-          t.category === category &&
-          t.status !== "banned",
-      ) ?? null
-    );
-  }, [type, subjectId, category]);
-  const submit = () => {
-    if (!type || !routedTeam) return;
-    if (type === "player_report") {
-      if (!description.trim() || !subjectId) return;
-      const subj = getPlayer(subjectId);
-      if (category === "teaming" && subj && associatedPlayers.length > 0) {
-        addAssociationReports(
-          { steamId: subj.steamId, name: subj.name },
-          associatedPlayers.map((p) => ({ steamId: p.steamId, name: p.name })),
-        );
-      }
-      if (existingCase) {
-        const entry = {
-          id: `r_${Date.now()}`,
-          reporterId: CURRENT_USER_ID,
-          description: description.trim(),
-          evidence: evidence.trim(),
-          submittedAt: /* @__PURE__ */ new Date().toISOString(),
-          submittedLabel: "just now",
-          status: "pending",
-        };
-        existingCase.reports = [...(existingCase.reports ?? []), entry];
-        if (existingCase.status === "cleared") existingCase.status = "open";
-        setSubmitted({ ref: `#${existingCase.number}`, aggregated: true });
-        return;
-      }
-      const num2 = Math.floor(4900 + Math.random() * 1e3);
-      const newTicket2 = {
-        id: `t_${num2}`,
-        number: num2,
-        type,
-        category,
-        team: routedTeam,
-        status: "open",
-        priority: "normal",
-        title: `${REPORT_CATEGORY_LABEL[category]} \u2014 ${subj.name}`,
-        summary: description.trim().slice(0, 140),
-        createdAt: /* @__PURE__ */ new Date().toISOString(),
-        createdLabel: "just now",
-        reporterId: CURRENT_USER_ID,
-        subjectId,
-        serverId,
-        assigneeId: null,
-        restrictedRank: null,
-        messages: [],
-        reports: [
-          {
-            id: `r_${Date.now()}`,
-            reporterId: CURRENT_USER_ID,
-            description: description.trim(),
-            evidence: evidence.trim(),
-            submittedAt: /* @__PURE__ */ new Date().toISOString(),
-            submittedLabel: "just now",
-            status: "pending",
-          },
-        ],
-      };
-      TICKETS.unshift(newTicket2);
-      setSubmitted({ ref: `#${num2}`, aggregated: false });
-      return;
-    }
-    if (!body.trim() || !title.trim()) return;
-    const num = Math.floor(4900 + Math.random() * 1e3);
-    const newTicket = {
-      id: `t_${num}`,
-      number: num,
-      type,
-      team: routedTeam,
-      status: "open",
-      priority: "normal",
-      title: title.trim(),
-      summary: body.trim().slice(0, 140),
-      createdAt: /* @__PURE__ */ new Date().toISOString(),
-      createdLabel: "just now",
-      reporterId: CURRENT_USER_ID,
-      subjectId: null,
-      serverId,
-      assigneeId: null,
-      restrictedRank: null,
-      messages: [
-        {
-          authorId: CURRENT_USER_ID,
-          authorName: me.name,
-          authorKind: "reporter",
-          timestamp: /* @__PURE__ */ new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          body: body.trim(),
-        },
-      ],
-    };
-    TICKETS.unshift(newTicket);
-    setSubmitted({ ref: `#${num}`, aggregated: false });
-  };
-  if (!publicSignedIn) {
+
+  if (!session) {
     return (
       <div className="h-screen flex flex-col bg-background text-foreground">
         <SiteNav />
         <div className="flex-1 grid place-items-center p-6">
           <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 text-center">
-            <div className="size-12 mx-auto mb-4 bg-brand rounded-md grid place-items-center font-mono font-bold text-brand-foreground">
+            <div className="size-12 mx-auto mb-4 bg-brand rounded-md grid place-items-center font-mono font-bold text-brand-foreground text-lg">
               R
             </div>
-            <h1 className="text-xl font-semibold mb-2">
-              Sign in to submit a ticket
-            </h1>
+            <h1 className="text-xl font-semibold mb-2">Sign in to submit a ticket</h1>
             <p className="text-sm text-muted-foreground mb-1">
-              Filing for{" "}
-              <span className="text-foreground font-semibold">{org.name}</span>.
+              Filing for <span className="text-foreground font-semibold">{org.name}</span>.
             </p>
             <p className="text-sm text-muted-foreground mb-6">
-              We use your Steam profile to verify your in-game activity and
-              prior history.
+              We use your Steam profile to verify your in-game identity.
             </p>
             <button
-              onClick={() => setPublicSignedIn(true)}
+              onClick={startSteamAuth}
               className="w-full py-3 bg-[#171a21] hover:bg-[#1f242d] ring-1 ring-border text-white rounded-md text-sm font-semibold flex items-center justify-center gap-3 transition-colors"
             >
-              <span className="font-mono text-xs uppercase tracking-widest text-[#66c0f4]">
-                Steam
-              </span>
+              <span className="font-mono text-xs uppercase tracking-widest text-[#66c0f4]">Steam</span>
               Sign in through Steam
             </button>
           </div>
@@ -231,64 +185,55 @@ function SubmitPage() {
       </div>
     );
   }
+
   if (submitted) {
     return (
       <div className="h-screen flex flex-col bg-background text-foreground">
         <SiteNav />
         <div className="flex-1 grid place-items-center p-6">
           <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 text-center">
-            <div className="size-10 mx-auto mb-4 bg-success/10 ring-1 ring-success/30 rounded-full grid place-items-center text-success font-bold">
-              ✓
+            <div className="size-10 mx-auto mb-4 bg-success/10 ring-1 ring-success/30 rounded-full grid place-items-center text-success font-bold text-lg">
+              \u2713
             </div>
-            <h1 className="text-xl font-semibold mb-1">
-              {submitted.aggregated
-                ? "Added to existing case"
-                : "Ticket submitted"}
-            </h1>
+            <h1 className="text-xl font-semibold mb-1">Ticket submitted</h1>
             <p className="text-sm text-muted-foreground mb-2">
-              {submitted.aggregated
-                ? "Your evidence was attached to the open case "
-                : "Your ticket reference is "}
-              <span className="font-mono text-brand">{submitted.ref}</span>.
+              Your ticket reference is{" "}
+              <span className="font-mono text-brand">#{submitted.ticketId}</span>.
             </p>
             <p className="text-xs text-muted-foreground mb-6">
-              Routed to{" "}
-              <span className="text-foreground">
-                {routedTeam ? TEAM_META[routedTeam].label : ""}
-              </span>
+              Staff will review your ticket shortly. Track it in{" "}
+              <Link to="/my-reports" search={{ org: orgId }} className="text-brand underline">
+                My Tickets
+              </Link>
               .
-              {type === "player_report" ? (
-                <>
-                  {" "}
-                  Track status in{" "}
-                  <Link to="/my-reports" className="text-brand underline">
-                    My Tickets
-                  </Link>
-                  .
-                </>
-              ) : (
-                " You'll receive a Steam notification when staff reply."
-              )}
             </p>
-
-            <button
-              onClick={() => {
-                setSubmitted(null);
-                setTitle("");
-                setBody("");
-                setDescription("");
-                setEvidence("");
-                setAssociatedIds([]);
-              }}
-              className="px-4 py-2 bg-surface ring-1 ring-border rounded text-xs font-semibold uppercase tracking-wider hover:bg-surface-bright"
-            >
-              Submit another
-            </button>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={resetForm}
+                className="px-4 py-2 bg-surface ring-1 ring-border rounded text-xs font-semibold uppercase tracking-wider hover:bg-surface/80"
+              >
+                Submit another
+              </button>
+              <Link
+                to="/my-reports"
+                search={{ org: orgId }}
+                className="px-4 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider hover:opacity-90"
+              >
+                View my tickets
+              </Link>
+            </div>
           </div>
         </div>
       </div>
     );
   }
+
+  const canSubmit = (() => {
+    if (!selectedTypeId) return false;
+    if (isPlayerReport) return targetSteamId.trim().length > 0 && body.trim().length > 0;
+    return title.trim().length > 0 && body.trim().length > 0;
+  })();
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />
@@ -296,349 +241,161 @@ function SubmitPage() {
         <div className="max-w-3xl mx-auto p-8 space-y-8">
           <header>
             <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
-              {org.name} · Player Portal
+              {org.name} \u00b7 Player Portal
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Submit a ticket
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Submit a ticket</h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-prose">
-              Pick a ticket type. Reports require you to choose the server you
-              saw the player on, then pick them from the live roster.
+              Pick a ticket type and provide as much detail as possible.
             </p>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-3">
-              Filing for {org.name}
+            <p className="text-[10px] font-mono text-muted-foreground mt-1">
+              Signed in as <span className="text-foreground">{session.username}</span>
+              {session.steamId && <> \u00b7 Steam {session.steamId}</>}
             </p>
           </header>
 
-          {/* Type picker */}
           <section className="space-y-3">
             <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
               Ticket type
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              {TICKET_TYPES.map((t) => {
-                const active = type === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setType(t.id)}
-                    className={
-                      "text-left p-4 rounded-lg ring-1 transition-colors " +
-                      (active
-                        ? "bg-brand/10 ring-brand/30"
-                        : "bg-surface/40 ring-border hover:bg-surface/70")
-                    }
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <p
-                        className={
-                          "text-sm font-semibold " +
-                          (active ? "text-brand" : "text-foreground")
-                        }
-                      >
-                        {t.label}
+            {ticketTypes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No ticket types available.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {ticketTypes.map((t) => {
+                  const active = selectedTypeId === t.ticketTypeId;
+                  return (
+                    <button
+                      key={t.ticketTypeId}
+                      onClick={() => setSelectedTypeId(t.ticketTypeId)}
+                      className={
+                        "text-left p-4 rounded-lg ring-1 transition-colors " +
+                        (active ? "bg-brand/10 ring-brand/30" : "bg-surface/40 ring-border hover:bg-surface/70")
+                      }
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <p className={"text-sm font-semibold " + (active ? "text-brand" : "text-foreground")}>
+                          {t.name}
+                        </p>
+                        {active && <span className="size-1.5 rounded-full bg-brand" />}
+                      </div>
+                      <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+                        {t.description}
                       </p>
-                      {active && (
-                        <span className="size-1.5 rounded-full bg-brand" />
-                      )}
-                    </div>
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                      → {TEAM_META[TICKET_TYPE_ROUTING[t.id]].label}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
-          {/* Player report: progressive disclosure — only show next step when previous one is satisfied */}
-          {type === "player_report" && (
-            <section className="space-y-4">
-              <div className="space-y-3">
+          {selectedType && isPlayerReport && (
+            <>
+              <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step 1 · Server
+                  Step 1 \u00b7 Reported player Steam ID
                 </label>
-                <div className="grid grid-cols-1 gap-2">
-                  {SERVERS.map((s) => {
-                    const active = s.id === serverId;
+                <input
+                  type="text"
+                  value={targetSteamId}
+                  onChange={(e) => setTargetSteamId(e.target.value)}
+                  placeholder="e.g. 76561198000000000"
+                  className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Enter the Steam64 ID of the player you are reporting.
+                </p>
+              </section>
+              <section className="space-y-3">
+                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  Step 2 \u00b7 What did they do?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {REPORT_CATEGORIES.map((c) => {
+                    const active = reportCategory === c.id;
                     return (
                       <button
-                        key={s.id}
-                        onClick={() => {
-                          setServerId(s.id);
-                          setSubjectId("");
-                        }}
+                        key={c.id}
+                        onClick={() => setReportCategory(c.id)}
                         className={
-                          "text-left px-4 py-3 rounded-lg ring-1 transition-colors flex items-center justify-between " +
-                          (active
-                            ? "bg-brand/10 ring-brand/30"
-                            : "bg-surface/40 ring-border hover:bg-surface/70")
+                          "text-left p-3 rounded-lg ring-1 transition-colors " +
+                          (active ? "bg-brand/10 ring-brand/30" : "bg-surface/40 ring-border hover:bg-surface/70")
                         }
                       >
-                        <div>
-                          <p
-                            className={
-                              "text-sm font-semibold " +
-                              (active ? "text-brand" : "text-foreground")
-                            }
-                          >
-                            {s.name}
-                          </p>
-                          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                            {s.region} · {s.playerIds.length} online
-                          </p>
-                        </div>
-                        {active && (
-                          <span className="size-1.5 rounded-full bg-brand" />
-                        )}
+                        <p className={"text-sm font-semibold " + (active ? "text-brand" : "text-foreground")}>
+                          {c.label}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">{c.blurb}</p>
                       </button>
                     );
                   })}
                 </div>
-              </div>
+              </section>
+              <section className="space-y-3">
+                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  Step 3 \u00b7 Description
+                </label>
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="Describe what you saw. Include time, server, grid coords..."
+                  className="w-full h-32 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40 resize-y"
+                />
+              </section>
+              <section className="space-y-3">
+                <label className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  <span>Step 4 \u00b7 Evidence links</span>
+                  <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">optional</span>
+                </label>
+                <textarea
+                  value={evidence}
+                  onChange={(e) => setEvidence(e.target.value)}
+                  placeholder={"https://medal.tv/...\nhttps://youtu.be/..."}
+                  className="w-full h-24 bg-background border border-border rounded p-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 resize-y"
+                />
+              </section>
+            </>
+          )}
 
-              {serverId && (
-                <div className="space-y-3">
+          {selectedType && !isPlayerReport && (
+            <>
+              <section className="space-y-3">
+                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short summary of your issue..."
+                  maxLength={255}
+                  className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
+                />
+              </section>
+              {title.trim() && (
+                <section className="space-y-3">
                   <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                    Step 2 · Reported player ({players.length} online on this
-                    server)
+                    Details
                   </label>
-                  <PlayerCombobox
-                    players={players}
-                    value={subjectId}
-                    onChange={setSubjectId}
-                    placeholder="Type a name or Steam ID — or scroll the list..."
+                  <textarea
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    placeholder="Provide as much detail as possible..."
+                    className="w-full h-40 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40 resize-y"
                   />
-                  {subject && subjectId && (
-                    <div className="p-4 bg-background ring-1 ring-border rounded-md flex items-center gap-4">
-                      <div
-                        className="size-12 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0"
-                        style={{ background: subject.avatarColor }}
-                      >
-                        {subject.name
-                          .replace(/[\[\]]/g, "")
-                          .slice(0, 2)
-                          .toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">
-                          {subject.name}
-                        </p>
-                        <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
-                          Last seen {subject.lastSeen}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                </section>
               )}
-
-              {subjectId && (
-                <div className="space-y-3">
-                  <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                    Step 3 · What did they do?
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {REPORT_CATEGORIES.map((c) => {
-                      const active = category === c.id;
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => setCategory(c.id)}
-                          className={
-                            "text-left p-3 rounded-lg ring-1 transition-colors " +
-                            (active
-                              ? "bg-brand/10 ring-brand/30"
-                              : "bg-surface/40 ring-border hover:bg-surface/70")
-                          }
-                        >
-                          <p
-                            className={
-                              "text-sm font-semibold " +
-                              (active ? "text-brand" : "text-foreground")
-                            }
-                          >
-                            {c.label}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {c.blurb}
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[10px] font-mono text-muted-foreground">
-                    Each rule violation is its own ticket. Reporting the same
-                    player for cheating AND teaming creates two separate cases.
-                  </p>
-                </div>
-              )}
-            </section>
+            </>
           )}
 
-          {/* Title — non-report tickets only */}
-          {type && type !== "player_report" && (
-            <section className="space-y-3">
-              <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                Title
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Short summary..."
-                className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
-              />
-            </section>
-          )}
-
-          {type === "player_report"
-            ? subjectId &&
-              category && (
-                <>
-                  {category === "teaming" && (
-                    <section className="space-y-3">
-                      <label className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                        <span>Associated players (optional)</span>
-                        <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">
-                          up to {MAX_ASSOCIATED} · {associatedIds.length}/
-                          {MAX_ASSOCIATED}
-                        </span>
-                      </label>
-                      <p className="text-[11px] text-muted-foreground">
-                        Add anyone you saw teaming with the reported player.
-                        Each one you add is filed as being associated with this
-                        player and counted on their teaming history.
-                      </p>
-                      {associatedPlayers.length > 0 && (
-                        <ul className="space-y-1.5">
-                          {associatedPlayers.map((p) => (
-                            <li
-                              key={p.steamId}
-                              className="flex items-center gap-3 p-2 bg-background ring-1 ring-border rounded"
-                            >
-                              <div
-                                className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[10px] text-background shrink-0"
-                                style={{ background: p.avatarColor }}
-                              >
-                                {p.name
-                                  .replace(/[\[\]]/g, "")
-                                  .slice(0, 2)
-                                  .toUpperCase()}
-                              </div>
-                              <span className="text-xs font-medium truncate flex-1">
-                                {p.name}
-                              </span>
-                              <span className="text-[9px] font-mono text-muted-foreground truncate">
-                                {p.steamId}
-                              </span>
-                              <button
-                                onClick={() =>
-                                  setAssociatedIds((ids) =>
-                                    ids.filter((id) => id !== p.steamId),
-                                  )
-                                }
-                                className="text-muted-foreground hover:text-foreground shrink-0"
-                                title="Remove"
-                              >
-                                <XIcon size={14} />
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {canAddAssociated && (
-                        <div>
-                          <PlayerCombobox
-                            players={associatedCandidates}
-                            value=""
-                            onChange={(id) => {
-                              if (!id) return;
-                              setAssociatedIds((ids) =>
-                                ids.includes(id) || ids.length >= MAX_ASSOCIATED
-                                  ? ids
-                                  : [...ids, id],
-                              );
-                            }}
-                            placeholder={
-                              associatedIds.length === 0
-                                ? "Add an associated player (optional)..."
-                                : `Add another${associatedIds.length >= MAX_ASSOCIATED - 1 ? " (last one)" : ""}...`
-                            }
-                          />
-                        </div>
-                      )}
-                      {!canAddAssociated &&
-                        associatedIds.length >= MAX_ASSOCIATED && (
-                          <p className="text-[10px] font-mono text-muted-foreground">
-                            Maximum {MAX_ASSOCIATED} associated players reached.
-                          </p>
-                        )}
-                    </section>
-                  )}
-                  <section className="space-y-3">
-                    <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                      Step 4 · Description — what happened
-                    </label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Describe what you saw. Grid coordinates, time of day, weapons used, anything unusual..."
-                      className="w-full h-32 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
-                    />
-                  </section>
-                  <section className="space-y-3">
-                    <label className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                      <span>
-                        Step 5 · Evidence (links to clips, screenshots,
-                        recordings)
-                      </span>
-                      <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">
-                        optional but strongly recommended
-                      </span>
-                    </label>
-                    <textarea
-                      value={evidence}
-                      onChange={(e) => setEvidence(e.target.value)}
-                      placeholder="https://medal.tv/...&#10;https://youtu.be/...&#10;Imgur album link"
-                      className="w-full h-28 bg-background border border-border rounded p-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      Reports without evidence can be hidden by staff when
-                      reviewing — only your name stays visible in the reporter
-                      list.
-                    </p>
-                  </section>
-                </>
-              )
-            : type
-              ? title.trim() && (
-                  <section className="space-y-3">
-                    <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                      Details
-                    </label>
-                    <textarea
-                      value={body}
-                      onChange={(e) => setBody(e.target.value)}
-                      placeholder="What happened? Include grid coordinates, timestamps, links to video if you have them..."
-                      className="w-full h-40 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
-                    />
-                  </section>
-                )
-              : null}
-
-          {type && (
-            <div className="flex justify-center pt-2">
+          {selectedType && (
+            <div className="flex flex-col items-center gap-3 pt-2">
+              {submitError && <p className="text-sm text-danger">{submitError}</p>}
               <button
-                onClick={submit}
-                disabled={
-                  type === "player_report"
-                    ? !description.trim() || !subjectId
-                    : !body.trim() || !title.trim()
-                }
+                onClick={handleSubmit}
+                disabled={!canSubmit || submitting}
                 className="px-8 py-3 bg-brand text-brand-foreground text-sm font-semibold rounded-md ring-1 ring-brand hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
-                Submit ticket
+                {submitting ? "Submitting\u2026" : "Submit ticket"}
               </button>
             </div>
           )}
@@ -647,4 +404,5 @@ function SubmitPage() {
     </div>
   );
 }
+
 export { Route };

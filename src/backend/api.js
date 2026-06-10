@@ -371,6 +371,84 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)`,
   );
+
+  // ── Ticket system ──────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_types (
+      ticket_type_id SERIAL PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      ticket_type_name TEXT NOT NULL,
+      ticket_type_description TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_type_roles (
+      ticket_type_id INTEGER NOT NULL REFERENCES ticket_types(ticket_type_id) ON DELETE CASCADE,
+      role_id TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+      PRIMARY KEY (ticket_type_id, role_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tickets (
+      ticket_id SERIAL PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      ticket_type_id INTEGER REFERENCES ticket_types(ticket_type_id) ON DELETE SET NULL,
+      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      assigned_to UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      title TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      closed_at TIMESTAMPTZ,
+      CONSTRAINT chk_tickets_status CHECK (status IN ('open', 'waiting_response', 'closed')),
+      CONSTRAINT chk_tickets_priority CHECK (priority IN ('urgent', 'high', 'normal', 'low'))
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_messages (
+      message_id SERIAL PRIMARY KEY,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+      user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_audit_log (
+      audit_id SERIAL PRIMARY KEY,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+      user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      details JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_types_org_id ON ticket_types(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_tickets_org_id ON tickets(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_tickets_created_by ON tickets(created_by)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON ticket_messages(ticket_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_audit_ticket_id ON ticket_audit_log(ticket_id)`,
+  );
 }
 
 async function ensureRolePermissionSeed() {
@@ -672,6 +750,7 @@ async function init() {
     await ensureRolePermissionSeed();
     await migrateLegacyData();
     await ensureSysadminSeed();
+    await ensureTicketTypesSeed();
     await pingDependencies();
 
     initialized = true;
@@ -1439,6 +1518,8 @@ async function handleCreateOrganization(request) {
     [derivedOrgId, session.userId, SYSADMIN.sysadminRoleId],
   );
 
+  await ensureDefaultTicketTypes(derivedOrgId);
+
   return json(
     {
       ok: true,
@@ -2056,6 +2137,577 @@ async function handleUpdateRolePermissions(request, roleId) {
   }
 }
 
+// ── Default ticket types ─────────────────────────────────────────────────────
+
+const DEFAULT_TICKET_TYPES = [
+  { name: "Player Report", description: "Report a player for cheating, teaming, or other rule violations." },
+  { name: "Ban Appeal", description: "Appeal a ban or mute on this server." },
+  { name: "VIP Issue", description: "Issues related to VIP memberships or perks." },
+  { name: "General Support", description: "General questions and support requests." },
+];
+
+async function ensureDefaultTicketTypes(orgId) {
+  const existing = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM ticket_types WHERE org_id = $1`,
+    [orgId],
+  );
+  if (Number(existing.rows[0].cnt) > 0) return;
+  for (const t of DEFAULT_TICKET_TYPES) {
+    await pool.query(
+      `INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description) VALUES ($1, $2, $3)`,
+      [orgId, t.name, t.description],
+    );
+  }
+}
+
+async function ensureTicketTypesSeed() {
+  const { rows } = await pool.query(
+    `SELECT org_id FROM organizations WHERE org_id <> $1`,
+    [SYSADMIN.globalOrgId],
+  );
+  for (const row of rows) {
+    await ensureDefaultTicketTypes(String(row.org_id));
+  }
+}
+
+// ── Ticket Redis cache ────────────────────────────────────────────────────────
+
+function ticketCacheKey(ticketId) {
+  return `ticket:${ticketId}`;
+}
+
+async function cacheTicket(ticket) {
+  const key = ticketCacheKey(ticket.ticket_id);
+  let ttl;
+  if (ticket.closed_at) {
+    const expireAt = ticket.closed_at + 7 * 24 * 3600;
+    ttl = expireAt - Math.floor(Date.now() / 1000);
+  } else {
+    ttl = 30 * 24 * 3600;
+  }
+  if (ttl > 0) {
+    await redis.set(key, JSON.stringify(ticket), "EX", ttl);
+  }
+}
+
+async function getCachedTicket(ticketId) {
+  const raw = await redis.get(ticketCacheKey(ticketId));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function invalidateTicketCache(ticketId) {
+  await redis.del(ticketCacheKey(ticketId));
+}
+
+// ── Ticket DB helpers ─────────────────────────────────────────────────────────
+
+async function loadTicketFromDb(ticketId) {
+  const { rows } = await pool.query(
+    `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
+            t.status, t.priority, t.title,
+            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_at,
+            EXTRACT(EPOCH FROM t.updated_at)::BIGINT AS updated_at,
+            CASE WHEN t.closed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.closed_at)::BIGINT END AS closed_at,
+            tt.ticket_type_name,
+            creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
+            assignee.username AS assigned_to_username
+     FROM tickets t
+     LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
+     LEFT JOIN users creator ON creator.user_id = t.created_by
+     LEFT JOIN users assignee ON assignee.user_id = t.assigned_to
+     WHERE t.ticket_id = $1
+     LIMIT 1`,
+    [ticketId],
+  );
+  if (!rows[0]) return null;
+  const row = rows[0];
+  return {
+    ticket_id: Number(row.ticket_id),
+    org_id: String(row.org_id),
+    ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
+    ticket_type_name: row.ticket_type_name ?? null,
+    created_by: row.created_by ? String(row.created_by) : null,
+    created_by_username: row.created_by_username ?? null,
+    created_by_steam_id: row.created_by_steam_id ?? null,
+    assigned_to: row.assigned_to ? String(row.assigned_to) : null,
+    assigned_to_username: row.assigned_to_username ?? null,
+    status: String(row.status),
+    priority: String(row.priority),
+    title: String(row.title),
+    created_at: Number(row.created_at),
+    updated_at: Number(row.updated_at),
+    closed_at: row.closed_at ? Number(row.closed_at) : null,
+  };
+}
+
+async function loadTicketMessages(ticketId) {
+  const { rows } = await pool.query(
+    `SELECT tm.message_id, tm.ticket_id, tm.user_id, tm.message,
+            EXTRACT(EPOCH FROM tm.created_at)::BIGINT AS created_at,
+            u.username, u.steam_id
+     FROM ticket_messages tm
+     LEFT JOIN users u ON u.user_id = tm.user_id
+     WHERE tm.ticket_id = $1
+     ORDER BY tm.created_at ASC`,
+    [ticketId],
+  );
+  return rows.map((row) => ({
+    messageId: Number(row.message_id),
+    ticketId: Number(row.ticket_id),
+    userId: row.user_id ? String(row.user_id) : null,
+    username: row.username ?? null,
+    steamId: row.steam_id ?? null,
+    message: String(row.message),
+    createdAt: Number(row.created_at),
+  }));
+}
+
+// ── Public Steam auth (ticket submission, no Discord required) ────────────────
+
+async function handlePublicSteamStart(request) {
+  const url = new URL(request.url);
+  const next = sanitizeNext(url.searchParams.get("next") ?? "/support");
+  const org = String(url.searchParams.get("org") ?? "").trim();
+
+  const nonce = crypto.randomUUID();
+  await redis.set(
+    `openid:public:${nonce}`,
+    JSON.stringify({ next, org }),
+    "EX",
+    60 * 10,
+  );
+
+  const returnUrl = `${getBaseUrl(request)}/api/auth/steam/public/callback`;
+  const params = new URLSearchParams({
+    "openid.ns": "http://specs.openid.net/auth/2.0",
+    "openid.mode": "checkid_setup",
+    "openid.return_to": `${returnUrl}?nonce=${encodeURIComponent(nonce)}`,
+    "openid.realm": getSteamRealm(request),
+    "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
+    "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
+  });
+  return redirect(`${STEAM_OPENID_URL}?${params.toString()}`);
+}
+
+async function handlePublicSteamCallback(request) {
+  const url = new URL(request.url);
+  const nonce = String(url.searchParams.get("nonce") ?? "").trim();
+
+  if (!nonce) return redirect("/support?error=steam_state_invalid");
+
+  const nonceKey = `openid:public:${nonce}`;
+  const raw = await redis.get(nonceKey);
+  await redis.del(nonceKey);
+  if (!raw) return redirect("/support?error=steam_state_expired");
+
+  let nonceData;
+  try {
+    nonceData = JSON.parse(raw);
+  } catch {
+    return redirect("/support?error=steam_state_invalid");
+  }
+
+  const orgParam = String(nonceData.org ?? "").trim();
+  const next = sanitizeNext(nonceData.next ?? "/support");
+
+  try {
+    await verifySteamResponse(url.searchParams);
+    const claimedId = url.searchParams.get("openid.claimed_id") ?? "";
+    const match = claimedId.match(/\/id\/(\d+)$/);
+    if (!match) throw new Error("Steam claimed ID missing.");
+
+    const steamId = match[1];
+    const existingRes = await pool.query(
+      "SELECT user_id, username, discord_id FROM users WHERE steam_id = $1 LIMIT 1",
+      [steamId],
+    );
+
+    let user;
+    if (existingRes.rows[0]) {
+      user = {
+        userId: String(existingRes.rows[0].user_id),
+        username: String(existingRes.rows[0].username),
+        discordId: existingRes.rows[0].discord_id ? String(existingRes.rows[0].discord_id) : null,
+        steamId,
+      };
+    } else {
+      const userId = crypto.randomUUID();
+      const username = `player_${steamId.slice(-6)}`;
+      await pool.query(
+        `INSERT INTO users (user_id, username, steam_id) VALUES ($1, $2, $3)`,
+        [userId, username, steamId],
+      );
+      user = { userId, username, discordId: null, steamId };
+    }
+
+    const redirectTo = orgParam ? `/submit?org=${encodeURIComponent(orgParam)}` : next;
+    return createSessionForUser(user, {
+      redirectTo,
+      ipAddress: getClientIp(request),
+      userAgent: request.headers.get("user-agent") ?? null,
+    });
+  } catch {
+    return redirect("/support?error=steam_auth_failed");
+  }
+}
+
+// ── Public org listing ────────────────────────────────────────────────────────
+
+async function handleListOrgs() {
+  const { rows } = await pool.query(
+    `SELECT org_id, name FROM organizations WHERE org_id <> $1 ORDER BY name ASC`,
+    [SYSADMIN.globalOrgId],
+  );
+  return json({
+    orgs: rows.map((row) => {
+      const name = String(row.name);
+      const short =
+        name.split(/\s+/).filter(Boolean).map((p) => p[0]).join("").slice(0, 3).toUpperCase() ||
+        String(row.org_id).slice(0, 3).toUpperCase();
+      return { orgId: String(row.org_id), name, short };
+    }),
+  });
+}
+
+// ── Ticket type endpoints ─────────────────────────────────────────────────────
+
+async function handleListOrgTicketTypes(request, orgId) {
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT ticket_type_id, ticket_type_name, ticket_type_description
+     FROM ticket_types WHERE org_id = $1 ORDER BY ticket_type_id ASC`,
+    [orgId],
+  );
+  return json({
+    ticketTypes: rows.map((row) => ({
+      ticketTypeId: Number(row.ticket_type_id),
+      name: String(row.ticket_type_name),
+      description: String(row.ticket_type_description),
+    })),
+  });
+}
+
+// ── Ticket CRUD ───────────────────────────────────────────────────────────────
+
+async function handleCreateTicket(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const orgId = String(body?.orgId ?? "").trim();
+  const ticketTypeId = body?.ticketTypeId != null ? Number(body.ticketTypeId) : null;
+  const title = String(body?.title ?? "").trim();
+  const message = String(body?.message ?? "").trim();
+
+  if (!orgId || !title || !message) {
+    return json({ error: "orgId, title, and message are required" }, 400);
+  }
+  if (title.length > 255) return json({ error: "title must be 255 characters or fewer" }, 400);
+  if (message.length > 10000) return json({ error: "message is too long" }, 400);
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  if (ticketTypeId !== null) {
+    const typeRes = await pool.query(
+      "SELECT ticket_type_id FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1",
+      [ticketTypeId, orgId],
+    );
+    if (!typeRes.rows[0]) return json({ error: "Ticket type not found for this organization" }, 400);
+  }
+
+  const result = await pool.query(
+    `INSERT INTO tickets (org_id, ticket_type_id, created_by, title)
+     VALUES ($1, $2, $3, $4)
+     RETURNING ticket_id`,
+    [orgId, ticketTypeId, session.userId, title],
+  );
+  const ticketId = Number(result.rows[0].ticket_id);
+
+  await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
+    [ticketId, session.userId, message],
+  );
+  await pool.query(
+    `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
+    [ticketId, session.userId, "created", JSON.stringify({ title, orgId, ticketTypeId })],
+  );
+
+  const ticket = await loadTicketFromDb(ticketId);
+  if (ticket) await cacheTicket(ticket);
+
+  return json({ ok: true, ticketId }, 201);
+}
+
+async function handleGetTicket(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+
+  let ticket = await getCachedTicket(id);
+  if (!ticket) {
+    ticket = await loadTicketFromDb(id);
+    if (!ticket) return json({ error: "Ticket not found" }, 404);
+    await cacheTicket(ticket);
+  }
+
+  if (ticket.created_by !== session.userId) {
+    const isMember = await pool.query(
+      "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+      [ticket.org_id, session.userId],
+    );
+    if (!isMember.rows[0] && !isGlobalAdmin(session)) {
+      return json({ error: "Forbidden" }, 403);
+    }
+  }
+
+  const messages = await loadTicketMessages(id);
+  return json({ ticket, messages });
+}
+
+async function handleAddTicketMessage(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const message = String(body?.message ?? "").trim();
+  if (!message) return json({ error: "message is required" }, 400);
+  if (message.length > 10000) return json({ error: "message is too long" }, 400);
+
+  const ticket = await loadTicketFromDb(id);
+  if (!ticket) return json({ error: "Ticket not found" }, 404);
+  if (ticket.status === "closed") return json({ error: "Cannot add messages to a closed ticket" }, 400);
+
+  const isCreator = ticket.created_by === session.userId;
+  if (!isCreator) {
+    const isMember = await pool.query(
+      "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+      [ticket.org_id, session.userId],
+    );
+    if (!isMember.rows[0] && !isGlobalAdmin(session)) return json({ error: "Forbidden" }, 403);
+  }
+
+  await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
+    [id, session.userId, message],
+  );
+
+  if (isCreator && ticket.status === "waiting_response") {
+    await pool.query(
+      `UPDATE tickets SET status = 'open', updated_at = NOW() WHERE ticket_id = $1`,
+      [id],
+    );
+  } else {
+    await pool.query(
+      `UPDATE tickets SET updated_at = NOW() WHERE ticket_id = $1`,
+      [id],
+    );
+  }
+
+  await invalidateTicketCache(id);
+  const updated = await loadTicketFromDb(id);
+  if (updated) await cacheTicket(updated);
+
+  return json({ ok: true });
+}
+
+async function handleUpdateTicket(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+
+  const ticket = await loadTicketFromDb(id);
+  if (!ticket) return json({ error: "Ticket not found" }, 404);
+
+  const isMember = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [ticket.org_id, session.userId],
+  );
+  if (!isMember.rows[0] && !isGlobalAdmin(session)) {
+    return json({ error: "Forbidden: org membership required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const status = body?.status == null ? null : String(body.status).trim();
+  const priority = body?.priority == null ? null : String(body.priority).trim();
+  const hasAssigned = Object.prototype.hasOwnProperty.call(body ?? {}, "assignedTo");
+  const assignedTo = hasAssigned ? (body.assignedTo == null ? null : String(body.assignedTo)) : undefined;
+
+  if (status && !["open", "waiting_response", "closed"].includes(status)) {
+    return json({ error: "Invalid status" }, 400);
+  }
+  if (priority && !["urgent", "high", "normal", "low"].includes(priority)) {
+    return json({ error: "Invalid priority" }, 400);
+  }
+
+  const setClauses = ["updated_at = NOW()"];
+  const values = [];
+  let idx = 1;
+
+  if (status !== null) { setClauses.push(`status = $${idx++}`); values.push(status); }
+  if (priority !== null) { setClauses.push(`priority = $${idx++}`); values.push(priority); }
+  if (assignedTo !== undefined) { setClauses.push(`assigned_to = $${idx++}`); values.push(assignedTo); }
+  if (status === "closed") { setClauses.push("closed_at = NOW()"); }
+  else if (status && status !== "closed" && ticket.status === "closed") { setClauses.push("closed_at = NULL"); }
+
+  if (setClauses.length === 1) return json({ error: "No fields to update" }, 400);
+
+  values.push(id);
+  await pool.query(
+    `UPDATE tickets SET ${setClauses.join(", ")} WHERE ticket_id = $${idx}`,
+    values,
+  );
+
+  await pool.query(
+    `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
+    [id, session.userId, "updated", JSON.stringify({ status, priority, assignedTo })],
+  );
+
+  await invalidateTicketCache(id);
+  const updated = await loadTicketFromDb(id);
+  if (updated) await cacheTicket(updated);
+
+  return json({ ok: true });
+}
+
+async function handleListOrgTickets(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const isMember = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [orgId, session.userId],
+  );
+  if (!isMember.rows[0] && !isGlobalAdmin(session)) return json({ error: "Forbidden" }, 403);
+
+  const url = new URL(request.url);
+  const statusFilter = url.searchParams.get("status");
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+  const offset = Number(url.searchParams.get("offset") ?? 0);
+
+  const conditions = ["t.org_id = $1"];
+  const values = [orgId];
+  let idx = 2;
+
+  if (statusFilter) { conditions.push(`t.status = $${idx++}`); values.push(statusFilter); }
+  values.push(limit, offset);
+
+  const { rows } = await pool.query(
+    `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
+            t.status, t.priority, t.title,
+            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_at,
+            EXTRACT(EPOCH FROM t.updated_at)::BIGINT AS updated_at,
+            CASE WHEN t.closed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.closed_at)::BIGINT END AS closed_at,
+            tt.ticket_type_name,
+            creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
+            assignee.username AS assigned_to_username
+     FROM tickets t
+     LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
+     LEFT JOIN users creator ON creator.user_id = t.created_by
+     LEFT JOIN users assignee ON assignee.user_id = t.assigned_to
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY t.created_at DESC
+     LIMIT $${idx++} OFFSET $${idx}`,
+    values,
+  );
+
+  return json({
+    tickets: rows.map((row) => ({
+      ticket_id: Number(row.ticket_id),
+      org_id: String(row.org_id),
+      ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
+      ticket_type_name: row.ticket_type_name ?? null,
+      created_by: row.created_by ? String(row.created_by) : null,
+      created_by_username: row.created_by_username ?? null,
+      created_by_steam_id: row.created_by_steam_id ?? null,
+      assigned_to: row.assigned_to ? String(row.assigned_to) : null,
+      assigned_to_username: row.assigned_to_username ?? null,
+      status: String(row.status),
+      priority: String(row.priority),
+      title: String(row.title),
+      created_at: Number(row.created_at),
+      updated_at: Number(row.updated_at),
+      closed_at: row.closed_at ? Number(row.closed_at) : null,
+    })),
+  });
+}
+
+async function handleListMyTickets(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const { rows } = await pool.query(
+    `SELECT t.ticket_id, t.org_id, t.ticket_type_id,
+            t.status, t.priority, t.title,
+            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_at,
+            EXTRACT(EPOCH FROM t.updated_at)::BIGINT AS updated_at,
+            CASE WHEN t.closed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.closed_at)::BIGINT END AS closed_at,
+            tt.ticket_type_name,
+            o.name AS org_name
+     FROM tickets t
+     LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
+     LEFT JOIN organizations o ON o.org_id = t.org_id
+     WHERE t.created_by = $1
+     ORDER BY t.created_at DESC
+     LIMIT 100`,
+    [session.userId],
+  );
+
+  return json({
+    tickets: rows.map((row) => ({
+      ticket_id: Number(row.ticket_id),
+      org_id: String(row.org_id),
+      org_name: row.org_name ?? null,
+      ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
+      ticket_type_name: row.ticket_type_name ?? null,
+      status: String(row.status),
+      priority: String(row.priority),
+      title: String(row.title),
+      created_at: Number(row.created_at),
+      updated_at: Number(row.updated_at),
+      closed_at: row.closed_at ? Number(row.closed_at) : null,
+    })),
+  });
+}
+
 export async function initializeInfra() {
   try {
     await init();
@@ -2116,8 +2768,29 @@ export async function handleApiRequest(request) {
       return handleCreateTodo(request);
     }
 
+    // Public org listing and ticket type listing
+    if (pathname === "/api/orgs" && request.method === "GET") {
+      return handleListOrgs();
+    }
+
     if (pathname === "/api/orgs" && request.method === "POST") {
       return handleCreateOrganization(request);
+    }
+
+    // Public Steam auth for ticket submission
+    if (pathname === "/api/auth/steam/public/start" && request.method === "GET") {
+      return handlePublicSteamStart(request);
+    }
+    if (pathname === "/api/auth/steam/public/callback" && request.method === "GET") {
+      return handlePublicSteamCallback(request);
+    }
+
+    // Ticket routes
+    if (pathname === "/api/tickets" && request.method === "POST") {
+      return handleCreateTicket(request);
+    }
+    if (pathname === "/api/tickets/mine" && request.method === "GET") {
+      return handleListMyTickets(request);
     }
 
     const todoMatch = pathname.match(/^\/api\/todo\/([a-zA-Z0-9-]+)$/);
@@ -2126,6 +2799,19 @@ export async function handleApiRequest(request) {
     }
     if (todoMatch && request.method === "DELETE") {
       return handleDeleteTodo(request, todoMatch[1]);
+    }
+
+    const ticketMatch = pathname.match(/^\/api\/tickets\/(\d+)$/);
+    if (ticketMatch && request.method === "GET") {
+      return handleGetTicket(request, ticketMatch[1]);
+    }
+    if (ticketMatch && request.method === "PATCH") {
+      return handleUpdateTicket(request, ticketMatch[1]);
+    }
+
+    const ticketMessagesMatch = pathname.match(/^\/api\/tickets\/(\d+)\/messages$/);
+    if (ticketMessagesMatch && request.method === "POST") {
+      return handleAddTicketMessage(request, ticketMessagesMatch[1]);
     }
 
     const orgMembersMatch = pathname.match(
@@ -2140,6 +2826,16 @@ export async function handleApiRequest(request) {
     );
     if (orgAdminsMatch && request.method === "POST") {
       return handleGrantOrgAdmin(request, orgAdminsMatch[1]);
+    }
+
+    const orgTicketTypesMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types$/);
+    if (orgTicketTypesMatch && request.method === "GET") {
+      return handleListOrgTicketTypes(request, orgTicketTypesMatch[1]);
+    }
+
+    const orgTicketsMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/tickets$/);
+    if (orgTicketsMatch && request.method === "GET") {
+      return handleListOrgTickets(request, orgTicketsMatch[1]);
     }
 
     const orgDetailsMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)$/);

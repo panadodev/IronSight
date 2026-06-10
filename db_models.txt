@@ -60,3 +60,55 @@ todos
 - created_at
 - updated_at
 - completed_at
+
+(Redis Cached)
+Example:
+{
+  "ticket_id": 1001,
+  "org_id": 456,
+  "ticket_type_id": 2,
+  "created_by": 123,
+  "assigned_to": 124,
+  "status": "open",
+  "title": "Ban Appeal",
+  "created_at": 1752140800
+}
+
+Postgresql:
+
+ticket_id (pk)
+- org_id
+- ticket_type_id
+- created_by
+- assigned_to (nullable)
+- status
+- priority
+- title
+- created_at
+- updated_at
+- losed_at (nullable)
+
+ticket_messages
+- message_id (pk)
+- ticket_id
+- user_id
+- message
+- created_at
+
+ticket_types
+- ticket_type_id (pk)
+- org_id
+- ticket_type_name
+- ticket_type_description
+
+ticket_type_roles
+- ticket_type_id
+- role_id
+
+ticket_audit_log
+- audit_id
+- ticket_id
+- user_id
+- action
+- details
+- created_at

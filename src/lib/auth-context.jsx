@@ -38,6 +38,7 @@ function AuthProvider({ children }) {
   const [activeStaffId, setActiveStaffId] = useState(REAL_STAFF_ID);
   const [selectedOrgIds, setSelectedOrgIds] = useState([]);
   const [publicSignedIn, setPublicSignedIn] = useState(false);
+  const [orgsLoaded, setOrgsLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +48,10 @@ function AuthProvider({ children }) {
         const res = await fetch("/api/todo/bootstrap", {
           credentials: "include",
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setOrgsLoaded(true);
+          return;
+        }
 
         const body = await res.json();
         if (cancelled) return;
@@ -80,7 +84,10 @@ function AuthProvider({ children }) {
             return filtered.length > 0 ? filtered : nextOrgs.map((o) => o.id);
           });
         }
-      } catch {}
+        setOrgsLoaded(true);
+      } catch {
+        if (!cancelled) setOrgsLoaded(true);
+      }
     }
 
     loadCurrentOrgs();
@@ -544,6 +551,7 @@ function AuthProvider({ children }) {
       hasStaffAccount,
       publicSignedIn,
       setPublicSignedIn,
+      orgsLoaded,
       profile,
       updateProfile,
       staff,
@@ -567,6 +575,7 @@ function AuthProvider({ children }) {
       activeStaffId,
       selectedOrgIds,
       publicSignedIn,
+      orgsLoaded,
       profile,
       orgMembers,
       orgToxicity,
@@ -598,11 +607,12 @@ function useAuth() {
   return ctx;
 }
 export {
-  AuthProvider,
-  BAN_CATEGORIES,
-  BAN_CATEGORY_LABEL,
-  ORGS,
-  TICKET_TYPE_KEYS,
-  TICKET_TYPE_LABELS,
-  useAuth,
+    AuthProvider,
+    BAN_CATEGORIES,
+    BAN_CATEGORY_LABEL,
+    ORGS,
+    TICKET_TYPE_KEYS,
+    TICKET_TYPE_LABELS,
+    useAuth
 };
+

@@ -1,18 +1,18 @@
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
 } from "@/components/ui/popover";
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
@@ -21,7 +21,7 @@ import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META, TICKETS } from "@/lib/mock-data";
 import { useTodos } from "@/lib/todo-store";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown } from "lucide-react";
+import { Building2, Check, ChevronDown, Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 function SiteNav() {
   const { location } = useRouterState();
@@ -535,6 +535,21 @@ function SiteNav() {
                 {publicSignedIn ? "Public View" : "Not signed in"}
               </span>
             </button>
+          )}
+
+          {/* Staff login icon — visible when no staff session exists */}
+          {!sessionUser && (
+            <Link
+              to="/login"
+              search={{ next: "/" }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-muted-foreground hover:text-foreground hover:bg-surface/50 rounded-md transition-colors"
+              title="Staff login"
+            >
+              <Lock className="size-3.5 shrink-0" />
+              <span className="text-[10px] font-mono uppercase tracking-widest">
+                Staff Login
+              </span>
+            </Link>
           )}
         </div>
       </aside>

@@ -1,443 +1,350 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { SiteNav } from "@/components/site-nav";
-import {
-  TICKETS,
-  TICKET_TYPES,
-  getPlayer,
-  REPORT_CATEGORY_LABEL,
-} from "@/lib/mock-data";
+﻿import { SiteNav } from "@/components/site-nav";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+
 const Route = createFileRoute("/my-reports")({
   validateSearch: (s) => ({
     org: typeof s.org === "string" ? s.org : void 0,
+    ticket: typeof s.ticket === "number" ? s.ticket : void 0,
   }),
   head: () => ({
     meta: [
       { title: "My Tickets" },
       {
         name: "description",
-        content:
-          "Chat with staff on your tickets and track the status of players you've reported.",
+        content: "Chat with staff on your tickets and track their status.",
       },
     ],
   }),
   component: MyTicketsPage,
 });
-const CURRENT_USER_ID = "76561198000000002";
+
 const STATUS_TONE = {
-  pending: "text-warning ring-warning/30 bg-warning/10",
-  case_closed: "text-muted-foreground ring-border bg-surface",
-  banned: "text-danger ring-danger/30 bg-danger/10",
+  open: "text-brand ring-brand/30 bg-brand/10",
+  waiting_response: "text-warning ring-warning/30 bg-warning/10",
+  closed: "text-muted-foreground ring-border bg-surface",
 };
 const STATUS_LABEL = {
-  pending: "Pending",
-  case_closed: "Case closed",
-  banned: "Banned",
+  open: "Open",
+  waiting_response: "Waiting for you",
+  closed: "Closed",
 };
-const STATUS_BLURB = {
-  pending:
-    "Staff are actively investigating. We'll update you when there's a verdict.",
-  case_closed:
-    "We're no longer actively investigating this report. If you have more proof, send it and we'll reopen your case.",
-  banned:
-    "We banned the player you reported. Thanks for keeping the server clean.",
+const PRIORITY_TONE = {
+  urgent: "text-danger",
+  high: "text-warning",
+  normal: "text-muted-foreground",
+  low: "text-muted-foreground/60",
 };
-const TICKET_TYPE_LABEL = Object.fromEntries(
-  TICKET_TYPES.map((t) => [t.id, t.label]),
-);
-const ORG_ROTATION = ["builders_sanctuary", "willjums"];
-const orgForTicket = (number) => ORG_ROTATION[number % ORG_ROTATION.length];
+
+function timeAgo(unixTs) {
+  const diff = Math.floor(Date.now() / 1000) - unixTs;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 function MyTicketsPage() {
-  const { org: orgId } = Route.useSearch();
-  const me = getPlayer(CURRENT_USER_ID);
-  const [tab, setTab] = useState("tickets");
-  const [tickets, setTickets] = useState(TICKETS);
-  const [expanded, setExpanded] = useState(null);
+  const { ticket: openTicketId } = Route.useSearch();
+
+  const [session, setSession] = useState(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [tickets, setTickets] = useState([]);
+  const [ticketsLoaded, setTicketsLoaded] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState(openTicketId ?? null);
+  const [ticketDetail, setTicketDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [draft, setDraft] = useState("");
-  const [reply, setReply] = useState({});
-  const scoped = useMemo(
-    () =>
-      orgId ? tickets.filter((t) => orgForTicket(t.number) === orgId) : tickets,
-    [tickets, orgId],
-  );
-  const reportRows = useMemo(() => {
-    const out = [];
-    for (const t of scoped) {
-      if (t.type !== "player_report" || !t.reports || !t.subjectId) continue;
-      for (const r of t.reports) {
-        if (r.reporterId === CURRENT_USER_ID) {
-          out.push({
-            ticketId: t.id,
-            number: t.number,
-            subjectId: t.subjectId,
-            category: t.category,
-            entry: r,
-          });
-        }
-      }
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+
+  // Load session
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) { setSession(data?.user ?? null); setSessionChecked(true); }
+      })
+      .catch(() => { if (!cancelled) setSessionChecked(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load ticket list
+  useEffect(() => {
+    if (!sessionChecked || !session) return;
+    let cancelled = false;
+    fetch("/api/tickets/mine", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { tickets: [] }))
+      .then((data) => {
+        if (!cancelled) { setTickets(data.tickets ?? []); setTicketsLoaded(true); }
+      })
+      .catch(() => { if (!cancelled) setTicketsLoaded(true); });
+    return () => { cancelled = true; };
+  }, [sessionChecked, session]);
+
+  // Load ticket detail when selectedTicket changes
+  useEffect(() => {
+    if (!selectedTicket) { setTicketDetail(null); return; }
+    let cancelled = false;
+    setDetailLoading(true);
+    setTicketDetail(null);
+    fetch(`/api/tickets/${selectedTicket}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) { setTicketDetail(data); setDetailLoading(false); }
+      })
+      .catch(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedTicket]);
+
+  async function sendReply() {
+    if (!draft.trim() || !selectedTicket) return;
+    setSending(true);
+    setSendError("");
+    try {
+      const res = await fetch(`/api/tickets/${selectedTicket}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: draft.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSendError(data?.error ?? "Failed to send."); return; }
+      setDraft("");
+      // Reload detail
+      const detail = await fetch(`/api/tickets/${selectedTicket}`, { credentials: "include" });
+      if (detail.ok) setTicketDetail(await detail.json());
+      // Refresh list
+      const list = await fetch("/api/tickets/mine", { credentials: "include" });
+      if (list.ok) { const body = await list.json(); setTickets(body.tickets ?? []); }
+    } catch {
+      setSendError("Network error.");
+    } finally {
+      setSending(false);
     }
-    return out.sort((a, b) =>
-      b.entry.submittedAt.localeCompare(a.entry.submittedAt),
+  }
+
+  if (!sessionChecked) {
+    return (
+      <div className="h-screen flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center">
+          <p className="text-sm text-muted-foreground">Loading\u2026</p>
+        </div>
+      </div>
     );
-  }, [scoped]);
-  const myTickets = useMemo(
-    () =>
-      scoped.filter(
-        (t) => t.type !== "player_report" && t.reporterId === CURRENT_USER_ID,
-      ),
-    [scoped],
-  );
-  const addProof = (row) => {
-    if (!draft.trim()) return;
-    setTickets((all) =>
-      all.map((t) => {
-        if (t.id !== row.ticketId || !t.reports) return t;
-        return {
-          ...t,
-          status: t.status === "cleared" ? "open" : t.status,
-          reports: t.reports.map((r) =>
-            r.id === row.entry.id
-              ? {
-                  ...r,
-                  status: r.status === "banned" ? "banned" : "pending",
-                  evidence:
-                    r.evidence.trim().length > 0
-                      ? r.evidence + "\n\u2014 Update \u2014\n" + draft.trim()
-                      : draft.trim(),
-                  submittedLabel: "just now",
-                }
-              : r,
-          ),
-        };
-      }),
+  }
+
+  if (!session) {
+    return (
+      <div className="h-screen flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center p-6">
+          <div className="text-center max-w-sm">
+            <h1 className="text-xl font-semibold mb-2">Sign in to view your tickets</h1>
+            <p className="text-sm text-muted-foreground mb-6">
+              You need to be signed in to see your tickets.
+            </p>
+            <Link to="/support" className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold">
+              Go to Support
+            </Link>
+          </div>
+        </div>
+      </div>
     );
-    setDraft("");
-    setExpanded(null);
-  };
-  const sendReply = (ticketId) => {
-    const body = (reply[ticketId] ?? "").trim();
-    if (!body) return;
-    const msg = {
-      authorId: CURRENT_USER_ID,
-      authorName: me.name,
-      authorKind: "reporter",
-      timestamp: "just now",
-      body,
-    };
-    const shared = TICKETS.find((t) => t.id === ticketId);
-    if (shared) shared.messages = [...shared.messages, msg];
-    setTickets((all) =>
-      all.map((t) =>
-        t.id === ticketId ? { ...t, messages: [...t.messages, msg] } : t,
-      ),
-    );
-    setReply((r) => ({ ...r, [ticketId]: "" }));
-  };
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />
-      <main className="flex-1">
-        <div className="max-w-3xl mx-auto p-8 space-y-6">
-          <header>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+      <main className="flex-1 overflow-hidden flex">
+        {/* Ticket list */}
+        <div className="w-80 shrink-0 border-r border-border flex flex-col">
+          <div className="p-4 border-b border-border">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-1">
               Player Portal
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              My Tickets
-            </h1>
-            <p className="text-sm text-muted-foreground mt-2 max-w-prose">
-              Signed in as <span className="text-foreground">{me.name}</span>.
+            <h1 className="text-lg font-semibold">My Tickets</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {session.username}
+              {session.steamId && <> \u00b7 {session.steamId}</>}
             </p>
-          </header>
-
-          {/* Tabs */}
-          <div className="flex gap-1 border-b border-border">
-            {["tickets", "reports"].map((id) => {
-              const active = tab === id;
-              const count =
-                id === "tickets" ? myTickets.length : reportRows.length;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setTab(id)}
-                  className={
-                    "px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 -mb-px transition-colors " +
-                    (active
-                      ? "border-brand text-brand"
-                      : "border-transparent text-muted-foreground hover:text-foreground")
-                  }
-                >
-                  {id === "tickets" ? "Tickets" : "Player Reports"}
-                  <span className="ml-2 text-[10px] font-mono opacity-70">
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
           </div>
 
-          {tab === "tickets" &&
-            (myTickets.length === 0 ? (
-              <div className="bg-surface/40 ring-1 ring-border rounded-lg p-8 text-center">
-                <p className="text-sm text-muted-foreground mb-4">
-                  You haven't opened any tickets yet.
-                </p>
+          <div className="flex-1 overflow-y-auto">
+            {!ticketsLoaded ? (
+              <div className="p-4">
+                <p className="text-sm text-muted-foreground">Loading\u2026</p>
+              </div>
+            ) : tickets.length === 0 ? (
+              <div className="p-6 text-center space-y-4">
+                <p className="text-sm text-muted-foreground">You have no tickets yet.</p>
                 <Link
-                  to="/submit"
+                  to="/support"
                   className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider"
                 >
-                  Open a ticket
+                  Submit a ticket
                 </Link>
               </div>
             ) : (
-              <ul className="space-y-3">
-                {myTickets.map((t) => {
-                  const open = expanded === t.id;
-                  const closed =
-                    t.status === "closed" || t.status === "resolved";
+              <ul className="divide-y divide-border">
+                {tickets.map((t) => {
+                  const active = selectedTicket === t.ticket_id;
                   return (
-                    <li
-                      key={t.id}
-                      className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden"
-                    >
+                    <li key={t.ticket_id}>
                       <button
-                        onClick={() => setExpanded(open ? null : t.id)}
-                        className="w-full p-4 flex items-center gap-4 text-left hover:bg-surface/60"
+                        onClick={() => setSelectedTicket(t.ticket_id)}
+                        className={
+                          "w-full text-left px-4 py-3 transition-colors " +
+                          (active ? "bg-surface" : "hover:bg-surface/50")
+                        }
                       >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold truncate">
-                              {t.title}
-                            </p>
-                            <span className="text-[10px] font-mono text-muted-foreground">
-                              #{t.number}
-                            </span>
-                          </div>
-                          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                            {TICKET_TYPE_LABEL[t.type]} · opened{" "}
-                            {t.createdLabel}
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <p className="text-sm font-medium truncate flex-1">{t.title}</p>
+                          <span
+                            className={
+                              "shrink-0 text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
+                              (STATUS_TONE[t.status] ?? "text-muted-foreground ring-border bg-surface")
+                            }
+                          >
+                            {STATUS_LABEL[t.status] ?? t.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] font-mono text-muted-foreground truncate">
+                            {t.ticket_type_name ?? "Ticket"} \u00b7 {t.org_name ?? t.org_id}
+                          </p>
+                          <p className="text-[10px] font-mono text-muted-foreground ml-auto shrink-0">
+                            {timeAgo(t.updated_at)}
                           </p>
                         </div>
-                        <span
-                          className={
-                            "text-[10px] font-bold uppercase tracking-wider ring-1 rounded px-2 py-0.5 " +
-                            (closed
-                              ? "text-muted-foreground ring-border bg-surface"
-                              : "text-success ring-success/30 bg-success/10")
-                          }
-                        >
-                          {closed ? "Closed" : "Active"}
-                        </span>
                       </button>
-                      {open && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background/40">
-                          <div className="space-y-2 pt-4">
-                            {t.messages.length === 0 && (
-                              <p className="text-xs italic text-muted-foreground">
-                                No replies yet — staff will respond here.
-                              </p>
-                            )}
-                            {t.messages.map((m, i) => {
-                              const mine =
-                                m.authorKind === "reporter" &&
-                                m.authorId === CURRENT_USER_ID;
-                              return (
-                                <div
-                                  key={i}
-                                  className={
-                                    "rounded-md p-3 ring-1 " +
-                                    (m.authorKind === "system"
-                                      ? "bg-surface/40 ring-border text-muted-foreground"
-                                      : mine
-                                        ? "bg-brand/10 ring-brand/20"
-                                        : "bg-surface/60 ring-border")
-                                  }
-                                >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <p className="text-[10px] font-mono uppercase tracking-wider">
-                                      <span
-                                        className={
-                                          m.authorKind === "staff"
-                                            ? "text-brand"
-                                            : mine
-                                              ? "text-foreground"
-                                              : "text-muted-foreground"
-                                        }
-                                      >
-                                        {m.authorName}
-                                      </span>
-                                      {m.authorKind === "staff" && (
-                                        <span className="ml-2 text-muted-foreground">
-                                          Staff
-                                        </span>
-                                      )}
-                                    </p>
-                                    <span className="text-[10px] font-mono text-muted-foreground">
-                                      {m.timestamp}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm whitespace-pre-line leading-relaxed">
-                                    {m.body}
-                                  </p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {!closed && (
-                            <div className="space-y-2">
-                              <textarea
-                                value={reply[t.id] ?? ""}
-                                onChange={(e) =>
-                                  setReply((r) => ({
-                                    ...r,
-                                    [t.id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Reply to staff..."
-                                className="w-full h-20 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
-                              />
-                              <div className="flex justify-end">
-                                <button
-                                  onClick={() => sendReply(t.id)}
-                                  disabled={!(reply[t.id] ?? "").trim()}
-                                  className="px-4 py-2 bg-brand text-brand-foreground text-xs font-semibold rounded uppercase tracking-wider disabled:opacity-40"
-                                >
-                                  Send reply
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </li>
                   );
                 })}
               </ul>
-            ))}
+            )}
+          </div>
 
-          {tab === "reports" && (
+          <div className="p-3 border-t border-border">
+            <Link
+              to="/support"
+              className="w-full flex items-center justify-center px-3 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider hover:opacity-90"
+            >
+              New ticket
+            </Link>
+          </div>
+        </div>
+
+        {/* Ticket detail */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {!selectedTicket ? (
+            <div className="flex-1 grid place-items-center">
+              <p className="text-sm text-muted-foreground">Select a ticket to view it.</p>
+            </div>
+          ) : detailLoading ? (
+            <div className="flex-1 grid place-items-center">
+              <p className="text-sm text-muted-foreground">Loading\u2026</p>
+            </div>
+          ) : !ticketDetail ? (
+            <div className="flex-1 grid place-items-center">
+              <p className="text-sm text-muted-foreground">Failed to load ticket.</p>
+            </div>
+          ) : (
             <>
-              <p className="text-xs text-muted-foreground -mt-2">
-                Reports never open a direct chat — but you can attach more proof
-                to any pending or closed case.
-              </p>
-              {reportRows.length === 0 ? (
-                <div className="bg-surface/40 ring-1 ring-border rounded-lg p-8 text-center">
-                  <p className="text-sm text-muted-foreground mb-4">
-                    You haven't reported any players yet.
-                  </p>
-                  <Link
-                    to="/submit"
-                    className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider"
-                  >
-                    Report a player
-                  </Link>
+              {/* Header */}
+              <div className="p-4 border-b border-border shrink-0">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-mono text-muted-foreground mb-0.5">
+                      #{ticketDetail.ticket.ticket_id} \u00b7 {ticketDetail.ticket.ticket_type_name ?? "Ticket"} \u00b7 {ticketDetail.ticket.org_id}
+                    </p>
+                    <h2 className="text-base font-semibold truncate">{ticketDetail.ticket.title}</h2>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={
+                        "text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
+                        (STATUS_TONE[ticketDetail.ticket.status] ?? "text-muted-foreground ring-border bg-surface")
+                      }
+                    >
+                      {STATUS_LABEL[ticketDetail.ticket.status] ?? ticketDetail.ticket.status}
+                    </span>
+                    <span
+                      className={
+                        "text-[9px] font-mono uppercase tracking-widest " +
+                        (PRIORITY_TONE[ticketDetail.ticket.priority] ?? "text-muted-foreground")
+                      }
+                    >
+                      {ticketDetail.ticket.priority}
+                    </span>
+                  </div>
                 </div>
-              ) : (
-                <ul className="space-y-3">
-                  {reportRows.map((row) => {
-                    const subject = getPlayer(row.subjectId);
-                    const open = expanded === row.entry.id;
-                    return (
-                      <li
-                        key={row.entry.id}
-                        className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden"
+                {ticketDetail.ticket.assigned_to_username && (
+                  <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Assigned to: {ticketDetail.ticket.assigned_to_username}
+                  </p>
+                )}
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {ticketDetail.messages.map((msg) => {
+                  const isMe = msg.userId === session.userId;
+                  return (
+                    <div key={msg.messageId} className={isMe ? "flex justify-end" : "flex justify-start"}>
+                      <div
+                        className={
+                          "max-w-xl rounded-lg px-4 py-3 " +
+                          (isMe
+                            ? "bg-brand/10 ring-1 ring-brand/20"
+                            : "bg-surface/60 ring-1 ring-border")
+                        }
                       >
-                        <button
-                          onClick={() =>
-                            setExpanded(open ? null : row.entry.id)
-                          }
-                          className="w-full p-4 flex items-center gap-4 text-left hover:bg-surface/60"
-                        >
-                          <div
-                            className="size-10 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0"
-                            style={{ background: subject.avatarColor }}
-                          >
-                            {subject.name
-                              .replace(/[\[\]]/g, "")
-                              .slice(0, 2)
-                              .toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold truncate">
-                                {subject.name}
-                              </p>
-                              {row.category && (
-                                <span className="text-[10px] font-mono uppercase tracking-wider ring-1 rounded px-1.5 py-0.5 bg-surface ring-border text-muted-foreground">
-                                  {REPORT_CATEGORY_LABEL[row.category]}
-                                </span>
-                              )}
-                              <span className="text-[10px] font-mono text-muted-foreground">
-                                #{row.number}
-                              </span>
-                            </div>
-                            <p className="text-[10px] font-mono text-muted-foreground">
-                              Submitted {row.entry.submittedLabel}
-                            </p>
-                          </div>
-                          <span
-                            className={`text-[10px] font-bold uppercase tracking-wider ring-1 rounded px-2 py-0.5 ${STATUS_TONE[row.entry.status]}`}
-                          >
-                            {STATUS_LABEL[row.entry.status]}
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-semibold">
+                            {isMe ? "You" : (msg.username ?? "Staff")}
                           </span>
-                        </button>
-                        {open && (
-                          <div className="px-4 pb-4 space-y-4 border-t border-border bg-background/40">
-                            <p className="text-xs text-muted-foreground italic mt-4">
-                              {STATUS_BLURB[row.entry.status]}
-                            </p>
-                            <div>
-                              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
-                                What you described
-                              </p>
-                              <p className="text-sm whitespace-pre-line text-foreground/90 leading-relaxed">
-                                {row.entry.description}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
-                                Evidence you sent
-                              </p>
-                              {row.entry.evidence.trim().length > 0 ? (
-                                <p className="text-sm whitespace-pre-line font-mono break-all text-foreground/90 leading-relaxed">
-                                  {row.entry.evidence}
-                                </p>
-                              ) : (
-                                <p className="text-xs text-muted-foreground italic">
-                                  You didn't attach evidence. Staff are more
-                                  likely to act when you add proof.
-                                </p>
-                              )}
-                            </div>
-                            {row.entry.status !== "banned" && (
-                              <div className="space-y-2">
-                                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                                  Add more proof
-                                </p>
-                                <textarea
-                                  value={draft}
-                                  onChange={(e) => setDraft(e.target.value)}
-                                  placeholder="Link a clip, add a timestamp, or describe new evidence..."
-                                  className="w-full h-24 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
-                                />
-                                <div className="flex justify-end">
-                                  <button
-                                    onClick={() => addProof(row)}
-                                    disabled={!draft.trim()}
-                                    className="px-4 py-2 bg-brand text-brand-foreground text-xs font-semibold rounded uppercase tracking-wider disabled:opacity-40"
-                                  >
-                                    Submit evidence
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            {timeAgo(msg.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Reply box */}
+              {ticketDetail.ticket.status !== "closed" && (
+                <div className="p-4 border-t border-border shrink-0 space-y-2">
+                  {sendError && <p className="text-xs text-danger">{sendError}</p>}
+                  <div className="flex gap-2">
+                    <textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder="Type your reply..."
+                      rows={3}
+                      className="flex-1 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40 resize-none"
+                    />
+                    <button
+                      onClick={sendReply}
+                      disabled={!draft.trim() || sending}
+                      className="px-4 py-2 bg-brand text-brand-foreground text-xs font-semibold rounded hover:opacity-90 disabled:opacity-40 self-end"
+                    >
+                      {sending ? "Sending\u2026" : "Send"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {ticketDetail.ticket.status === "closed" && (
+                <div className="p-4 border-t border-border shrink-0">
+                  <p className="text-xs text-muted-foreground text-center">
+                    This ticket is closed. To continue, please open a new ticket.
+                  </p>
+                </div>
               )}
             </>
           )}
@@ -446,4 +353,5 @@ function MyTicketsPage() {
     </div>
   );
 }
+
 export { Route };

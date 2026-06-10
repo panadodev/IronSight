@@ -1,25 +1,25 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { Lock } from "lucide-react";
-import { SiteNav } from "@/components/site-nav";
-import { PlayerSidebar } from "@/components/player-sidebar";
 import {
-  AppealSidebar,
-  AppealModerationActions,
+    AppealModerationActions,
+    AppealSidebar,
 } from "@/components/appeal-sidebar";
-import { useAuth } from "@/lib/auth-context";
-import { PredefineSearch } from "@/components/predefine-search";
 import { BanDialog } from "@/components/ban-dialog";
+import { PlayerSidebar } from "@/components/player-sidebar";
+import { PredefineSearch } from "@/components/predefine-search";
+import { SiteNav } from "@/components/site-nav";
+import { useAuth } from "@/lib/auth-context";
 import {
-  STATUS_LABEL,
-  TICKETS,
-  TICKET_TYPES,
-  TICKET_TYPE_LABEL,
-  TEAM_IDS,
-  TEAM_META,
-  REPORT_CATEGORY_LABEL,
-  getPlayer,
+    REPORT_CATEGORY_LABEL,
+    STATUS_LABEL,
+    TEAM_IDS,
+    TEAM_META,
+    TICKETS,
+    TICKET_TYPES,
+    TICKET_TYPE_LABEL,
+    getPlayer,
 } from "@/lib/mock-data";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import { Lock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 const Route = createFileRoute("/")({
   validateSearch: (search) => ({
     ticket: typeof search.ticket === "string" ? search.ticket : void 0,
@@ -72,6 +72,8 @@ function StaffDashboard() {
     staff,
     selectedOrgIds,
     isOwner,
+    orgs,
+    orgsLoaded,
   } = useAuth();
   void activeRank;
   const { ticket: ticketSearchId } = Route.useSearch();
@@ -105,6 +107,38 @@ function StaffDashboard() {
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [muteDialogOpen, setMuteDialogOpen] = useState(false);
   const [playerQuery, setPlayerQuery] = useState("");
+
+  // No org state: user is authenticated but not a member of any organization
+  if (orgsLoaded && orgs.length === 0) {
+    return (
+      <div className="h-screen flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center p-6">
+          <div className="text-center max-w-md">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
+              IronSight Panel
+            </p>
+            <h1 className="text-2xl font-semibold mb-2">No organization access</h1>
+            <p className="text-sm text-muted-foreground mb-2">
+              Your account is not a member of any organization. Contact an
+              organization admin to be added to their server's staff panel.
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">
+              If you're a player looking to submit a support ticket, use the
+              Player Portal below.
+            </p>
+            <Link
+              to="/support"
+              className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold"
+            >
+              Open Player Portal
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (view === "public") {
     return (
       <div className="h-screen flex flex-col bg-background text-foreground">
