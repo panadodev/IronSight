@@ -1630,6 +1630,34 @@ async function handleCreateOrganization(request) {
 
   await ensureDefaultTicketTypes(derivedOrgId);
 
+  // Refresh the caller's cached session so orgAdminOrgIds includes the new org
+  // immediately — without this the client would see "no orgs" until re-login.
+  const cookies = parseCookie(request.headers.get("cookie") ?? "");
+  const token = cookies[SESSION_COOKIE];
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, env.jwtSecret);
+      const sid = decoded?.sid;
+      if (sid && typeof sid === "string") {
+        const raw = await redis.get(`session:${sid}`);
+        if (raw) {
+          const cached = JSON.parse(raw);
+          if (!cached.orgAdminOrgIds.includes(derivedOrgId)) {
+            cached.orgAdminOrgIds = [...cached.orgAdminOrgIds, derivedOrgId];
+          }
+          await redis.set(
+            `session:${sid}`,
+            JSON.stringify(cached),
+            "EX",
+            env.sessionTtlSeconds,
+          );
+        }
+      }
+    } catch {
+      // Non-fatal: session refresh failed; user can re-login to pick up the change.
+    }
+  }
+
   return json(
     {
       ok: true,
