@@ -78,6 +78,11 @@ if (!env.discordClientId || !env.discordClientSecret) {
     "[config] Missing DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET. Discord OAuth will return 503.",
   );
 }
+if (!env.sysAdminDiscordId?.trim()) {
+  console.warn(
+    "[config] Missing SYS_ADMIN_DISCORD_ID. API startup will fail until fixed.",
+  );
+}
 
 let pool;
 let redis;
@@ -186,6 +191,32 @@ function canWriteTodos(session) {
 function isGlobalAdmin(session) {
   if (session?.globalAdmin) return true;
   return Boolean(session?.groups?.some((g) => g.admin));
+}
+
+function isConfiguredSysAdmin(session) {
+  const configuredDiscordId = String(env.sysAdminDiscordId ?? "").trim();
+  if (!configuredDiscordId) return false;
+  return String(session?.discordId ?? "") === configuredDiscordId;
+}
+
+function requireConfiguredSysAdmin(session) {
+  if (!String(env.sysAdminDiscordId ?? "").trim()) {
+    return {
+      error: json(
+        {
+          error:
+            "Server misconfigured: SYS_ADMIN_DISCORD_ID is required for sysadmin endpoints",
+        },
+        503,
+      ),
+    };
+  }
+
+  if (!isConfiguredSysAdmin(session)) {
+    return { error: json({ error: "Forbidden: SYS_ADMIN_DISCORD_ID required" }, 403) };
+  }
+
+  return { error: null };
 }
 
 function canManageOrg(session, orgId) {
@@ -782,9 +813,14 @@ async function init() {
   if (initializationPromise) return initializationPromise;
 
   initializationPromise = (async () => {
-    if (!env.databaseUrl || !env.redisUrl || !env.jwtSecret) {
+    if (
+      !env.databaseUrl ||
+      !env.redisUrl ||
+      !env.jwtSecret ||
+      !env.sysAdminDiscordId?.trim()
+    ) {
       throw new Error(
-        "Required environment variables are missing for API startup.",
+        "Required environment variables are missing for API startup (DATABASE_URL/POSTGRESQL_URI, REDIS_URL/REDIS_URI, JWT_SECRET, SYS_ADMIN_DISCORD_ID).",
       );
     }
 
@@ -1068,31 +1104,33 @@ async function withStartupGuard(handler) {
   try {
     await init();
   } catch {
-    return json(
-      {
-        error: "Service dependencies are unavailable.",
-        detail: initError?.message ?? "Unknown startup failure",
-      },
-      503,
-    );
+    return json({ error: "Service dependencies are unavailable." }, 503);
   }
 
   return handler();
 }
 
 async function rateLimitLogin(request) {
+  if (!redis) return null;
+
   const ip = getClientIp(request);
   const limiterKey = `rl:login:${ip}`;
-  const attempts = await redis.incr(limiterKey);
-  if (attempts === 1) {
-    await redis.expire(limiterKey, 60);
+  try {
+    const attempts = await redis.incr(limiterKey);
+    if (attempts === 1) {
+      await redis.expire(limiterKey, 60);
+    }
+    if (attempts > env.loginRateLimitPerMinute) {
+      return json(
+        { error: "Too many login attempts. Try again in a minute." },
+        429,
+      );
+    }
+  } catch {
+    // Fail-open on limiter backend issues to avoid locking out legitimate users.
+    return null;
   }
-  if (attempts > env.loginRateLimitPerMinute) {
-    return json(
-      { error: "Too many login attempts. Try again in a minute." },
-      429,
-    );
-  }
+
   return null;
 }
 
@@ -1177,6 +1215,9 @@ async function verifySteamResponse(params) {
 }
 
 async function handleDiscordStart(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
   if (!env.discordClientId || !env.discordClientSecret) {
     return json({ error: "Discord OAuth is not configured." }, 503);
   }
@@ -1199,6 +1240,9 @@ async function handleDiscordStart(request) {
 }
 
 async function handleDiscordCallback(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -1269,6 +1313,9 @@ async function handlePendingLinkStatus(request) {
 }
 
 async function handleSteamStart(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
   const pending = getPendingLink(request);
   if (!pending) {
     return redirect("/login?error=steam_requires_discord");
@@ -1290,6 +1337,9 @@ async function handleSteamStart(request) {
 }
 
 async function handleSteamCallback(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
   const url = new URL(request.url);
   const nonce = String(url.searchParams.get("nonce") ?? "").trim();
   const pending = getPendingLink(request);
@@ -1507,16 +1557,8 @@ async function handleCreateOrganization(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  // Only panado can create organizations
-  if (
-    session.discordId !== SYSADMIN.discordId &&
-    session.username !== SYSADMIN.username
-  ) {
-    return json(
-      { error: "Forbidden: only panado can create organizations" },
-      403,
-    );
-  }
+  const sysAdminCheck = requireConfiguredSysAdmin(session);
+  if (sysAdminCheck.error) return sysAdminCheck.error;
 
   let body;
   try {
@@ -2522,9 +2564,8 @@ async function handleUpdateOrgDetails(request, orgId) {
 async function handleListRoles(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden: sysadmin role required" }, 403);
-  }
+  const sysAdminCheck = requireConfiguredSysAdmin(session);
+  if (sysAdminCheck.error) return sysAdminCheck.error;
 
   const res = await pool.query(
     `SELECT role_id, role_name FROM roles ORDER BY role_name ASC`,
@@ -2541,9 +2582,8 @@ async function handleListRoles(request) {
 async function handleCreateRole(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden: sysadmin role required" }, 403);
-  }
+  const sysAdminCheck = requireConfiguredSysAdmin(session);
+  if (sysAdminCheck.error) return sysAdminCheck.error;
 
   let body;
   try {
@@ -2590,9 +2630,8 @@ async function handleCreateRole(request) {
 async function handleListPermissions(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden: sysadmin role required" }, 403);
-  }
+  const sysAdminCheck = requireConfiguredSysAdmin(session);
+  if (sysAdminCheck.error) return sysAdminCheck.error;
 
   const res = await pool.query(
     `SELECT permission_id, permission_name FROM permissions ORDER BY permission_name ASC`,
@@ -2609,9 +2648,8 @@ async function handleListPermissions(request) {
 async function handleGetRolePermissions(request, roleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden: sysadmin role required" }, 403);
-  }
+  const sysAdminCheck = requireConfiguredSysAdmin(session);
+  if (sysAdminCheck.error) return sysAdminCheck.error;
 
   const res = await pool.query(
     `SELECT p.permission_id, p.permission_name, CASE WHEN rp.role_id IS NOT NULL THEN true ELSE false END AS granted
@@ -2634,9 +2672,8 @@ async function handleGetRolePermissions(request, roleId) {
 async function handleUpdateRolePermissions(request, roleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden: sysadmin role required" }, 403);
-  }
+  const sysAdminCheck = requireConfiguredSysAdmin(session);
+  if (sysAdminCheck.error) return sysAdminCheck.error;
 
   let body;
   try {
@@ -2817,6 +2854,9 @@ async function loadTicketMessages(ticketId) {
 // ── Public Steam auth (ticket submission, no Discord required) ────────────────
 
 async function handlePublicSteamStart(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
   const url = new URL(request.url);
   const next = sanitizeNext(url.searchParams.get("next") ?? "/support");
   const org = String(url.searchParams.get("org") ?? "").trim();
@@ -2842,6 +2882,9 @@ async function handlePublicSteamStart(request) {
 }
 
 async function handlePublicSteamCallback(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
   const url = new URL(request.url);
   const nonce = String(url.searchParams.get("nonce") ?? "").trim();
 
