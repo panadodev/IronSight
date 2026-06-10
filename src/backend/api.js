@@ -1480,6 +1480,7 @@ async function handleAuthMe(request) {
       steamId: session.steamId,
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
+      isSysAdmin: isConfiguredSysAdmin(session),
     },
   });
 }
