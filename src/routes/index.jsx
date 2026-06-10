@@ -1,6 +1,6 @@
 import {
-    AppealModerationActions,
-    AppealSidebar,
+  AppealModerationActions,
+  AppealSidebar,
 } from "@/components/appeal-sidebar";
 import { BanDialog } from "@/components/ban-dialog";
 import { PlayerSidebar } from "@/components/player-sidebar";
@@ -8,14 +8,14 @@ import { PredefineSearch } from "@/components/predefine-search";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import {
-    REPORT_CATEGORY_LABEL,
-    STATUS_LABEL,
-    TEAM_IDS,
-    TEAM_META,
-    TICKETS,
-    TICKET_TYPES,
-    TICKET_TYPE_LABEL,
-    getPlayer,
+  REPORT_CATEGORY_LABEL,
+  STATUS_LABEL,
+  TEAM_IDS,
+  TEAM_META,
+  TICKETS,
+  TICKET_TYPES,
+  TICKET_TYPE_LABEL,
+  getPlayer,
 } from "@/lib/mock-data";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
@@ -63,6 +63,58 @@ const ORG_SHORT = {
   willjums: "WJ",
 };
 const orgForTicket = (number) => ORG_ROTATION[number % ORG_ROTATION.length];
+
+function shortAge(unixTs) {
+  const diff = Math.max(0, Math.floor(Date.now() / 1000) - Number(unixTs || 0));
+  if (diff < 60) return "now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  return `${Math.floor(diff / 86400)}d`;
+}
+
+function inferType(ticketTypeName) {
+  const value = String(ticketTypeName ?? "").toLowerCase();
+  if (value.includes("appeal")) return "ban_appeal";
+  if (value.includes("vip")) return "vip_issue";
+  if (value.includes("support")) return "general_support";
+  return "general_support";
+}
+
+function teamForType(type) {
+  if (type === "ban_appeal") return "sr_admins";
+  if (type === "vip_issue") return "management";
+  if (type === "player_report") return "admins";
+  return "support";
+}
+
+function mapDbTicketToUi(row) {
+  const type = inferType(row.ticket_type_name);
+  const reporterId = row.created_by_steam_id || row.created_by || `u_${row.ticket_id}`;
+  return {
+    id: `db-${row.ticket_id}`,
+    dbTicketId: Number(row.ticket_id),
+    orgId: String(row.org_id),
+    number: Number(row.ticket_id),
+    type,
+    team: teamForType(type),
+    category: null,
+    reporterId,
+    subjectId: null,
+    assigneeId: null,
+    assigneeName: row.assigned_to_username ?? null,
+    restrictedRank: null,
+    status: String(row.status || "open"),
+    priority: String(row.priority || "normal"),
+    createdAt: new Date(Number(row.created_at) * 1000).toISOString(),
+    createdLabel: shortAge(row.created_at),
+    title: String(row.title || `Ticket #${row.ticket_id}`),
+    summary: String(row.title || ""),
+    createdByUserId: row.created_by ? String(row.created_by) : null,
+    messages: [],
+    reports: null,
+  };
+}
+
 function StaffDashboard() {
   const {
     view,
@@ -107,6 +159,48 @@ function StaffDashboard() {
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [muteDialogOpen, setMuteDialogOpen] = useState(false);
   const [playerQuery, setPlayerQuery] = useState("");
+  const ticketOrgId = (ticket) => ticket.orgId ?? orgForTicket(ticket.number);
+  const ticketOrgShort = (ticket) => {
+    const orgId = ticketOrgId(ticket);
+    const fromAuth = orgs.find((o) => o.id === orgId)?.short;
+    return fromAuth || ORG_SHORT[orgId] || String(orgId).slice(0, 3).toUpperCase();
+  };
+
+  useEffect(() => {
+    if (view === "public" || selectedOrgIds.length === 0) return;
+    let cancelled = false;
+
+    async function loadQueue() {
+      try {
+        const batches = await Promise.all(
+          selectedOrgIds.map(async (orgId) => {
+            const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=100`, {
+              credentials: "include",
+            });
+            if (!res.ok) return [];
+            const body = await res.json();
+            return Array.isArray(body?.tickets) ? body.tickets : [];
+          }),
+        );
+        if (cancelled) return;
+        const next = batches.flat().map(mapDbTicketToUi);
+        if (next.length > 0) {
+          setTickets(next);
+          setSelectedId((current) =>
+            next.some((ticket) => ticket.id === current) ? current : next[0].id,
+          );
+        }
+      } catch {
+        // Keep mock fallback when backend queue is unavailable.
+      }
+    }
+
+    loadQueue();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrgIds, view]);
 
   // No org state: user is authenticated but not a member of any organization
   if (orgsLoaded && orgs.length === 0) {
@@ -176,7 +270,7 @@ function StaffDashboard() {
     // Management
   };
   const canSee = (t) => {
-    const r = rankOf(orgForTicket(t.number));
+    const r = rankOf(ticketOrgId(t));
     if (isOwner) return true;
     const minRank =
       t.type === "player_report" && t.category === "toxicity"
@@ -206,7 +300,7 @@ function StaffDashboard() {
     };
     const filtered = tickets
       .filter(canSee)
-      .filter((t) => selectedOrgIds.includes(orgForTicket(t.number)))
+      .filter((t) => selectedOrgIds.includes(ticketOrgId(t)))
       .filter((t) => {
         if (searching) return true;
         if (queueView === "closed") return CLOSED_STATUSES.includes(t.status);
@@ -242,6 +336,55 @@ function StaffDashboard() {
   const subject = selected?.subjectId ? getPlayer(selected.subjectId) : null;
   const reporter = selected ? getPlayer(selected.reporterId) : getPlayer("");
   const isReport = selected?.type === "player_report";
+
+  useEffect(() => {
+    if (!selected?.dbTicketId) return;
+    let cancelled = false;
+
+    async function loadSelectedDetail() {
+      try {
+        const res = await fetch(`/api/tickets/${selected.dbTicketId}`, {
+          credentials: "include",
+        });
+        if (!res.ok || cancelled) return;
+        const detail = await res.json();
+        if (cancelled) return;
+        const messages = (detail?.messages ?? []).map((m) => ({
+          authorId: m.userId ?? "unknown",
+          authorName: m.username || "User",
+          authorKind:
+            selected.createdByUserId && m.userId === selected.createdByUserId
+              ? "reporter"
+              : "staff",
+          timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          body: m.message,
+        }));
+        setTickets((all) =>
+          all.map((ticket) =>
+            ticket.id === selected.id
+              ? {
+                  ...ticket,
+                  status: detail?.ticket?.status ?? ticket.status,
+                  priority: detail?.ticket?.priority ?? ticket.priority,
+                  messages,
+                }
+              : ticket,
+          ),
+        );
+      } catch {
+        // Keep queue usable even if a detail request fails.
+      }
+    }
+
+    loadSelectedDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
+
   const STATUS_LOG = {
     open: "moved ticket back to Active",
     in_progress: "moved ticket back to Active",
@@ -333,8 +476,20 @@ function StaffDashboard() {
       doClose();
     }
   };
-  const doClose = () => {
+  const doClose = async () => {
     if (!selected) return;
+    if (selected.dbTicketId) {
+      try {
+        await fetch(`/api/tickets/${selected.dbTicketId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "closed" }),
+        });
+      } catch {
+        // keep local fallback below
+      }
+    }
     updateTicket(selected.id, { status: "closed" });
     setConfirmClose(false);
   };
@@ -356,8 +511,20 @@ function StaffDashboard() {
       ),
     });
   };
-  const waitUntilOnline = () => {
+  const waitUntilOnline = async () => {
     if (!selected) return;
+    if (selected.dbTicketId) {
+      try {
+        await fetch(`/api/tickets/${selected.dbTicketId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "waiting_response" }),
+        });
+      } catch {
+        // keep local fallback below
+      }
+    }
     updateTicket(selected.id, { status: "waiting_response" });
   };
   const openBanDialog = () => {
@@ -418,7 +585,7 @@ function StaffDashboard() {
       ],
     });
   };
-  const selectedOrgRank = selected ? rankOf(orgForTicket(selected.number)) : 0;
+  const selectedOrgRank = selected ? rankOf(ticketOrgId(selected)) : 0;
   const toggleHide = () => {
     if (!selected) return;
     if (
@@ -430,8 +597,69 @@ function StaffDashboard() {
       updateTicket(selected.id, { restrictedRank: selectedOrgRank });
     }
   };
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!selected || !draft.trim() || !activeStaff) return;
+
+    if (selected.dbTicketId) {
+      try {
+        const message = draft.trim();
+        const sendRes = await fetch(`/api/tickets/${selected.dbTicketId}/messages`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        if (!sendRes.ok) return;
+
+        if (waitForResponse) {
+          await fetch(`/api/tickets/${selected.dbTicketId}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ status: "waiting_response" }),
+          });
+        }
+
+        const detailRes = await fetch(`/api/tickets/${selected.dbTicketId}`, {
+          credentials: "include",
+        });
+        if (detailRes.ok) {
+          const detail = await detailRes.json();
+          const messages = (detail?.messages ?? []).map((m) => ({
+            authorId: m.userId ?? "unknown",
+            authorName: m.username || "User",
+            authorKind:
+              selected.createdByUserId && m.userId === selected.createdByUserId
+                ? "reporter"
+                : "staff",
+            timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            body: m.message,
+          }));
+          setTickets((all) =>
+            all.map((ticket) =>
+              ticket.id === selected.id
+                ? {
+                    ...ticket,
+                    status: waitForResponse ? "waiting_response" : ticket.status,
+                    messages,
+                  }
+                : ticket,
+            ),
+          );
+        }
+
+        setDraft("");
+        setPinNote(false);
+        setWaitForResponse(false);
+        return;
+      } catch {
+        return;
+      }
+    }
+
     const isNote = composerMode === "note";
     const nextStatus =
       !isNote && waitForResponse
@@ -596,7 +824,7 @@ function StaffDashboard() {
                 const isActive = t.id === selected?.id;
                 const assignee = staff.find((s) => s.id === t.assigneeId);
                 const reportCount = t.reports?.length ?? 0;
-                const orgShort = ORG_SHORT[orgForTicket(t.number)];
+                const orgShort = ticketOrgShort(t);
                 const typeShort =
                   t.type === "player_report" && t.category
                     ? REPORT_CATEGORY_LABEL[t.category]
@@ -616,7 +844,7 @@ function StaffDashboard() {
                       "w-full text-left pl-2.5 pr-3 py-1.5 cursor-pointer transition-colors block border-l-[3px] " +
                       (isActive ? "bg-surface/70" : "hover:bg-surface/30")
                     }
-                    title={`${orgShort} \xB7 ${typeShort} \xB7 ${nameForRow} \xB7 ${TEAM_META[t.team].label}${assignee ? ` \xB7 ${assignee.name}` : " \xB7 Unassigned"}`}
+                    title={`${orgShort} \xB7 ${typeShort} \xB7 ${nameForRow} \xB7 ${TEAM_META[t.team].label}${assignee ? ` \xB7 ${assignee.name}` : t.assigneeName ? ` \xB7 ${t.assigneeName}` : " \xB7 Unassigned"}`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <h3 className="text-xs font-medium truncate flex-1">
@@ -1036,7 +1264,7 @@ function StaffDashboard() {
                   </div>
                   {composerMode === "reply" && selected && (
                     <PredefineSearch
-                      orgId={orgForTicket(selected.number)}
+                      orgId={ticketOrgId(selected)}
                       onPick={(content) =>
                         setDraft((d) =>
                           d
@@ -1146,7 +1374,7 @@ function StaffDashboard() {
               serverId={selected.serverId}
               ticketStatus={selected.status}
               messages={selected.messages}
-              orgId={orgForTicket(selected.number)}
+              orgId={ticketOrgId(selected)}
               onAutoReopen={(reason) => {
                 updateTicket(selected.id, {
                   status: "open",
@@ -1179,7 +1407,7 @@ function StaffDashboard() {
           <BanDialog
             open={banDialogOpen}
             onOpenChange={setBanDialogOpen}
-            orgId={orgForTicket(selected.number)}
+            orgId={ticketOrgId(selected)}
             category={selected.category}
             subjectName={subject?.name ?? "player"}
             onSubmit={submitBan}
@@ -1188,7 +1416,7 @@ function StaffDashboard() {
             <BanDialog
               open={muteDialogOpen}
               onOpenChange={setMuteDialogOpen}
-              orgId={orgForTicket(selected.number)}
+              orgId={ticketOrgId(selected)}
               category="toxicity"
               subjectName={subject?.name ?? "player"}
               onSubmit={submitMute}
