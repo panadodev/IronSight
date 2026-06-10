@@ -202,63 +202,6 @@ function StaffDashboard() {
     };
   }, [selectedOrgIds, view]);
 
-  // No org state: user is authenticated but not a member of any organization
-  if (orgsLoaded && orgs.length === 0) {
-    return (
-      <div className="h-screen flex flex-col bg-background text-foreground">
-        <SiteNav />
-        <div className="flex-1 grid place-items-center p-6">
-          <div className="text-center max-w-md">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
-              IronSight Panel
-            </p>
-            <h1 className="text-2xl font-semibold mb-2">No organization access</h1>
-            <p className="text-sm text-muted-foreground mb-2">
-              Your account is not a member of any organization. Contact an
-              organization admin to be added to their server's staff panel.
-            </p>
-            <p className="text-sm text-muted-foreground mb-6">
-              If you're a player looking to submit a support ticket, use the
-              Player Portal below.
-            </p>
-            <Link
-              to="/support"
-              className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold"
-            >
-              Open Player Portal
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (view === "public") {
-    return (
-      <div className="h-screen flex flex-col bg-background text-foreground">
-        <SiteNav />
-        <div className="flex-1 grid place-items-center p-6">
-          <div className="text-center max-w-md">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-3">
-              Access denied
-            </p>
-            <h1 className="text-2xl font-semibold mb-2">Staff console</h1>
-            <p className="text-sm text-muted-foreground mb-6">
-              You're in <span className="text-foreground">PUBLIC</span> view.
-              Switch to <span className="text-foreground">STAFF</span> view in
-              the top bar, or submit a ticket via the Player Portal.
-            </p>
-            <Link
-              to="/submit"
-              className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold"
-            >
-              Go to Player Portal
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
   const TYPE_MIN_RANK = {
     general_support: 1,
     // Support+
@@ -705,6 +648,65 @@ function StaffDashboard() {
         ? selectedOrgRank >= TEAM_META[selected.team].rank
         : selectedOrgRank >= selected.restrictedRank));
   const isHidden = selected?.restrictedRank !== null && selected !== null;
+
+  // No org state: user is authenticated but not a member of any organization
+  if (orgsLoaded && orgs.length === 0) {
+    return (
+      <div className="h-screen flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center p-6">
+          <div className="text-center max-w-md">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
+              IronSight Panel
+            </p>
+            <h1 className="text-2xl font-semibold mb-2">No organization access</h1>
+            <p className="text-sm text-muted-foreground mb-2">
+              Your account is not a member of any organization. Contact an
+              organization admin to be added to their server's staff panel.
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">
+              If you're a player looking to submit a support ticket, use the
+              Player Portal below.
+            </p>
+            <Link
+              to="/support"
+              className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold"
+            >
+              Open Player Portal
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "public") {
+    return (
+      <div className="h-screen flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center p-6">
+          <div className="text-center max-w-md">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-3">
+              Access denied
+            </p>
+            <h1 className="text-2xl font-semibold mb-2">Staff console</h1>
+            <p className="text-sm text-muted-foreground mb-6">
+              You're in <span className="text-foreground">PUBLIC</span> view.
+              Switch to <span className="text-foreground">STAFF</span> view in
+              the top bar, or submit a ticket via the Player Portal.
+            </p>
+            <Link
+              to="/submit"
+              className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold"
+            >
+              Go to Player Portal
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
       <SiteNav />
