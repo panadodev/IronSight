@@ -57,7 +57,22 @@ function SiteNav() {
   const [draft, setDraft] = useState(profile);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
+  const [createdOrgs, setCreatedOrgs] = useState([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [orgName, setOrgName] = useState("");
+  const [orgId, setOrgId] = useState("");
+  const [guildId, setGuildId] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [creating, setCreating] = useState(false);
   const isSysAdminSession = Boolean(sessionUser?.isSysAdmin);
+
+  const allOrgs = useMemo(() => {
+    const map = new Map(orgs.map((o) => [o.id, o]));
+    for (const org of createdOrgs) {
+      map.set(org.id, org);
+    }
+    return Array.from(map.values());
+  }, [orgs, createdOrgs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,18 +165,71 @@ function SiteNav() {
     }
   };
   const manageableOrgsForSwitcher = useMemo(() => {
-    if (sessionUser?.isSysAdmin) return orgs;
+    if (sessionUser?.isSysAdmin) return allOrgs;
 
     const sessionOrgAdminIds = Array.isArray(sessionUser?.orgAdminOrgIds)
       ? sessionUser.orgAdminOrgIds
       : [];
 
     if (sessionOrgAdminIds.length > 0) {
-      return orgs.filter((o) => sessionOrgAdminIds.includes(o.id));
+      return allOrgs.filter((o) => sessionOrgAdminIds.includes(o.id));
     }
 
-    return orgs.filter((o) => adminableOrgIds.includes(o.id));
-  }, [sessionUser, orgs, adminableOrgIds]);
+    return allOrgs.filter((o) => adminableOrgIds.includes(o.id));
+  }, [sessionUser, allOrgs, adminableOrgIds]);
+
+  async function createOrganization() {
+    setCreateError("");
+
+    if (!orgName.trim()) {
+      setCreateError("Organization name is required.");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const res = await fetch("/api/orgs", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: orgName.trim(),
+          orgId: orgId.trim() || undefined,
+          guildId: guildId.trim() || undefined,
+        }),
+      });
+
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setCreateError(body?.error ?? "Failed to create organization.");
+        return;
+      }
+
+      const created = {
+        id: body.organization.orgId,
+        name: body.organization.name,
+        short: body.organization.orgId.slice(0, 2).toUpperCase(),
+      };
+
+      setCreatedOrgs((current) => {
+        if (current.some((o) => o.id === created.id)) return current;
+        return [...current, created];
+      });
+      setSelectedOrgIds((current) =>
+        current.includes(created.id) ? current : [...current, created.id],
+      );
+
+      manageOrgStore.set(created.id);
+      setCreateOpen(false);
+      setOrgName("");
+      setOrgId("");
+      setGuildId("");
+    } catch (error) {
+      setCreateError(error?.message ?? "Failed to create organization.");
+    } finally {
+      setCreating(false);
+    }
+  }
   const switchView = (v) => {
     setView(v);
     if (v === "public") {
@@ -340,12 +408,12 @@ function SiteNav() {
     else if (path.startsWith("/todo")) lastVisitStore.mark("/todo");
   }, [path, effectiveView]);
   const selectedOrgsLabel =
-    selectedOrgIds.length === orgs.length
+    selectedOrgIds.length === allOrgs.length
       ? "All orgs"
       : selectedOrgIds.length === 0
         ? "No orgs"
         : selectedOrgIds
-            .map((id) => orgs.find((o) => o.id === id)?.short)
+            .map((id) => allOrgs.find((o) => o.id === id)?.short)
             .filter(Boolean)
             .join(" \xB7 ");
   return (
@@ -387,20 +455,20 @@ function SiteNav() {
                   <button
                     onClick={() =>
                       setSelectedOrgIds(
-                        selectedOrgIds.length === orgs.length
+                        selectedOrgIds.length === allOrgs.length
                           ? []
-                          : orgs.map((o) => o.id),
+                          : allOrgs.map((o) => o.id),
                       )
                     }
                     className="text-[10px] font-semibold text-brand hover:underline"
                   >
-                    {selectedOrgIds.length === orgs.length
+                    {selectedOrgIds.length === allOrgs.length
                       ? "Clear"
                       : "Select all"}
                   </button>
                 </div>
                 <div className="space-y-0.5">
-                  {orgs.map((o) => {
+                  {allOrgs.map((o) => {
                     const checked = selectedOrgIds.includes(o.id);
                     return (
                       <button
@@ -427,6 +495,14 @@ function SiteNav() {
                       </button>
                     );
                   })}
+                  {sessionUser?.isSysAdmin ? (
+                    <button
+                      onClick={() => setCreateOpen(true)}
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-dashed border-border hover:bg-surface text-left text-xs font-semibold text-brand"
+                    >
+                      + Create organization
+                    </button>
+                  ) : null}
                 </div>
               </PopoverContent>
             </Popover>
@@ -712,190 +788,7 @@ function SiteNav() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
-  );
-}
-function LinkedAccountRow({
-  provider,
-  linked,
-  readOnly = false,
-  onLink,
-  onUnlink,
-}) {
-  return (
-    <div className="flex items-center justify-between px-3 py-2 rounded-md ring-1 ring-border bg-surface/40">
-      <div className="flex items-center gap-3 min-w-0">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground w-14">
-          {provider}
-        </span>
-        {linked ? (
-          <div className="min-w-0">
-            <div className="text-sm font-medium truncate">{linked.name}</div>
-            <div className="text-[10px] font-mono text-muted-foreground truncate">
-              {linked.id}
-            </div>
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">Not linked</span>
-        )}
-      </div>
-      {readOnly ? (
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-          Provider-managed
-        </span>
-      ) : linked ? (
-        <Button size="sm" variant="outline" onClick={onUnlink}>
-          Unlink
-        </Button>
-      ) : (
-        <Button size="sm" onClick={onLink}>
-          Link {provider}
-        </Button>
-      )}
-    </div>
-  );
-}
-function ManageOrgInlineSwitcher({ orgs, isSysAdmin = false }) {
-  const [localOrgs, setLocalOrgs] = useState(orgs);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [orgName, setOrgName] = useState("");
-  const [orgId, setOrgId] = useState("");
-  const [guildId, setGuildId] = useState("");
-  const [createError, setCreateError] = useState("");
-  const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    setLocalOrgs((current) => {
-      const map = new Map(current.map((o) => [o.id, o]));
-      for (const org of orgs) {
-        map.set(org.id, org);
-      }
-      return Array.from(map.values());
-    });
-  }, [orgs]);
-
-  const currentId = useManageOrgId();
-  const active = useMemo(
-    () => localOrgs.find((o) => o.id === currentId) ?? localOrgs[0],
-    [localOrgs, currentId],
-  );
-
-  useEffect(() => {
-    if (localOrgs.length === 0) return;
-    if (!currentId || !localOrgs.some((o) => o.id === currentId)) {
-      manageOrgStore.set(localOrgs[0].id);
-    }
-  }, [localOrgs, currentId]);
-
-  if (!active && !isSysAdmin) return null;
-
-  async function createOrganization() {
-    setCreateError("");
-
-    if (!orgName.trim()) {
-      setCreateError("Organization name is required.");
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const res = await fetch("/api/orgs", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: orgName.trim(),
-          orgId: orgId.trim() || undefined,
-          guildId: guildId.trim() || undefined,
-        }),
-      });
-
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        setCreateError(body?.error ?? "Failed to create organization.");
-        return;
-      }
-
-      const created = {
-        id: body.organization.orgId,
-        name: body.organization.name,
-        short: body.organization.orgId.slice(0, 2).toUpperCase(),
-      };
-
-      setLocalOrgs((current) => {
-        if (current.some((o) => o.id === created.id)) return current;
-        return [...current, created];
-      });
-
-      manageOrgStore.set(created.id);
-      setCreateOpen(false);
-      setOrgName("");
-      setOrgId("");
-      setGuildId("");
-    } catch (error) {
-      setCreateError(error?.message ?? "Failed to create organization.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded ring-1 ring-border bg-surface/40 hover:bg-surface transition-colors"
-          title={
-            active
-              ? `Editing configs for ${active.name}`
-              : "Editing configs for"
-          }
-        >
-          <span className="text-[9px] font-mono font-bold text-brand">
-            {active ? active.short : "--"}
-          </span>
-          <ChevronDown className="size-3 text-muted-foreground" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" side="right" className="w-56 p-2">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
-          Editing configs for
-        </div>
-        <div className="space-y-0.5">
-          {localOrgs.map((o) => {
-            const checked = o.id === active?.id;
-            return (
-              <button
-                key={o.id}
-                onClick={() => manageOrgStore.set(o.id)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
-              >
-                <span
-                  className={
-                    "size-4 rounded-sm grid place-items-center ring-1 " +
-                    (checked
-                      ? "bg-brand ring-brand text-brand-foreground"
-                      : "ring-border text-transparent")
-                  }
-                >
-                  <Check className="size-3" />
-                </span>
-                <span className="text-xs font-medium flex-1">{o.name}</span>
-                <span className="text-[9px] font-mono font-bold text-muted-foreground">
-                  {o.short}
-                </span>
-              </button>
-            );
-          })}
-          {isSysAdmin ? (
-            <button
-              onClick={() => setCreateOpen(true)}
-              className="w-full mt-1 px-2 py-1.5 rounded border border-dashed border-border hover:bg-surface text-left text-xs font-semibold text-brand"
-            >
-              + Create organization
-            </button>
-          ) : null}
-        </div>
-      </PopoverContent>
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -947,6 +840,126 @@ function ManageOrgInlineSwitcher({ orgs, isSysAdmin = false }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+function LinkedAccountRow({
+  provider,
+  linked,
+  readOnly = false,
+  onLink,
+  onUnlink,
+}) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2 rounded-md ring-1 ring-border bg-surface/40">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground w-14">
+          {provider}
+        </span>
+        {linked ? (
+          <div className="min-w-0">
+            <div className="text-sm font-medium truncate">{linked.name}</div>
+            <div className="text-[10px] font-mono text-muted-foreground truncate">
+              {linked.id}
+            </div>
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">Not linked</span>
+        )}
+      </div>
+      {readOnly ? (
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          Provider-managed
+        </span>
+      ) : linked ? (
+        <Button size="sm" variant="outline" onClick={onUnlink}>
+          Unlink
+        </Button>
+      ) : (
+        <Button size="sm" onClick={onLink}>
+          Link {provider}
+        </Button>
+      )}
+    </div>
+  );
+}
+function ManageOrgInlineSwitcher({ orgs, isSysAdmin = false }) {
+  const [localOrgs, setLocalOrgs] = useState(orgs);
+
+  useEffect(() => {
+    setLocalOrgs((current) => {
+      const map = new Map(current.map((o) => [o.id, o]));
+      for (const org of orgs) {
+        map.set(org.id, org);
+      }
+      return Array.from(map.values());
+    });
+  }, [orgs]);
+
+  const currentId = useManageOrgId();
+  const active = useMemo(
+    () => localOrgs.find((o) => o.id === currentId) ?? localOrgs[0],
+    [localOrgs, currentId],
+  );
+
+  useEffect(() => {
+    if (localOrgs.length === 0) return;
+    if (!currentId || !localOrgs.some((o) => o.id === currentId)) {
+      manageOrgStore.set(localOrgs[0].id);
+    }
+  }, [localOrgs, currentId]);
+
+  if (!active && !isSysAdmin) return null;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded ring-1 ring-border bg-surface/40 hover:bg-surface transition-colors"
+          title={
+            active
+              ? `Editing configs for ${active.name}`
+              : "Editing configs for"
+          }
+        >
+          <span className="text-[9px] font-mono font-bold text-brand">
+            {active ? active.short : "--"}
+          </span>
+          <ChevronDown className="size-3 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="right" className="w-56 p-2">
+        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
+          Editing configs for
+        </div>
+        <div className="space-y-0.5">
+          {localOrgs.map((o) => {
+            const checked = o.id === active?.id;
+            return (
+              <button
+                key={o.id}
+                onClick={() => manageOrgStore.set(o.id)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
+              >
+                <span
+                  className={
+                    "size-4 rounded-sm grid place-items-center ring-1 " +
+                    (checked
+                      ? "bg-brand ring-brand text-brand-foreground"
+                      : "ring-border text-transparent")
+                  }
+                >
+                  <Check className="size-3" />
+                </span>
+                <span className="text-xs font-medium flex-1">{o.name}</span>
+                <span className="text-[9px] font-mono font-bold text-muted-foreground">
+                  {o.short}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
     </Popover>
   );
 }
