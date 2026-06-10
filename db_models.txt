@@ -112,3 +112,43 @@ ticket_audit_log
 - action
 - details
 - created_at
+
+staff_audit_log
+CREATE TABLE audit_logs (
+    id              BIGSERIAL PRIMARY KEY,
+
+    -- multi-tenant support
+    org_id          BIGINT NOT NULL,
+
+    -- who did the action
+    actor_user_id   BIGINT NOT NULL,
+
+    -- optional: who/what was affected
+    target_user_id  BIGINT NULL,
+    resource_type   TEXT NULL,   -- e.g. "user", "ticket", "server"
+    resource_id     TEXT NULL,
+
+    -- action details
+    action_type     TEXT NOT NULL,  -- e.g. "USER_BAN", "TICKET_DELETE"
+    action_category TEXT NULL,       -- e.g. "moderation", "admin", "billing"
+
+    severity        SMALLINT NOT NULL DEFAULT 1, 
+    -- 1 = low, 2 = medium, 3 = high, 4 = critical
+
+    -- flexible metadata
+    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+    -- before/after snapshots (very useful for audits)
+    before_state    JSONB NULL,
+    after_state     JSONB NULL,
+
+    -- request context
+    ip_address      INET NULL,
+    user_agent      TEXT NULL,
+    session_id      TEXT NULL,
+
+    -- traceability across systems
+    correlation_id  UUID NULL,
+
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

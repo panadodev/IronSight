@@ -100,6 +100,53 @@ function json(data, status = 200) {
   });
 }
 
+async function auditLog({
+  orgId,
+  actorUserId,
+  targetUserId = null,
+  resourceType = null,
+  resourceId = null,
+  actionType,
+  actionCategory = "admin",
+  severity = 1,
+  metadata = {},
+  beforeState = null,
+  afterState = null,
+  ipAddress = null,
+  userAgent = null,
+  sessionId = null,
+}) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO audit_logs (
+        org_id, actor_user_id, target_user_id, resource_type, resource_id,
+        action_type, action_category, severity, metadata, before_state, after_state,
+        ip_address, user_agent, session_id, correlation_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        orgId,
+        actorUserId,
+        targetUserId,
+        resourceType,
+        resourceId,
+        actionType,
+        actionCategory,
+        severity,
+        JSON.stringify(metadata),
+        beforeState ? JSON.stringify(beforeState) : null,
+        afterState ? JSON.stringify(afterState) : null,
+        ipAddress,
+        userAgent,
+        sessionId,
+        crypto.randomUUID(),
+      ],
+    );
+  } catch (err) {
+    console.error("[audit] Failed to log action:", err.message);
+  }
+}
+
 function redirect(location, headers = new Headers()) {
   headers.set("location", location);
   return new Response(null, { status: 302, headers });
@@ -449,6 +496,42 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_ticket_audit_ticket_id ON ticket_audit_log(ticket_id)`,
   );
+
+  // Audit logs for staff actions
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      actor_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
+      target_user_id UUID NULL REFERENCES users(user_id) ON DELETE SET NULL,
+      resource_type TEXT NULL,
+      resource_id TEXT NULL,
+      action_type TEXT NOT NULL,
+      action_category TEXT NULL,
+      severity SMALLINT NOT NULL DEFAULT 1,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      before_state JSONB NULL,
+      after_state JSONB NULL,
+      ip_address INET NULL,
+      user_agent TEXT NULL,
+      session_id TEXT NULL,
+      correlation_id UUID NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_audit_logs_org_id ON audit_logs(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs(actor_user_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_audit_logs_target_user_id ON audit_logs(target_user_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`,
+  );
 }
 
 async function ensureRolePermissionSeed() {
@@ -750,7 +833,6 @@ async function init() {
     await ensureRolePermissionSeed();
     await migrateLegacyData();
     await ensureSysadminSeed();
-    await ensureTicketTypesSeed();
     await pingDependencies();
 
     initialized = true;
@@ -1792,6 +1874,7 @@ async function handleAddOrgMember(request, orgId) {
   }
 
   let member = await getUserByDiscordId(discordId);
+  let wasNewUser = false;
   if (!member) {
     const userId = crypto.randomUUID();
     const fallbackName = username || `user_${discordId.slice(-6)}`;
@@ -1806,7 +1889,14 @@ async function handleAddOrgMember(request, orgId) {
       discordId,
       steamId: null,
     };
+    wasNewUser = true;
   }
+
+  const beforeMembership = await pool.query(
+    `SELECT role_id FROM organization_members WHERE org_id = $1 AND user_id = $2`,
+    [orgId, member.userId],
+  );
+  const wasAlreadyMember = beforeMembership.rows.length > 0;
 
   await pool.query(
     `INSERT INTO organization_members (org_id, user_id, role_id)
@@ -1818,6 +1908,30 @@ async function handleAddOrgMember(request, orgId) {
   const cacheKeys = await redis.keys("cache:members:*");
   if (cacheKeys.length > 0) {
     await redis.del(...cacheKeys);
+  }
+
+  // Audit log
+  if (!wasAlreadyMember) {
+    await auditLog({
+      orgId,
+      actorUserId: session.userId,
+      targetUserId: member.userId,
+      resourceType: "org_member",
+      resourceId: member.userId,
+      actionType: "ORG_MEMBER_ADDED",
+      actionCategory: "staff_management",
+      severity: 2,
+      metadata: {
+        wasNewUser,
+        discordId,
+        username: member.username,
+      },
+      afterState: {
+        orgId,
+        userId: member.userId,
+        roleId: "org_member",
+      },
+    });
   }
 
   return json({ ok: true, orgId, discordId });
@@ -1863,7 +1977,7 @@ async function handleGrantOrgAdmin(request, orgId) {
   }
 
   const membershipRes = await pool.query(
-    `SELECT org_id FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+    `SELECT role_id FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
     [orgId, member.userId],
   );
   if (!membershipRes.rows[0]) {
@@ -1873,6 +1987,7 @@ async function handleGrantOrgAdmin(request, orgId) {
     );
   }
 
+  const beforeState = membershipRes.rows[0];
   await pool.query(
     `UPDATE organization_members
      SET role_id = 'org_admin'
@@ -1880,7 +1995,245 @@ async function handleGrantOrgAdmin(request, orgId) {
     [orgId, member.userId],
   );
 
+  // Audit log
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    targetUserId: member.userId,
+    resourceType: "org_member",
+    resourceId: member.userId,
+    actionType: "ORG_ADMIN_GRANTED",
+    actionCategory: "staff_management",
+    severity: 3,
+    metadata: {
+      discordId,
+      username: member.username,
+    },
+    beforeState: {
+      orgId,
+      userId: member.userId,
+      roleId: beforeState.role_id,
+    },
+    afterState: {
+      orgId,
+      userId: member.userId,
+      roleId: "org_admin",
+    },
+  });
+
   return json({ ok: true, orgId, discordId });
+}
+
+async function handleRemoveOrgMember(request, orgId, userId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  if (!userId) {
+    return json({ error: "userId is required" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) {
+    return json({ error: "Organization not found" }, 404);
+  }
+
+  const memberRes = await pool.query(
+    `SELECT om.role_id, u.username FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND om.user_id = $2`,
+    [orgId, userId],
+  );
+  if (!memberRes.rows[0]) {
+    return json({ error: "Member not found in organization" }, 404);
+  }
+
+  const beforeState = memberRes.rows[0];
+
+  await pool.query(
+    `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`,
+    [orgId, userId],
+  );
+
+  const cacheKeys = await redis.keys("cache:members:*");
+  if (cacheKeys.length > 0) {
+    await redis.del(...cacheKeys);
+  }
+
+  // Audit log
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    targetUserId: userId,
+    resourceType: "org_member",
+    resourceId: userId,
+    actionType: "ORG_MEMBER_REMOVED",
+    actionCategory: "staff_management",
+    severity: 3,
+    metadata: {
+      username: beforeState.username,
+    },
+    beforeState: {
+      orgId,
+      userId,
+      roleId: beforeState.role_id,
+    },
+  });
+
+  return json({ ok: true, orgId, userId });
+}
+
+async function handleUpdateOrgMemberTeam(request, orgId, userId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  if (!userId) {
+    return json({ error: "userId is required" }, 400);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const newTeam = String(body?.team ?? "").trim();
+  if (!newTeam) {
+    return json({ error: "team is required in request body" }, 400);
+  }
+
+  // Validate team is a valid role
+  const validTeams = ["org_member", "org_admin"];
+  const mappedTeam = newTeam === "management" ? "org_admin" : "org_member";
+  if (!validTeams.includes(mappedTeam)) {
+    return json({ error: "Invalid team value" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) {
+    return json({ error: "Organization not found" }, 404);
+  }
+
+  const memberRes = await pool.query(
+    `SELECT om.role_id, u.username FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND om.user_id = $2`,
+    [orgId, userId],
+  );
+  if (!memberRes.rows[0]) {
+    return json({ error: "Member not found in organization" }, 404);
+  }
+
+  const beforeState = memberRes.rows[0];
+  if (beforeState.role_id === mappedTeam) {
+    return json({ ok: true, orgId, userId, message: "Team unchanged" });
+  }
+
+  await pool.query(
+    `UPDATE organization_members SET role_id = $1 WHERE org_id = $2 AND user_id = $3`,
+    [mappedTeam, orgId, userId],
+  );
+
+  const cacheKeys = await redis.keys("cache:members:*");
+  if (cacheKeys.length > 0) {
+    await redis.del(...cacheKeys);
+  }
+
+  // Audit log
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    targetUserId: userId,
+    resourceType: "org_member",
+    resourceId: userId,
+    actionType: "ORG_MEMBER_TEAM_CHANGED",
+    actionCategory: "staff_management",
+    severity: 2,
+    metadata: {
+      username: beforeState.username,
+      newTeam: mappedTeam,
+    },
+    beforeState: {
+      orgId,
+      userId,
+      roleId: beforeState.role_id,
+    },
+    afterState: {
+      orgId,
+      userId,
+      roleId: mappedTeam,
+    },
+  });
+
+  return json({ ok: true, orgId, userId });
+}
+
+async function handleGetStaffAuditLog(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const url = new URL(request.url);
+  const staffId = url.searchParams.get("staffId");
+  const limit = Math.min(100, Number(url.searchParams.get("limit") ?? 50));
+  const offset = Number(url.searchParams.get("offset") ?? 0);
+
+  if (!staffId) {
+    return json({ error: "staffId query parameter is required" }, 400);
+  }
+
+  const logsRes = await pool.query(
+    `SELECT
+       id, actor_user_id, target_user_id, resource_type, resource_id,
+       action_type, action_category, severity, metadata, before_state, after_state,
+       created_at
+     FROM audit_logs
+     WHERE org_id = $1 AND target_user_id = $2
+     ORDER BY created_at DESC
+     LIMIT $3 OFFSET $4`,
+    [orgId, staffId, limit, offset],
+  );
+
+  const countRes = await pool.query(
+    `SELECT COUNT(*) as total FROM audit_logs WHERE org_id = $1 AND target_user_id = $2`,
+    [orgId, staffId],
+  );
+
+  const logs = logsRes.rows.map((row) => ({
+    id: row.id,
+    actorUserId: row.actor_user_id,
+    targetUserId: row.target_user_id,
+    resourceType: row.resource_type,
+    resourceId: row.resource_id,
+    actionType: row.action_type,
+    actionCategory: row.action_category,
+    severity: row.severity,
+    metadata: row.metadata,
+    beforeState: row.before_state,
+    afterState: row.after_state,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+  }));
+
+  return json({
+    logs,
+    total: Number(countRes.rows[0]?.total ?? 0),
+    limit,
+    offset,
+  });
 }
 
 async function handleGetOrgDetails(request, orgId) {
@@ -2160,16 +2513,6 @@ async function ensureDefaultTicketTypes(orgId) {
   }
 }
 
-async function ensureTicketTypesSeed() {
-  const { rows } = await pool.query(
-    `SELECT org_id FROM organizations WHERE org_id <> $1`,
-    [SYSADMIN.globalOrgId],
-  );
-  for (const row of rows) {
-    await ensureDefaultTicketTypes(String(row.org_id));
-  }
-}
-
 // ── Ticket Redis cache ────────────────────────────────────────────────────────
 
 function ticketCacheKey(ticketId) {
@@ -2382,6 +2725,9 @@ async function handleListOrgTicketTypes(request, orgId) {
     [orgId],
   );
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  // Seed defaults on-demand for this org instead of blocking startup for all orgs.
+  await ensureDefaultTicketTypes(orgId);
 
   const { rows } = await pool.query(
     `SELECT ticket_type_id, ticket_type_name, ticket_type_description
@@ -2826,6 +3172,23 @@ export async function handleApiRequest(request) {
     );
     if (orgAdminsMatch && request.method === "POST") {
       return handleGrantOrgAdmin(request, orgAdminsMatch[1]);
+    }
+
+    const orgMemberDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)$/,
+    );
+    if (orgMemberDetailMatch && request.method === "DELETE") {
+      return handleRemoveOrgMember(request, orgMemberDetailMatch[1], orgMemberDetailMatch[2]);
+    }
+    if (orgMemberDetailMatch && request.method === "PATCH") {
+      return handleUpdateOrgMemberTeam(request, orgMemberDetailMatch[1], orgMemberDetailMatch[2]);
+    }
+
+    const orgAuditLogsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/audit-logs$/,
+    );
+    if (orgAuditLogsMatch && request.method === "GET") {
+      return handleGetStaffAuditLog(request, orgAuditLogsMatch[1]);
     }
 
     const orgTicketTypesMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types$/);

@@ -12,6 +12,7 @@ let _result = null;
 let _fetchedAt = 0;
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
+const FETCH_TIMEOUT_MS = 2500;
 
 /**
  * Returns a promise that resolves to { status: number, user: object|null }.
@@ -28,21 +29,32 @@ export function getAuthMe() {
   // Deduplicate in-flight request
   if (_promise) return _promise;
 
-  _promise = fetch("/api/auth/me", { credentials: "include" })
-    .then(async (res) => {
+  _promise = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+        signal: controller.signal,
+      });
+
       const user = res.ok
         ? ((await res.json().catch(() => null))?.user ?? null)
         : null;
+
       _result = { status: res.status, user };
       _fetchedAt = Date.now();
-      _promise = null;
       return _result;
-    })
-    .catch(() => {
-      _promise = null;
+    } catch {
       // Do not cache errors so the next call retries immediately.
-      return { status: 0, user: null };
-    });
+      // If we have stale data, prefer it over a hard failure to keep navigation responsive.
+      return _result ?? { status: 0, user: null };
+    } finally {
+      clearTimeout(timeout);
+      _promise = null;
+    }
+  })();
 
   return _promise;
 }

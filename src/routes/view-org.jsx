@@ -2,13 +2,13 @@ import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  Building2,
-  ClipboardList,
-  Trash2,
-  UserCog,
-  UserPlus,
+    Building2,
+    ClipboardList,
+    Trash2,
+    UserCog,
+    UserPlus,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -53,6 +53,8 @@ function ViewOrgPage() {
   const [newMemberIdentifier, setNewMemberIdentifier] = useState("");
   const [newTeam, setNewTeam] = useState("support");
   const [isAdding, setIsAdding] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState(new Set());
+  const [memberTeams, setMemberTeams] = useState(new Map());
 
   async function fetchBootstrap() {
     setLoading(true);
@@ -170,6 +172,83 @@ function ViewOrgPage() {
       setPageError(error?.message ?? "Failed to add member.");
     } finally {
       setIsAdding(false);
+    }
+  }
+
+  async function handleRemoveMember(memberId) {
+    if (!selectedOrgId || !canManageSelectedOrg) return;
+    if (!confirm(`Remove this member from the organization?`)) return;
+
+    setActionInProgress((prev) => new Set([...prev, `remove-${memberId}`]));
+    setPageError("");
+
+    try {
+      const res = await authFetch(`/api/orgs/${selectedOrgId}/members/${memberId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const body = await safeJson(res);
+        setPageError(body?.error ?? "Failed to remove member.");
+        setActionInProgress((prev) => {
+          const next = new Set(prev);
+          next.delete(`remove-${memberId}`);
+          return next;
+        });
+        return;
+      }
+
+      await fetchBootstrap();
+    } catch (error) {
+      if (isAuthExpired(error)) return;
+      setPageError(error?.message ?? "Failed to remove member.");
+      setActionInProgress((prev) => {
+        const next = new Set(prev);
+        next.delete(`remove-${memberId}`);
+        return next;
+      });
+    }
+  }
+
+  async function handleChangeTeam(memberId, newTeamValue) {
+    if (!selectedOrgId || !canManageSelectedOrg) return;
+
+    setMemberTeams((prev) => new Map(prev).set(memberId, newTeamValue));
+    setActionInProgress((prev) => new Set([...prev, `team-${memberId}`]));
+    setPageError("");
+
+    try {
+      const res = await authFetch(`/api/orgs/${selectedOrgId}/members/${memberId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ team: newTeamValue }),
+      });
+
+      if (!res.ok) {
+        const body = await safeJson(res);
+        setPageError(body?.error ?? "Failed to change team.");
+        setMemberTeams((prev) => {
+          const next = new Map(prev);
+          next.delete(memberId);
+          return next;
+        });
+      } else {
+        await fetchBootstrap();
+      }
+    } catch (error) {
+      if (isAuthExpired(error)) return;
+      setPageError(error?.message ?? "Failed to change team.");
+      setMemberTeams((prev) => {
+        const next = new Map(prev);
+        next.delete(memberId);
+        return next;
+      });
+    } finally {
+      setActionInProgress((prev) => {
+        const next = new Set(prev);
+        next.delete(`team-${memberId}`);
+        return next;
+      });
     }
   }
 
@@ -298,8 +377,7 @@ function ViewOrgPage() {
                   </Button>
                 </form>
                 <p className="text-[11px] text-muted-foreground">
-                  Team selection and Steam ID adds are currently WIP for this
-                  API-backed page.
+                  Steam ID adds are currently WIP for this API-backed page.
                 </p>
                 {!canManageSelectedOrg ? (
                   <p className="text-xs text-muted-foreground">
@@ -338,19 +416,13 @@ function ViewOrgPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled
-                          className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
-                          title="Audit logs are WIP"
+                        <Link
+                          to={`/staff-audit?staff=${encodeURIComponent(member.userId || member.discordId || "")}`}
+                          className="inline-flex items-center justify-center h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1 rounded-md border border-border bg-background hover:bg-surface"
                         >
                           <ClipboardList className="size-3" />
                           Audit
-                        </Button>
-                        <span className="text-[9px] font-mono uppercase tracking-widest text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                          WIP
-                        </span>
+                        </Link>
                         <Button
                           size="sm"
                           variant="outline"
@@ -362,22 +434,22 @@ function ViewOrgPage() {
                           Impersonate
                         </Button>
                         <select
-                          value="support"
-                          disabled
+                          value={memberTeams.get(member.userId) || "support"}
+                          onChange={(e) => handleChangeTeam(member.userId, e.target.value)}
+                          disabled={!canManageSelectedOrg || actionInProgress.has(`team-${member.userId}`)}
                           className="bg-surface border border-border rounded px-2 py-1 text-[11px] font-mono disabled:opacity-50"
-                          title="Team assignment is WIP"
                         >
-                          <option value="management">Management</option>
-                          <option value="sr_admins">Sr. Admins</option>
-                          <option value="admins">Admins</option>
                           <option value="support">Support</option>
+                          <option value="admins">Admins</option>
+                          <option value="sr_admins">Sr. Admins</option>
+                          <option value="management">Management</option>
                         </select>
                         <Button
                           size="icon"
                           variant="ghost"
-                          disabled
+                          onClick={() => handleRemoveMember(member.userId)}
+                          disabled={!canManageSelectedOrg || actionInProgress.has(`remove-${member.userId}`)}
                           className="size-7"
-                          title="Remove member is WIP"
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
