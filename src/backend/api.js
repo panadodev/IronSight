@@ -189,17 +189,12 @@ function isGlobalAdmin(session) {
 }
 
 function canManageOrg(session, orgId) {
-  return isGlobalAdmin(session) || session.orgAdminOrgIds.includes(orgId);
+  return session.orgAdminOrgIds.includes(orgId);
 }
 
-function getConfiguredSysAdminDiscordId() {
-  return (env.sysAdminDiscordId || SYSADMIN.discordId || "").trim();
-}
-
-function isConfiguredSysAdmin(session) {
-  const configured = getConfiguredSysAdminDiscordId();
-  if (!configured) return false;
-  return String(session?.discordId ?? "").trim() === configured;
+function canViewOrgAsOwner(session, orgId) {
+  // Check if user is org owner
+  return session.orgAdminOrgIds.includes(orgId);
 }
 
 function getBaseUrl(request) {
@@ -539,8 +534,8 @@ async function ensureRolePermissionSeed() {
     `INSERT INTO roles (role_id, role_name)
      VALUES
       ('org_member', 'Member'),
-      ('org_admin', 'Organization Admin'),
-      ('sysadmin', 'System Administrator')
+      ('org_admin', 'Admin'),
+      ('org_owner', 'Owner')
      ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name`,
   );
 
@@ -549,9 +544,7 @@ async function ensureRolePermissionSeed() {
      VALUES
       ('todo_write', 'Can create and update todos'),
       ('org_manage', 'Can manage organization members'),
-      ('users_edit', 'Can edit users'),
-      ('groups_edit', 'Can edit groups and role mappings'),
-      ('global_admin', 'Global administrative access')
+      ('role_create', 'Can create and manage custom roles')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 
@@ -561,11 +554,9 @@ async function ensureRolePermissionSeed() {
       ('org_member', 'todo_write'),
       ('org_admin', 'todo_write'),
       ('org_admin', 'org_manage'),
-      ('sysadmin', 'todo_write'),
-      ('sysadmin', 'org_manage'),
-      ('sysadmin', 'users_edit'),
-      ('sysadmin', 'groups_edit'),
-      ('sysadmin', 'global_admin')
+      ('org_owner', 'todo_write'),
+      ('org_owner', 'org_manage'),
+      ('org_owner', 'role_create')
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
 }
@@ -751,7 +742,6 @@ async function loadUserAccess(userId) {
 
   const permissions = new Set();
   const orgAdminOrgIds = new Set();
-  let globalAdmin = false;
 
   for (const row of rows) {
     const orgId = String(row.org_id);
@@ -760,35 +750,28 @@ async function loadUserAccess(userId) {
       row.permission_id == null ? null : String(row.permission_id);
 
     if (permissionId) permissions.add(permissionId);
-    if (roleId === "sysadmin" || permissionId === "global_admin")
-      globalAdmin = true;
 
     if (
       orgId !== SYSADMIN.globalOrgId &&
-      (roleId === "org_admin" ||
-        roleId === "sysadmin" ||
-        permissionId === "org_manage" ||
-        permissionId === "global_admin")
+      (roleId === "org_admin" || roleId === "org_owner")
     ) {
       orgAdminOrgIds.add(orgId);
     }
   }
 
-  const canWrite = globalAdmin || permissions.has("todo_write");
-  const groups = globalAdmin
-    ? [{ groupId: "sysadmin", admin: true, editUsers: true, editGroups: true }]
-    : [
-        {
-          groupId: "member",
-          admin: false,
-          editUsers: false,
-          editGroups: false,
-        },
-      ];
+  const canWrite = permissions.has("todo_write");
+  const groups = [
+    {
+      groupId: "member",
+      admin: false,
+      editUsers: permissions.has("org_manage"),
+      editGroups: permissions.has("role_create"),
+    },
+  ];
 
   return {
     groups,
-    globalAdmin,
+    globalAdmin: false,
     canWrite,
     orgAdminOrgIds: Array.from(orgAdminOrgIds),
   };
@@ -832,7 +815,6 @@ async function init() {
     await ensureSchema();
     await ensureRolePermissionSeed();
     await migrateLegacyData();
-    await ensureSysadminSeed();
     await pingDependencies();
 
     initialized = true;
@@ -1440,9 +1422,6 @@ async function handleAuthMe(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  const globalAdmin = isGlobalAdmin(session);
-  const isSysAdmin = isConfiguredSysAdmin(session);
-
   return json({
     user: {
       userId: session.userId,
@@ -1451,8 +1430,6 @@ async function handleAuthMe(request) {
       steamId: session.steamId,
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
-      globalAdmin,
-      isSysAdmin,
     },
   });
 }
@@ -1530,8 +1507,15 @@ async function handleCreateOrganization(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden: configured sysadmin required" }, 403);
+  // Only panado can create organizations
+  if (
+    session.discordId !== SYSADMIN.discordId &&
+    session.username !== SYSADMIN.username
+  ) {
+    return json(
+      { error: "Forbidden: only panado can create organizations" },
+      403,
+    );
   }
 
   let body;
@@ -1592,12 +1576,13 @@ async function handleCreateOrganization(request) {
     [derivedOrgId, guildId || null, name],
   );
 
+  // Make the creator an owner
   await pool.query(
     `INSERT INTO organization_members (org_id, user_id, role_id)
      VALUES ($1, $2, $3)
      ON CONFLICT (org_id, user_id)
      DO UPDATE SET role_id = EXCLUDED.role_id`,
-    [derivedOrgId, session.userId, SYSADMIN.sysadminRoleId],
+    [derivedOrgId, session.userId, "org_owner"],
   );
 
   await ensureDefaultTicketTypes(derivedOrgId);
@@ -1619,9 +1604,7 @@ async function handleTodoBootstrap(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  const userOrgs = isConfiguredSysAdmin(session)
-    ? await listAllOrganizations()
-    : await listUserOrganizations(session.userId);
+  const userOrgs = await listUserOrganizations(session.userId);
   const orgIds = userOrgs.map((org) => org.orgId);
 
   const membersCacheKey = `cache:members:${orgIds.sort().join("|")}`;
@@ -1656,7 +1639,6 @@ async function handleTodoBootstrap(request) {
     members,
     todos,
     canWrite: canWriteTodos(session),
-    globalAdmin: isGlobalAdmin(session),
   });
 }
 
@@ -1940,11 +1922,8 @@ async function handleAddOrgMember(request, orgId) {
 async function handleGrantOrgAdmin(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isGlobalAdmin(session)) {
-    return json(
-      { error: "Forbidden: global admin required to grant org admin" },
-      403,
-    );
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin/owner role required" }, 403);
   }
 
   let body;
@@ -2022,6 +2001,108 @@ async function handleGrantOrgAdmin(request, orgId) {
   });
 
   return json({ ok: true, orgId, discordId });
+}
+
+async function handleCreateOrgRole(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json(
+      { error: "Forbidden: org admin/owner role required to create roles" },
+      403,
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const roleName = String(body?.roleName ?? "").trim();
+  const permissions = Array.isArray(body?.permissions) ? body.permissions : [];
+
+  if (!roleName) {
+    return json({ error: "roleName is required" }, 400);
+  }
+
+  // Verify org exists
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) {
+    return json({ error: "Organization not found" }, 404);
+  }
+
+  // Generate a role ID based on org and role name
+  const roleId =
+    `${orgId}_${roleName.toLowerCase().replace(/\s+/g, "_")}`.slice(0, 64);
+
+  // Check if role already exists
+  const existingRole = await pool.query(
+    "SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1",
+    [roleId],
+  );
+  if (existingRole.rows[0]) {
+    return json({ error: "A role with this name already exists" }, 409);
+  }
+
+  // Create the role
+  await pool.query(
+    `INSERT INTO roles (role_id, role_name)
+     VALUES ($1, $2)`,
+    [roleId, roleName],
+  );
+
+  // Add permissions to the role
+  if (permissions.length > 0) {
+    const validPermissions = ["todo_write", "org_manage", "role_create"];
+    const filteredPermissions = permissions.filter((p) =>
+      validPermissions.includes(String(p).trim()),
+    );
+
+    if (filteredPermissions.length > 0) {
+      for (const permission of filteredPermissions) {
+        await pool.query(
+          `INSERT INTO role_permissions (role_id, permission_id)
+           VALUES ($1, $2)
+           ON CONFLICT (role_id, permission_id) DO NOTHING`,
+          [roleId, permission],
+        );
+      }
+    }
+  }
+
+  // Audit log
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "role",
+    resourceId: roleId,
+    actionType: "ROLE_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: {
+      roleName,
+      roleId,
+      permissions,
+    },
+  });
+
+  return json(
+    {
+      ok: true,
+      role: {
+        roleId,
+        roleName,
+        orgId,
+        permissions,
+      },
+    },
+    201,
+  );
 }
 
 async function handleRemoveOrgMember(request, orgId, userId) {
@@ -2268,9 +2349,11 @@ async function handleGetStaffAuditLog(request, orgId) {
   });
 }
 
-async function handleImpersonateOrgMember(request, orgId, userId) {
+async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
+
+  // Only management+ can view another member's perspective
   if (!canManageOrg(session, orgId)) {
     return json({ error: "Forbidden: org admin role required" }, 403);
   }
@@ -2279,9 +2362,9 @@ async function handleImpersonateOrgMember(request, orgId, userId) {
     return json({ error: "userId is required" }, 400);
   }
 
-  // Verify target user is a member of the organization and fetch full user data
+  // Verify target user is a member of the organization
   const memberRes = await pool.query(
-    `SELECT u.user_id, u.username, u.discord_id, u.steam_id
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, om.role_id
      FROM users u
      JOIN organization_members om ON om.user_id = u.user_id
      WHERE om.org_id = $1 AND u.user_id = $2`,
@@ -2289,90 +2372,62 @@ async function handleImpersonateOrgMember(request, orgId, userId) {
   );
 
   if (!memberRes.rows[0]) {
-    return json({ error: "Target user is not a member of this organization" }, 404);
+    return json(
+      { error: "Target user is not a member of this organization" },
+      404,
+    );
   }
 
-  const targetUser = memberRes.rows[0];
+  const targetMember = memberRes.rows[0];
+  const targetAccess = await loadUserAccess(targetMember.user_id);
 
-  // Build a full session for the target user (same as normal login)
-  const access = await loadUserAccess(targetUser.user_id);
-
-  const sid = crypto.randomUUID();
-  // Use JWT just like createSessionForUser so getSession() can verify it
-  const token = jwt.sign({ sid }, env.jwtSecret, {
-    expiresIn: env.sessionTtlSeconds,
-  });
-  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-  const expiresAt = new Date(Date.now() + env.sessionTtlSeconds * 1000);
-  const ipAddress = getClientIp(request);
-  const userAgent = request.headers.get("user-agent") ?? "unknown";
-
-  const impersonatedSession = {
-    userId: String(targetUser.user_id),
-    username: String(targetUser.username),
-    discordId: targetUser.discord_id == null ? null : String(targetUser.discord_id),
-    steamId: targetUser.steam_id == null ? null : String(targetUser.steam_id),
-    groups: access.groups,
-    orgAdminOrgIds: access.orgAdminOrgIds,
-    globalAdmin: access.globalAdmin,
-    canWrite: access.canWrite,
-    // Track that this is an impersonation session
-    impersonatedBy: session.userId,
-    impersonatedAt: new Date().toISOString(),
-  };
-
-  await redis.set(
-    `session:${sid}`,
-    JSON.stringify(impersonatedSession),
-    "EX",
-    env.sessionTtlSeconds,
-  );
-
-  await pool.query(
-    `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, revoked)
-     VALUES ($1, $2, $3, NOW(), $4, $5, $6, FALSE)`,
-    [
-      sid,
-      targetUser.user_id,
-      tokenHash,
-      expiresAt.toISOString(),
-      ipAddress,
-      userAgent,
-    ],
-  );
-
-  // Log impersonation
+  // Log the view-only impersonation access
   await auditLog({
     orgId,
     actorUserId: session.userId,
-    targetUserId: targetUser.user_id,
+    targetUserId: targetMember.user_id,
     resourceType: "org_member",
-    resourceId: targetUser.user_id,
-    actionType: "ORG_MEMBER_IMPERSONATED",
+    resourceId: targetMember.user_id,
+    actionType: "ORG_MEMBER_VIEW_ACCESSED",
     actionCategory: "staff_management",
-    severity: 3,
+    severity: 2,
     metadata: {
-      username: targetUser.username,
-    },
-    beforeState: { sessionUser: session.userId },
-    afterState: {
-      sessionUser: targetUser.user_id,
-      impersonatedBy: session.userId,
+      username: targetMember.username,
+      viewType: "read_only",
     },
   });
 
-  const response = json({
+  return json({
     ok: true,
-    userId: targetUser.user_id,
-    username: targetUser.username,
+    member: {
+      userId: String(targetMember.user_id),
+      username: String(targetMember.username),
+      discordId:
+        targetMember.discord_id == null
+          ? null
+          : String(targetMember.discord_id),
+      steamId:
+        targetMember.steam_id == null ? null : String(targetMember.steam_id),
+      roleId: String(targetMember.role_id),
+    },
+    access: {
+      orgAdminOrgIds: targetAccess.orgAdminOrgIds,
+      canWrite: targetAccess.canWrite,
+      groups: targetAccess.groups,
+      permissions: Array.from(
+        new Set(
+          targetAccess.groups.flatMap((g) => {
+            const perms = [];
+            if (g.editUsers) perms.push("org_manage");
+            if (g.editGroups) perms.push("role_create");
+            return perms;
+          }),
+        ),
+      ),
+    },
+    viewOnly: true,
+    viewedAt: new Date().toISOString(),
   });
-
-  response.headers.append(
-    "set-cookie",
-    sessionCookie(token, env.sessionTtlSeconds),
-  );
-
-  return response;
 }
 
 async function handleGetOrgDetails(request, orgId) {
@@ -2632,10 +2687,20 @@ async function handleUpdateRolePermissions(request, roleId) {
 // ── Default ticket types ─────────────────────────────────────────────────────
 
 const DEFAULT_TICKET_TYPES = [
-  { name: "Player Report", description: "Report a player for cheating, teaming, or other rule violations." },
+  {
+    name: "Player Report",
+    description:
+      "Report a player for cheating, teaming, or other rule violations.",
+  },
   { name: "Ban Appeal", description: "Appeal a ban or mute on this server." },
-  { name: "VIP Issue", description: "Issues related to VIP memberships or perks." },
-  { name: "General Support", description: "General questions and support requests." },
+  {
+    name: "VIP Issue",
+    description: "Issues related to VIP memberships or perks.",
+  },
+  {
+    name: "General Support",
+    description: "General questions and support requests.",
+  },
 ];
 
 async function ensureDefaultTicketTypes(orgId) {
@@ -2814,7 +2879,9 @@ async function handlePublicSteamCallback(request) {
       user = {
         userId: String(existingRes.rows[0].user_id),
         username: String(existingRes.rows[0].username),
-        discordId: existingRes.rows[0].discord_id ? String(existingRes.rows[0].discord_id) : null,
+        discordId: existingRes.rows[0].discord_id
+          ? String(existingRes.rows[0].discord_id)
+          : null,
         steamId,
       };
     } else {
@@ -2827,7 +2894,9 @@ async function handlePublicSteamCallback(request) {
       user = { userId, username, discordId: null, steamId };
     }
 
-    const redirectTo = orgParam ? `/submit?org=${encodeURIComponent(orgParam)}` : next;
+    const redirectTo = orgParam
+      ? `/submit?org=${encodeURIComponent(orgParam)}`
+      : next;
     return createSessionForUser(user, {
       redirectTo,
       ipAddress: getClientIp(request),
@@ -2849,8 +2918,13 @@ async function handleListOrgs() {
     orgs: rows.map((row) => {
       const name = String(row.name);
       const short =
-        name.split(/\s+/).filter(Boolean).map((p) => p[0]).join("").slice(0, 3).toUpperCase() ||
-        String(row.org_id).slice(0, 3).toUpperCase();
+        name
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((p) => p[0])
+          .join("")
+          .slice(0, 3)
+          .toUpperCase() || String(row.org_id).slice(0, 3).toUpperCase();
       return { orgId: String(row.org_id), name, short };
     }),
   });
@@ -2896,15 +2970,18 @@ async function handleCreateTicket(request) {
   }
 
   const orgId = String(body?.orgId ?? "").trim();
-  const ticketTypeId = body?.ticketTypeId != null ? Number(body.ticketTypeId) : null;
+  const ticketTypeId =
+    body?.ticketTypeId != null ? Number(body.ticketTypeId) : null;
   const title = String(body?.title ?? "").trim();
   const message = String(body?.message ?? "").trim();
 
   if (!orgId || !title || !message) {
     return json({ error: "orgId, title, and message are required" }, 400);
   }
-  if (title.length > 255) return json({ error: "title must be 255 characters or fewer" }, 400);
-  if (message.length > 10000) return json({ error: "message is too long" }, 400);
+  if (title.length > 255)
+    return json({ error: "title must be 255 characters or fewer" }, 400);
+  if (message.length > 10000)
+    return json({ error: "message is too long" }, 400);
 
   const orgRes = await pool.query(
     "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
@@ -2917,7 +2994,11 @@ async function handleCreateTicket(request) {
       "SELECT ticket_type_id FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1",
       [ticketTypeId, orgId],
     );
-    if (!typeRes.rows[0]) return json({ error: "Ticket type not found for this organization" }, 400);
+    if (!typeRes.rows[0])
+      return json(
+        { error: "Ticket type not found for this organization" },
+        400,
+      );
   }
 
   const result = await pool.query(
@@ -2934,7 +3015,12 @@ async function handleCreateTicket(request) {
   );
   await pool.query(
     `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-    [ticketId, session.userId, "created", JSON.stringify({ title, orgId, ticketTypeId })],
+    [
+      ticketId,
+      session.userId,
+      "created",
+      JSON.stringify({ title, orgId, ticketTypeId }),
+    ],
   );
 
   const ticket = await loadTicketFromDb(ticketId);
@@ -2948,7 +3034,8 @@ async function handleGetTicket(request, ticketIdStr) {
   if (error) return error;
 
   const id = Number(ticketIdStr);
-  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
 
   let ticket = await getCachedTicket(id);
   if (!ticket) {
@@ -2976,7 +3063,8 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   if (error) return error;
 
   const id = Number(ticketIdStr);
-  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
 
   let body;
   try {
@@ -2987,11 +3075,13 @@ async function handleAddTicketMessage(request, ticketIdStr) {
 
   const message = String(body?.message ?? "").trim();
   if (!message) return json({ error: "message is required" }, 400);
-  if (message.length > 10000) return json({ error: "message is too long" }, 400);
+  if (message.length > 10000)
+    return json({ error: "message is too long" }, 400);
 
   const ticket = await loadTicketFromDb(id);
   if (!ticket) return json({ error: "Ticket not found" }, 404);
-  if (ticket.status === "closed") return json({ error: "Cannot add messages to a closed ticket" }, 400);
+  if (ticket.status === "closed")
+    return json({ error: "Cannot add messages to a closed ticket" }, 400);
 
   const isCreator = ticket.created_by === session.userId;
   if (!isCreator) {
@@ -2999,7 +3089,8 @@ async function handleAddTicketMessage(request, ticketIdStr) {
       "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
       [ticket.org_id, session.userId],
     );
-    if (!isMember.rows[0] && !isGlobalAdmin(session)) return json({ error: "Forbidden" }, 403);
+    if (!isMember.rows[0] && !isGlobalAdmin(session))
+      return json({ error: "Forbidden" }, 403);
   }
 
   await pool.query(
@@ -3031,7 +3122,8 @@ async function handleUpdateTicket(request, ticketIdStr) {
   if (error) return error;
 
   const id = Number(ticketIdStr);
-  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
 
   const ticket = await loadTicketFromDb(id);
   if (!ticket) return json({ error: "Ticket not found" }, 404);
@@ -3053,8 +3145,15 @@ async function handleUpdateTicket(request, ticketIdStr) {
 
   const status = body?.status == null ? null : String(body.status).trim();
   const priority = body?.priority == null ? null : String(body.priority).trim();
-  const hasAssigned = Object.prototype.hasOwnProperty.call(body ?? {}, "assignedTo");
-  const assignedTo = hasAssigned ? (body.assignedTo == null ? null : String(body.assignedTo)) : undefined;
+  const hasAssigned = Object.prototype.hasOwnProperty.call(
+    body ?? {},
+    "assignedTo",
+  );
+  const assignedTo = hasAssigned
+    ? body.assignedTo == null
+      ? null
+      : String(body.assignedTo)
+    : undefined;
 
   if (status && !["open", "waiting_response", "closed"].includes(status)) {
     return json({ error: "Invalid status" }, 400);
@@ -3067,13 +3166,26 @@ async function handleUpdateTicket(request, ticketIdStr) {
   const values = [];
   let idx = 1;
 
-  if (status !== null) { setClauses.push(`status = $${idx++}`); values.push(status); }
-  if (priority !== null) { setClauses.push(`priority = $${idx++}`); values.push(priority); }
-  if (assignedTo !== undefined) { setClauses.push(`assigned_to = $${idx++}`); values.push(assignedTo); }
-  if (status === "closed") { setClauses.push("closed_at = NOW()"); }
-  else if (status && status !== "closed" && ticket.status === "closed") { setClauses.push("closed_at = NULL"); }
+  if (status !== null) {
+    setClauses.push(`status = $${idx++}`);
+    values.push(status);
+  }
+  if (priority !== null) {
+    setClauses.push(`priority = $${idx++}`);
+    values.push(priority);
+  }
+  if (assignedTo !== undefined) {
+    setClauses.push(`assigned_to = $${idx++}`);
+    values.push(assignedTo);
+  }
+  if (status === "closed") {
+    setClauses.push("closed_at = NOW()");
+  } else if (status && status !== "closed" && ticket.status === "closed") {
+    setClauses.push("closed_at = NULL");
+  }
 
-  if (setClauses.length === 1) return json({ error: "No fields to update" }, 400);
+  if (setClauses.length === 1)
+    return json({ error: "No fields to update" }, 400);
 
   values.push(id);
   await pool.query(
@@ -3083,7 +3195,12 @@ async function handleUpdateTicket(request, ticketIdStr) {
 
   await pool.query(
     `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-    [id, session.userId, "updated", JSON.stringify({ status, priority, assignedTo })],
+    [
+      id,
+      session.userId,
+      "updated",
+      JSON.stringify({ status, priority, assignedTo }),
+    ],
   );
 
   await invalidateTicketCache(id);
@@ -3101,7 +3218,8 @@ async function handleListOrgTickets(request, orgId) {
     "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
     [orgId, session.userId],
   );
-  if (!isMember.rows[0] && !isGlobalAdmin(session)) return json({ error: "Forbidden" }, 403);
+  if (!isMember.rows[0] && !isGlobalAdmin(session))
+    return json({ error: "Forbidden" }, 403);
 
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status");
@@ -3112,7 +3230,10 @@ async function handleListOrgTickets(request, orgId) {
   const values = [orgId];
   let idx = 2;
 
-  if (statusFilter) { conditions.push(`t.status = $${idx++}`); values.push(statusFilter); }
+  if (statusFilter) {
+    conditions.push(`t.status = $${idx++}`);
+    values.push(statusFilter);
+  }
   values.push(limit, offset);
 
   const { rows } = await pool.query(
@@ -3263,10 +3384,16 @@ export async function handleApiRequest(request) {
     }
 
     // Public Steam auth for ticket submission
-    if (pathname === "/api/auth/steam/public/start" && request.method === "GET") {
+    if (
+      pathname === "/api/auth/steam/public/start" &&
+      request.method === "GET"
+    ) {
       return handlePublicSteamStart(request);
     }
-    if (pathname === "/api/auth/steam/public/callback" && request.method === "GET") {
+    if (
+      pathname === "/api/auth/steam/public/callback" &&
+      request.method === "GET"
+    ) {
       return handlePublicSteamCallback(request);
     }
 
@@ -3294,7 +3421,9 @@ export async function handleApiRequest(request) {
       return handleUpdateTicket(request, ticketMatch[1]);
     }
 
-    const ticketMessagesMatch = pathname.match(/^\/api\/tickets\/(\d+)\/messages$/);
+    const ticketMessagesMatch = pathname.match(
+      /^\/api\/tickets\/(\d+)\/messages$/,
+    );
     if (ticketMessagesMatch && request.method === "POST") {
       return handleAddTicketMessage(request, ticketMessagesMatch[1]);
     }
@@ -3316,21 +3445,40 @@ export async function handleApiRequest(request) {
       return handleGrantOrgAdmin(request, orgAdminsMatch[1]);
     }
 
+    const orgRolesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/roles$/,
+    );
+    if (orgRolesMatch && request.method === "POST") {
+      return handleCreateOrgRole(request, orgRolesMatch[1]);
+    }
+
     const orgMemberDetailMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)$/,
     );
     if (orgMemberDetailMatch && request.method === "DELETE") {
-      return handleRemoveOrgMember(request, orgMemberDetailMatch[1], orgMemberDetailMatch[2]);
+      return handleRemoveOrgMember(
+        request,
+        orgMemberDetailMatch[1],
+        orgMemberDetailMatch[2],
+      );
     }
     if (orgMemberDetailMatch && request.method === "PATCH") {
-      return handleUpdateOrgMemberTeam(request, orgMemberDetailMatch[1], orgMemberDetailMatch[2]);
+      return handleUpdateOrgMemberTeam(
+        request,
+        orgMemberDetailMatch[1],
+        orgMemberDetailMatch[2],
+      );
     }
 
     const orgMemberImpersonateMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)\/impersonate$/,
     );
     if (orgMemberImpersonateMatch && request.method === "POST") {
-      return handleImpersonateOrgMember(request, orgMemberImpersonateMatch[1], orgMemberImpersonateMatch[2]);
+      return handleGetImpersonateViewOrgMember(
+        request,
+        orgMemberImpersonateMatch[1],
+        orgMemberImpersonateMatch[2],
+      );
     }
 
     const orgAuditLogsMatch = pathname.match(
@@ -3340,12 +3488,16 @@ export async function handleApiRequest(request) {
       return handleGetStaffAuditLog(request, orgAuditLogsMatch[1]);
     }
 
-    const orgTicketTypesMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types$/);
+    const orgTicketTypesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types$/,
+    );
     if (orgTicketTypesMatch && request.method === "GET") {
       return handleListOrgTicketTypes(request, orgTicketTypesMatch[1]);
     }
 
-    const orgTicketsMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)\/tickets$/);
+    const orgTicketsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/tickets$/,
+    );
     if (orgTicketsMatch && request.method === "GET") {
       return handleListOrgTickets(request, orgTicketsMatch[1]);
     }

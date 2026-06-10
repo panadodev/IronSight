@@ -23,6 +23,7 @@ function StaffPage() {
     isOwner,
     realStaffId,
     activeStaffId,
+    viewingAs,
     impersonate,
     stopImpersonating,
     realRankOf,
@@ -168,20 +169,20 @@ function StaffPage() {
                 </span>
                 <Button
                   size="sm"
-                  variant={activeStaffId === m.staffId ? "default" : "outline"}
-                  onClick={() =>
-                    m.staffId === realStaffId
-                      ? stopImpersonating()
-                      : impersonate(m.staffId)
-                  }
+                  variant={orgId && viewingAs?.member?.userId === m.staffId ? "default" : "outline"}
+                  onClick={() => {
+                    if (orgId && viewingAs?.member?.userId === m.staffId) {
+                      stopImpersonating();
+                    } else {
+                      impersonate(orgId, m.staffId);
+                    }
+                  }}
                   className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
                 >
                   <UserCog className="size-3" />
-                  {m.staffId === realStaffId
-                    ? "You"
-                    : activeStaffId === m.staffId
-                      ? "Acting"
-                      : "Impersonate"}
+                  {orgId && viewingAs?.member?.userId === m.staffId
+                    ? "Viewing"
+                    : "View As"}
                 </Button>
                 <select
                   value={m.team}

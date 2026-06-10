@@ -1,40 +1,41 @@
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  BAN_CATEGORIES,
-  TICKET_TYPE_KEYS,
-  TICKET_TYPE_LABELS,
-  useAuth,
+    BAN_CATEGORIES,
+    TICKET_TYPE_KEYS,
+    TICKET_TYPE_LABELS,
+    useAuth,
 } from "@/lib/auth-context";
 import { OWNER_STEAM_ID, TEAM_IDS, TEAM_META } from "@/lib/mock-data";
 import { Link } from "@tanstack/react-router";
 import {
-  Check,
-  ChevronLeft,
-  ClipboardList,
-  Crown,
-  Gavel,
-  ListChecks,
-  MessageSquareWarning,
-  Pencil,
-  Plus,
-  Search,
-  Ticket,
-  Trash2,
-  UserCog,
-  UserPlus,
-  Users,
-  X,
+    Check,
+    ChevronLeft,
+    ClipboardList,
+    Crown,
+    Gavel,
+    ListChecks,
+    MessageSquareWarning,
+    Pencil,
+    Plus,
+    Search,
+    Shield,
+    Ticket,
+    Trash2,
+    UserCog,
+    UserPlus,
+    Users,
+    X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 const SECTIONS = [
@@ -68,6 +69,12 @@ const SECTIONS = [
     blurb: "Add, remove, or move staff between teams.",
     Icon: Users,
   },
+  {
+    id: "roles",
+    label: "Custom Roles",
+    blurb: "Create and manage custom roles for your organization.",
+    Icon: Shield,
+  },
 ];
 function ManageOrgDialog({ open, onOpenChange }) {
   const {
@@ -82,6 +89,7 @@ function ManageOrgDialog({ open, onOpenChange }) {
     isOwner,
     realStaffId,
     activeStaffId,
+    viewingAs,
     impersonate,
     stopImpersonating,
     orgToxicity,
@@ -117,6 +125,15 @@ function ManageOrgDialog({ open, onOpenChange }) {
   const [identifier, setIdentifier] = useState("");
   const [newTeam, setNewTeam] = useState("support");
   const [err, setErr] = useState(null);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRolePermissions, setNewRolePermissions] = useState([]);
+  const [creatingRole, setCreatingRole] = useState(false);
+  const [roleErr, setRoleErr] = useState(null);
+  const resetRole = () => {
+    setNewRoleName("");
+    setNewRolePermissions([]);
+    setRoleErr(null);
+  };
   const reset = () => {
     setMemberName("");
     setIdentifier("");
@@ -328,6 +345,110 @@ function ManageOrgDialog({ open, onOpenChange }) {
               />
             )}
 
+            {section === "roles" && (
+              <div className="space-y-5">
+                {/* Create role */}
+                <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
+                  <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                    Create custom role
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      placeholder="Role name (e.g., Moderator)"
+                      value={newRoleName}
+                      onChange={(e) => {
+                        setNewRoleName(e.target.value);
+                        setRoleErr(null);
+                      }}
+                      className="min-w-[200px] flex-1"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        if (!effectiveOrgId || !newRoleName.trim()) {
+                          setRoleErr("Role name is required");
+                          return;
+                        }
+                        setCreatingRole(true);
+                        try {
+                          const res = await fetch(
+                            `/api/orgs/${effectiveOrgId}/roles`,
+                            {
+                              method: "POST",
+                              headers: { "content-type": "application/json" },
+                              credentials: "include",
+                              body: JSON.stringify({
+                                roleName: newRoleName.trim(),
+                                permissions: newRolePermissions,
+                              }),
+                            }
+                          );
+                          if (!res.ok) {
+                            const body = await res.json();
+                            setRoleErr(body?.error ?? "Failed to create role");
+                            setCreatingRole(false);
+                            return;
+                          }
+                          resetRole();
+                          setCreatingRole(false);
+                        } catch (error) {
+                          setRoleErr(error?.message ?? "Failed to create role");
+                          setCreatingRole(false);
+                        }
+                      }}
+                      disabled={creatingRole}
+                    >
+                      <Plus className="size-3.5 mr-1" />
+                      {creatingRole ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      Permissions
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        {
+                          id: "todo_write",
+                          label: "Can write todos",
+                        },
+                        {
+                          id: "org_manage",
+                          label: "Can manage members",
+                        },
+                        {
+                          id: "role_create",
+                          label: "Can create roles",
+                        },
+                      ].map((perm) => (
+                        <button
+                          key={perm.id}
+                          onClick={() =>
+                            setNewRolePermissions((prev) =>
+                              prev.includes(perm.id)
+                                ? prev.filter((p) => p !== perm.id)
+                                : [...prev, perm.id]
+                            )
+                          }
+                          className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                            newRolePermissions.includes(perm.id)
+                              ? "border-brand bg-brand/10 text-brand"
+                              : "border-border hover:border-foreground"
+                          }`}
+                        >
+                          {newRolePermissions.includes(perm.id) && (
+                            <Check className="size-2.5 inline mr-1" />
+                          )}
+                          {perm.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {roleErr && <p className="text-[11px] text-danger">{roleErr}</p>}
+                </div>
+              </div>
+            )}
+
             {section === "staff" && (
               <div className="space-y-5">
                 {/* Add member */}
@@ -431,28 +552,30 @@ function ManageOrgDialog({ open, onOpenChange }) {
                           <Button
                             size="sm"
                             variant={
-                              activeStaffId === m.staffId
+                              effectiveOrgId && viewingAs?.member?.userId === m.staffId
                                 ? "default"
                                 : "outline"
                             }
-                            onClick={() =>
-                              m.staffId === realStaffId
-                                ? stopImpersonating()
-                                : impersonate(m.staffId)
-                            }
+                            onClick={() => {
+                              if (effectiveOrgId && viewingAs?.member?.userId === m.staffId) {
+                                stopImpersonating();
+                              } else {
+                                impersonate(effectiveOrgId, m.staffId);
+                              }
+                            }}
                             className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
                             title={
                               m.staffId === realStaffId
-                                ? "This is you \u2014 stop impersonating"
-                                : `Impersonate ${s.name}`
+                                ? "This is you \u2014 stop viewing"
+                                : `View as ${s.name}`
                             }
                           >
                             <UserCog className="size-3" />
                             {m.staffId === realStaffId
                               ? "You"
-                              : activeStaffId === m.staffId
-                                ? "Acting"
-                                : "Impersonate"}
+                              : effectiveOrgId && viewingAs?.member?.userId === m.staffId
+                                ? "Viewing"
+                                : "View As"}
                           </Button>
                           <select
                             value={m.team}
@@ -1041,9 +1164,10 @@ function TicketTypesPanel({ enabled, onToggle }) {
   );
 }
 export {
-  BanConfigsPanel,
-  ManageOrgDialog,
-  PredefinesPanel,
-  TicketTypesPanel,
-  ToxicityPanel,
+    BanConfigsPanel,
+    ManageOrgDialog,
+    PredefinesPanel,
+    TicketTypesPanel,
+    ToxicityPanel
 };
+

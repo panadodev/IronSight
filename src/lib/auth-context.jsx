@@ -428,6 +428,9 @@ function AuthProvider({ children }) {
       )
       .map((o) => o.id);
   }, [orgMembers, realStaffId, realIsOwner, orgs]);
+  
+  const [viewingAs, setViewingAs] = useState(null);
+  
   const adminableOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
     return orgs
@@ -440,9 +443,31 @@ function AuthProvider({ children }) {
   }, [orgMembers, activeStaffId, isOwner, orgs]);
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
-  const isImpersonating = activeStaffId !== realStaffId;
-  const impersonate = (staffId) => setActiveStaffId(staffId);
-  const stopImpersonating = () => setActiveStaffId(realStaffId);
+  const isImpersonating = false; // No longer using activeStaffId swapping
+  
+  const impersonate = async (orgId, memberId) => {
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/members/${memberId}/impersonate`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        console.error("Failed to impersonate member:", res.statusText);
+        return { ok: false, error: "Failed to load member data" };
+      }
+      const data = await res.json();
+      if (data.ok) {
+        setViewingAs(data);
+        return { ok: true };
+      }
+      return data;
+    } catch (err) {
+      console.error("Impersonate error:", err);
+      return { ok: false, error: String(err.message) };
+    }
+  };
+  
+  const stopImpersonating = () => setViewingAs(null);
   const addOrgMember = (orgId, input) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
     if (!input.steamId && !input.discordId)
@@ -559,6 +584,7 @@ function AuthProvider({ children }) {
       realStaffId,
       activeStaffId,
       setActiveStaffId,
+      viewingAs,
       impersonate,
       stopImpersonating,
       isImpersonating,

@@ -286,18 +286,10 @@ function ViewOrgPage() {
     setPageError("");
 
     try {
-      const res = await authFetch(
-        `/api/orgs/${selectedOrgId}/members/${memberId}/impersonate`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
-        }
-      );
-
-      if (!res.ok) {
-        const body = await safeJson(res);
-        setPageError(body?.error ?? "Failed to impersonate member.");
+      const result = await impersonate(selectedOrgId, memberId);
+      
+      if (!result.ok) {
+        setPageError(result.error ?? "Failed to view member data.");
         setActionInProgress((prev) => {
           const next = new Set(prev);
           next.delete(`impersonate-${memberId}`);
@@ -306,11 +298,17 @@ function ViewOrgPage() {
         return;
       }
 
-      // Redirect to home page - the session cookie was set by the server
-      window.location.assign("/");
+      // Successfully entered view-only mode
+      // The viewingAs data is now in the auth context
+      // You can display a badge/indicator and show the member's data
+      setActionInProgress((prev) => {
+        const next = new Set(prev);
+        next.delete(`impersonate-${memberId}`);
+        return next;
+      });
     } catch (error) {
       if (isAuthExpired(error)) return;
-      setPageError(error?.message ?? "Failed to impersonate member.");
+      setPageError(error?.message ?? "Failed to view member data.");
       setActionInProgress((prev) => {
         const next = new Set(prev);
         next.delete(`impersonate-${memberId}`);
