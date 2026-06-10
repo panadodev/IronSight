@@ -55,6 +55,8 @@ function ViewOrgPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(new Set());
   const [memberTeams, setMemberTeams] = useState(new Map());
+  const [impersonateModalOpen, setImpersonateModalOpen] = useState(false);
+  const [impersonateTarget, setImpersonateTarget] = useState(null);
 
   async function fetchBootstrap() {
     setLoading(true);
@@ -252,6 +254,46 @@ function ViewOrgPage() {
     }
   }
 
+  async function handleImpersonate(memberId, memberName) {
+    if (!selectedOrgId || !canManageSelectedOrg) return;
+
+    setActionInProgress((prev) => new Set([...prev, `impersonate-${memberId}`]));
+    setPageError("");
+
+    try {
+      const res = await authFetch(
+        `/api/orgs/${selectedOrgId}/members/${memberId}/impersonate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!res.ok) {
+        const body = await safeJson(res);
+        setPageError(body?.error ?? "Failed to impersonate member.");
+        setActionInProgress((prev) => {
+          const next = new Set(prev);
+          next.delete(`impersonate-${memberId}`);
+          return next;
+        });
+        return;
+      }
+
+      // Redirect to home page - the session cookie was set by the server
+      window.location.assign("/");
+    } catch (error) {
+      if (isAuthExpired(error)) return;
+      setPageError(error?.message ?? "Failed to impersonate member.");
+      setActionInProgress((prev) => {
+        const next = new Set(prev);
+        next.delete(`impersonate-${memberId}`);
+        return next;
+      });
+    }
+  }
+
   return (
     <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
@@ -426,12 +468,14 @@ function ViewOrgPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled
+                          onClick={() => handleImpersonate(member.userId, member.username)}
+                          disabled={!canManageSelectedOrg || actionInProgress.has(`impersonate-${member.userId}`)}
                           className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
-                          title="Impersonation is WIP"
                         >
                           <UserCog className="size-3" />
-                          Impersonate
+                          {actionInProgress.has(`impersonate-${member.userId}`)
+                            ? "Impersonating..."
+                            : "Impersonate"}
                         </Button>
                         <select
                           value={memberTeams.get(member.userId) || "support"}

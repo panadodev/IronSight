@@ -2236,6 +2236,108 @@ async function handleGetStaffAuditLog(request, orgId) {
   });
 }
 
+async function handleImpersonateOrgMember(request, orgId, userId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const targetUserId = userId;
+  if (!targetUserId) {
+    return json({ error: "userId is required" }, 400);
+  }
+
+  // Verify target user is a member of the organization
+  const memberRes = await pool.query(
+    `SELECT u.user_id, u.username FROM users u
+     JOIN organization_members om ON om.user_id = u.user_id
+     WHERE om.org_id = $1 AND u.user_id = $2`,
+    [orgId, targetUserId],
+  );
+
+  if (!memberRes.rows[0]) {
+    return json({
+      error: "Target user is not a member of this organization",
+    }, 404);
+  }
+
+  const targetUser = memberRes.rows[0];
+
+  // Create impersonation session
+  const token = crypto.randomBytes(32).toString("hex");
+  const sid = crypto.randomUUID();
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const expiresAt = new Date(Date.now() + env.sessionTtlSeconds * 1000);
+  const ipAddress = getClientIp(request);
+  const userAgent = request.headers.get("user-agent") ?? "unknown";
+
+  // Create minimal session for impersonated user
+  const impersonatedSession = {
+    userId: targetUser.user_id,
+    username: targetUser.username,
+    impersonatedBy: session.userId,
+    impersonatedAt: new Date().toISOString(),
+  };
+
+  await redis.set(
+    `session:${sid}`,
+    JSON.stringify(impersonatedSession),
+    "EX",
+    env.sessionTtlSeconds,
+  );
+
+  await pool.query(
+    `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, revoked)
+     VALUES ($1, $2, $3, NOW(), $4, $5, $6, FALSE)`,
+    [
+      sid,
+      targetUser.user_id,
+      tokenHash,
+      expiresAt.toISOString(),
+      ipAddress,
+      userAgent,
+    ],
+  );
+
+  // Log impersonation
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    targetUserId: targetUser.user_id,
+    resourceType: "org_member",
+    resourceId: targetUser.user_id,
+    actionType: "ORG_MEMBER_IMPERSONATED",
+    actionCategory: "staff_management",
+    severity: 3,
+    metadata: {
+      username: targetUser.username,
+    },
+    beforeState: {
+      sessionUser: session.userId,
+    },
+    afterState: {
+      sessionUser: targetUser.user_id,
+      impersonatedBy: session.userId,
+    },
+  });
+
+  // Return response with session cookie
+  const response = json({
+    ok: true,
+    userId: targetUser.user_id,
+    username: targetUser.username,
+    message: `Impersonating ${targetUser.username}`,
+  });
+
+  response.headers.append(
+    "set-cookie",
+    sessionCookie(token, env.sessionTtlSeconds),
+  );
+
+  return response;
+}
+
 async function handleGetOrgDetails(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -3182,6 +3284,13 @@ export async function handleApiRequest(request) {
     }
     if (orgMemberDetailMatch && request.method === "PATCH") {
       return handleUpdateOrgMemberTeam(request, orgMemberDetailMatch[1], orgMemberDetailMatch[2]);
+    }
+
+    const orgMemberImpersonateMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)\/impersonate$/,
+    );
+    if (orgMemberImpersonateMatch && request.method === "POST") {
+      return handleImpersonateOrgMember(request, orgMemberImpersonateMatch[1], orgMemberImpersonateMatch[2]);
     }
 
     const orgAuditLogsMatch = pathname.match(
