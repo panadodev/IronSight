@@ -558,6 +558,48 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`,
   );
+
+  // ── Servers ──────────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS servers (
+      server_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      server_name TEXT NOT NULL,
+      owner_org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      api_key_hash TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      added_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_servers_owner_org_id ON servers(owner_org_id)`,
+  );
+
+  // ── Text chat log ─────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS text_chat_log (
+      id BIGSERIAL PRIMARY KEY,
+      message TEXT NOT NULL,
+      steam_id TEXT NOT NULL,
+      player_name TEXT,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      server_name TEXT NOT NULL,
+      team_message BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_server_id ON text_chat_log(server_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_created_at ON text_chat_log(created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_steam_id ON text_chat_log(steam_id)`,
+  );
 }
 
 async function ensureRolePermissionSeed() {
@@ -3386,6 +3428,279 @@ async function handleListMyTickets(request) {
   });
 }
 
+// ── Server registration & chat ingest ────────────────────────────────────────
+
+async function handleRegisterServer(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const serverName = String(body?.serverName ?? "").trim();
+  const orgId = String(body?.orgId ?? "").trim();
+
+  if (!serverName || !orgId) {
+    return json({ error: "serverName and orgId are required" }, 400);
+  }
+  if (serverName.length > 128) {
+    return json({ error: "serverName must be 128 characters or fewer" }, 400);
+  }
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  const plainApiKey = crypto.randomBytes(32).toString("hex");
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(plainApiKey)
+    .digest("hex");
+  const serverId = crypto.randomUUID();
+
+  await pool.query(
+    `INSERT INTO servers (server_id, server_name, owner_org_id, api_key_hash, added_by_user_id)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [serverId, serverName, orgId, apiKeyHash, session.userId],
+  );
+
+  return json(
+    {
+      ok: true,
+      server: { serverId, serverName, ownerOrgId: orgId },
+      apiKey: plainApiKey,
+    },
+    201,
+  );
+}
+
+async function handleListServers(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const userOrgs = await listUserOrganizations(session.userId);
+  if (!userOrgs.length) return json({ servers: [] });
+
+  const orgIds = userOrgs.map((o) => o.orgId);
+
+  const { rows } = await pool.query(
+    `SELECT server_id, server_name, owner_org_id
+     FROM servers
+     WHERE owner_org_id = ANY($1::text[])
+     ORDER BY server_name ASC`,
+    [orgIds],
+  );
+
+  return json({
+    servers: rows.map((row) => ({
+      serverId: String(row.server_id),
+      serverName: String(row.server_name),
+      ownerOrgId: String(row.owner_org_id),
+    })),
+  });
+}
+
+const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
+
+async function handleIngestChatMessage(request) {
+  const apiKeyRaw = (request.headers.get("x-api-key") ?? "").trim();
+  if (!apiKeyRaw) return json({ error: "Missing x-api-key header" }, 401);
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  // Per-server rate limit
+  const rlKey = `rl:chat:${server.server_id}`;
+  try {
+    const attempts = await redis.incr(rlKey);
+    if (attempts === 1) await redis.expire(rlKey, 60);
+    if (attempts > CHAT_INGEST_RATE_LIMIT_PER_MINUTE) {
+      return json({ error: "Rate limit exceeded" }, 429);
+    }
+  } catch {
+    // fail-open on Redis errors
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const message = String(body?.message ?? "").trim();
+  const steamId = String(body?.steam_id ?? "").trim();
+  const teamMessage = body?.team_message === true || body?.team_message === 1;
+  const playerName =
+    body?.player_name == null ? null : String(body.player_name).trim();
+
+  if (!message || !steamId) {
+    return json({ error: "message and steam_id are required" }, 400);
+  }
+  if (message.length > 1000)
+    return json({ error: "message must be 1000 characters or fewer" }, 400);
+  if (steamId.length > 64)
+    return json({ error: "steam_id must be 64 characters or fewer" }, 400);
+  if (playerName && playerName.length > 128)
+    return json({ error: "player_name must be 128 characters or fewer" }, 400);
+
+  const insertRes = await pool.query(
+    `INSERT INTO text_chat_log (message, steam_id, player_name, server_id, server_name, team_message)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, created_at`,
+    [
+      message,
+      steamId,
+      playerName ?? null,
+      server.server_id,
+      server.server_name,
+      teamMessage,
+    ],
+  );
+  const row = insertRes.rows[0];
+  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+
+  // Cache in Redis sorted set (last 7 days window)
+  const cacheKey = `chat:server:${server.server_id}`;
+  const cacheEntry = JSON.stringify({
+    id: String(row.id),
+    message,
+    steamId,
+    playerName: playerName ?? null,
+    teamMessage,
+    ts: createdUnix,
+  });
+  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
+  try {
+    await redis.zadd(cacheKey, createdUnix, cacheEntry);
+    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
+    await redis.expire(cacheKey, 7 * 24 * 3600);
+  } catch {
+    // Redis caching is best-effort; message is already persisted in Postgres
+  }
+
+  return json({ ok: true, id: String(row.id) }, 201);
+}
+
+async function handleGetChatLogs(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  // Verify user is a member of the org that owns this server
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [server.owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `chat:server:${serverId}`;
+
+  // Serve from Redis cache if the entire window falls within the last 7 days
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        const lines = rawEntries
+          .map((raw) => {
+            try {
+              return JSON.parse(raw);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+        return json({ lines });
+      }
+    } catch {
+      // fall through to Postgres on Redis error
+    }
+  }
+
+  const startDate = new Date(startUnix * 1000).toISOString();
+  const endDate = new Date(endUnix * 1000).toISOString();
+
+  const { rows } = await pool.query(
+    `SELECT id, message, steam_id, player_name, team_message,
+            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+     FROM text_chat_log
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startDate, endDate, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    message: String(row.message),
+    steamId: String(row.steam_id),
+    playerName: row.player_name == null ? null : String(row.player_name),
+    teamMessage: Boolean(row.team_message),
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}
+
 export async function initializeInfra() {
   try {
     await init();
@@ -3602,6 +3917,21 @@ export async function handleApiRequest(request) {
     }
     if (rolePermissionsMatch && request.method === "PATCH") {
       return handleUpdateRolePermissions(request, rolePermissionsMatch[1]);
+    }
+
+    if (pathname === "/api/servers" && request.method === "GET") {
+      return handleListServers(request);
+    }
+    if (pathname === "/api/servers" && request.method === "POST") {
+      return handleRegisterServer(request);
+    }
+
+    if (pathname === "/api/ingest/chat" && request.method === "POST") {
+      return handleIngestChatMessage(request);
+    }
+
+    if (pathname === "/api/chat/logs" && request.method === "GET") {
+      return handleGetChatLogs(request);
     }
 
     return json({ error: "Not found" }, 404);
