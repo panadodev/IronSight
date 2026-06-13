@@ -3887,14 +3887,37 @@ async function handleListPteroServers(request, orgId) {
 
     const data = await pteroRes.json();
     const items = Array.isArray(data?.data) ? data.data : [];
+    const included = Array.isArray(data?.included) ? data.included : [];
+    const includedAttributesByRef = new Map(
+      included
+        .filter((entry) => entry?.type && entry?.id)
+        .map((entry) => [`${entry.type}:${entry.id}`, entry?.attributes ?? {}]),
+    );
 
     for (const item of items) {
       const attr = item?.attributes ?? {};
-      const allocData = attr?.relationships?.allocations?.data ?? [];
+      const relationships = item?.relationships ?? {};
+
+      const allocRefs = Array.isArray(relationships?.allocations?.data)
+        ? relationships.allocations.data
+        : [];
+      const allocEntries = allocRefs.map((ref) => {
+        const refKey = `${ref?.type ?? ""}:${ref?.id ?? ""}`;
+        const resolved = includedAttributesByRef.get(refKey) ?? {};
+        return {
+          ...resolved,
+          ...(ref?.attributes ?? {}),
+        };
+      });
       const defaultAlloc =
-        allocData.find((a) => a?.attributes?.is_default) ?? allocData[0];
-      const alloc = defaultAlloc?.attributes ?? {};
-      const nodeAttr = attr?.relationships?.node?.attributes ?? {};
+        allocEntries.find((a) => a?.is_default) ?? allocEntries[0] ?? {};
+
+      const nodeRef = relationships?.node?.data;
+      const nodeKey = `${nodeRef?.type ?? ""}:${nodeRef?.id ?? ""}`;
+      const nodeAttr = {
+        ...(includedAttributesByRef.get(nodeKey) ?? {}),
+        ...(nodeRef?.attributes ?? {}),
+      };
 
       servers.push({
         pteroId: attr.id,
@@ -3903,8 +3926,8 @@ async function handleListPteroServers(request, orgId) {
         name: attr.name ?? "",
         description: attr.description ?? "",
         suspended: Boolean(attr.suspended),
-        ip: alloc.ip ?? null,
-        port: alloc.port ?? null,
+        ip: defaultAlloc.ip ?? null,
+        port: defaultAlloc.port ?? null,
         nodeName: nodeAttr.name ?? null,
         nodeFqdn: nodeAttr.fqdn ?? null,
         egg: attr.egg ?? null,
