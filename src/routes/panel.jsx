@@ -1,65 +1,65 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "@/lib/auth-context";
 import { SiteNav } from "@/components/site-nav";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Terminal,
-  ScrollText,
-  Server,
-  Building2,
-  ChevronDown,
-  Check,
-  Play,
-  Plus,
-  RefreshCw,
-  CircleDot,
-  Cpu,
-  HardDrive,
-  Wifi,
-  X,
-  Pencil,
-  Trash2,
-  Globe2,
-  Layers,
-  Target,
-  AlertTriangle,
-  Upload,
-  Power,
-} from "lucide-react";
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth-context";
+import { createFileRoute } from "@tanstack/react-router";
 import {
-  Area,
-  AreaChart,
-  Brush,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip as RTooltip,
-  XAxis,
-  YAxis,
+    AlertTriangle,
+    Building2,
+    Check,
+    ChevronDown,
+    CircleDot,
+    Cpu,
+    Globe2,
+    HardDrive,
+    Layers,
+    Pencil,
+    Play,
+    Plus,
+    Power,
+    RefreshCw,
+    ScrollText,
+    Server,
+    Target,
+    Terminal,
+    Trash2,
+    Upload,
+    Wifi,
+    X,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    Area,
+    AreaChart,
+    Brush,
+    CartesianGrid,
+    ResponsiveContainer,
+    Tooltip as RTooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 const PANEL_TABS = ["rcon", "scripts", "presets", "status", "servers"];
 const Route = createFileRoute("/panel")({
@@ -2197,7 +2197,7 @@ function ServersTab({ orgId }) {
         </div>
 
         {pteroStatus === null ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
+          <p className="text-xs text-muted-foreground">Loadingï¿½</p>
         ) : pteroStatus.connected ? (
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-mono text-muted-foreground">{pteroStatus.panelUrl}</span>
@@ -2223,7 +2223,7 @@ function ServersTab({ orgId }) {
                   type="password"
                   value={pteroForm.apiKey}
                   onChange={(e) => setPteroForm({ ...pteroForm, apiKey: e.target.value })}
-                  placeholder="ptla_…"
+                  placeholder="ptla_ï¿½"
                   className="text-xs font-mono h-8"
                 />
               </div>
@@ -2234,7 +2234,7 @@ function ServersTab({ orgId }) {
               disabled={pteroSaving || !pteroForm.panelUrl || !pteroForm.apiKey}
               onClick={savePtero}
             >
-              {pteroSaving ? "Connecting…" : "Connect"}
+              {pteroSaving ? "Connectingï¿½" : "Connect"}
             </Button>
           </div>
         )}
@@ -2284,9 +2284,9 @@ function ServersTab({ orgId }) {
                       <div className="text-[10px] font-mono text-muted-foreground truncate">{s.identifier}</div>
                     </div>
                     <div className="text-xs font-mono text-muted-foreground">
-                      {s.ip ? `${s.ip}:${s.port}` : "—"}
+                      {s.ip ? `${s.ip}:${s.port}` : "ï¿½"}
                     </div>
-                    <div className="text-xs font-mono text-muted-foreground truncate">{s.nodeName ?? "—"}</div>
+                    <div className="text-xs font-mono text-muted-foreground truncate">{s.nodeName ?? "ï¿½"}</div>
                     <div>
                       {alreadyImported || alreadyExists ? (
                         <span className="text-[10px] font-mono text-green-400 px-2 py-1 rounded bg-green-500/10">
@@ -2325,7 +2325,7 @@ function ServersTab({ orgId }) {
             <DialogHeader>
               <DialogTitle>Server Imported</DialogTitle>
               <DialogDescription>
-                <strong>{apiKeyReveal.serverName}</strong> has been added to your org. Copy the API key below — it will only be shown once.
+                <strong>{apiKeyReveal.serverName}</strong> has been added to your org. Copy the API key below ï¿½ it will only be shown once.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
@@ -2364,7 +2364,7 @@ function ServersTab({ orgId }) {
           </Button>
         </div>
         {regLoading ? (
-          <p className="px-4 py-3 text-xs text-muted-foreground">Loading…</p>
+          <p className="px-4 py-3 text-xs text-muted-foreground">Loading...</p>
         ) : registeredServers.length === 0 ? (
           <p className="px-4 py-3 text-xs text-muted-foreground">
             No servers registered yet. Import one from Pterodactyl above.
@@ -2386,7 +2386,6 @@ function ServersTab({ orgId }) {
       </div>
     </div>
   );
-}
 }
 function ServerEditDialog({ open, initial, tags, nodes, onClose, onSave }) {
   const [draft, setDraft] = useState({
@@ -3008,3 +3007,4 @@ function NodeDetailDialog({ detail, onClose }) {
   );
 }
 export { Route };
+
