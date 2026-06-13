@@ -33,6 +33,14 @@ function chooseConnectionUrl(primary, secondary) {
   return first || second;
 }
 
+function parseEnvList(value) {
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   databaseUrl: chooseConnectionUrl(
@@ -56,6 +64,9 @@ const env = {
   // STEAM_AUTH_CALLBACK is the legacy key used in .env; STEAM_RETURN_URL takes precedence
   steamReturnUrl:
     process.env.STEAM_RETURN_URL ?? process.env.STEAM_AUTH_CALLBACK,
+  pterodactylAllowedHosts: parseEnvList(process.env.PTERODACTYL_ALLOWED_HOSTS),
+  pterodactylEncryptionSecret:
+    process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
 };
 
 if (!env.databaseUrl) {
@@ -83,6 +94,16 @@ if (!env.sysAdminDiscordId?.trim()) {
     "[config] Missing SYS_ADMIN_DISCORD_ID. API startup will fail until fixed.",
   );
 }
+if (env.jwtSecret && !process.env.PTERODACTYL_ENCRYPTION_KEY?.trim()) {
+  console.warn(
+    "[config] Missing PTERODACTYL_ENCRYPTION_KEY. Falling back to JWT_SECRET for Pterodactyl key encryption.",
+  );
+}
+if (!env.pterodactylAllowedHosts.length) {
+  console.warn(
+    "[config] Missing PTERODACTYL_ALLOWED_HOSTS. Pterodactyl endpoints will return 503 until configured.",
+  );
+}
 
 let pool;
 let redis;
@@ -93,9 +114,123 @@ let initializationPromise = null;
 
 const SESSION_COOKIE = "panel_session";
 const PENDING_LINK_COOKIE = "pending_identity";
+let pterodactylEncryptionKey;
 
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
+}
+
+function getPterodactylEncryptionKey() {
+  if (pterodactylEncryptionKey) return pterodactylEncryptionKey;
+
+  const secret = String(env.pterodactylEncryptionSecret ?? "").trim();
+  if (!secret) return null;
+
+  pterodactylEncryptionKey = crypto
+    .createHash("sha256")
+    .update(secret)
+    .digest();
+  return pterodactylEncryptionKey;
+}
+
+function encryptPterodactylApiKey(apiKey) {
+  const key = getPterodactylEncryptionKey();
+  if (!key) throw new Error("pterodactyl_encryption_unconfigured");
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(String(apiKey), "utf8"),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return [
+    "v1",
+    iv.toString("base64url"),
+    ciphertext.toString("base64url"),
+    authTag.toString("base64url"),
+  ].join(":");
+}
+
+function decryptPterodactylApiKey(payload) {
+  const key = getPterodactylEncryptionKey();
+  if (!key) throw new Error("pterodactyl_encryption_unconfigured");
+
+  const [version, ivB64, ciphertextB64, authTagB64] = String(
+    payload ?? "",
+  ).split(":");
+  if (version !== "v1" || !ivB64 || !ciphertextB64 || !authTagB64) {
+    throw new Error("pterodactyl_encryption_invalid_payload");
+  }
+
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    key,
+    Buffer.from(ivB64, "base64url"),
+  );
+  decipher.setAuthTag(Buffer.from(authTagB64, "base64url"));
+
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextB64, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
+}
+
+function normalizePterodactylPanelUrl(rawUrl) {
+  const value = String(rawUrl ?? "").trim();
+  if (!value) throw new Error("panel_url_required");
+  if (!env.pterodactylAllowedHosts.length) {
+    throw new Error("pterodactyl_allowed_hosts_unconfigured");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("panel_url_invalid");
+  }
+
+  if (!["https:", "http:"].includes(parsed.protocol)) {
+    throw new Error("panel_url_invalid");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("panel_url_invalid");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!env.pterodactylAllowedHosts.includes(hostname)) {
+    throw new Error("panel_url_host_not_allowed");
+  }
+
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+
+  return parsed.toString().replace(/\/+$/, "");
+}
+
+function getPterodactylSecurityConfigError() {
+  if (!env.pterodactylAllowedHosts.length) {
+    return json(
+      {
+        error:
+          "Pterodactyl integration is not configured: PTERODACTYL_ALLOWED_HOSTS is required.",
+      },
+      503,
+    );
+  }
+  if (!getPterodactylEncryptionKey()) {
+    return json(
+      {
+        error:
+          "Pterodactyl integration is not configured: PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET is required.",
+      },
+      503,
+    );
+  }
+
+  return null;
 }
 
 function json(data, status = 200) {
@@ -609,11 +744,86 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS ptero_api_keys (
       org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
       panel_url TEXT NOT NULL,
-      api_key TEXT NOT NULL,
+      api_key TEXT,
+      api_key_encrypted TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ,
+      created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
     )
   `);
+  await pool.query(
+    `ALTER TABLE ptero_api_keys ALTER COLUMN api_key DROP NOT NULL`,
+  );
+  await pool.query(
+    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS api_key_encrypted TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`,
+  );
+  await pool.query(
+    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL`,
+  );
+}
+
+async function migratePterodactylApiKeys() {
+  const key = getPterodactylEncryptionKey();
+  if (!key) return;
+
+  const { rows } = await pool.query(
+    `SELECT org_id, api_key
+     FROM ptero_api_keys
+     WHERE api_key IS NOT NULL
+       AND COALESCE(api_key_encrypted, '') = ''`,
+  );
+
+  for (const row of rows) {
+    const encrypted = encryptPterodactylApiKey(String(row.api_key));
+    await pool.query(
+      `UPDATE ptero_api_keys
+       SET api_key_encrypted = $2,
+           api_key = NULL,
+           updated_at = NOW()
+       WHERE org_id = $1`,
+      [String(row.org_id), encrypted],
+    );
+  }
+}
+
+async function loadPterodactylCredentials(orgId) {
+  const keyRow = await pool.query(
+    `SELECT panel_url, api_key, api_key_encrypted
+     FROM ptero_api_keys
+     WHERE org_id = $1
+     LIMIT 1`,
+    [orgId],
+  );
+  if (!keyRow.rows[0]) return null;
+
+  const row = keyRow.rows[0];
+  let apiKey = null;
+
+  if (row.api_key_encrypted) {
+    apiKey = decryptPterodactylApiKey(String(row.api_key_encrypted));
+  } else if (row.api_key) {
+    apiKey = String(row.api_key);
+    const encrypted = encryptPterodactylApiKey(apiKey);
+    await pool.query(
+      `UPDATE ptero_api_keys
+       SET api_key_encrypted = $2,
+           api_key = NULL,
+           updated_at = NOW()
+       WHERE org_id = $1`,
+      [orgId, encrypted],
+    );
+  }
+
+  if (!apiKey) throw new Error("pterodactyl_api_key_missing");
+
+  return {
+    panelUrl: String(row.panel_url),
+    apiKey,
+  };
 }
 
 async function ensureRolePermissionSeed() {
@@ -905,6 +1115,7 @@ async function init() {
     });
 
     await ensureSchema();
+    await migratePterodactylApiKeys();
     await ensureRolePermissionSeed();
     await migrateLegacyData();
     await pingDependencies();
@@ -3451,6 +3662,9 @@ async function handleSavePteroKey(request, orgId) {
     return json({ error: "Forbidden: org admin role required" }, 403);
   }
 
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
   let body;
   try {
     body = await request.json();
@@ -3458,17 +3672,38 @@ async function handleSavePteroKey(request, orgId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const panelUrl = String(body?.panelUrl ?? "")
-    .trim()
-    .replace(/\/+$/, "");
   const apiKey = String(body?.apiKey ?? "").trim();
+  let panelUrl;
+
+  try {
+    panelUrl = normalizePterodactylPanelUrl(body?.panelUrl ?? "");
+  } catch (err) {
+    const code = String(err?.message ?? "panel_url_invalid");
+    if (code === "pterodactyl_allowed_hosts_unconfigured") {
+      return json(
+        {
+          error:
+            "Pterodactyl integration is not configured: PTERODACTYL_ALLOWED_HOSTS is required.",
+        },
+        503,
+      );
+    }
+    if (code === "panel_url_host_not_allowed") {
+      return json(
+        {
+          error: `panelUrl host must match one of: ${env.pterodactylAllowedHosts.join(", ")}`,
+        },
+        400,
+      );
+    }
+    return json(
+      { error: "panelUrl must be a valid allowed http/https URL" },
+      400,
+    );
+  }
 
   if (!panelUrl || !apiKey) {
     return json({ error: "panelUrl and apiKey are required" }, 400);
-  }
-
-  if (!/^https?:\/\/.+/.test(panelUrl)) {
-    return json({ error: "panelUrl must be a valid http/https URL" }, 400);
   }
 
   let testRes;
@@ -3497,14 +3732,37 @@ async function handleSavePteroKey(request, orgId) {
   }
 
   await pool.query(
-    `INSERT INTO ptero_api_keys (org_id, panel_url, api_key, updated_at)
-     VALUES ($1, $2, $3, NOW())
+    `INSERT INTO ptero_api_keys (
+       org_id,
+       panel_url,
+       api_key,
+       api_key_encrypted,
+       updated_at,
+       created_by_user_id,
+       last_used_at
+     )
+     VALUES ($1, $2, NULL, $3, NOW(), $4, NULL)
      ON CONFLICT (org_id)
      DO UPDATE SET panel_url = EXCLUDED.panel_url,
-                   api_key = EXCLUDED.api_key,
+                   api_key = NULL,
+                   api_key_encrypted = EXCLUDED.api_key_encrypted,
+                   created_by_user_id = EXCLUDED.created_by_user_id,
                    updated_at = NOW()`,
-    [orgId, panelUrl, apiKey],
+    [orgId, panelUrl, encryptPterodactylApiKey(apiKey), session.userId],
   );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "pterodactyl_api_key",
+    resourceId: orgId,
+    actionType: "PTERODACTYL_API_KEY_SET",
+    actionCategory: "server_management",
+    severity: 3,
+    metadata: {
+      panelHost: new URL(panelUrl).host,
+    },
+  });
 
   return json({ ok: true, panelUrl });
 }
@@ -3538,6 +3796,17 @@ async function handleDeletePteroKey(request, orgId) {
   }
 
   await pool.query("DELETE FROM ptero_api_keys WHERE org_id = $1", [orgId]);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "pterodactyl_api_key",
+    resourceId: orgId,
+    actionType: "PTERODACTYL_API_KEY_REMOVED",
+    actionCategory: "server_management",
+    severity: 3,
+  });
+
   return json({ ok: true });
 }
 
@@ -3548,15 +3817,22 @@ async function handleListPteroServers(request, orgId) {
     return json({ error: "Forbidden: org admin role required" }, 403);
   }
 
-  const keyRow = await pool.query(
-    "SELECT panel_url, api_key FROM ptero_api_keys WHERE org_id = $1 LIMIT 1",
-    [orgId],
-  );
-  if (!keyRow.rows[0]) {
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(orgId);
+  } catch (err) {
+    console.error("[ptero] Failed to load credentials:", err.message);
+    return json({ error: "Stored Pterodactyl credentials are invalid." }, 500);
+  }
+
+  if (!credentials) {
     return json({ error: "Pterodactyl not connected for this org" }, 400);
   }
 
-  const { panel_url: panelUrl, api_key: apiKey } = keyRow.rows[0];
+  const { panelUrl, apiKey } = credentials;
 
   const servers = [];
   let page = 1;
@@ -3622,6 +3898,13 @@ async function handleListPteroServers(request, orgId) {
     if (!pagination || page >= pagination.total_pages) break;
     page++;
   }
+
+  await pool.query(
+    `UPDATE ptero_api_keys
+     SET last_used_at = NOW()
+     WHERE org_id = $1`,
+    [orgId],
+  );
 
   return json({ servers });
 }
