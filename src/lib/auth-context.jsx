@@ -39,6 +39,7 @@ function AuthProvider({ children }) {
   const [selectedOrgIds, setSelectedOrgIds] = useState([]);
   const [publicSignedIn, setPublicSignedIn] = useState(false);
   const [orgsLoaded, setOrgsLoaded] = useState(false);
+  const [sessionOrgAdminIds, setSessionOrgAdminIds] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +56,11 @@ function AuthProvider({ children }) {
 
         const body = await res.json();
         if (cancelled) return;
+
+        const adminIds = Array.isArray(body?.user?.orgAdminOrgIds)
+          ? body.user.orgAdminOrgIds.map(String)
+          : [];
+        if (!cancelled) setSessionOrgAdminIds(adminIds);
 
         const nextOrgs = (body?.orgs ?? []).map((org) => {
           const name = org?.name ? String(org.name) : String(org?.orgId ?? "");
@@ -390,14 +396,15 @@ function AuthProvider({ children }) {
   }, [orgMembers, activeStaffId, isOwner, orgs]);
   const manageableOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
-    return orgs
+    const fromMembers = orgs
       .filter((o) =>
         (orgMembers[o.id] ?? []).some(
           (m) => m.staffId === activeStaffId && m.team === "management",
         ),
       )
       .map((o) => o.id);
-  }, [orgMembers, activeStaffId, isOwner, orgs]);
+    return Array.from(new Set([...fromMembers, ...sessionOrgAdminIds]));
+  }, [orgMembers, activeStaffId, isOwner, orgs, sessionOrgAdminIds]);
   const realStaff = useMemo(
     () => staff.find((s) => s.id === realStaffId) ?? null,
     [staff, realStaffId],
@@ -433,14 +440,15 @@ function AuthProvider({ children }) {
   
   const adminableOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
-    return orgs
+    const fromMembers = orgs
       .filter((o) =>
         (orgMembers[o.id] ?? []).some(
           (m) => m.staffId === activeStaffId && TEAM_META[m.team].rank >= 3,
         ),
       )
       .map((o) => o.id);
-  }, [orgMembers, activeStaffId, isOwner, orgs]);
+    return Array.from(new Set([...fromMembers, ...sessionOrgAdminIds]));
+  }, [orgMembers, activeStaffId, isOwner, orgs, sessionOrgAdminIds]);
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
   const isImpersonating = false; // No longer using activeStaffId swapping
@@ -621,6 +629,7 @@ function AuthProvider({ children }) {
       hasStaffAccount,
       isImpersonating,
       activeRank,
+      sessionOrgAdminIds,
     ],
   );
   return (
@@ -633,12 +642,12 @@ function useAuth() {
   return ctx;
 }
 export {
-    AuthProvider,
-    BAN_CATEGORIES,
-    BAN_CATEGORY_LABEL,
-    ORGS,
-    TICKET_TYPE_KEYS,
-    TICKET_TYPE_LABELS,
-    useAuth
+  AuthProvider,
+  BAN_CATEGORIES,
+  BAN_CATEGORY_LABEL,
+  ORGS,
+  TICKET_TYPE_KEYS,
+  TICKET_TYPE_LABELS,
+  useAuth
 };
 
