@@ -41,6 +41,23 @@ function parseEnvList(value) {
     .filter(Boolean);
 }
 
+function parsePterodactylAllowedHosts(value) {
+  if (!value) return [];
+  const items = String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return items.map((item) => {
+    try {
+      const url = new URL(item);
+      return url.hostname.toLowerCase();
+    } catch {
+      return item.toLowerCase();
+    }
+  });
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   databaseUrl: chooseConnectionUrl(
@@ -64,7 +81,9 @@ const env = {
   // STEAM_AUTH_CALLBACK is the legacy key used in .env; STEAM_RETURN_URL takes precedence
   steamReturnUrl:
     process.env.STEAM_RETURN_URL ?? process.env.STEAM_AUTH_CALLBACK,
-  pterodactylAllowedHosts: parseEnvList(process.env.PTERODACTYL_ALLOWED_HOSTS),
+  pterodactylAllowedHosts: parsePterodactylAllowedHosts(
+    process.env.PTERODACTYL_ALLOWED_HOSTS,
+  ),
   pterodactylEncryptionSecret:
     process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
 };
