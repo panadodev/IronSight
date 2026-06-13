@@ -224,7 +224,7 @@ function normalizePterodactylPanelUrl(rawUrl) {
 
   parsed.hash = "";
   parsed.search = "";
-  parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = "";
 
   return parsed.toString().replace(/\/+$/, "");
 }
