@@ -80,13 +80,6 @@ function SubmitPage() {
   const selectedType = ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
   const isPlayerReport = selectedType?.name?.toLowerCase().includes("report");
 
-  function startSteamAuth() {
-    const currentUrl = `/submit?org=${encodeURIComponent(orgId)}`;
-    window.location.assign(
-      `/api/auth/steam/public/start?org=${encodeURIComponent(orgId)}&next=${encodeURIComponent(currentUrl)}`,
-    );
-  }
-
   async function handleSubmit() {
     if (!selectedTypeId || !orgId) return;
     let ticketTitle = title.trim();
@@ -166,20 +159,19 @@ function SubmitPage() {
             <div className="size-12 mx-auto mb-4 bg-brand rounded-md grid place-items-center font-mono font-bold text-brand-foreground text-lg">
               R
             </div>
-            <h1 className="text-xl font-semibold mb-2">Sign in to submit a ticket</h1>
+            <h1 className="text-xl font-semibold mb-2">Verify your identity</h1>
             <p className="text-sm text-muted-foreground mb-1">
               Filing for <span className="text-foreground font-semibold">{org.name}</span>.
             </p>
             <p className="text-sm text-muted-foreground mb-6">
-              We use your Steam profile to verify your in-game identity.
+              Link your Discord and Steam accounts to submit a ticket.
             </p>
-            <button
-              onClick={startSteamAuth}
-              className="w-full py-3 bg-[#171a21] hover:bg-[#1f242d] ring-1 ring-border text-white rounded-md text-sm font-semibold flex items-center justify-center gap-3 transition-colors"
+            <a
+              href={`/support?org=${encodeURIComponent(orgId)}`}
+              className="w-full py-3 bg-brand hover:opacity-90 text-brand-foreground rounded-md text-sm font-semibold flex items-center justify-center gap-2 transition-opacity"
             >
-              <span className="font-mono text-xs uppercase tracking-widest text-[#66c0f4]">Steam</span>
-              Sign in through Steam
-            </button>
+              Link accounts to continue
+            </a>
           </div>
         </div>
       </div>

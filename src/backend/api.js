@@ -446,6 +446,7 @@ function verifyDiscordState(stateToken) {
     if (payload?.kind !== "discord-oauth-state") return null;
     return {
       next: sanitizeNext(payload.next),
+      flow: String(payload.flow ?? "staff"),
     };
   } catch {
     return null;
@@ -677,6 +678,30 @@ async function ensureSchema() {
   );
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_ticket_audit_ticket_id ON ticket_audit_log(ticket_id)`,
+  );
+
+  // ── Public identity links (Discord + Steam for portal ticket submitters) ──
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public_identity_links (
+      link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      discord_id TEXT NOT NULL UNIQUE,
+      discord_username TEXT NOT NULL,
+      steam_id TEXT NOT NULL,
+      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_public_identity_links_discord_id ON public_identity_links(discord_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_public_identity_links_steam_id ON public_identity_links(steam_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_public_identity_links_user_id ON public_identity_links(user_id)`,
   );
 
   // Audit logs for staff actions
@@ -1525,6 +1550,33 @@ async function handleDiscordStart(request) {
   return redirect(`${DISCORD_AUTHORIZE_URL}?${authorizeParams.toString()}`);
 }
 
+async function handlePublicDiscordStart(request) {
+  const limited = await rateLimitLogin(request);
+  if (limited) return limited;
+
+  if (!env.discordClientId || !env.discordClientSecret) {
+    return json({ error: "Discord OAuth is not configured." }, 503);
+  }
+  if (!env.jwtSecret) {
+    return json({ error: "JWT secret is not configured." }, 503);
+  }
+
+  const url = new URL(request.url);
+  const org = String(url.searchParams.get("org") ?? "").trim();
+  const next = org ? `/support?org=${encodeURIComponent(org)}` : "/support";
+  const state = signDiscordState({ next, flow: "public" });
+
+  const authorizeParams = new URLSearchParams({
+    client_id: env.discordClientId,
+    response_type: "code",
+    redirect_uri: getDiscordRedirectUri(request),
+    scope: "identify",
+    state,
+  });
+
+  return redirect(`${DISCORD_AUTHORIZE_URL}?${authorizeParams.toString()}`);
+}
+
 async function handleDiscordCallback(request) {
   const limited = await rateLimitLogin(request);
   if (limited) return limited;
@@ -1580,7 +1632,9 @@ async function handleDiscordCallback(request) {
 
     const headers = new Headers();
     headers.append("set-cookie", pendingLinkCookie(pendingToken, 60 * 15));
-    return redirect("/login?step=steam", headers);
+    const stepUrl =
+      stateData.flow === "public" ? "/support?step=steam" : "/login?step=steam";
+    return redirect(stepUrl, headers);
   } catch (error) {
     const reason = String(error?.message ?? "discord_auth_failed");
     const known = new Set([
@@ -3172,14 +3226,19 @@ async function handlePublicSteamStart(request) {
   const limited = await rateLimitLogin(request);
   if (limited) return limited;
 
+  // Public portal Steam auth requires Discord to be linked first
+  const pending = getPendingLink(request);
+  if (!pending) {
+    return redirect("/support?error=steam_requires_discord");
+  }
+
   const url = new URL(request.url);
-  const next = sanitizeNext(url.searchParams.get("next") ?? "/support");
   const org = String(url.searchParams.get("org") ?? "").trim();
 
   const nonce = crypto.randomUUID();
   await redis.set(
     `openid:public:${nonce}`,
-    JSON.stringify({ next, org }),
+    JSON.stringify({ org }),
     "EX",
     60 * 10,
   );
@@ -3202,23 +3261,36 @@ async function handlePublicSteamCallback(request) {
 
   const url = new URL(request.url);
   const nonce = String(url.searchParams.get("nonce") ?? "").trim();
+  const pending = getPendingLink(request);
 
-  if (!nonce) return redirect("/support?error=steam_state_invalid");
+  if (!nonce || !pending) {
+    return redirect(
+      "/support?error=steam_state_invalid",
+      clearPendingLinkHeaders(new Headers()),
+    );
+  }
 
   const nonceKey = `openid:public:${nonce}`;
   const raw = await redis.get(nonceKey);
   await redis.del(nonceKey);
-  if (!raw) return redirect("/support?error=steam_state_expired");
+  if (!raw) {
+    return redirect(
+      "/support?error=steam_state_expired",
+      clearPendingLinkHeaders(new Headers()),
+    );
+  }
 
   let nonceData;
   try {
     nonceData = JSON.parse(raw);
   } catch {
-    return redirect("/support?error=steam_state_invalid");
+    return redirect(
+      "/support?error=steam_state_invalid",
+      clearPendingLinkHeaders(new Headers()),
+    );
   }
 
   const orgParam = String(nonceData.org ?? "").trim();
-  const next = sanitizeNext(nonceData.next ?? "/support");
 
   try {
     await verifySteamResponse(url.searchParams);
@@ -3227,41 +3299,88 @@ async function handlePublicSteamCallback(request) {
     if (!match) throw new Error("Steam claimed ID missing.");
 
     const steamId = match[1];
-    const existingRes = await pool.query(
-      "SELECT user_id, username, discord_id FROM users WHERE steam_id = $1 LIMIT 1",
+
+    // Reject if this Steam is already linked to a different Discord account
+    const conflictRes = await pool.query(
+      "SELECT user_id, discord_id FROM users WHERE steam_id = $1 LIMIT 1",
       [steamId],
     );
-
-    let user;
-    if (existingRes.rows[0]) {
-      user = {
-        userId: String(existingRes.rows[0].user_id),
-        username: String(existingRes.rows[0].username),
-        discordId: existingRes.rows[0].discord_id
-          ? String(existingRes.rows[0].discord_id)
-          : null,
-        steamId,
-      };
-    } else {
-      const userId = crypto.randomUUID();
-      const username = `player_${steamId.slice(-6)}`;
-      await pool.query(
-        `INSERT INTO users (user_id, username, steam_id) VALUES ($1, $2, $3)`,
-        [userId, username, steamId],
+    const conflictRow = conflictRes.rows[0];
+    if (
+      conflictRow &&
+      conflictRow.discord_id &&
+      String(conflictRow.discord_id) !== pending.discordId
+    ) {
+      return redirect(
+        "/support?error=steam_already_linked",
+        clearPendingLinkHeaders(new Headers()),
       );
-      user = { userId, username, discordId: null, steamId };
     }
 
+    // Find existing user — prefer match by discord_id, fall back to steam_id
+    const existingRes = await pool.query(
+      `SELECT user_id, username, discord_id, steam_id FROM users
+       WHERE discord_id = $1 OR steam_id = $2
+       ORDER BY CASE WHEN discord_id = $1 THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [pending.discordId, steamId],
+    );
+    const existingUser = existingRes.rows[0];
+
+    let userId;
+    if (existingUser) {
+      userId = String(existingUser.user_id);
+      await pool.query(
+        `UPDATE users
+         SET username = $2, discord_id = $3, steam_id = $4, updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId, pending.username, pending.discordId, steamId],
+      );
+    } else {
+      userId = crypto.randomUUID();
+      await pool.query(
+        `INSERT INTO users (user_id, username, discord_id, steam_id)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, pending.username, pending.discordId, steamId],
+      );
+    }
+
+    // Upsert into public_identity_links (tracks portal-linked identities)
+    await pool.query(
+      `INSERT INTO public_identity_links (discord_id, discord_username, steam_id, user_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (discord_id)
+       DO UPDATE SET discord_username = EXCLUDED.discord_username,
+                     steam_id = EXCLUDED.steam_id,
+                     user_id = EXCLUDED.user_id,
+                     updated_at = NOW()`,
+      [pending.discordId, pending.username, steamId, userId],
+    );
+
+    // If org is known from the nonce, go straight to submit; otherwise go to
+    // pending.next which may carry ?org=... from the initial Discord start.
     const redirectTo = orgParam
       ? `/submit?org=${encodeURIComponent(orgParam)}`
-      : next;
-    return createSessionForUser(user, {
-      redirectTo,
-      ipAddress: getClientIp(request),
-      userAgent: request.headers.get("user-agent") ?? null,
-    });
+      : (pending.next ?? "/support");
+
+    return createSessionForUser(
+      {
+        userId,
+        username: pending.username,
+        discordId: pending.discordId,
+        steamId,
+      },
+      {
+        redirectTo,
+        ipAddress: getClientIp(request),
+        userAgent: request.headers.get("user-agent") ?? null,
+      },
+    );
   } catch {
-    return redirect("/support?error=steam_auth_failed");
+    return redirect(
+      "/support?error=steam_auth_failed",
+      clearPendingLinkHeaders(new Headers()),
+    );
   }
 }
 
@@ -4288,6 +4407,12 @@ export async function handleApiRequest(request) {
   // Discord OAuth start/callback should not be blocked by the global startup guard.
   if (earlyPath === "/api/auth/discord/start" && request.method === "GET") {
     return handleDiscordStart(request);
+  }
+  if (
+    earlyPath === "/api/auth/public/discord/start" &&
+    request.method === "GET"
+  ) {
+    return handlePublicDiscordStart(request);
   }
   if (earlyPath === "/api/auth/discord/callback" && request.method === "GET") {
     return handleDiscordCallback(request);
