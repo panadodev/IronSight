@@ -213,7 +213,9 @@ function requireConfiguredSysAdmin(session) {
   }
 
   if (!isConfiguredSysAdmin(session)) {
-    return { error: json({ error: "Forbidden: SYS_ADMIN_DISCORD_ID required" }, 403) };
+    return {
+      error: json({ error: "Forbidden: SYS_ADMIN_DISCORD_ID required" }, 403),
+    };
   }
 
   return { error: null };
@@ -600,6 +602,18 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_text_chat_log_steam_id ON text_chat_log(steam_id)`,
   );
+
+  // -- Pterodactyl integration -----------------------------------------------
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ptero_api_keys (
+      org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
+      panel_url TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 async function ensureRolePermissionSeed() {
@@ -3428,6 +3442,239 @@ async function handleListMyTickets(request) {
   });
 }
 
+// ── Pterodactyl integration ──────────────────────────────────────────────────
+
+async function handleSavePteroKey(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const panelUrl = String(body?.panelUrl ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+  const apiKey = String(body?.apiKey ?? "").trim();
+
+  if (!panelUrl || !apiKey) {
+    return json({ error: "panelUrl and apiKey are required" }, 400);
+  }
+
+  if (!/^https?:\/\/.+/.test(panelUrl)) {
+    return json({ error: "panelUrl must be a valid http/https URL" }, 400);
+  }
+
+  let testRes;
+  try {
+    testRes = await fetch(`${panelUrl}/api/application/servers?per_page=1`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "Application/vnd.pterodactyl.v1+json",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (err) {
+    return json(
+      {
+        error: `Could not reach Pterodactyl panel: ${String(err.message ?? err)}`,
+      },
+      502,
+    );
+  }
+
+  if (testRes.status === 401 || testRes.status === 403) {
+    return json({ error: "Invalid Pterodactyl API key" }, 400);
+  }
+  if (!testRes.ok) {
+    return json({ error: `Pterodactyl returned HTTP ${testRes.status}` }, 502);
+  }
+
+  await pool.query(
+    `INSERT INTO ptero_api_keys (org_id, panel_url, api_key, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (org_id)
+     DO UPDATE SET panel_url = EXCLUDED.panel_url,
+                   api_key = EXCLUDED.api_key,
+                   updated_at = NOW()`,
+    [orgId, panelUrl, apiKey],
+  );
+
+  return json({ ok: true, panelUrl });
+}
+
+async function handleGetPteroKey(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const res = await pool.query(
+    "SELECT panel_url, updated_at FROM ptero_api_keys WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!res.rows[0]) return json({ connected: false });
+
+  const row = res.rows[0];
+  return json({
+    connected: true,
+    panelUrl: String(row.panel_url),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+  });
+}
+
+async function handleDeletePteroKey(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  await pool.query("DELETE FROM ptero_api_keys WHERE org_id = $1", [orgId]);
+  return json({ ok: true });
+}
+
+async function handleListPteroServers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const keyRow = await pool.query(
+    "SELECT panel_url, api_key FROM ptero_api_keys WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!keyRow.rows[0]) {
+    return json({ error: "Pterodactyl not connected for this org" }, 400);
+  }
+
+  const { panel_url: panelUrl, api_key: apiKey } = keyRow.rows[0];
+
+  const servers = [];
+  let page = 1;
+  const MAX_PAGES = 20;
+  while (page <= MAX_PAGES) {
+    let pteroRes;
+    try {
+      pteroRes = await fetch(
+        `${panelUrl}/api/application/servers?include=allocations,node&per_page=50&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: "Application/vnd.pterodactyl.v1+json",
+          },
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+    } catch (err) {
+      return json(
+        {
+          error: `Could not reach Pterodactyl panel: ${String(err.message ?? err)}`,
+        },
+        502,
+      );
+    }
+
+    if (!pteroRes.ok) {
+      return json(
+        { error: `Pterodactyl returned HTTP ${pteroRes.status}` },
+        502,
+      );
+    }
+
+    const data = await pteroRes.json();
+    const items = Array.isArray(data?.data) ? data.data : [];
+
+    for (const item of items) {
+      const attr = item?.attributes ?? {};
+      const allocData = attr?.relationships?.allocations?.data ?? [];
+      const defaultAlloc =
+        allocData.find((a) => a?.attributes?.is_default) ?? allocData[0];
+      const alloc = defaultAlloc?.attributes ?? {};
+      const nodeAttr = attr?.relationships?.node?.attributes ?? {};
+
+      servers.push({
+        pteroId: attr.id,
+        uuid: attr.uuid,
+        identifier: attr.identifier,
+        name: attr.name ?? "",
+        description: attr.description ?? "",
+        suspended: Boolean(attr.suspended),
+        ip: alloc.ip ?? null,
+        port: alloc.port ?? null,
+        nodeName: nodeAttr.name ?? null,
+        nodeFqdn: nodeAttr.fqdn ?? null,
+        egg: attr.egg ?? null,
+        status: attr.status ?? null,
+        createdAt: attr.created_at ?? null,
+      });
+    }
+
+    const pagination = data?.meta?.pagination;
+    if (!pagination || page >= pagination.total_pages) break;
+    page++;
+  }
+
+  return json({ servers });
+}
+
+async function handleImportPteroServer(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const serverName = String(body?.serverName ?? "").trim();
+  if (!serverName) return json({ error: "serverName is required" }, 400);
+  if (serverName.length > 128) {
+    return json({ error: "serverName too long" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  const plainApiKey = crypto.randomBytes(32).toString("hex");
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(plainApiKey)
+    .digest("hex");
+  const serverId = crypto.randomUUID();
+
+  await pool.query(
+    `INSERT INTO servers (server_id, server_name, owner_org_id, api_key_hash, added_by_user_id)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [serverId, serverName, orgId, apiKeyHash, session.userId],
+  );
+
+  return json(
+    {
+      ok: true,
+      server: { serverId, serverName, ownerOrgId: orgId },
+      apiKey: plainApiKey,
+    },
+    201,
+  );
+}
+
 // ── Server registration & chat ingest ────────────────────────────────────────
 
 async function handleRegisterServer(request) {
@@ -3924,6 +4171,33 @@ export async function handleApiRequest(request) {
     }
     if (pathname === "/api/servers" && request.method === "POST") {
       return handleRegisterServer(request);
+    }
+
+    const orgPteroMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero$/,
+    );
+    if (orgPteroMatch && request.method === "GET") {
+      return handleGetPteroKey(request, orgPteroMatch[1]);
+    }
+    if (orgPteroMatch && request.method === "POST") {
+      return handleSavePteroKey(request, orgPteroMatch[1]);
+    }
+    if (orgPteroMatch && request.method === "DELETE") {
+      return handleDeletePteroKey(request, orgPteroMatch[1]);
+    }
+
+    const orgPteroServersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero\/servers$/,
+    );
+    if (orgPteroServersMatch && request.method === "GET") {
+      return handleListPteroServers(request, orgPteroServersMatch[1]);
+    }
+
+    const orgPteroImportMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero\/servers\/import$/,
+    );
+    if (orgPteroImportMatch && request.method === "POST") {
+      return handleImportPteroServer(request, orgPteroImportMatch[1]);
     }
 
     if (pathname === "/api/ingest/chat" && request.method === "POST") {

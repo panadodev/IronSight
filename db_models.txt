@@ -170,3 +170,7 @@ servers
 - api_key
 - created_at
 - added_by_user_id
+
+ptero_api_keys
+- org_id
+- api_key

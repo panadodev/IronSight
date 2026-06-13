@@ -2080,235 +2080,313 @@ function HeartbeatBadge({ label, ok }) {
   );
 }
 function ServersTab({ orgId }) {
-  const [servers, setServers] = useState(MOCK_SERVERS_BY_ORG[orgId] ?? []);
-  const [tags, setTags] = useState(MOCK_TAGS);
-  const [nodes, setNodes] = useState(MOCK_NODES);
-  const [editing, setEditing] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [creatingNode, setCreatingNode] = useState(false);
-  const [newTag, setNewTag] = useState("");
+  const [pteroStatus, setPteroStatus] = useState(null); // null=loading, {connected,panelUrl}
+  const [pteroForm, setPteroForm] = useState({ panelUrl: "", apiKey: "" });
+  const [pteroSaving, setPteroSaving] = useState(false);
+  const [pteroError, setPteroError] = useState(null);
+
+  const [pteroServers, setPteroServers] = useState(null); // null=not fetched
+  const [pteroLoading, setPteroLoading] = useState(false);
+  const [pteroFetchError, setPteroFetchError] = useState(null);
+
+  const [registeredServers, setRegisteredServers] = useState([]);
+  const [regLoading, setRegLoading] = useState(true);
+
+  const [importing, setImporting] = useState(null); // pteroId being imported
+  const [importedIds, setImportedIds] = useState(new Set());
+  const [apiKeyReveal, setApiKeyReveal] = useState(null); // { serverId, apiKey }
+
+  // Load ptero connection status
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/orgs/${orgId}/ptero`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => { if (!cancelled) setPteroStatus(d); })
+      .catch(() => { if (!cancelled) setPteroStatus({ connected: false }); });
+    return () => { cancelled = true; };
+  }, [orgId]);
+
+  // Load registered servers for this org
+  const loadRegistered = () => {
+    setRegLoading(true);
+    fetch("/api/servers", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => setRegisteredServers((d.servers ?? []).filter((s) => s.ownerOrgId === orgId)))
+      .catch(() => setRegisteredServers([]))
+      .finally(() => setRegLoading(false));
+  };
+  useEffect(() => { loadRegistered(); }, [orgId]);
+
+  const savePtero = async () => {
+    setPteroSaving(true);
+    setPteroError(null);
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/ptero`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pteroForm),
+      });
+      const data = await res.json();
+      if (!res.ok) { setPteroError(data?.error ?? "Failed to save"); return; }
+      setPteroStatus({ connected: true, panelUrl: data.panelUrl });
+      setPteroForm({ panelUrl: "", apiKey: "" });
+    } catch {
+      setPteroError("Network error");
+    } finally {
+      setPteroSaving(false);
+    }
+  };
+
+  const disconnectPtero = async () => {
+    await fetch(`/api/orgs/${orgId}/ptero`, { method: "DELETE", credentials: "include" });
+    setPteroStatus({ connected: false });
+    setPteroServers(null);
+  };
+
+  const fetchPteroServers = async () => {
+    setPteroLoading(true);
+    setPteroFetchError(null);
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/ptero/servers`, { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) { setPteroFetchError(data?.error ?? "Failed to fetch"); return; }
+      setPteroServers(data.servers ?? []);
+    } catch {
+      setPteroFetchError("Network error");
+    } finally {
+      setPteroLoading(false);
+    }
+  };
+
+  const importServer = async (pteroServer) => {
+    setImporting(pteroServer.pteroId);
+    try {
+      const serverName = pteroServer.name;
+      const res = await fetch(`/api/orgs/${orgId}/ptero/servers/import`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ serverName }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data?.error ?? "Import failed"); return; }
+      setImportedIds((prev) => new Set([...prev, pteroServer.pteroId]));
+      setApiKeyReveal({ serverId: data.server.serverId, serverName, apiKey: data.apiKey });
+      loadRegistered();
+    } catch {
+      alert("Network error during import");
+    } finally {
+      setImporting(null);
+    }
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-muted-foreground">
-          Servers shown in this panel. Add servers from Pterodactyl by IP/port;
-          tag them to group with scripts &amp; plugin presets.
-        </p>
+    <div className="space-y-4">
+
+      {/* Pterodactyl connection */}
+      <div className="ring-1 ring-border rounded-md bg-surface/40 p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setCreatingNode(true)}
-          >
-            <Plus className="size-3.5 mr-1" /> Add node
-          </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-3.5 mr-1" /> Add server
-          </Button>
+          <Layers className="size-4 text-brand" />
+          <span className="text-sm font-semibold">Pterodactyl Connection</span>
+          {pteroStatus?.connected && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 ring-1 ring-green-500/30">
+              Connected
+            </span>
+          )}
         </div>
+
+        {pteroStatus === null ? (
+          <p className="text-xs text-muted-foreground">Loading…</p>
+        ) : pteroStatus.connected ? (
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-mono text-muted-foreground">{pteroStatus.panelUrl}</span>
+            <Button size="sm" variant="outline" onClick={disconnectPtero} className="text-destructive">
+              <X className="size-3.5 mr-1" /> Disconnect
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Panel URL</Label>
+                <Input
+                  value={pteroForm.panelUrl}
+                  onChange={(e) => setPteroForm({ ...pteroForm, panelUrl: e.target.value })}
+                  placeholder="https://panel.example.com"
+                  className="text-xs font-mono h-8"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Application API Key</Label>
+                <Input
+                  type="password"
+                  value={pteroForm.apiKey}
+                  onChange={(e) => setPteroForm({ ...pteroForm, apiKey: e.target.value })}
+                  placeholder="ptla_…"
+                  className="text-xs font-mono h-8"
+                />
+              </div>
+            </div>
+            {pteroError && <p className="text-xs text-destructive">{pteroError}</p>}
+            <Button
+              size="sm"
+              disabled={pteroSaving || !pteroForm.panelUrl || !pteroForm.apiKey}
+              onClick={savePtero}
+            >
+              {pteroSaving ? "Connecting…" : "Connect"}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Nodes manager */}
-      <div className="ring-1 ring-border rounded-md bg-surface/40 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            Dedicated machines / nodes
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {nodes.map((n) => (
-            <div
-              key={n.id}
-              className="ring-1 ring-border rounded bg-background/40 p-2 flex items-start gap-2"
-            >
-              <Server className="size-3.5 text-brand mt-0.5 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <div className="text-xs font-semibold truncate">{n.name}</div>
-                  <span className="text-[9px] font-mono text-muted-foreground">
-                    {n.code}
-                  </span>
-                </div>
-                <div className="text-[10px] font-mono text-muted-foreground truncate">
-                  {n.ip} Â· {n.link}
-                </div>
-                <div className="text-[10px] font-mono text-muted-foreground/80 truncate">
-                  {n.cpu} Â· {n.ram}
-                </div>
+      {/* Import from Pterodactyl */}
+      {pteroStatus?.connected && (
+        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Pterodactyl Containers
+            </span>
+            <Button size="sm" variant="outline" onClick={fetchPteroServers} disabled={pteroLoading}>
+              {pteroLoading ? <RefreshCw className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5 mr-1" />}
+              {pteroLoading ? "" : "Fetch servers"}
+            </Button>
+          </div>
+          {pteroFetchError && (
+            <p className="px-4 py-3 text-xs text-destructive">{pteroFetchError}</p>
+          )}
+          {pteroServers === null && !pteroFetchError && (
+            <p className="px-4 py-3 text-xs text-muted-foreground">
+              Click &ldquo;Fetch servers&rdquo; to list containers from your Pterodactyl panel.
+            </p>
+          )}
+          {pteroServers !== null && pteroServers.length === 0 && (
+            <p className="px-4 py-3 text-xs text-muted-foreground">No servers found on that panel.</p>
+          )}
+          {pteroServers !== null && pteroServers.length > 0 && (
+            <div className="divide-y divide-border">
+              <div className="grid grid-cols-[2fr_1.5fr_1fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <div>Name</div>
+                <div>IP : Port</div>
+                <div>Node</div>
+                <div />
               </div>
-              <button
-                onClick={() => setNodes((p) => p.filter((x) => x.id !== n.id))}
-                className="text-muted-foreground hover:text-destructive"
-                title="Remove node"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
-            </div>
-          ))}
-          {nodes.length === 0 && (
-            <div className="text-[11px] text-muted-foreground col-span-full text-center py-3">
-              No nodes yet.
+              {pteroServers.map((s) => {
+                const alreadyImported = importedIds.has(s.pteroId);
+                const alreadyExists = registeredServers.some((r) => r.serverName === s.name);
+                return (
+                  <div
+                    key={s.pteroId}
+                    className={`grid grid-cols-[2fr_1.5fr_1fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-50" : ""}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{s.name}</div>
+                      <div className="text-[10px] font-mono text-muted-foreground truncate">{s.identifier}</div>
+                    </div>
+                    <div className="text-xs font-mono text-muted-foreground">
+                      {s.ip ? `${s.ip}:${s.port}` : "—"}
+                    </div>
+                    <div className="text-xs font-mono text-muted-foreground truncate">{s.nodeName ?? "—"}</div>
+                    <div>
+                      {alreadyImported || alreadyExists ? (
+                        <span className="text-[10px] font-mono text-green-400 px-2 py-1 rounded bg-green-500/10">
+                          Added
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={importing === s.pteroId}
+                          onClick={() => importServer(s)}
+                          className="h-7 text-xs"
+                        >
+                          {importing === s.pteroId ? (
+                            <RefreshCw className="size-3 animate-spin" />
+                          ) : (
+                            <>
+                              <Upload className="size-3 mr-1" /> Import
+                            </>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Tags manager */}
-      <div className="ring-1 ring-border rounded-md bg-surface/40 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            Tags / server groups
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 items-center">
-          {tags.map((t) => (
-            <span
-              key={t}
-              className="flex items-center gap-1 px-2 py-1 rounded bg-surface ring-1 ring-border text-[11px] font-mono"
-            >
-              {t}
-              <button
-                onClick={() => setTags((p) => p.filter((x) => x !== t))}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-          <div className="flex items-center gap-1">
-            <Input
-              value={newTag}
-              onChange={(e) => setNewTag(e.target.value)}
-              placeholder="new-tag"
-              className="h-7 w-28 text-xs"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newTag.trim()) {
-                  setTags((p) =>
-                    Array.from(/* @__PURE__ */ new Set([...p, newTag.trim()])),
-                  );
-                  setNewTag("");
-                }
-              }}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (newTag.trim()) {
-                  setTags((p) =>
-                    Array.from(/* @__PURE__ */ new Set([...p, newTag.trim()])),
-                  );
-                  setNewTag("");
-                }
-              }}
-            >
-              Add tag
-            </Button>
-          </div>
-        </div>
-      </div>
+      {/* API Key reveal dialog after import */}
+      {apiKeyReveal && (
+        <Dialog open onOpenChange={() => setApiKeyReveal(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Server Imported</DialogTitle>
+              <DialogDescription>
+                <strong>{apiKeyReveal.serverName}</strong> has been added to your org. Copy the API key below — it will only be shown once.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <Label className="text-xs text-muted-foreground">IronSight API Key (for chat ingest)</Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  readOnly
+                  value={apiKeyReveal.apiKey}
+                  className="font-mono text-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigator.clipboard.writeText(apiKeyReveal.apiKey)}
+                >
+                  Copy
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Set this as the <code className="font-mono">x-api-key</code> header when POSTing to <code className="font-mono">/api/ingest/chat</code>.
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
-      {/* Servers list */}
+      {/* Registered IronSight servers */}
       <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-        <div className="grid grid-cols-[1.5fr_1.2fr_1fr_2fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-          <div>Name</div>
-          <div>IP : Port</div>
-          <div>Node</div>
-          <div>Tags</div>
-          <div />
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            Registered Servers
+          </span>
+          <Button size="sm" variant="outline" onClick={loadRegistered} disabled={regLoading}>
+            <RefreshCw className={`size-3.5 ${regLoading ? "animate-spin" : "mr-1"}`} />
+            {!regLoading && "Refresh"}
+          </Button>
         </div>
-        {servers.length === 0 && (
-          <div className="p-6 text-center text-xs text-muted-foreground">
-            No servers yet.
+        {regLoading ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground">Loading…</p>
+        ) : registeredServers.length === 0 ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground">
+            No servers registered yet. Import one from Pterodactyl above.
+          </p>
+        ) : (
+          <div className="divide-y divide-border">
+            <div className="grid grid-cols-[2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div>Server Name</div>
+              <div>Server ID</div>
+            </div>
+            {registeredServers.map((s) => (
+              <div key={s.serverId} className="grid grid-cols-[2fr_auto] gap-3 px-4 py-2.5 items-center">
+                <div className="text-sm font-medium truncate">{s.serverName}</div>
+                <div className="text-[10px] font-mono text-muted-foreground">{s.serverId.slice(0, 8)}</div>
+              </div>
+            ))}
           </div>
         )}
-        {servers.map((s) => (
-          <div
-            key={s.id}
-            className="grid grid-cols-[1.5fr_1.2fr_1fr_2fr_auto] gap-3 px-3 py-2 border-b border-border last:border-0 items-center"
-          >
-            <div className="text-sm font-medium truncate">{s.name}</div>
-            <div className="text-xs font-mono text-muted-foreground">
-              {s.ip}:{s.port}{" "}
-              <span className="opacity-60">/ rcon {s.rconPort}</span>
-            </div>
-            <div className="text-xs font-mono text-muted-foreground">
-              {s.node}
-            </div>
-            <div className="flex gap-1 flex-wrap">
-              {s.tags.map((t) => (
-                <span
-                  key={t}
-                  className="px-1.5 py-0.5 rounded bg-brand/15 text-brand text-[10px] font-mono font-bold"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-7"
-                onClick={() => setEditing(s)}
-              >
-                <Pencil className="size-3.5" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-7 text-destructive"
-                onClick={() =>
-                  setServers((p) => p.filter((x) => x.id !== s.id))
-                }
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
-          </div>
-        ))}
       </div>
-
-      <ServerEditDialog
-        open={creating || !!editing}
-        initial={editing}
-        tags={tags}
-        nodes={nodes.map((n) => n.id)}
-        onClose={() => {
-          setCreating(false);
-          setEditing(null);
-        }}
-        onSave={(s) => {
-          if (editing) {
-            setServers((p) =>
-              p.map((x) =>
-                x.id === editing.id ? { ...s, id: editing.id } : x,
-              ),
-            );
-          } else {
-            setServers((p) => [
-              ...p,
-              { ...s, id: "s_" + Math.random().toString(36).slice(2, 7) },
-            ]);
-          }
-          setCreating(false);
-          setEditing(null);
-        }}
-      />
-
-      <NodeAddDialog
-        open={creatingNode}
-        onClose={() => setCreatingNode(false)}
-        onSave={(n) => {
-          setNodes((p) => [
-            ...p,
-            { ...n, id: "n_" + Math.random().toString(36).slice(2, 7) },
-          ]);
-          setCreatingNode(false);
-        }}
-      />
     </div>
   );
+}
 }
 function ServerEditDialog({ open, initial, tags, nodes, onClose, onSave }) {
   const [draft, setDraft] = useState({
