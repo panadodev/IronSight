@@ -313,6 +313,11 @@ function SiteNav() {
       label: "Moderation",
       links: [
         { to: "/", label: "Support", show: true },
+        {
+          to: "/manage/tickets",
+          label: "Tickets",
+          show: isSysAdminSession || adminableOrgIds.length > 0,
+        },
         { to: "/player-lookup", label: "Player Lookup", show: canPlayerList },
         { to: "/player-list", label: "Player List", show: canPlayerList },
         { to: "/chat", label: "Chat", show: true },
@@ -341,11 +346,6 @@ function SiteNav() {
         {
           to: "/manage/ban-configs",
           label: "Ban configs",
-          show: isSysAdminSession || adminableOrgIds.length > 0,
-        },
-        {
-          to: "/manage/tickets",
-          label: "Tickets",
           show: isSysAdminSession || adminableOrgIds.length > 0,
         },
         {
