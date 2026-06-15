@@ -854,6 +854,62 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS idx_org_scripts_org_id ON org_scripts(org_id)`,
   );
 
+  // ── Manage Org configs: predefines, toxicity, ban/mute reasons ─────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_predefines (
+      predefine_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      keyword TEXT NOT NULL,
+      extra_keywords TEXT[] NOT NULL DEFAULT '{}',
+      content TEXT NOT NULL,
+      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_predefines_org_id ON org_predefines(org_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_toxicity_config (
+      org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
+      yellow TEXT[] NOT NULL DEFAULT '{}',
+      red TEXT[] NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Ban/mute reasons. category is one of: cheating, teaming, toxicity, mute.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_ban_reasons (
+      reason_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      label TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT chk_org_ban_reasons_category
+        CHECK (category IN ('cheating', 'teaming', 'toxicity', 'mute'))
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_ban_reasons_org_id ON org_ban_reasons(org_id)`,
+  );
+
+  // Per-category note format templates (one row per org+category).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_ban_note_formats (
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      note_format TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (org_id, category),
+      CONSTRAINT chk_org_ban_note_formats_category
+        CHECK (category IN ('cheating', 'teaming', 'toxicity', 'mute'))
+    )
+  `);
+
   // ── Plugin presets ──────────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS org_plugins (
@@ -4524,6 +4580,383 @@ async function handleDeleteScript(request, orgId, scriptId) {
   return json({ ok: true });
 }
 
+// ── Manage Org: Pre-defines ─────────────────────────────────────────────────
+
+function serializePredefine(row) {
+  return {
+    id: String(row.predefine_id),
+    keyword: String(row.keyword),
+    extraKeywords: Array.isArray(row.extra_keywords) ? row.extra_keywords : [],
+    content: String(row.content),
+  };
+}
+
+async function requireOrgMemberOrAdmin(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return { error };
+  const memberRes = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
+    [orgId, session.userId],
+  );
+  if (!memberRes.rows[0] && !canManageOrg(session, orgId)) {
+    return { error: json({ error: "Forbidden" }, 403) };
+  }
+  return { session };
+}
+
+async function handleListOrgPredefines(request, orgId) {
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  if (error) return error;
+  void session;
+
+  const { rows } = await pool.query(
+    `SELECT predefine_id, keyword, extra_keywords, content
+     FROM org_predefines WHERE org_id = $1 ORDER BY keyword ASC`,
+    [orgId],
+  );
+  return json({ predefines: rows.map(serializePredefine) });
+}
+
+function normalizeExtraKeywords(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((k) => String(k).trim()).filter((k) => k.length > 0);
+}
+
+async function handleCreateOrgPredefine(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const keyword = String(body?.keyword ?? "").trim();
+  const content = String(body?.content ?? "").trim();
+  const extraKeywords = normalizeExtraKeywords(body?.extraKeywords);
+  if (!keyword) return json({ error: "Keyword is required." }, 400);
+  if (!content) return json({ error: "Content is required." }, 400);
+  if (keyword.length > 128)
+    return json({ error: "Keyword must be 128 characters or fewer." }, 400);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_predefines (org_id, keyword, extra_keywords, content, created_by)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING predefine_id, keyword, extra_keywords, content`,
+    [orgId, keyword, extraKeywords, content, session.userId],
+  );
+  return json({ predefine: serializePredefine(rows[0]) }, 201);
+}
+
+async function handleUpdateOrgPredefine(request, orgId, predefineId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const existing = await pool.query(
+    `SELECT predefine_id FROM org_predefines WHERE predefine_id = $1 AND org_id = $2`,
+    [predefineId, orgId],
+  );
+  if (!existing.rows[0]) return json({ error: "Pre-define not found" }, 404);
+
+  const setClauses = [];
+  const params = [];
+  if (body?.keyword !== undefined) {
+    const keyword = String(body.keyword).trim();
+    if (!keyword) return json({ error: "Keyword is required." }, 400);
+    if (keyword.length > 128)
+      return json({ error: "Keyword must be 128 characters or fewer." }, 400);
+    params.push(keyword);
+    setClauses.push(`keyword = $${params.length}`);
+  }
+  if (body?.content !== undefined) {
+    const content = String(body.content).trim();
+    if (!content) return json({ error: "Content is required." }, 400);
+    params.push(content);
+    setClauses.push(`content = $${params.length}`);
+  }
+  if (body?.extraKeywords !== undefined) {
+    params.push(normalizeExtraKeywords(body.extraKeywords));
+    setClauses.push(`extra_keywords = $${params.length}`);
+  }
+  if (setClauses.length === 0)
+    return json({ error: "No fields to update" }, 400);
+  setClauses.push(`updated_at = NOW()`);
+
+  params.push(predefineId);
+  params.push(orgId);
+  const { rows } = await pool.query(
+    `UPDATE org_predefines SET ${setClauses.join(", ")}
+     WHERE predefine_id = $${params.length - 1} AND org_id = $${params.length}
+     RETURNING predefine_id, keyword, extra_keywords, content`,
+    params,
+  );
+  return json({ predefine: serializePredefine(rows[0]) });
+}
+
+async function handleDeleteOrgPredefine(request, orgId, predefineId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const res = await pool.query(
+    `DELETE FROM org_predefines WHERE predefine_id = $1 AND org_id = $2`,
+    [predefineId, orgId],
+  );
+  if (res.rowCount === 0) return json({ error: "Pre-define not found" }, 404);
+  return json({ ok: true });
+}
+
+// ── Manage Org: Toxicity phrases ────────────────────────────────────────────
+
+async function handleGetOrgToxicity(request, orgId) {
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  if (error) return error;
+  void session;
+
+  const { rows } = await pool.query(
+    `SELECT yellow, red FROM org_toxicity_config WHERE org_id = $1`,
+    [orgId],
+  );
+  const row = rows[0];
+  return json({
+    yellow: Array.isArray(row?.yellow) ? row.yellow : [],
+    red: Array.isArray(row?.red) ? row.red : [],
+  });
+}
+
+async function handleSetOrgToxicity(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const cleanPhrases = (value) =>
+    Array.isArray(value)
+      ? value.map((p) => String(p).trim()).filter((p) => p.length > 0)
+      : null;
+
+  // Accept either a single { kind, phrases } update or a full { yellow, red }.
+  let column = null;
+  let phrases = null;
+  if (body?.kind === "yellow" || body?.kind === "red") {
+    column = body.kind;
+    phrases = cleanPhrases(body.phrases);
+    if (phrases === null)
+      return json({ error: "phrases must be an array" }, 400);
+  }
+
+  const setYellow = column === "yellow" ? phrases : cleanPhrases(body?.yellow);
+  const setRed = column === "red" ? phrases : cleanPhrases(body?.red);
+
+  await pool.query(
+    `INSERT INTO org_toxicity_config (org_id, yellow, red, updated_at)
+     VALUES ($1, COALESCE($2::text[], '{}'), COALESCE($3::text[], '{}'), NOW())
+     ON CONFLICT (org_id) DO UPDATE SET
+       yellow = COALESCE($2::text[], org_toxicity_config.yellow),
+       red = COALESCE($3::text[], org_toxicity_config.red),
+       updated_at = NOW()`,
+    [orgId, setYellow, setRed],
+  );
+
+  const { rows } = await pool.query(
+    `SELECT yellow, red FROM org_toxicity_config WHERE org_id = $1`,
+    [orgId],
+  );
+  const row = rows[0];
+  return json({
+    yellow: Array.isArray(row?.yellow) ? row.yellow : [],
+    red: Array.isArray(row?.red) ? row.red : [],
+  });
+}
+
+// ── Manage Org: Ban/mute configs ────────────────────────────────────────────
+
+const BAN_CONFIG_CATEGORIES = ["cheating", "teaming", "toxicity", "mute"];
+
+const DEFAULT_BAN_NOTE_FORMATS = {
+  cheating:
+    "Ban issued for cheating.\n\nEvidence: \nDemo/clip link: \nDate of offense: \nReviewed by: ",
+  teaming:
+    "Ban issued for teaming.\n\nGroup size limit: \nPlayers involved: \nEvidence: \nReviewed by: ",
+  toxicity:
+    "Ban issued for toxicity.\n\nChat log excerpt:\n\nContext: \nPrevious warnings: \nReviewed by: ",
+  mute: "Mute issued for toxicity.\n\nChat log excerpt:\n\nContext: \nPrevious warnings: \nReviewed by: ",
+};
+
+async function buildOrgBanConfig(orgId) {
+  const reasonsRes = await pool.query(
+    `SELECT reason_id, category, label FROM org_ban_reasons
+     WHERE org_id = $1 ORDER BY created_at ASC`,
+    [orgId],
+  );
+  const notesRes = await pool.query(
+    `SELECT category, note_format FROM org_ban_note_formats WHERE org_id = $1`,
+    [orgId],
+  );
+
+  const noteByCat = {};
+  for (const row of notesRes.rows) noteByCat[row.category] = row.note_format;
+
+  const make = (category) => ({
+    reasons: reasonsRes.rows
+      .filter((r) => r.category === category)
+      .map((r) => ({ id: String(r.reason_id), label: String(r.label) })),
+    noteFormat: noteByCat[category] ?? DEFAULT_BAN_NOTE_FORMATS[category] ?? "",
+  });
+
+  return {
+    configs: {
+      cheating: make("cheating"),
+      teaming: make("teaming"),
+      toxicity: make("toxicity"),
+    },
+    mute: make("mute"),
+  };
+}
+
+async function handleGetOrgBanConfigs(request, orgId) {
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  if (error) return error;
+  void session;
+  return json(await buildOrgBanConfig(orgId));
+}
+
+async function handleCreateBanReason(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const category = String(body?.category ?? "").trim();
+  const label = String(body?.label ?? "").trim();
+  if (!BAN_CONFIG_CATEGORIES.includes(category))
+    return json({ error: "Invalid category" }, 400);
+  if (!label) return json({ error: "Reason cannot be empty." }, 400);
+  if (label.length > 200)
+    return json({ error: "Reason must be 200 characters or fewer." }, 400);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_ban_reasons (org_id, category, label)
+     VALUES ($1, $2, $3)
+     RETURNING reason_id, label`,
+    [orgId, category, label],
+  );
+  return json(
+    {
+      reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
+    },
+    201,
+  );
+}
+
+async function handleUpdateBanReason(request, orgId, reasonId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const label = String(body?.label ?? "").trim();
+  if (!label) return json({ error: "Reason cannot be empty." }, 400);
+  if (label.length > 200)
+    return json({ error: "Reason must be 200 characters or fewer." }, 400);
+
+  const { rows } = await pool.query(
+    `UPDATE org_ban_reasons SET label = $1
+     WHERE reason_id = $2 AND org_id = $3
+     RETURNING reason_id, label`,
+    [label, reasonId, orgId],
+  );
+  if (!rows[0]) return json({ error: "Reason not found" }, 404);
+  return json({
+    reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
+  });
+}
+
+async function handleDeleteBanReason(request, orgId, reasonId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const res = await pool.query(
+    `DELETE FROM org_ban_reasons WHERE reason_id = $1 AND org_id = $2`,
+    [reasonId, orgId],
+  );
+  if (res.rowCount === 0) return json({ error: "Reason not found" }, 404);
+  return json({ ok: true });
+}
+
+async function handleSetBanNoteFormat(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const category = String(body?.category ?? "").trim();
+  const noteFormat = String(body?.noteFormat ?? "");
+  if (!BAN_CONFIG_CATEGORIES.includes(category))
+    return json({ error: "Invalid category" }, 400);
+
+  await pool.query(
+    `INSERT INTO org_ban_note_formats (org_id, category, note_format, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (org_id, category) DO UPDATE SET
+       note_format = EXCLUDED.note_format, updated_at = NOW()`,
+    [orgId, category, noteFormat],
+  );
+  return json({ ok: true, category, noteFormat });
+}
+
 // ── Plugin presets ────────────────────────────────────────────────────────────
 
 async function handleListPlugins(request, orgId) {
@@ -5518,6 +5951,75 @@ async function _handleApiRequest(request) {
     if (rolePermissionsMatch && request.method === "PATCH") {
       return handleUpdateRolePermissions(request, rolePermissionsMatch[1]);
     }
+
+    // Manage Org: pre-defines CRUD
+    const orgPredefinesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/predefines$/,
+    );
+    if (orgPredefinesMatch && request.method === "GET")
+      return handleListOrgPredefines(request, orgPredefinesMatch[1]);
+    if (orgPredefinesMatch && request.method === "POST")
+      return handleCreateOrgPredefine(request, orgPredefinesMatch[1]);
+
+    const orgPredefineDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/predefines\/([a-f0-9-]+)$/,
+    );
+    if (orgPredefineDetailMatch && request.method === "PATCH")
+      return handleUpdateOrgPredefine(
+        request,
+        orgPredefineDetailMatch[1],
+        orgPredefineDetailMatch[2],
+      );
+    if (orgPredefineDetailMatch && request.method === "DELETE")
+      return handleDeleteOrgPredefine(
+        request,
+        orgPredefineDetailMatch[1],
+        orgPredefineDetailMatch[2],
+      );
+
+    // Manage Org: toxicity phrases
+    const orgToxicityMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/toxicity$/,
+    );
+    if (orgToxicityMatch && request.method === "GET")
+      return handleGetOrgToxicity(request, orgToxicityMatch[1]);
+    if (orgToxicityMatch && request.method === "PATCH")
+      return handleSetOrgToxicity(request, orgToxicityMatch[1]);
+
+    // Manage Org: ban/mute configs
+    const orgBanConfigsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ban-configs$/,
+    );
+    if (orgBanConfigsMatch && request.method === "GET")
+      return handleGetOrgBanConfigs(request, orgBanConfigsMatch[1]);
+
+    const orgBanReasonsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ban-configs\/reasons$/,
+    );
+    if (orgBanReasonsMatch && request.method === "POST")
+      return handleCreateBanReason(request, orgBanReasonsMatch[1]);
+
+    const orgBanReasonDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ban-configs\/reasons\/([a-f0-9-]+)$/,
+    );
+    if (orgBanReasonDetailMatch && request.method === "PATCH")
+      return handleUpdateBanReason(
+        request,
+        orgBanReasonDetailMatch[1],
+        orgBanReasonDetailMatch[2],
+      );
+    if (orgBanReasonDetailMatch && request.method === "DELETE")
+      return handleDeleteBanReason(
+        request,
+        orgBanReasonDetailMatch[1],
+        orgBanReasonDetailMatch[2],
+      );
+
+    const orgBanNoteMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ban-configs\/note$/,
+    );
+    if (orgBanNoteMatch && request.method === "PUT")
+      return handleSetBanNoteFormat(request, orgBanNoteMatch[1]);
 
     // Scripts CRUD
     const orgScriptsMatch = pathname.match(

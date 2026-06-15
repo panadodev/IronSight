@@ -643,9 +643,9 @@ function ToxicityPanel({ orgId, config, onSave }) {
       .split(",")
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
-  const save = (kind, raw) => {
-    const res = onSave(kind, splitCsv(raw));
-    if (res.ok) {
+  const save = async (kind, raw) => {
+    const res = await onSave(kind, splitCsv(raw));
+    if (res?.ok) {
       setSaved(kind);
       setTimeout(() => setSaved((cur) => (cur === kind ? null : cur)), 1200);
     }
@@ -742,14 +742,14 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
       .split(",")
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
-  const handleAdd = () => {
-    const res = onAdd({
+  const handleAdd = async () => {
+    const res = await onAdd({
       keyword: draft.keyword,
       extraKeywords: splitCsv(draft.extras),
       content: draft.content,
     });
-    if (!res.ok) {
-      setErr(res.error ?? "Failed to add pre-define.");
+    if (!res?.ok) {
+      setErr(res?.error ?? "Failed to add pre-define.");
       return;
     }
     setDraft({ keyword: "", extras: "", content: "" });
@@ -764,15 +764,15 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
       content: p.content,
     });
   };
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingId) return;
-    const res = onUpdate(editingId, {
+    const res = await onUpdate(editingId, {
       keyword: editDraft.keyword,
       extraKeywords: splitCsv(editDraft.extras),
       content: editDraft.content,
     });
-    if (!res.ok) {
-      setErr(res.error ?? "Failed to save.");
+    if (!res?.ok) {
+      setErr(res?.error ?? "Failed to save.");
       return;
     }
     setEditingId(null);

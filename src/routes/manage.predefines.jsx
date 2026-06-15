@@ -1,36 +1,105 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { PredefinesPanel } from "@/components/manage-org-dialog";
 import { SectionHeader, GateRank } from "@/components/manage-section";
+
 const Route = createFileRoute("/manage/predefines")({
   component: PredefinesPage,
 });
+
 function PredefinesPage() {
-  const {
-    orgPredefines,
-    addOrgPredefine,
-    updateOrgPredefine,
-    removeOrgPredefine,
-    realRankOf,
-  } = useAuth();
+  const { sessionOrgAdminIds, sessionUser } = useAuth();
   const orgId = useManageOrgId();
+  const [items, setItems] = useState([]);
+
+  const isAdmin =
+    Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
+
+  const load = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/predefines`,
+        { credentials: "include" },
+      );
+      if (res.ok) {
+        const body = await res.json();
+        setItems(body.predefines ?? []);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onAdd = async (input) => {
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/predefines`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+    const body = await res.json().catch(() => null);
+    if (!res.ok)
+      return { ok: false, error: body?.error ?? "Failed to add pre-define." };
+    await load();
+    return { ok: true };
+  };
+
+  const onUpdate = async (id, patch) => {
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/predefines/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      },
+    );
+    const body = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, error: body?.error ?? "Failed to save." };
+    await load();
+    return { ok: true };
+  };
+
+  const onRemove = async (id) => {
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/predefines/${encodeURIComponent(id)}`,
+      { method: "DELETE", credentials: "include" },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      return { ok: false, error: body?.error ?? "Failed to remove." };
+    }
+    await load();
+    return { ok: true };
+  };
+
   if (!orgId) return null;
-  const rank = realRankOf(orgId);
+
   return (
-    <GateRank rank={rank} required={3}>
+    <GateRank rank={isAdmin ? 4 : 0} required={4}>
       <SectionHeader
         title="Pre-defines"
         blurb="Reusable canned messages for staff replies."
       />
       <PredefinesPanel
         orgId={orgId}
-        items={orgPredefines[orgId] ?? []}
-        onAdd={(input) => addOrgPredefine(orgId, input)}
-        onUpdate={(id, patch) => updateOrgPredefine(orgId, id, patch)}
-        onRemove={(id) => removeOrgPredefine(orgId, id)}
+        items={items}
+        onAdd={onAdd}
+        onUpdate={onUpdate}
+        onRemove={onRemove}
       />
     </GateRank>
   );
 }
+
 export { Route };

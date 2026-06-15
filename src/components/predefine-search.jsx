@@ -1,11 +1,33 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, ListChecks, X } from "lucide-react";
-import { useAuth } from "@/lib/auth-context";
 function PredefineSearch({ orgId, onPick }) {
-  const { orgPredefines } = useAuth();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const items = orgPredefines[orgId] ?? [];
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    if (!orgId) {
+      setItems([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/predefines`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setItems(body.predefines ?? []);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     const sorted = [...items].sort((a, b) =>
