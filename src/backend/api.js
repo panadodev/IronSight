@@ -1488,6 +1488,21 @@ async function withStartupGuard(handler) {
   return handler();
 }
 
+async function scanDel(pattern) {
+  let cursor = "0";
+  do {
+    const [next, keys] = await redis.scan(
+      cursor,
+      "MATCH",
+      pattern,
+      "COUNT",
+      100,
+    );
+    cursor = next;
+    if (keys.length > 0) await redis.del(...keys);
+  } while (cursor !== "0");
+}
+
 async function rateLimitLogin(request) {
   if (!redis) return null;
 
@@ -1495,9 +1510,7 @@ async function rateLimitLogin(request) {
   const limiterKey = `rl:login:${ip}`;
   try {
     const attempts = await redis.incr(limiterKey);
-    if (attempts === 1) {
-      await redis.expire(limiterKey, 60);
-    }
+    await redis.expire(limiterKey, 60);
     if (attempts > env.loginRateLimitPerMinute) {
       return json(
         { error: "Too many login attempts. Try again in a minute." },
@@ -1759,8 +1772,7 @@ async function handleSteamCallback(request) {
   }
 
   const nonceKey = `openid:steam:${nonce}`;
-  const nonceExists = await redis.get(nonceKey);
-  await redis.del(nonceKey);
+  const nonceExists = await redis.getdel(nonceKey);
   if (!nonceExists) {
     return redirect(
       "/login?error=steam_state_expired",
@@ -1930,12 +1942,7 @@ async function handleUpdateAuthMe(request) {
         if (raw) {
           const cached = JSON.parse(raw);
           cached.username = username;
-          await redis.set(
-            `session:${sid}`,
-            JSON.stringify(cached),
-            "EX",
-            env.sessionTtlSeconds,
-          );
+          await redis.set(`session:${sid}`, JSON.stringify(cached), "KEEPTTL");
         }
       }
     } catch {
@@ -2052,12 +2059,7 @@ async function handleCreateOrganization(request) {
           if (!cached.orgAdminOrgIds.includes(derivedOrgId)) {
             cached.orgAdminOrgIds = [...cached.orgAdminOrgIds, derivedOrgId];
           }
-          await redis.set(
-            `session:${sid}`,
-            JSON.stringify(cached),
-            "EX",
-            env.sessionTtlSeconds,
-          );
+          await redis.set(`session:${sid}`, JSON.stringify(cached), "KEEPTTL");
         }
       }
     } catch {
@@ -2365,10 +2367,7 @@ async function handleAddOrgMember(request, orgId) {
     [orgId, member.userId],
   );
 
-  const cacheKeys = await redis.keys("cache:members:*");
-  if (cacheKeys.length > 0) {
-    await redis.del(...cacheKeys);
-  }
+  await scanDel("cache:members:*");
 
   // Audit log
   if (!wasAlreadyMember) {
@@ -2619,10 +2618,7 @@ async function handleRemoveOrgMember(request, orgId, userId) {
     [orgId, userId],
   );
 
-  const cacheKeys = await redis.keys("cache:members:*");
-  if (cacheKeys.length > 0) {
-    await redis.del(...cacheKeys);
-  }
+  await scanDel("cache:members:*");
 
   // Audit log
   await auditLog({
@@ -2711,10 +2707,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     [mappedTeam, orgId, userId],
   );
 
-  const cacheKeys = await redis.keys("cache:members:*");
-  if (cacheKeys.length > 0) {
-    await redis.del(...cacheKeys);
-  }
+  await scanDel("cache:members:*");
 
   // Audit log
   await auditLog({
@@ -3339,8 +3332,7 @@ async function handlePublicSteamCallback(request) {
   }
 
   const nonceKey = `openid:public:${nonce}`;
-  const raw = await redis.get(nonceKey);
-  await redis.del(nonceKey);
+  const raw = await redis.getdel(nonceKey);
   if (!raw) {
     return redirect(
       "/support?error=steam_state_expired",
@@ -5113,7 +5105,7 @@ async function handleIngestChatMessage(request) {
   const rlKey = `rl:chat:${server.server_id}`;
   try {
     const attempts = await redis.incr(rlKey);
-    if (attempts === 1) await redis.expire(rlKey, 60);
+    await redis.expire(rlKey, 60);
     if (attempts > CHAT_INGEST_RATE_LIMIT_PER_MINUTE) {
       console.log(
         `[ingest:chat] rate limited — server=${server.server_name} (${server.server_id})`,
