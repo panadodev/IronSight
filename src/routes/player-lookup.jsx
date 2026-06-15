@@ -375,6 +375,7 @@ function PlayerLookupPage() {
         />
       )}
     </div>
+    </SteamRequiredGate>
   );
 }
 function AlertBrowser({ entries }) {
@@ -743,7 +744,6 @@ function TicketGroup({ label, subjectId, tickets }) {
         })}
       </ul>
     </div>
-    </SteamRequiredGate>
   );
 }
 export { Route };
