@@ -34,8 +34,10 @@ import {
     ChevronDown,
     CircleDot,
     Cpu,
+    ExternalLink,
     Globe2,
     HardDrive,
+    Key,
     Layers,
     Pencil,
     Play,
@@ -2095,9 +2097,13 @@ function ServersTab({ orgId }) {
   const [registeredServers, setRegisteredServers] = useState([]);
   const [regLoading, setRegLoading] = useState(true);
 
-  const [importing, setImporting] = useState(null); // pteroId being imported
-  const [importedIds, setImportedIds] = useState(new Set());
-  const [apiKeyReveal, setApiKeyReveal] = useState(null); // { serverId, apiKey }
+  const [importing, setImporting] = useState(null);
+  const [apiKeyReveal, setApiKeyReveal] = useState(null);
+
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { serverId, serverName }
+  const [deleting, setDeleting] = useState(null);
+  const [rotatingKey, setRotatingKey] = useState(null);
+  const [rotatedKeyReveal, setRotatedKeyReveal] = useState(null); // { apiKey, serverName }
 
   // Load ptero connection status
   useEffect(() => {
@@ -2109,7 +2115,6 @@ function ServersTab({ orgId }) {
     return () => { cancelled = true; };
   }, [orgId]);
 
-  // Load registered servers for this org
   const loadRegistered = () => {
     setRegLoading(true);
     fetch("/api/servers", { credentials: "include" })
@@ -2165,17 +2170,18 @@ function ServersTab({ orgId }) {
   const importServer = async (pteroServer) => {
     setImporting(pteroServer.pteroId);
     try {
-      const serverName = pteroServer.name;
       const res = await fetch(`/api/orgs/${orgId}/ptero/servers/import`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ serverName }),
+        body: JSON.stringify({
+          serverName: pteroServer.name,
+          pteroIdentifier: pteroServer.identifier,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { alert(data?.error ?? "Import failed"); return; }
-      setImportedIds((prev) => new Set([...prev, pteroServer.pteroId]));
-      setApiKeyReveal({ serverId: data.server.serverId, serverName, apiKey: data.apiKey });
+      setApiKeyReveal({ serverId: data.server.serverId, serverName: pteroServer.name, apiKey: data.apiKey });
       loadRegistered();
     } catch {
       alert("Network error during import");
@@ -2183,6 +2189,41 @@ function ServersTab({ orgId }) {
       setImporting(null);
     }
   };
+
+  const deleteServer = async (serverId) => {
+    setDeleting(serverId);
+    try {
+      const res = await fetch(`/api/servers/${serverId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        setRegisteredServers((prev) => prev.filter((s) => s.serverId !== serverId));
+        setDeleteConfirm(null);
+      }
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const rotateKey = async (serverId, serverName) => {
+    setRotatingKey(serverId);
+    try {
+      const res = await fetch(`/api/servers/${serverId}/rotate-key`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok) setRotatedKeyReveal({ apiKey: data.apiKey, serverName });
+    } finally {
+      setRotatingKey(null);
+    }
+  };
+
+  // Cross-reference: ptero identifiers already imported into IronSight
+  const importedIdentifiers = new Set(
+    registeredServers.map((r) => r.pteroIdentifier).filter(Boolean),
+  );
 
   return (
     <div className="space-y-4">
@@ -2193,7 +2234,7 @@ function ServersTab({ orgId }) {
           <Layers className="size-4 text-brand" />
           <span className="text-sm font-semibold">Pterodactyl Connection</span>
           {pteroStatus?.connected && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 ring-1 ring-green-500/30">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
               Connected
             </span>
           )}
@@ -2204,7 +2245,15 @@ function ServersTab({ orgId }) {
         ) : pteroStatus.connected ? (
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-mono text-muted-foreground">{pteroStatus.panelUrl}</span>
-            <Button size="sm" variant="outline" onClick={disconnectPtero} className="text-destructive">
+            <a
+              href={pteroStatus.panelUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
+            >
+              <ExternalLink className="size-3" /> Open panel
+            </a>
+            <Button size="sm" variant="outline" onClick={disconnectPtero} className="text-destructive ml-auto">
               <X className="size-3.5 mr-1" /> Disconnect
             </Button>
           </div>
@@ -2247,20 +2296,28 @@ function ServersTab({ orgId }) {
       {pteroStatus?.connected && (
         <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              Pterodactyl Containers
-            </span>
+            <div>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Pterodactyl Containers
+              </span>
+              {pteroServers !== null && (
+                <span className="ml-2 text-[10px] font-mono text-muted-foreground/60">
+                  {pteroServers.length} server{pteroServers.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
             <Button size="sm" variant="outline" onClick={fetchPteroServers} disabled={pteroLoading}>
-              {pteroLoading ? <RefreshCw className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5 mr-1" />}
-              {pteroLoading ? "" : "Fetch servers"}
+              <RefreshCw className={`size-3.5 ${pteroLoading ? "animate-spin" : "mr-1"}`} />
+              {!pteroLoading && (pteroServers === null ? "Fetch servers" : "Refresh")}
             </Button>
           </div>
+
           {pteroFetchError && (
             <p className="px-4 py-3 text-xs text-destructive">{pteroFetchError}</p>
           )}
           {pteroServers === null && !pteroFetchError && (
             <p className="px-4 py-3 text-xs text-muted-foreground">
-              Click &ldquo;Fetch servers&rdquo; to list containers from your Pterodactyl panel.
+              Click "Fetch servers" to list containers and their configured limits from your Pterodactyl panel.
             </p>
           )}
           {pteroServers !== null && pteroServers.length === 0 && (
@@ -2268,47 +2325,81 @@ function ServersTab({ orgId }) {
           )}
           {pteroServers !== null && pteroServers.length > 0 && (
             <div className="divide-y divide-border">
-              <div className="grid grid-cols-[2fr_1.5fr_1fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div className="grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                <div>Status</div>
                 <div>Name</div>
-                <div>IP : Port</div>
+                <div>Allocation</div>
                 <div>Node</div>
+                <div>CPU / RAM / Disk</div>
                 <div />
               </div>
               {pteroServers.map((s) => {
-                const alreadyImported = importedIds.has(s.pteroId);
-                const alreadyExists = registeredServers.some((r) => r.serverName === s.name);
+                const alreadyImported = importedIdentifiers.has(s.identifier);
+                const panelLink = pteroStatus.panelUrl
+                  ? `${pteroStatus.panelUrl}/server/${s.identifier}`
+                  : null;
+                let statusLabel, statusCls;
+                if (s.suspended) {
+                  statusLabel = "suspended"; statusCls = "bg-destructive/10 ring-destructive/30 text-destructive";
+                } else if (s.status === "installing") {
+                  statusLabel = "installing"; statusCls = "bg-warning/10 ring-warning/30 text-warning";
+                } else if (s.status === "install_failed") {
+                  statusLabel = "failed"; statusCls = "bg-destructive/10 ring-destructive/30 text-destructive";
+                } else {
+                  statusLabel = "active"; statusCls = "bg-success/10 ring-success/30 text-success";
+                }
+                const fmtMem = (mb) => mb === 0 ? "no limit" : mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${mb}M`;
+                const fmtCpu = (c) => c === 0 ? "no limit" : `${c}%`;
                 return (
                   <div
                     key={s.pteroId}
-                    className={`grid grid-cols-[2fr_1.5fr_1fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-50" : ""}`}
+                    className={`grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-60" : ""}`}
                   >
+                    <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ${statusCls}`}>
+                      {statusLabel}
+                    </span>
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{s.name}</div>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-sm font-medium truncate">{s.name}</span>
+                        {panelLink && (
+                          <a href={panelLink} target="_blank" rel="noopener noreferrer"
+                            className="shrink-0 text-muted-foreground hover:text-brand" title="Open in Pterodactyl">
+                            <ExternalLink className="size-3" />
+                          </a>
+                        )}
+                      </div>
                       <div className="text-[10px] font-mono text-muted-foreground truncate">{s.identifier}</div>
                     </div>
                     <div className="text-xs font-mono text-muted-foreground">
-                      {s.ip ? `${s.ip}:${s.port}` : "�"}
+                      {s.ip ? `${s.ip}:${s.port}` : "—"}
                     </div>
-                    <div className="text-xs font-mono text-muted-foreground truncate">{s.nodeName ?? "�"}</div>
+                    <div className="text-xs font-mono text-muted-foreground truncate">{s.nodeName ?? "—"}</div>
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground">
+                      <Cpu className="size-3 shrink-0" />
+                      <span>{fmtCpu(s.limits?.cpu ?? 0)}</span>
+                      <span className="opacity-40">·</span>
+                      <HardDrive className="size-3 shrink-0" />
+                      <span>{fmtMem(s.limits?.memory ?? 0)}</span>
+                      <span className="opacity-40">·</span>
+                      <span>{fmtMem(s.limits?.disk ?? 0)}</span>
+                    </div>
                     <div>
-                      {alreadyImported || alreadyExists ? (
-                        <span className="text-[10px] font-mono text-green-400 px-2 py-1 rounded bg-green-500/10">
-                          Added
+                      {alreadyImported ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-success px-2 py-1 rounded bg-success/10 ring-1 ring-success/20">
+                          <Check className="size-2.5" /> Imported
                         </span>
                       ) : (
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={importing === s.pteroId}
+                          disabled={importing === s.pteroId || s.suspended}
                           onClick={() => importServer(s)}
                           className="h-7 text-xs"
                         >
                           {importing === s.pteroId ? (
                             <RefreshCw className="size-3 animate-spin" />
                           ) : (
-                            <>
-                              <Upload className="size-3 mr-1" /> Import
-                            </>
+                            <><Upload className="size-3 mr-1" /> Import</>
                           )}
                         </Button>
                       )}
@@ -2316,6 +2407,11 @@ function ServersTab({ orgId }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+          {pteroServers !== null && (
+            <div className="px-4 py-2 border-t border-border bg-surface/30 text-[10px] text-muted-foreground/60 font-mono">
+              Limits shown are configured maximums from Pterodactyl (CPU % · RAM · Disk). Real-time usage requires a Pterodactyl Client API key.
             </div>
           )}
         </div>
@@ -2328,7 +2424,7 @@ function ServersTab({ orgId }) {
             <DialogHeader>
               <DialogTitle>Server Imported</DialogTitle>
               <DialogDescription>
-                <strong>{apiKeyReveal.serverName}</strong> has been added to your org. Copy the API key below � it will only be shown once.
+                <strong>{apiKeyReveal.serverName}</strong> has been added. Copy the API key below � it will only be shown once.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
@@ -2355,12 +2451,74 @@ function ServersTab({ orgId }) {
         </Dialog>
       )}
 
+      {/* Rotate key reveal dialog */}
+      {rotatedKeyReveal && (
+        <Dialog open onOpenChange={() => setRotatedKeyReveal(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>New API Key Generated</DialogTitle>
+              <DialogDescription>
+                The old key for <strong>{rotatedKeyReveal.serverName}</strong> is now invalid. Copy the new key — it will only be shown once.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <Label className="text-xs text-muted-foreground">New IronSight API Key</Label>
+              <div className="flex gap-2 items-center">
+                <Input readOnly value={rotatedKeyReveal.apiKey} className="font-mono text-xs" />
+                <Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(rotatedKeyReveal.apiKey)}>
+                  Copy
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Update the <code className="font-mono">x-api-key</code> header in your chat ingest plugin immediately.
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirm && (
+        <Dialog open onOpenChange={(o) => !o && setDeleteConfirm(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete server?</DialogTitle>
+              <DialogDescription>
+                This will permanently remove <strong>{deleteConfirm.serverName}</strong> from IronSight. All associated chat logs will also be deleted. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={deleting === deleteConfirm.serverId}
+                onClick={() => deleteServer(deleteConfirm.serverId)}
+              >
+                {deleting === deleteConfirm.serverId ? (
+                  <RefreshCw className="size-3.5 mr-1 animate-spin" />
+                ) : (
+                  <Trash2 className="size-3.5 mr-1" />
+                )}
+                Delete server
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Registered IronSight servers */}
       <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            Registered Servers
-          </span>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Registered IronSight Servers
+            </span>
+            {registeredServers.length > 0 && (
+              <span className="ml-2 text-[10px] font-mono text-muted-foreground/60">
+                {registeredServers.length} server{registeredServers.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
           <Button size="sm" variant="outline" onClick={loadRegistered} disabled={regLoading}>
             <RefreshCw className={`size-3.5 ${regLoading ? "animate-spin" : "mr-1"}`} />
             {!regLoading && "Refresh"}
@@ -2374,16 +2532,73 @@ function ServersTab({ orgId }) {
           </p>
         ) : (
           <div className="divide-y divide-border">
-            <div className="grid grid-cols-[2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              <div>Server Name</div>
-              <div>Server ID</div>
+            <div className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div>Server</div>
+              <div>Pterodactyl</div>
+              <div>Added</div>
+              <div className="w-20 text-right">Actions</div>
             </div>
-            {registeredServers.map((s) => (
-              <div key={s.serverId} className="grid grid-cols-[2fr_auto] gap-3 px-4 py-2.5 items-center">
-                <div className="text-sm font-medium truncate">{s.serverName}</div>
-                <div className="text-[10px] font-mono text-muted-foreground">{s.serverId.slice(0, 8)}</div>
-              </div>
-            ))}
+            {registeredServers.map((s) => {
+              const panelLink =
+                pteroStatus?.panelUrl && s.pteroIdentifier
+                  ? `${pteroStatus.panelUrl}/server/${s.pteroIdentifier}`
+                  : null;
+              const addedDate = s.createdAt
+                ? new Date(s.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                : "—";
+              return (
+                <div key={s.serverId} className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-3 items-center">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{s.serverName}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground">{s.serverId.slice(0, 8)}…</div>
+                  </div>
+                  <div className="min-w-0">
+                    {panelLink ? (
+                      <a
+                        href={panelLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-mono text-brand hover:underline truncate"
+                        title={s.pteroIdentifier}
+                      >
+                        <ExternalLink className="size-3 shrink-0" />
+                        {s.pteroIdentifier}
+                      </a>
+                    ) : s.pteroIdentifier ? (
+                      <span className="text-[11px] font-mono text-muted-foreground truncate">{s.pteroIdentifier}</span>
+                    ) : (
+                      <span className="text-[11px] font-mono text-muted-foreground/40">—</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">{addedDate}</div>
+                  <div className="flex items-center gap-1 justify-end w-20">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      title="Rotate API key"
+                      disabled={rotatingKey === s.serverId}
+                      onClick={() => rotateKey(s.serverId, s.serverName)}
+                    >
+                      {rotatingKey === s.serverId ? (
+                        <RefreshCw className="size-3.5 animate-spin" />
+                      ) : (
+                        <Key className="size-3.5 text-muted-foreground" />
+                      )}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 text-destructive hover:bg-destructive/10"
+                      title="Delete server"
+                      onClick={() => setDeleteConfirm({ serverId: s.serverId, serverName: s.serverName })}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -761,6 +761,9 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_servers_owner_org_id ON servers(owner_org_id)`,
   );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS ptero_identifier TEXT`,
+  );
 
   // ── Text chat log ─────────────────────────────────────────────────────────
 
@@ -4074,6 +4077,13 @@ async function handleListPteroServers(request, orgId) {
         egg: attr.egg ?? null,
         status: attr.status ?? null,
         createdAt: attr.created_at ?? null,
+        limits: {
+          memory: attr.limits?.memory ?? 0,
+          cpu: attr.limits?.cpu ?? 0,
+          disk: attr.limits?.disk ?? 0,
+          swap: attr.limits?.swap ?? 0,
+          io: attr.limits?.io ?? 0,
+        },
       });
     }
 
@@ -4107,9 +4117,13 @@ async function handleImportPteroServer(request, orgId) {
   }
 
   const serverName = String(body?.serverName ?? "").trim();
+  const pteroIdentifier = String(body?.pteroIdentifier ?? "").trim() || null;
   if (!serverName) return json({ error: "serverName is required" }, 400);
   if (serverName.length > 128) {
     return json({ error: "serverName too long" }, 400);
+  }
+  if (pteroIdentifier && pteroIdentifier.length > 64) {
+    return json({ error: "pteroIdentifier too long" }, 400);
   }
 
   const orgRes = await pool.query(
@@ -4126,19 +4140,67 @@ async function handleImportPteroServer(request, orgId) {
   const serverId = crypto.randomUUID();
 
   await pool.query(
-    `INSERT INTO servers (server_id, server_name, owner_org_id, api_key_hash, added_by_user_id)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [serverId, serverName, orgId, apiKeyHash, session.userId],
+    `INSERT INTO servers (server_id, server_name, owner_org_id, api_key_hash, added_by_user_id, ptero_identifier)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [serverId, serverName, orgId, apiKeyHash, session.userId, pteroIdentifier],
   );
 
   return json(
     {
       ok: true,
-      server: { serverId, serverName, ownerOrgId: orgId },
+      server: { serverId, serverName, ownerOrgId: orgId, pteroIdentifier },
       apiKey: plainApiKey,
     },
     201,
   );
+}
+
+async function handleDeleteServer(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT server_id, owner_org_id, server_name FROM servers WHERE server_id = $1 LIMIT 1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const { owner_org_id } = serverRes.rows[0];
+  if (!canManageOrg(session, owner_org_id)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  await pool.query(`DELETE FROM servers WHERE server_id = $1`, [serverId]);
+  return json({ ok: true });
+}
+
+async function handleRotateServerKey(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const { owner_org_id, server_name } = serverRes.rows[0];
+  if (!canManageOrg(session, owner_org_id)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const plainApiKey = crypto.randomBytes(32).toString("hex");
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(plainApiKey)
+    .digest("hex");
+
+  await pool.query(
+    `UPDATE servers SET api_key_hash = $2 WHERE server_id = $1`,
+    [serverId, apiKeyHash],
+  );
+
+  return json({ ok: true, apiKey: plainApiKey, serverName: server_name });
 }
 
 // ── Server registration & chat ingest ────────────────────────────────────────
@@ -4207,7 +4269,7 @@ async function handleListServers(request) {
   const orgIds = userOrgs.map((o) => o.orgId);
 
   const { rows } = await pool.query(
-    `SELECT server_id, server_name, owner_org_id
+    `SELECT server_id, server_name, owner_org_id, created_at, ptero_identifier
      FROM servers
      WHERE owner_org_id = ANY($1::text[])
      ORDER BY server_name ASC`,
@@ -4219,6 +4281,8 @@ async function handleListServers(request) {
       serverId: String(row.server_id),
       serverName: String(row.server_name),
       ownerOrgId: String(row.owner_org_id),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+      pteroIdentifier: row.ptero_identifier ?? null,
     })),
   });
 }
@@ -4643,6 +4707,17 @@ export async function handleApiRequest(request) {
     }
     if (pathname === "/api/servers" && request.method === "POST") {
       return handleRegisterServer(request);
+    }
+
+    const serverIdMatch = pathname.match(/^\/api\/servers\/([a-f0-9-]+)$/);
+    if (serverIdMatch && request.method === "DELETE") {
+      return handleDeleteServer(request, serverIdMatch[1]);
+    }
+    const serverRotateMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/rotate-key$/,
+    );
+    if (serverRotateMatch && request.method === "POST") {
+      return handleRotateServerKey(request, serverRotateMatch[1]);
     }
 
     const orgPteroMatch = pathname.match(
