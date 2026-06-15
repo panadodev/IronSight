@@ -42,5 +42,5 @@ ARG REDIS_URL
 ARG REDIS_URI
 RUN node scripts/check-db.mjs
 
-EXPOSE 3000
+EXPOSE 7123
 CMD ["npm", "run", "start"]
