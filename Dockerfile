@@ -33,5 +33,14 @@ ENV PG_IDLE_TIMEOUT_MS=30000
 
 COPY --from=build /app /app
 
+# Fail the build if databases are unreachable.
+# Pass credentials with: docker build --build-arg DATABASE_URL=... --build-arg REDIS_URL=...
+# These args are NOT baked into the final image.
+ARG DATABASE_URL
+ARG POSTGRESQL_URI
+ARG REDIS_URL
+ARG REDIS_URI
+RUN node scripts/check-db.mjs
+
 EXPOSE 3000
 CMD ["npm", "run", "start"]

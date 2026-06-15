@@ -680,6 +680,11 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS idx_ticket_audit_ticket_id ON ticket_audit_log(ticket_id)`,
   );
 
+  // Additive migrations
+  await pool.query(
+    `ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
+
   // ── Public identity links (Discord + Steam for portal ticket submitters) ──
 
   await pool.query(`
@@ -3200,7 +3205,7 @@ async function loadTicketFromDb(ticketId) {
 
 async function loadTicketMessages(ticketId) {
   const { rows } = await pool.query(
-    `SELECT tm.message_id, tm.ticket_id, tm.user_id, tm.message,
+    `SELECT tm.message_id, tm.ticket_id, tm.user_id, tm.message, tm.is_internal,
             EXTRACT(EPOCH FROM tm.created_at)::BIGINT AS created_at,
             u.username, u.steam_id
      FROM ticket_messages tm
@@ -3216,6 +3221,7 @@ async function loadTicketMessages(ticketId) {
     username: row.username ?? null,
     steamId: row.steam_id ?? null,
     message: String(row.message),
+    isInternal: Boolean(row.is_internal),
     createdAt: Number(row.created_at),
   }));
 }
@@ -3565,24 +3571,30 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   if (message.length > 10000)
     return json({ error: "message is too long" }, 400);
 
+  const isInternal = Boolean(body?.isInternal);
+
   const ticket = await loadTicketFromDb(id);
   if (!ticket) return json({ error: "Ticket not found" }, 404);
-  if (ticket.status === "closed")
-    return json({ error: "Cannot add messages to a closed ticket" }, 400);
 
   const isCreator = ticket.created_by === session.userId;
-  if (!isCreator) {
-    const isMember = await pool.query(
-      "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-      [ticket.org_id, session.userId],
-    );
-    if (!isMember.rows[0] && !isGlobalAdmin(session))
-      return json({ error: "Forbidden" }, 403);
-  }
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [ticket.org_id, session.userId],
+  );
+  const isMember = Boolean(memberRes.rows[0]) || isGlobalAdmin(session);
+
+  if (!isCreator && !isMember) return json({ error: "Forbidden" }, 403);
+
+  // Internal notes are staff-only; non-staff cannot post internal notes.
+  if (isInternal && !isMember) return json({ error: "Forbidden" }, 403);
+
+  // Only block public messages on closed tickets; staff can still post internal notes.
+  if (ticket.status === "closed" && !isInternal)
+    return json({ error: "Cannot add messages to a closed ticket" }, 400);
 
   await pool.query(
-    `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
-    [id, session.userId, message],
+    `INSERT INTO ticket_messages (ticket_id, user_id, message, is_internal) VALUES ($1, $2, $3, $4)`,
+    [id, session.userId, message, isInternal],
   );
 
   if (isCreator && ticket.status === "waiting_response") {
