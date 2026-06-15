@@ -4262,6 +4262,259 @@ async function handleImportPteroServer(request, orgId) {
   );
 }
 
+const PTERO_HEADERS = (apiKey) => ({
+  Authorization: `Bearer ${apiKey}`,
+  Accept: "Application/vnd.pterodactyl.v1+json",
+});
+
+// Fetch all servers from the Pterodactyl Application API. Throws an Error with
+// a `.code` ("ptero_unreachable" | "ptero_http") on failure.
+async function fetchPteroApplicationServers(panelUrl, apiKey) {
+  const servers = [];
+  let page = 1;
+  const MAX_PAGES = 20;
+  while (page <= MAX_PAGES) {
+    let res;
+    try {
+      res = await fetch(
+        `${panelUrl}/api/application/servers?include=allocations,node&per_page=50&page=${page}`,
+        { headers: PTERO_HEADERS(apiKey), signal: AbortSignal.timeout(10000) },
+      );
+    } catch (err) {
+      const e = new Error(String(err?.message ?? err));
+      e.code = "ptero_unreachable";
+      throw e;
+    }
+    if (!res.ok) {
+      const e = new Error(`HTTP ${res.status}`);
+      e.code = "ptero_http";
+      e.status = res.status;
+      throw e;
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data?.data) ? data.data : [];
+    const included = Array.isArray(data?.included) ? data.included : [];
+    const includedByRef = new Map(
+      included
+        .filter((entry) => entry?.type && entry?.id)
+        .map((entry) => [`${entry.type}:${entry.id}`, entry?.attributes ?? {}]),
+    );
+
+    for (const item of items) {
+      const attr = item?.attributes ?? {};
+      const relationships = item?.relationships ?? {};
+
+      const allocRefs = Array.isArray(relationships?.allocations?.data)
+        ? relationships.allocations.data
+        : [];
+      const allocEntries = allocRefs.map((ref) => ({
+        ...(includedByRef.get(`${ref?.type ?? ""}:${ref?.id ?? ""}`) ?? {}),
+        ...(ref?.attributes ?? {}),
+      }));
+      const defaultAlloc =
+        allocEntries.find((a) => a?.is_default) ?? allocEntries[0] ?? {};
+
+      const nodeRef = relationships?.node?.data;
+      const nodeAttr = {
+        ...(includedByRef.get(`${nodeRef?.type ?? ""}:${nodeRef?.id ?? ""}`) ??
+          {}),
+        ...(nodeRef?.attributes ?? {}),
+      };
+
+      servers.push({
+        pteroId: attr.id,
+        uuid: attr.uuid,
+        identifier: attr.identifier,
+        name: attr.name ?? "",
+        suspended: Boolean(attr.suspended),
+        ip: defaultAlloc.ip ?? null,
+        port: defaultAlloc.port ?? null,
+        nodeId: attr.node ?? (nodeRef?.id != null ? Number(nodeRef.id) : null),
+        nodeName: nodeAttr.name ?? null,
+        installStatus: attr.status ?? null,
+        limits: {
+          memory: attr.limits?.memory ?? 0,
+          cpu: attr.limits?.cpu ?? 0,
+          disk: attr.limits?.disk ?? 0,
+        },
+      });
+    }
+
+    const pagination = data?.meta?.pagination;
+    if (!pagination || page >= pagination.total_pages) break;
+    page++;
+  }
+  return servers;
+}
+
+// Fetch nodes (capacity + maintenance) from the Application API.
+async function fetchPteroNodes(panelUrl, apiKey) {
+  const nodes = [];
+  let page = 1;
+  const MAX_PAGES = 20;
+  while (page <= MAX_PAGES) {
+    let res;
+    try {
+      res = await fetch(
+        `${panelUrl}/api/application/nodes?per_page=50&page=${page}`,
+        { headers: PTERO_HEADERS(apiKey), signal: AbortSignal.timeout(10000) },
+      );
+    } catch (err) {
+      const e = new Error(String(err?.message ?? err));
+      e.code = "ptero_unreachable";
+      throw e;
+    }
+    if (!res.ok) {
+      const e = new Error(`HTTP ${res.status}`);
+      e.code = "ptero_http";
+      e.status = res.status;
+      throw e;
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data?.data) ? data.data : [];
+    for (const item of items) {
+      const a = item?.attributes ?? {};
+      nodes.push({
+        id: a.id,
+        name: a.name ?? "",
+        fqdn: a.fqdn ?? null,
+        maintenanceMode: Boolean(a.maintenance_mode),
+        memory: a.memory ?? 0,
+        disk: a.disk ?? 0,
+        memoryOverallocate: a.memory_overallocate ?? 0,
+        diskOverallocate: a.disk_overallocate ?? 0,
+      });
+    }
+
+    const pagination = data?.meta?.pagination;
+    if (!pagination || page >= pagination.total_pages) break;
+    page++;
+  }
+  return nodes;
+}
+
+// Live per-server utilization via the Client API. Returns null when the stored
+// key cannot use the client API (e.g. it is an application-only key) or on any
+// transient error — the caller treats null as "no live data".
+async function fetchPteroServerResources(panelUrl, apiKey, identifier) {
+  let res;
+  try {
+    res = await fetch(
+      `${panelUrl}/api/client/servers/${encodeURIComponent(identifier)}/resources`,
+      { headers: PTERO_HEADERS(apiKey), signal: AbortSignal.timeout(8000) },
+    );
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return null;
+  }
+  const a = data?.attributes ?? {};
+  const r = a.resources ?? {};
+  return {
+    state: a.current_state ?? null,
+    resources: {
+      memoryBytes: r.memory_bytes ?? 0,
+      cpuAbsolute: r.cpu_absolute ?? 0,
+      diskBytes: r.disk_bytes ?? 0,
+      networkRxBytes: r.network_rx_bytes ?? 0,
+      networkTxBytes: r.network_tx_bytes ?? 0,
+      uptime: r.uptime ?? 0,
+    },
+  };
+}
+
+// Combined status payload: node inventory + servers + best-effort live stats.
+async function handleGetPteroStatus(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(orgId);
+  } catch (err) {
+    console.error("[ptero] Failed to load credentials:", err.message);
+    return json({ error: "Stored Pterodactyl credentials are invalid." }, 500);
+  }
+  if (!credentials) return json({ connected: false });
+
+  const { panelUrl, apiKey } = credentials;
+
+  let servers, nodes;
+  try {
+    [servers, nodes] = await Promise.all([
+      fetchPteroApplicationServers(panelUrl, apiKey),
+      fetchPteroNodes(panelUrl, apiKey),
+    ]);
+  } catch (err) {
+    if (err?.code === "ptero_unreachable") {
+      return json(
+        { error: `Could not reach Pterodactyl panel: ${err.message}` },
+        502,
+      );
+    }
+    return json({ error: `Pterodactyl returned ${err.message}` }, 502);
+  }
+
+  // Probe live resources on one server first. If the stored key can't use the
+  // client API, skip the fan-out to avoid a burst of failing requests.
+  let liveSupported = false;
+  const liveByIdentifier = {};
+  const candidates = servers.filter((s) => s.identifier);
+  if (candidates.length > 0) {
+    const probe = await fetchPteroServerResources(
+      panelUrl,
+      apiKey,
+      candidates[0].identifier,
+    );
+    if (probe) {
+      liveSupported = true;
+      liveByIdentifier[candidates[0].identifier] = probe;
+      const rest = candidates.slice(1, 60);
+      const results = await Promise.allSettled(
+        rest.map((s) =>
+          fetchPteroServerResources(panelUrl, apiKey, s.identifier),
+        ),
+      );
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled" && r.value) {
+          liveByIdentifier[rest[i].identifier] = r.value;
+        }
+      });
+    }
+  }
+
+  const mergedServers = servers.map((s) => ({
+    ...s,
+    live: s.identifier ? (liveByIdentifier[s.identifier] ?? null) : null,
+  }));
+
+  await pool.query(
+    `UPDATE ptero_api_keys SET last_used_at = NOW() WHERE org_id = $1`,
+    [orgId],
+  );
+
+  return json({
+    connected: true,
+    liveSupported,
+    nodes,
+    servers: mergedServers,
+  });
+}
+
 async function handleDeleteServer(request, serverId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -6122,6 +6375,13 @@ async function _handleApiRequest(request) {
     );
     if (orgPteroServersMatch && request.method === "GET") {
       return handleListPteroServers(request, orgPteroServersMatch[1]);
+    }
+
+    const orgPteroStatusMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero\/status$/,
+    );
+    if (orgPteroStatusMatch && request.method === "GET") {
+      return handleGetPteroStatus(request, orgPteroStatusMatch[1]);
     }
 
     const orgPteroImportMatch = pathname.match(

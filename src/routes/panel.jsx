@@ -3,68 +3,57 @@ import { SiteNav } from "@/components/site-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-    AlertTriangle,
-    Building2,
-    Check,
-    ChevronDown,
-    CircleDot,
-    Cpu,
-    ExternalLink,
-    Globe2,
-    HardDrive,
-    Key,
-    Layers,
-    Pencil,
-    Play,
-    Plus,
-    Power,
-    RefreshCw,
-    ScrollText,
-    Server,
-    Settings,
-    Target,
-    Terminal,
-    Trash2,
-    Upload,
-    Wifi,
-    X,
+  AlertTriangle,
+  Building2,
+  Check,
+  ChevronDown,
+  CircleDot,
+  Cpu,
+  ExternalLink,
+  HardDrive,
+  Key,
+  Layers,
+  Pencil,
+  Play,
+  Plus,
+  Power,
+  RefreshCw,
+  ScrollText,
+  Server,
+  Settings,
+  Target,
+  Terminal,
+  Trash2,
+  Upload,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    Area,
-    AreaChart,
-    Brush,
-    CartesianGrid,
-    ResponsiveContainer,
-    Tooltip as RTooltip,
-    XAxis,
-    YAxis,
-} from "recharts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 const PANEL_TABS = ["rcon", "scripts", "presets", "status", "servers"];
 const Route = createFileRoute("/panel")({
   component: PanelPage,
@@ -90,75 +79,6 @@ function extractVars(cmd) {
 function applyVars(cmd, values) {
   return cmd.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, k) => values[k] ?? `{${k}}`);
 }
-const MOCK_NODES = [
-  {
-    id: "n_fra1",
-    code: "COV0356",
-    name: "sanc-box-01",
-    uptimeHours: 742,
-    status: "online",
-    cpu: "Ryzen 9 7900",
-    ram: "256GB DDR5",
-    storage: "512GB Gen 4 NVMe SSD",
-    link: "1Gbps",
-    ip: "185.83.154.82",
-    netInMbps: 16.63,
-    netOutMbps: 41.7,
-    bwUsedGB: 3550,
-    bwCapGB: 15e3,
-  },
-  {
-    id: "n_fra2",
-    code: "COV0921",
-    name: "Willjum-Infra-Machine",
-    uptimeHours: 1204,
-    status: "online",
-    cpu: "Ryzen 7 5700X",
-    ram: "128GB DDR4",
-    storage: "2x 2TB NVMe SSD",
-    link: "10Gbps",
-    ip: "185.83.152.207",
-    netInMbps: 38.2,
-    netOutMbps: 112.4,
-    bwUsedGB: 5130,
-    bwCapGB: 1e5,
-  },
-  {
-    id: "n_nyc1",
-    code: "COV1294",
-    name: "Willjum-EU-Game-Server",
-    uptimeHours: 96,
-    status: "online",
-    cpu: "Ryzen 9 7900",
-    ram: "128GB DDR5",
-    storage: "512GB Gen 4 NVMe SSD",
-    link: "1Gbps",
-    ip: "185.83.154.85",
-    netInMbps: 84.1,
-    netOutMbps: 156.9,
-    bwUsedGB: 8740,
-    bwCapGB: 15e3,
-  },
-];
-function fmtBw(gb) {
-  if (gb >= 1e3) return `${(gb / 1e3).toFixed(2)}TB`;
-  return `${gb.toFixed(2)}GB`;
-}
-function seedSeries(seed, n, base, jitter, floor = 0) {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++)
-    h = (h * 31 + seed.charCodeAt(i)) & 4294967295;
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    h = (h * 1103515245 + 12345) & 2147483647;
-    const r = h / 2147483647 - 0.5;
-    const wave = Math.sin(i / 2.7 + (h % 13)) * jitter * 0.35;
-    const v = Math.max(floor, base + r * jitter + wave);
-    out.push({ i, v: Number(v.toFixed(2)) });
-  }
-  return out;
-}
-const MOCK_TAGS = ["2x", "vanilla", "main", "eu", "us", "modded"];
 
 const PANEL_ORG_KEY = "panel.selectedOrgId";
 function PanelPage() {
@@ -220,26 +140,26 @@ function PanelPage() {
     const isScripts = tab === "scripts";
     return (
       <SteamRequiredGate>
-      <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-        <SiteNav />
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-10 max-w-xl mx-auto">
-            <div className="rounded-lg ring-1 ring-border bg-surface/40 p-8 text-center">
-              <Building2 className="size-8 mx-auto text-muted-foreground mb-3" />
-              <h1 className="text-lg font-semibold mb-1">
-                {isScripts
-                  ? "Scripts \u2014 Staff only"
-                  : "Panel \u2014 Management only"}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {isScripts
-                  ? "You aren't a member of any organization."
-                  : "You don't have management on any organization."}
-              </p>
+        <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+          <SiteNav />
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-10 max-w-xl mx-auto">
+              <div className="rounded-lg ring-1 ring-border bg-surface/40 p-8 text-center">
+                <Building2 className="size-8 mx-auto text-muted-foreground mb-3" />
+                <h1 className="text-lg font-semibold mb-1">
+                  {isScripts
+                    ? "Scripts \u2014 Staff only"
+                    : "Panel \u2014 Management only"}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {isScripts
+                    ? "You aren't a member of any organization."
+                    : "You don't have management on any organization."}
+                </p>
+              </div>
             </div>
-          </div>
-        </main>
-      </div>
+          </main>
+        </div>
       </SteamRequiredGate>
     );
   }
@@ -247,39 +167,49 @@ function PanelPage() {
   const servers = allServers.filter((s) => s.ownerOrgId === activeOrg.id);
   return (
     <SteamRequiredGate>
-    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <SiteNav />
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-6 max-w-[1500px] mx-auto space-y-5">
-          {/* Org switcher */}
-          <div className="flex items-center justify-end gap-4 flex-wrap">
-            <OrgSwitcher
-              orgs={allowedOrgs}
-              value={activeOrg.id}
-              onChange={setOrgId}
-            />
-          </div>
+      <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+        <SiteNav />
+        <main className="flex-1 overflow-y-auto">
+          <div className="p-6 max-w-[1500px] mx-auto space-y-5">
+            {/* Org switcher */}
+            <div className="flex items-center justify-end gap-4 flex-wrap">
+              <OrgSwitcher
+                orgs={allowedOrgs}
+                value={activeOrg.id}
+                onChange={setOrgId}
+              />
+            </div>
 
-          {tab === "rcon" && <RconTab key={activeOrg.id} servers={servers} orgId={activeOrg.id} />}
-          {tab === "scripts" && (
-            <ScriptsTab
-              key={activeOrg.id}
-              servers={servers}
-              orgId={activeOrg.id}
-            />
-          )}
-          {tab === "presets" && (
-            <PresetsTab key={activeOrg.id} servers={servers} orgId={activeOrg.id} />
-          )}
-          {tab === "status" && (
-            <StatusTab key={activeOrg.id} servers={servers} />
-          )}
-          {tab === "servers" && (
-            <ServersTab key={activeOrg.id} orgId={activeOrg.id} />
-          )}
-        </div>
-      </main>
-    </div>
+            {tab === "rcon" && (
+              <RconTab
+                key={activeOrg.id}
+                servers={servers}
+                orgId={activeOrg.id}
+              />
+            )}
+            {tab === "scripts" && (
+              <ScriptsTab
+                key={activeOrg.id}
+                servers={servers}
+                orgId={activeOrg.id}
+              />
+            )}
+            {tab === "presets" && (
+              <PresetsTab
+                key={activeOrg.id}
+                servers={servers}
+                orgId={activeOrg.id}
+              />
+            )}
+            {tab === "status" && (
+              <StatusTab key={activeOrg.id} orgId={activeOrg.id} />
+            )}
+            {tab === "servers" && (
+              <ServersTab key={activeOrg.id} orgId={activeOrg.id} />
+            )}
+          </div>
+        </main>
+      </div>
     </SteamRequiredGate>
   );
 }
@@ -451,7 +381,10 @@ function RconTab({ servers, orgId }) {
             <Terminal className="size-3.5 text-brand shrink-0" />
             <span className="text-xs font-mono truncate">{server?.name}</span>
             {server?.rconConfigured ? (
-              <Badge variant="outline" className="text-[9px] font-mono shrink-0">
+              <Badge
+                variant="outline"
+                className="text-[9px] font-mono shrink-0"
+              >
                 RCON · {server.ip}:{server.rconPort}
               </Badge>
             ) : (
@@ -743,126 +676,125 @@ function ScriptsTab({ servers, orgId }) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {scripts
-          .map((s) => {
-            const lines = s.command.split("\n").filter(Boolean);
-            const vars = extractVars(s.command);
-            const allowed = userRank >= s.minRank;
-            return (
-              <div
-                key={s.id}
-                className="ring-1 ring-border rounded-md bg-surface/40 p-3 flex flex-col gap-2.5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="text-sm font-semibold truncate">
-                        {s.name}
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className="text-[9px] font-mono h-4 px-1.5"
-                      >
-                        {lines.length} cmd{lines.length === 1 ? "" : "s"}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={
-                          "text-[9px] font-mono h-4 px-1.5 " +
-                          (allowed
-                            ? "border-brand/40 text-brand bg-brand/5"
-                            : "border-destructive/40 text-destructive bg-destructive/5")
-                        }
-                        title={
-                          allowed
-                            ? "You can run this script"
-                            : "Requires higher rank"
-                        }
-                      >
-                        {rankLabel(s.minRank)}+
-                      </Badge>
-                      {vars.map((v) => (
-                        <Badge
-                          key={v}
-                          variant="outline"
-                          className="text-[9px] font-mono h-4 px-1.5 border-warning/40 text-warning bg-warning/5"
-                        >
-                          {`{${v}}`}
-                        </Badge>
-                      ))}
+        {scripts.map((s) => {
+          const lines = s.command.split("\n").filter(Boolean);
+          const vars = extractVars(s.command);
+          const allowed = userRank >= s.minRank;
+          return (
+            <div
+              key={s.id}
+              className="ring-1 ring-border rounded-md bg-surface/40 p-3 flex flex-col gap-2.5"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-sm font-semibold truncate">
+                      {s.name}
                     </div>
-                    {s.description && (
-                      <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
-                        {s.description}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-0.5">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-7"
-                      onClick={() => setEditing(s)}
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] font-mono h-4 px-1.5"
                     >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-7 text-destructive"
-                      onClick={() => deleteScript(s.id)}
+                      {lines.length} cmd{lines.length === 1 ? "" : "s"}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={
+                        "text-[9px] font-mono h-4 px-1.5 " +
+                        (allowed
+                          ? "border-brand/40 text-brand bg-brand/5"
+                          : "border-destructive/40 text-destructive bg-destructive/5")
+                      }
+                      title={
+                        allowed
+                          ? "You can run this script"
+                          : "Requires higher rank"
+                      }
                     >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                      {rankLabel(s.minRank)}+
+                    </Badge>
+                    {vars.map((v) => (
+                      <Badge
+                        key={v}
+                        variant="outline"
+                        className="text-[9px] font-mono h-4 px-1.5 border-warning/40 text-warning bg-warning/5"
+                      >
+                        {`{${v}}`}
+                      </Badge>
+                    ))}
                   </div>
+                  {s.description && (
+                    <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                      {s.description}
+                    </p>
+                  )}
                 </div>
-
-                <pre className="text-[10px] font-mono text-brand bg-black/30 ring-1 ring-border rounded p-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
-                  {s.command}
-                </pre>
-
-                {!allowed && (
-                  <div className="text-[10px] font-mono text-destructive bg-destructive/5 ring-1 ring-destructive/30 rounded px-2 py-1">
-                    Requires {rankLabel(s.minRank)} or higher to execute.
-                  </div>
-                )}
-
-                <div className="grid grid-cols-[1fr_auto_auto] gap-1.5">
+                <div className="flex gap-0.5">
                   <Button
-                    size="sm"
-                    onClick={() =>
-                      triggerRun(
-                        s,
-                        servers.map((x) => x.id),
-                        `all ${servers.length} servers`,
-                      )
-                    }
-                    disabled={!servers.length || !allowed}
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    onClick={() => setEditing(s)}
                   >
-                    <Play className="size-3.5 mr-1" /> Run all
+                    <Pencil className="size-3.5" />
                   </Button>
-                  <RunOnGroupButton
-                    tags={allTags}
-                    disabled={!allowed}
-                    onPick={(tag) =>
-                      triggerRun(
-                        s,
-                        servers
-                          .filter((x) => x.tags.includes(tag))
-                          .map((x) => x.id),
-                        `group: ${tag}`,
-                      )
-                    }
-                  />
-                  <RunOnServerButton
-                    servers={servers}
-                    disabled={!allowed}
-                    onPick={(srv) => triggerRun(s, [srv.id], srv.name)}
-                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 text-destructive"
+                    onClick={() => deleteScript(s.id)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
                 </div>
               </div>
-            );
-          })}
+
+              <pre className="text-[10px] font-mono text-brand bg-black/30 ring-1 ring-border rounded p-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
+                {s.command}
+              </pre>
+
+              {!allowed && (
+                <div className="text-[10px] font-mono text-destructive bg-destructive/5 ring-1 ring-destructive/30 rounded px-2 py-1">
+                  Requires {rankLabel(s.minRank)} or higher to execute.
+                </div>
+              )}
+
+              <div className="grid grid-cols-[1fr_auto_auto] gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    triggerRun(
+                      s,
+                      servers.map((x) => x.id),
+                      `all ${servers.length} servers`,
+                    )
+                  }
+                  disabled={!servers.length || !allowed}
+                >
+                  <Play className="size-3.5 mr-1" /> Run all
+                </Button>
+                <RunOnGroupButton
+                  tags={allTags}
+                  disabled={!allowed}
+                  onPick={(tag) =>
+                    triggerRun(
+                      s,
+                      servers
+                        .filter((x) => x.tags.includes(tag))
+                        .map((x) => x.id),
+                      `group: ${tag}`,
+                    )
+                  }
+                />
+                <RunOnServerButton
+                  servers={servers}
+                  disabled={!allowed}
+                  onPick={(srv) => triggerRun(s, [srv.id], srv.name)}
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <RunVarsDialog
@@ -1665,418 +1597,459 @@ function CustomPluginDialog({ open, groupTags, onClose, onSave }) {
     </Dialog>
   );
 }
-function StatusTab({ servers }) {
-  const metric = (seed, max) => {
-    let h = 0;
-    for (let i = 0; i < seed.length; i++)
-      h = (h * 31 + seed.charCodeAt(i)) & 65535;
-    return Math.round(((h % 1e3) / 1e3) * max);
-  };
-  const metricF = (seed, max) => {
-    let h = 0;
-    for (let i = 0; i < seed.length; i++)
-      h = (h * 31 + seed.charCodeAt(i)) & 65535;
-    return Number((((h % 1e3) / 1e3) * max).toFixed(2));
-  };
-  const PROBE_LOCATIONS = ["FRA", "LON", "NYC", "SGP", "SYD"];
-  const [detail, setDetail] = useState(null);
-  const serversByNode = useMemo(() => {
-    const map = /* @__PURE__ */ new Map();
+function fmtBytes(bytes) {
+  if (!bytes || bytes < 0) return "0 MB";
+  const gb = bytes / 1073741824;
+  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  return `${(bytes / 1048576).toFixed(0)} MB`;
+}
+function fmtMB(mb) {
+  if (!mb) return "∞";
+  if (mb >= 1024) return `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB`;
+  return `${mb} MB`;
+}
+function fmtUptime(ms) {
+  if (!ms || ms <= 0) return "—";
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function StateDot({ state }) {
+  const color =
+    state === "running"
+      ? "bg-success"
+      : state === "starting" || state === "stopping"
+        ? "bg-warning"
+        : state === "offline"
+          ? "bg-destructive"
+          : "bg-muted-foreground/40";
+  return (
+    <span
+      className={`size-2 rounded-full shrink-0 ${color}`}
+      title={state ?? "unknown"}
+    />
+  );
+}
+function UsageBar({ value, max, tone = "bg-success" }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  const color = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : tone;
+  return (
+    <div className="h-1.5 rounded-full bg-surface ring-1 ring-border overflow-hidden">
+      <div className={"h-full " + color} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+function Spark({ data, dataKey, color }) {
+  if (!data || data.length < 2) return <div className="h-8" />;
+  const gid = `sp-${dataKey}-${color.replace(/[^a-z0-9]/gi, "")}`;
+  return (
+    <div className="h-8">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart
+          data={data}
+          margin={{ top: 2, right: 0, left: 0, bottom: 0 }}
+        >
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.4} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <YAxis hide domain={[0, "auto"]} />
+          <Area
+            type="monotone"
+            dataKey={dataKey}
+            stroke={color}
+            strokeWidth={1.25}
+            fill={`url(#${gid})`}
+            isAnimationActive={false}
+            dot={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+function StatusTab({ orgId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const historyRef = useRef(new Map());
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ptero/status`,
+        { credentials: "include" },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(body?.error ?? `Failed to load status (HTTP ${res.status}).`);
+        return;
+      }
+      setError("");
+      setData(body);
+      setUpdatedAt(Date.now());
+
+      // Maintain a short rolling history per server for the live sparklines.
+      if (Array.isArray(body?.servers)) {
+        const hist = historyRef.current;
+        for (const s of body.servers) {
+          if (!s.identifier || !s.live) continue;
+          const limitBytes = (s.limits?.memory ?? 0) * 1048576;
+          const memPct =
+            limitBytes > 0
+              ? (s.live.resources.memoryBytes / limitBytes) * 100
+              : 0;
+          const arr = hist.get(s.identifier) ?? [];
+          arr.push({
+            cpu: Number((s.live.resources.cpuAbsolute ?? 0).toFixed(2)),
+            mem: Number(memPct.toFixed(2)),
+          });
+          while (arr.length > 30) arr.shift();
+          hist.set(
+            s.identifier,
+            arr.map((p, i) => ({ ...p, i })),
+          );
+        }
+      }
+    } catch {
+      setError("Network error reaching the status service.");
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    setLoading(true);
+    setData(null);
+    setError("");
+    historyRef.current = new Map();
+    load();
+    const id = setInterval(load, 8000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const servers = data?.servers ?? [];
+  const nodes = data?.nodes ?? [];
+
+  const nodeAgg = useMemo(() => {
+    const map = new Map();
     for (const s of servers) {
-      const arr = map.get(s.node) ?? [];
-      arr.push(s);
-      map.set(s.node, arr);
+      const key = s.nodeId ?? s.nodeName ?? "unknown";
+      const agg = map.get(key) ?? { count: 0, mem: 0, disk: 0 };
+      agg.count += 1;
+      agg.mem += s.limits?.memory ?? 0;
+      agg.disk += s.limits?.disk ?? 0;
+      map.set(key, agg);
     }
     return map;
   }, [servers]);
+
+  if (loading && !data) {
+    return (
+      <div className="ring-1 ring-border rounded-md bg-surface/40 p-10 text-center text-sm text-muted-foreground">
+        Loading server status…
+      </div>
+    );
+  }
+
+  if (data && data.connected === false) {
+    return (
+      <div className="ring-1 ring-border rounded-md bg-surface/40 p-8 text-center space-y-2">
+        <Server className="size-8 mx-auto text-muted-foreground" />
+        <h3 className="text-base font-semibold">Pterodactyl not connected</h3>
+        <p className="text-sm text-muted-foreground">
+          Connect this org's Pterodactyl panel in the{" "}
+          <span className="font-mono text-foreground">Servers</span> tab to see
+          live node and server status here.
+        </p>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="ring-1 ring-destructive/40 bg-destructive/10 rounded-md p-6 text-center space-y-2">
+        <AlertTriangle className="size-7 mx-auto text-destructive" />
+        <p className="text-sm text-destructive">{error}</p>
+        <Button size="sm" variant="outline" onClick={() => load()}>
+          <RefreshCw className="size-3.5 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      <div>
-        <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">
-          Physical nodes · network from globalping
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+          Pterodactyl infrastructure · {nodes.length} node
+          {nodes.length === 1 ? "" : "s"} · {servers.length} server
+          {servers.length === 1 ? "" : "s"}
         </h3>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {MOCK_NODES.map((n) => {
-            const nodeServers = serversByNode.get(n.id) ?? [];
-            const cpu = metric(n.id + "cpu", 80);
-            const mem = metric(n.id + "mem", 75);
-            const pingMs = metric(n.id + "hbping", 40) + 5;
-            const pteroOk = metric(n.id + "hbptero", 100) % 100 < 92;
-            return (
-              <div
-                key={n.id}
-                className="ring-1 ring-border rounded-md bg-surface/40 p-3 space-y-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Server className="size-3.5 text-brand shrink-0" />
-                    <span className="text-sm font-semibold truncate">
-                      {n.name}
-                    </span>
-                    <span className="text-[9px] font-mono text-muted-foreground shrink-0">
-                      {n.code}
-                    </span>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className={
-                      n.status === "online"
-                        ? "border-success/40 text-success bg-success/10 text-[9px]"
-                        : "border-destructive/40 text-destructive bg-destructive/10 text-[9px]"
-                    }
-                  >
-                    {n.status}
-                  </Badge>
-                </div>
+        <div className="flex items-center gap-3">
+          {updatedAt && (
+            <span className="text-[10px] font-mono text-muted-foreground">
+              Updated {new Date(updatedAt).toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={() => load()}
+            className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
+            title="Refresh now"
+          >
+            <RefreshCw className="size-3" /> Refresh
+          </button>
+        </div>
+      </div>
 
-                {/* Heartbeats — Ping + Pterodactyl */}
-                <div className="flex items-center gap-1.5">
-                  <HeartbeatBadge label={`PING ${pingMs}ms`} ok={pingMs < 30} />
-                  <HeartbeatBadge
-                    label={pteroOk ? "PTERO OK" : "PTERO FAIL"}
-                    ok={pteroOk}
-                  />
-                </div>
+      {error && (
+        <p className="text-[11px] text-warning font-mono">
+          {error} (showing last known data)
+        </p>
+      )}
 
-                <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] font-mono">
-                  <div className="text-muted-foreground truncate" title={n.cpu}>
-                    {n.cpu}
-                  </div>
-                  <div className="text-muted-foreground truncate" title={n.ram}>
-                    {n.ram}
-                  </div>
-                  <div
-                    className="text-muted-foreground truncate"
-                    title={n.storage}
-                  >
-                    {n.storage}
-                  </div>
-                  <div className="text-muted-foreground truncate">
-                    {n.link} · {n.ip}
-                  </div>
-                </div>
+      {data && data.liveSupported === false && (
+        <div className="ring-1 ring-border rounded-md bg-surface/40 px-3 py-2 text-[11px] text-muted-foreground">
+          Live utilization is unavailable — the stored Pterodactyl key is an
+          application key, so only configured limits are shown. Provide a client
+          API key to enable live CPU/RAM/uptime.
+        </div>
+      )}
 
-                <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-                  <span>
-                    UPTIME{" "}
-                    <span className="text-foreground">{n.uptimeHours}h</span>
-                  </span>
-                  <span>
-                    HOSTING{" "}
-                    <span className="text-foreground">
-                      {nodeServers.length}
-                    </span>{" "}
-                    server{nodeServers.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-
-                {/* mini graphs — click any to drill down */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <ClickableMini
-                    onClick={() => setDetail({ node: n, metric: "mem" })}
-                  >
-                    <MiniGraph
-                      seedId={n.id + "g-mem"}
-                      label="MEM"
-                      value={`${mem}%`}
-                      color="hsl(160 80% 55%)"
-                      data={seedSeries(n.id + "mem-s", 32, mem, 6)}
-                      yMax={100}
-                    />
-                  </ClickableMini>
-                  <ClickableMini
-                    onClick={() => setDetail({ node: n, metric: "cpu" })}
-                  >
-                    <MiniGraph
-                      seedId={n.id + "g-cpu"}
-                      label="CPU"
-                      value={`${cpu}%`}
-                      color="hsl(200 90% 60%)"
-                      data={seedSeries(n.id + "cpu-s", 32, cpu, 10)}
-                      yMax={100}
-                    />
-                  </ClickableMini>
-                  <ClickableMini
-                    onClick={() => setDetail({ node: n, metric: "net" })}
-                  >
-                    <MiniGraph
-                      seedId={n.id + "g-net"}
-                      label="NET"
-                      value={`${(n.netInMbps + n.netOutMbps).toFixed(0)}Mb`}
-                      color="hsl(280 80% 65%)"
-                      data={seedSeries(
-                        n.id + "net-s",
-                        32,
-                        n.netInMbps + n.netOutMbps,
-                        (n.netInMbps + n.netOutMbps) * 0.4,
-                        0,
-                      )}
-                    />
-                  </ClickableMini>
-                  <ClickableMini
-                    onClick={() => setDetail({ node: n, metric: "loss" })}
-                  >
-                    <MiniGraph
-                      seedId={n.id + "g-loss"}
-                      label="LOSS"
-                      value={`${metric(n.id + "lossavg", 4)}%`}
-                      color="hsl(0 80% 60%)"
-                      data={seedSeries(
-                        n.id + "loss-s",
-                        32,
-                        metric(n.id + "lossavg", 4),
-                        2,
-                        0,
-                      )}
-                      yMax={10}
-                    />
-                  </ClickableMini>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                  <div className="flex items-center gap-1">
-                    <Wifi className="size-2.5 text-sky-300" />
-                    <span className="text-muted-foreground">IN</span>
-                    <span className="text-sky-300 font-bold ml-auto">
-                      {n.netInMbps.toFixed(2)} Mbps
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Wifi className="size-2.5 text-emerald-300" />
-                    <span className="text-muted-foreground">OUT</span>
-                    <span className="text-emerald-300 font-bold ml-auto">
-                      {n.netOutMbps.toFixed(2)} Mbps
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[10px] font-mono">
-                    <span className="text-muted-foreground uppercase tracking-widest">
-                      Bandwidth
-                    </span>
-                    {n.bwCapGB === null ? (
-                      <span className="text-muted-foreground">
-                        ∞ Unmetered · {fmtBw(n.bwUsedGB)} used
+      {/* Nodes */}
+      <div>
+        <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+          Nodes
+        </h4>
+        {nodes.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            No nodes returned by the panel.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {nodes.map((n) => {
+              const agg = nodeAgg.get(n.id) ??
+                nodeAgg.get(n.name) ?? { count: 0, mem: 0, disk: 0 };
+              const memCap = n.memory * (1 + (n.memoryOverallocate || 0) / 100);
+              const diskCap = n.disk * (1 + (n.diskOverallocate || 0) / 100);
+              return (
+                <div
+                  key={n.id}
+                  className="ring-1 ring-border rounded-md bg-surface/40 p-3 space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Server className="size-3.5 text-brand shrink-0" />
+                      <span className="text-sm font-semibold truncate">
+                        {n.name}
                       </span>
-                    ) : (
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={
+                        n.maintenanceMode
+                          ? "border-warning/40 text-warning bg-warning/10 text-[9px]"
+                          : "border-success/40 text-success bg-success/10 text-[9px]"
+                      }
+                    >
+                      {n.maintenanceMode ? "maintenance" : "online"}
+                    </Badge>
+                  </div>
+
+                  {n.fqdn && (
+                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                      {n.fqdn}
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-muted-foreground uppercase tracking-widest">
+                        Memory allocated
+                      </span>
                       <span className="text-muted-foreground">
-                        <span className="text-success">
-                          {fmtBw(n.bwUsedGB)}
-                        </span>{" "}
-                        / {fmtBw(n.bwCapGB)}
-                        <span className="ml-1 text-muted-foreground/70">
-                          ({Math.round((n.bwUsedGB / n.bwCapGB) * 100)}%)
+                        {fmtMB(agg.mem)} / {fmtMB(memCap)}
+                      </span>
+                    </div>
+                    <UsageBar value={agg.mem} max={memCap} />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-muted-foreground uppercase tracking-widest">
+                        Disk allocated
+                      </span>
+                      <span className="text-muted-foreground">
+                        {fmtMB(agg.disk)} / {fmtMB(diskCap)}
+                      </span>
+                    </div>
+                    <UsageBar value={agg.disk} max={diskCap} tone="bg-brand" />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground pt-1 border-t border-border">
+                    <span>
+                      HOSTING{" "}
+                      <span className="text-foreground">{agg.count}</span>{" "}
+                      server
+                      {agg.count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {/* Game servers */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            Game servers ({servers.length})
+          </h4>
+          <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-3">
+            <span className="flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-success" /> running
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-warning" /> starting
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-destructive" /> offline
+            </span>
+          </div>
+        </div>
+
+        {servers.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            No servers found on the connected panel.
+          </p>
+        ) : (
+          <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+            <div className="grid grid-cols-[1.7fr_0.8fr_1.2fr_1.2fr_1fr_0.6fr] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div>Server</div>
+              <div>Node</div>
+              <div>CPU</div>
+              <div>Memory</div>
+              <div>Disk</div>
+              <div className="text-right">Uptime</div>
+            </div>
+            {servers.map((s) => {
+              const live = s.live;
+              const state =
+                live?.state ?? (s.suspended ? "offline" : "unknown");
+              const hist = historyRef.current.get(s.identifier) ?? [];
+              const memLimitBytes = (s.limits?.memory ?? 0) * 1048576;
+              return (
+                <div
+                  key={s.uuid ?? s.identifier ?? s.pteroId}
+                  className="grid grid-cols-[1.7fr_0.8fr_1.2fr_1.2fr_1fr_0.6fr] gap-2 px-3 py-2 border-b border-border last:border-0 items-center text-[11px]"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <StateDot state={state} />
+                    <span className="font-medium truncate">{s.name}</span>
+                    {s.suspended && (
+                      <span className="text-[8px] font-mono uppercase tracking-widest text-destructive bg-destructive/10 px-1 rounded shrink-0">
+                        suspended
+                      </span>
+                    )}
+                    <span className="text-[9px] font-mono text-muted-foreground truncate">
+                      {s.ip ? `${s.ip}:${s.port ?? ""}` : ""}
+                    </span>
+                  </div>
+
+                  <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    {s.nodeName ?? "—"}
+                  </div>
+
+                  <div className="min-w-0">
+                    {live ? (
+                      <div className="flex items-center gap-1.5">
+                        <Cpu className="size-3 text-muted-foreground shrink-0" />
+                        <span className="font-mono tabular-nums">
+                          {live.resources.cpuAbsolute.toFixed(1)}%
                         </span>
+                        <span className="text-[9px] font-mono text-muted-foreground">
+                          / {s.limits?.cpu ? `${s.limits.cpu}%` : "∞"}
+                        </span>
+                        <div className="flex-1 min-w-[28px]">
+                          <Spark
+                            data={hist}
+                            dataKey="cpu"
+                            color="hsl(200 90% 60%)"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        limit {s.limits?.cpu ? `${s.limits.cpu}%` : "∞"}
                       </span>
                     )}
                   </div>
-                  <div className="h-1.5 rounded-full bg-surface ring-1 ring-border overflow-hidden">
-                    <div
-                      className="h-full bg-success"
-                      style={{
-                        width:
-                          n.bwCapGB === null
-                            ? "8%"
-                            : `${Math.min(100, (n.bwUsedGB / n.bwCapGB) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
 
-                <div className="border-t border-border pt-2 space-y-1">
-                  <div className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                    <Globe2 className="size-3" /> Loss per probe
-                  </div>
-                  <div className="grid grid-cols-5 gap-1">
-                    {PROBE_LOCATIONS.map((loc) => {
-                      const ping = metric(n.id + loc + "p", 80) + 5;
-                      const loss = metric(n.id + loc + "l", 6);
-                      const bad = loss >= 3;
-                      return (
-                        <div
-                          key={loc}
-                          className={
-                            "rounded px-1 py-0.5 text-center ring-1 " +
-                            (bad
-                              ? "bg-destructive/10 ring-destructive/30"
-                              : "bg-success/5 ring-border")
-                          }
-                          title={`${ping}ms \xB7 ${loss}% loss from ${loc}`}
-                        >
-                          <div className="text-[8px] font-mono text-muted-foreground">
-                            {loc}
-                          </div>
-                          <div
-                            className={
-                              "text-[10px] font-mono font-bold " +
-                              (bad ? "text-destructive" : "text-foreground")
-                            }
-                          >
-                            {loss}%
-                          </div>
+                  <div className="min-w-0 space-y-1">
+                    {live ? (
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <HardDrive className="size-3 text-muted-foreground shrink-0" />
+                          <span className="font-mono tabular-nums">
+                            {fmtBytes(live.resources.memoryBytes)}
+                          </span>
+                          <span className="text-[9px] font-mono text-muted-foreground">
+                            / {fmtMB(s.limits?.memory ?? 0)}
+                          </span>
                         </div>
-                      );
-                    })}
+                        <UsageBar
+                          value={live.resources.memoryBytes}
+                          max={memLimitBytes}
+                        />
+                      </>
+                    ) : (
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        limit {fmtMB(s.limits?.memory ?? 0)}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
+                    {live ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono tabular-nums">
+                          {fmtBytes(live.resources.diskBytes)}
+                        </span>
+                        <span className="text-[9px] font-mono text-muted-foreground">
+                          / {fmtMB(s.limits?.disk ?? 0)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        limit {fmtMB(s.limits?.disk ?? 0)}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-right font-mono text-[10px] text-muted-foreground">
+                    {live ? fmtUptime(live.resources.uptime) : "—"}
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Game servers — condensed dense table-style rows */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-            Game servers ({servers.length})
-          </h3>
-          <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-3">
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-success" /> ok
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-warning" /> warn
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-destructive" /> alert
-            </span>
+              );
+            })}
           </div>
-        </div>
-
-        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-          <div className="grid grid-cols-[1.6fr_0.9fr_minmax(0,_1fr)_minmax(0,_1fr)_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-            <div>Server</div>
-            <div>Node</div>
-            <div>CPU (threads)</div>
-            <div>RAM (GB)</div>
-            <div className="w-28 text-right">Heartbeats</div>
-          </div>
-          {servers.map((s) => {
-            const threads = metricF(s.id + "thr", 4) + 0.1;
-            const ramGB = metricF(s.id + "ram", 10) + 0.4;
-            return (
-              <div
-                key={s.id}
-                className="grid grid-cols-[1.6fr_0.9fr_minmax(0,_1fr)_minmax(0,_1fr)_auto] gap-2 px-3 py-2 border-b border-border last:border-0 items-center text-[11px]"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <CircleDot className="size-2.5 text-success shrink-0" />
-                  <span className="font-medium truncate">{s.name}</span>
-                  <span className="text-[9px] font-mono text-muted-foreground truncate">
-                    {s.ip}:{s.port}
-                  </span>
-                </div>
-                <div className="text-[10px] font-mono text-muted-foreground truncate">
-                  {s.node}
-                </div>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Cpu className="size-3 text-muted-foreground shrink-0" />
-                  <span className="font-mono tabular-nums text-[11px]">
-                    {threads.toFixed(2)}
-                  </span>
-                  <span className="font-mono text-[9px] text-muted-foreground">
-                    thr
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <HardDrive className="size-3 text-muted-foreground shrink-0" />
-                  <span className="font-mono tabular-nums text-[11px]">
-                    {ramGB.toFixed(2)}
-                  </span>
-                  <span className="font-mono text-[9px] text-muted-foreground">
-                    GB
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 justify-end w-28">
-                  <HeartbeatBadge label="P" ok />
-                  <HeartbeatBadge label="BM" ok />
-                  <HeartbeatBadge label="RCN" ok />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        )}
         <div className="text-[10px] text-muted-foreground/70 font-mono mt-1.5">
-          Per-server CPU shown as threads in use, RAM as GB used — game servers
-          run uncapped on their host. Network throughput is tracked per
-          dedicated machine above. Heartbeats: P = Pterodactyl, BM =
-          BattleMetrics, RCN = RCON.
+          Live CPU, memory, disk and uptime come from the Pterodactyl client API
+          and refresh every 8s. Memory and disk are shown against each server's
+          configured limit.
         </div>
       </div>
-
-      <NodeDetailDialog detail={detail} onClose={() => setDetail(null)} />
     </div>
-  );
-}
-function MiniGraph({ seedId, label, value, color, data, yMax }) {
-  const gid = `mg-${seedId.replace(/[^a-z0-9]/gi, "")}`;
-  return (
-    <div className="rounded ring-1 ring-border bg-black/30 px-1.5 pt-1 pb-0.5">
-      <div className="flex items-center justify-between text-[9px] font-mono uppercase tracking-widest">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-bold" style={{ color }}>
-          {value}
-        </span>
-      </div>
-      <div className="h-9 -mx-1 -mb-0.5">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={data}
-            margin={{ top: 2, right: 0, left: 0, bottom: 0 }}
-          >
-            <defs>
-              <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.45} />
-                <stop offset="100%" stopColor={color} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <YAxis hide domain={[0, yMax ?? "auto"]} />
-            <Area
-              type="monotone"
-              dataKey="v"
-              stroke={color}
-              strokeWidth={1.25}
-              fill={`url(#${gid})`}
-              isAnimationActive={false}
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-function CompactBar({ icon: Icon, value, suffix, max = 100 }) {
-  const pct = Math.min(100, (value / max) * 100);
-  const color =
-    pct > 80 ? "bg-destructive" : pct > 60 ? "bg-warning" : "bg-success";
-  return (
-    <div className="flex items-center gap-1.5 min-w-0">
-      <Icon className="size-3 text-muted-foreground shrink-0" />
-      <div className="flex-1 h-1 rounded-full bg-surface overflow-hidden">
-        <div className={"h-full " + color} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="font-mono tabular-nums text-[10px] w-14 text-right shrink-0">
-        {value}
-        {suffix}
-      </span>
-    </div>
-  );
-}
-function HeartbeatBadge({ label, ok }) {
-  return (
-    <span
-      className={
-        "text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 " +
-        (ok
-          ? "bg-success/10 ring-success/30 text-success"
-          : "bg-destructive/10 ring-destructive/30 text-destructive")
-      }
-    >
-      {label}
-    </span>
   );
 }
 function ServersTab({ orgId }) {
@@ -2146,20 +2119,32 @@ function ServersTab({ orgId }) {
     let cancelled = false;
     fetch(`/api/orgs/${orgId}/ptero`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((d) => { if (!cancelled) setPteroStatus(d); })
-      .catch(() => { if (!cancelled) setPteroStatus({ connected: false }); });
-    return () => { cancelled = true; };
+      .then((d) => {
+        if (!cancelled) setPteroStatus(d);
+      })
+      .catch(() => {
+        if (!cancelled) setPteroStatus({ connected: false });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [orgId]);
 
   const loadRegistered = () => {
     setRegLoading(true);
     fetch("/api/servers", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((d) => setRegisteredServers((d.servers ?? []).filter((s) => s.ownerOrgId === orgId)))
+      .then((d) =>
+        setRegisteredServers(
+          (d.servers ?? []).filter((s) => s.ownerOrgId === orgId),
+        ),
+      )
       .catch(() => setRegisteredServers([]))
       .finally(() => setRegLoading(false));
   };
-  useEffect(() => { loadRegistered(); }, [orgId]);
+  useEffect(() => {
+    loadRegistered();
+  }, [orgId]);
 
   const savePtero = async () => {
     setPteroSaving(true);
@@ -2172,7 +2157,10 @@ function ServersTab({ orgId }) {
         body: JSON.stringify(pteroForm),
       });
       const data = await res.json();
-      if (!res.ok) { setPteroError(data?.error ?? "Failed to save"); return; }
+      if (!res.ok) {
+        setPteroError(data?.error ?? "Failed to save");
+        return;
+      }
       setPteroStatus({ connected: true, panelUrl: data.panelUrl });
       setPteroForm({ panelUrl: "", apiKey: "" });
     } catch {
@@ -2183,7 +2171,10 @@ function ServersTab({ orgId }) {
   };
 
   const disconnectPtero = async () => {
-    await fetch(`/api/orgs/${orgId}/ptero`, { method: "DELETE", credentials: "include" });
+    await fetch(`/api/orgs/${orgId}/ptero`, {
+      method: "DELETE",
+      credentials: "include",
+    });
     setPteroStatus({ connected: false });
     setPteroServers(null);
   };
@@ -2192,9 +2183,14 @@ function ServersTab({ orgId }) {
     setPteroLoading(true);
     setPteroFetchError(null);
     try {
-      const res = await fetch(`/api/orgs/${orgId}/ptero/servers`, { credentials: "include" });
+      const res = await fetch(`/api/orgs/${orgId}/ptero/servers`, {
+        credentials: "include",
+      });
       const data = await res.json();
-      if (!res.ok) { setPteroFetchError(data?.error ?? "Failed to fetch"); return; }
+      if (!res.ok) {
+        setPteroFetchError(data?.error ?? "Failed to fetch");
+        return;
+      }
       setPteroServers(data.servers ?? []);
     } catch {
       setPteroFetchError("Network error");
@@ -2216,8 +2212,15 @@ function ServersTab({ orgId }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { alert(data?.error ?? "Import failed"); return; }
-      setApiKeyReveal({ serverId: data.server.serverId, serverName: pteroServer.name, apiKey: data.apiKey });
+      if (!res.ok) {
+        alert(data?.error ?? "Import failed");
+        return;
+      }
+      setApiKeyReveal({
+        serverId: data.server.serverId,
+        serverName: pteroServer.name,
+        apiKey: data.apiKey,
+      });
       loadRegistered();
     } catch {
       alert("Network error during import");
@@ -2234,7 +2237,9 @@ function ServersTab({ orgId }) {
         credentials: "include",
       });
       if (res.ok) {
-        setRegisteredServers((prev) => prev.filter((s) => s.serverId !== serverId));
+        setRegisteredServers((prev) =>
+          prev.filter((s) => s.serverId !== serverId),
+        );
         setDeleteConfirm(null);
       }
     } finally {
@@ -2263,7 +2268,6 @@ function ServersTab({ orgId }) {
 
   return (
     <div className="space-y-4">
-
       {/* Pterodactyl connection */}
       <div className="ring-1 ring-border rounded-md bg-surface/40 p-4 space-y-3">
         <div className="flex items-center gap-2">
@@ -2280,7 +2284,9 @@ function ServersTab({ orgId }) {
           <p className="text-xs text-muted-foreground">Loading…</p>
         ) : pteroStatus.connected ? (
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-mono text-muted-foreground">{pteroStatus.panelUrl}</span>
+            <span className="text-xs font-mono text-muted-foreground">
+              {pteroStatus.panelUrl}
+            </span>
             <a
               href={pteroStatus.panelUrl}
               target="_blank"
@@ -2289,7 +2295,12 @@ function ServersTab({ orgId }) {
             >
               <ExternalLink className="size-3" /> Open panel
             </a>
-            <Button size="sm" variant="outline" onClick={disconnectPtero} className="text-destructive ml-auto">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={disconnectPtero}
+              className="text-destructive ml-auto"
+            >
               <X className="size-3.5 mr-1" /> Disconnect
             </Button>
           </div>
@@ -2297,26 +2308,36 @@ function ServersTab({ orgId }) {
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Panel URL</Label>
+                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Panel URL
+                </Label>
                 <Input
                   value={pteroForm.panelUrl}
-                  onChange={(e) => setPteroForm({ ...pteroForm, panelUrl: e.target.value })}
+                  onChange={(e) =>
+                    setPteroForm({ ...pteroForm, panelUrl: e.target.value })
+                  }
                   placeholder="https://panel.example.com"
                   className="text-xs font-mono h-8"
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Application API Key</Label>
+                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Application API Key
+                </Label>
                 <Input
                   type="password"
                   value={pteroForm.apiKey}
-                  onChange={(e) => setPteroForm({ ...pteroForm, apiKey: e.target.value })}
+                  onChange={(e) =>
+                    setPteroForm({ ...pteroForm, apiKey: e.target.value })
+                  }
                   placeholder="ptla_…"
                   className="text-xs font-mono h-8"
                 />
               </div>
             </div>
-            {pteroError && <p className="text-xs text-destructive">{pteroError}</p>}
+            {pteroError && (
+              <p className="text-xs text-destructive">{pteroError}</p>
+            )}
             <Button
               size="sm"
               disabled={pteroSaving || !pteroForm.panelUrl || !pteroForm.apiKey}
@@ -2338,26 +2359,40 @@ function ServersTab({ orgId }) {
               </span>
               {pteroServers !== null && (
                 <span className="ml-2 text-[10px] font-mono text-muted-foreground/60">
-                  {pteroServers.length} server{pteroServers.length === 1 ? "" : "s"}
+                  {pteroServers.length} server
+                  {pteroServers.length === 1 ? "" : "s"}
                 </span>
               )}
             </div>
-            <Button size="sm" variant="outline" onClick={fetchPteroServers} disabled={pteroLoading}>
-              <RefreshCw className={`size-3.5 ${pteroLoading ? "animate-spin" : "mr-1"}`} />
-              {!pteroLoading && (pteroServers === null ? "Fetch servers" : "Refresh")}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={fetchPteroServers}
+              disabled={pteroLoading}
+            >
+              <RefreshCw
+                className={`size-3.5 ${pteroLoading ? "animate-spin" : "mr-1"}`}
+              />
+              {!pteroLoading &&
+                (pteroServers === null ? "Fetch servers" : "Refresh")}
             </Button>
           </div>
 
           {pteroFetchError && (
-            <p className="px-4 py-3 text-xs text-destructive">{pteroFetchError}</p>
+            <p className="px-4 py-3 text-xs text-destructive">
+              {pteroFetchError}
+            </p>
           )}
           {pteroServers === null && !pteroFetchError && (
             <p className="px-4 py-3 text-xs text-muted-foreground">
-              Click "Fetch servers" to list containers and their configured limits from your Pterodactyl panel.
+              Click "Fetch servers" to list containers and their configured
+              limits from your Pterodactyl panel.
             </p>
           )}
           {pteroServers !== null && pteroServers.length === 0 && (
-            <p className="px-4 py-3 text-xs text-muted-foreground">No servers found on that panel.</p>
+            <p className="px-4 py-3 text-xs text-muted-foreground">
+              No servers found on that panel.
+            </p>
           )}
           {pteroServers !== null && pteroServers.length > 0 && (
             <div className="divide-y divide-border">
@@ -2376,40 +2411,64 @@ function ServersTab({ orgId }) {
                   : null;
                 let statusLabel, statusCls;
                 if (s.suspended) {
-                  statusLabel = "suspended"; statusCls = "bg-destructive/10 ring-destructive/30 text-destructive";
+                  statusLabel = "suspended";
+                  statusCls =
+                    "bg-destructive/10 ring-destructive/30 text-destructive";
                 } else if (s.status === "installing") {
-                  statusLabel = "installing"; statusCls = "bg-warning/10 ring-warning/30 text-warning";
+                  statusLabel = "installing";
+                  statusCls = "bg-warning/10 ring-warning/30 text-warning";
                 } else if (s.status === "install_failed") {
-                  statusLabel = "failed"; statusCls = "bg-destructive/10 ring-destructive/30 text-destructive";
+                  statusLabel = "failed";
+                  statusCls =
+                    "bg-destructive/10 ring-destructive/30 text-destructive";
                 } else {
-                  statusLabel = "active"; statusCls = "bg-success/10 ring-success/30 text-success";
+                  statusLabel = "active";
+                  statusCls = "bg-success/10 ring-success/30 text-success";
                 }
-                const fmtMem = (mb) => mb === 0 ? "no limit" : mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${mb}M`;
-                const fmtCpu = (c) => c === 0 ? "no limit" : `${c}%`;
+                const fmtMem = (mb) =>
+                  mb === 0
+                    ? "no limit"
+                    : mb >= 1024
+                      ? `${(mb / 1024).toFixed(1)}G`
+                      : `${mb}M`;
+                const fmtCpu = (c) => (c === 0 ? "no limit" : `${c}%`);
                 return (
                   <div
                     key={s.pteroId}
                     className={`grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-60" : ""}`}
                   >
-                    <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ${statusCls}`}>
+                    <span
+                      className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ${statusCls}`}
+                    >
                       {statusLabel}
                     </span>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-sm font-medium truncate">{s.name}</span>
+                        <span className="text-sm font-medium truncate">
+                          {s.name}
+                        </span>
                         {panelLink && (
-                          <a href={panelLink} target="_blank" rel="noopener noreferrer"
-                            className="shrink-0 text-muted-foreground hover:text-brand" title="Open in Pterodactyl">
+                          <a
+                            href={panelLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 text-muted-foreground hover:text-brand"
+                            title="Open in Pterodactyl"
+                          >
                             <ExternalLink className="size-3" />
                           </a>
                         )}
                       </div>
-                      <div className="text-[10px] font-mono text-muted-foreground truncate">{s.identifier}</div>
+                      <div className="text-[10px] font-mono text-muted-foreground truncate">
+                        {s.identifier}
+                      </div>
                     </div>
                     <div className="text-xs font-mono text-muted-foreground">
                       {s.ip ? `${s.ip}:${s.port}` : "—"}
                     </div>
-                    <div className="text-xs font-mono text-muted-foreground truncate">{s.nodeName ?? "—"}</div>
+                    <div className="text-xs font-mono text-muted-foreground truncate">
+                      {s.nodeName ?? "—"}
+                    </div>
                     <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground">
                       <Cpu className="size-3 shrink-0" />
                       <span>{fmtCpu(s.limits?.cpu ?? 0)}</span>
@@ -2435,7 +2494,9 @@ function ServersTab({ orgId }) {
                           {importing === s.pteroId ? (
                             <RefreshCw className="size-3 animate-spin" />
                           ) : (
-                            <><Upload className="size-3 mr-1" /> Import</>
+                            <>
+                              <Upload className="size-3 mr-1" /> Import
+                            </>
                           )}
                         </Button>
                       )}
@@ -2447,7 +2508,8 @@ function ServersTab({ orgId }) {
           )}
           {pteroServers !== null && (
             <div className="px-4 py-2 border-t border-border bg-surface/30 text-[10px] text-muted-foreground/60 font-mono">
-              Limits shown are configured maximums from Pterodactyl (CPU % · RAM · Disk). Real-time usage requires a Pterodactyl Client API key.
+              Limits shown are configured maximums from Pterodactyl (CPU % · RAM
+              · Disk). Real-time usage requires a Pterodactyl Client API key.
             </div>
           )}
         </div>
@@ -2460,11 +2522,14 @@ function ServersTab({ orgId }) {
             <DialogHeader>
               <DialogTitle>Server Imported</DialogTitle>
               <DialogDescription>
-                <strong>{apiKeyReveal.serverName}</strong> has been added. Copy the API key below � it will only be shown once.
+                <strong>{apiKeyReveal.serverName}</strong> has been added. Copy
+                the API key below � it will only be shown once.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              <Label className="text-xs text-muted-foreground">IronSight API Key (for chat ingest)</Label>
+              <Label className="text-xs text-muted-foreground">
+                IronSight API Key (for chat ingest)
+              </Label>
               <div className="flex gap-2 items-center">
                 <Input
                   readOnly
@@ -2474,13 +2539,17 @@ function ServersTab({ orgId }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => navigator.clipboard.writeText(apiKeyReveal.apiKey)}
+                  onClick={() =>
+                    navigator.clipboard.writeText(apiKeyReveal.apiKey)
+                  }
                 >
                   Copy
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Set this as the <code className="font-mono">x-api-key</code> header when POSTing to <code className="font-mono">/api/ingest/chat</code>.
+                Set this as the <code className="font-mono">x-api-key</code>{" "}
+                header when POSTing to{" "}
+                <code className="font-mono">/api/ingest/chat</code>.
               </p>
             </div>
           </DialogContent>
@@ -2494,19 +2563,33 @@ function ServersTab({ orgId }) {
             <DialogHeader>
               <DialogTitle>New API Key Generated</DialogTitle>
               <DialogDescription>
-                The old key for <strong>{rotatedKeyReveal.serverName}</strong> is now invalid. Copy the new key — it will only be shown once.
+                The old key for <strong>{rotatedKeyReveal.serverName}</strong>{" "}
+                is now invalid. Copy the new key — it will only be shown once.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              <Label className="text-xs text-muted-foreground">New IronSight API Key</Label>
+              <Label className="text-xs text-muted-foreground">
+                New IronSight API Key
+              </Label>
               <div className="flex gap-2 items-center">
-                <Input readOnly value={rotatedKeyReveal.apiKey} className="font-mono text-xs" />
-                <Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(rotatedKeyReveal.apiKey)}>
+                <Input
+                  readOnly
+                  value={rotatedKeyReveal.apiKey}
+                  className="font-mono text-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    navigator.clipboard.writeText(rotatedKeyReveal.apiKey)
+                  }
+                >
                   Copy
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Update the <code className="font-mono">x-api-key</code> header in your chat ingest plugin immediately.
+                Update the <code className="font-mono">x-api-key</code> header
+                in your chat ingest plugin immediately.
               </p>
             </div>
           </DialogContent>
@@ -2520,11 +2603,16 @@ function ServersTab({ orgId }) {
             <DialogHeader>
               <DialogTitle>Delete server?</DialogTitle>
               <DialogDescription>
-                This will permanently remove <strong>{deleteConfirm.serverName}</strong> from IronSight. All associated chat logs will also be deleted. This cannot be undone.
+                This will permanently remove{" "}
+                <strong>{deleteConfirm.serverName}</strong> from IronSight. All
+                associated chat logs will also be deleted. This cannot be
+                undone.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+              <Button variant="ghost" onClick={() => setDeleteConfirm(null)}>
+                Cancel
+              </Button>
               <Button
                 variant="destructive"
                 disabled={deleting === deleteConfirm.serverId}
@@ -2548,7 +2636,10 @@ function ServersTab({ orgId }) {
           server={rconConfigFor}
           saving={rconSavingFor === rconConfigFor.serverId}
           error={rconSaveError}
-          onClose={() => { setRconConfigFor(null); setRconSaveError(null); }}
+          onClose={() => {
+            setRconConfigFor(null);
+            setRconSaveError(null);
+          }}
           onSave={(form) => saveRconConfig(rconConfigFor.serverId, form)}
         />
       )}
@@ -2562,12 +2653,20 @@ function ServersTab({ orgId }) {
             </span>
             {registeredServers.length > 0 && (
               <span className="ml-2 text-[10px] font-mono text-muted-foreground/60">
-                {registeredServers.length} server{registeredServers.length === 1 ? "" : "s"}
+                {registeredServers.length} server
+                {registeredServers.length === 1 ? "" : "s"}
               </span>
             )}
           </div>
-          <Button size="sm" variant="outline" onClick={loadRegistered} disabled={regLoading}>
-            <RefreshCw className={`size-3.5 ${regLoading ? "animate-spin" : "mr-1"}`} />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={loadRegistered}
+            disabled={regLoading}
+          >
+            <RefreshCw
+              className={`size-3.5 ${regLoading ? "animate-spin" : "mr-1"}`}
+            />
             {!regLoading && "Refresh"}
           </Button>
         </div>
@@ -2591,20 +2690,35 @@ function ServersTab({ orgId }) {
                   ? `${pteroStatus.panelUrl}/server/${s.pteroIdentifier}`
                   : null;
               const addedDate = s.createdAt
-                ? new Date(s.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                ? new Date(s.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
                 : "—";
               return (
-                <div key={s.serverId} className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-3 items-center">
+                <div
+                  key={s.serverId}
+                  className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-3 items-center"
+                >
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <div className="text-sm font-medium truncate">{s.serverName}</div>
+                      <div className="text-sm font-medium truncate">
+                        {s.serverName}
+                      </div>
                       {s.rconConfigured ? (
-                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">RCON</span>
+                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
+                          RCON
+                        </span>
                       ) : (
-                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-warning/10 text-warning ring-1 ring-warning/30">No RCON</span>
+                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-warning/10 text-warning ring-1 ring-warning/30">
+                          No RCON
+                        </span>
                       )}
                     </div>
-                    <div className="text-[10px] font-mono text-muted-foreground">{s.serverId.slice(0, 8)}…</div>
+                    <div className="text-[10px] font-mono text-muted-foreground">
+                      {s.serverId.slice(0, 8)}…
+                    </div>
                   </div>
                   <div className="min-w-0">
                     {panelLink ? (
@@ -2619,12 +2733,18 @@ function ServersTab({ orgId }) {
                         {s.pteroIdentifier}
                       </a>
                     ) : s.pteroIdentifier ? (
-                      <span className="text-[11px] font-mono text-muted-foreground truncate">{s.pteroIdentifier}</span>
+                      <span className="text-[11px] font-mono text-muted-foreground truncate">
+                        {s.pteroIdentifier}
+                      </span>
                     ) : (
-                      <span className="text-[11px] font-mono text-muted-foreground/40">—</span>
+                      <span className="text-[11px] font-mono text-muted-foreground/40">
+                        —
+                      </span>
                     )}
                   </div>
-                  <div className="text-[11px] text-muted-foreground">{addedDate}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {addedDate}
+                  </div>
                   <div className="flex items-center gap-1 justify-end w-24">
                     <Button
                       size="icon"
@@ -2663,7 +2783,12 @@ function ServersTab({ orgId }) {
                       variant="ghost"
                       className="size-7 text-destructive hover:bg-destructive/10"
                       title="Delete server"
-                      onClick={() => setDeleteConfirm({ serverId: s.serverId, serverName: s.serverName })}
+                      onClick={() =>
+                        setDeleteConfirm({
+                          serverId: s.serverId,
+                          serverName: s.serverName,
+                        })
+                      }
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -2715,8 +2840,8 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
         <DialogHeader>
           <DialogTitle>Configure RCON — {server.serverName}</DialogTitle>
           <DialogDescription>
-            RCON credentials are encrypted at rest. Password is required to
-            save changes.
+            RCON credentials are encrypted at rest. Password is required to save
+            changes.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
@@ -3116,317 +3241,4 @@ function NodeAddDialog({ open, onClose, onSave }) {
     </Dialog>
   );
 }
-function ClickableMini({ onClick, children }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-left rounded ring-1 ring-transparent hover:ring-brand/40 hover:bg-surface/40 transition-colors cursor-pointer"
-      title="Click to drill down"
-    >
-      {children}
-    </button>
-  );
-}
-const RANGES = [
-  {
-    id: "1h",
-    label: "1h",
-    points: 60,
-    tickFmt: (i, n) => `${-Math.round(n - i)}m`,
-  },
-  {
-    id: "6h",
-    label: "6h",
-    points: 72,
-    tickFmt: (i, n) => `${-Math.round((n - i) * 5)}m`,
-  },
-  {
-    id: "24h",
-    label: "24h",
-    points: 144,
-    tickFmt: (i, n) => `-${Math.round(((n - i) * 10) / 60)}h`,
-  },
-  {
-    id: "7d",
-    label: "7d",
-    points: 168,
-    tickFmt: (i, n) => `-${Math.round(n - i)}h`,
-  },
-  {
-    id: "30d",
-    label: "30d",
-    points: 240,
-    tickFmt: (i, n) => `-${Math.round((n - i) * 3)}h`,
-  },
-];
-function NodeDetailDialog({ detail, onClose }) {
-  const [range, setRange] = useState("24h");
-  const [activeMetric, setActiveMetric] = useState("cpu");
-  const [brush, setBrush] = useState(null);
-  useEffect(() => {
-    if (detail) {
-      setActiveMetric(detail.metric);
-      setRange("24h");
-      setBrush(null);
-    }
-  }, [detail]);
-  if (!detail) return null;
-  const { node } = detail;
-  const seedMetric = (seed, max2) => {
-    let h = 0;
-    for (let i = 0; i < seed.length; i++)
-      h = (h * 31 + seed.charCodeAt(i)) & 65535;
-    return Math.round(((h % 1e3) / 1e3) * max2);
-  };
-  const cpu = seedMetric(node.id + "cpu", 80);
-  const mem = seedMetric(node.id + "mem", 75);
-  const loss = seedMetric(node.id + "lossavg", 4);
-  const net = node.netInMbps + node.netOutMbps;
-  const METRICS = {
-    cpu: {
-      label: "CPU",
-      unit: "%",
-      color: "hsl(200 90% 60%)",
-      base: cpu,
-      jitter: 14,
-      yMax: 100,
-    },
-    mem: {
-      label: "Memory",
-      unit: "%",
-      color: "hsl(160 80% 55%)",
-      base: mem,
-      jitter: 8,
-      yMax: 100,
-    },
-    net: {
-      label: "Network",
-      unit: "Mbps",
-      color: "hsl(280 80% 65%)",
-      base: net,
-      jitter: net * 0.5,
-    },
-    loss: {
-      label: "Packet loss",
-      unit: "%",
-      color: "hsl(0 80% 60%)",
-      base: loss,
-      jitter: 3,
-      yMax: 12,
-    },
-  };
-  const m = METRICS[activeMetric];
-  const rangeDef = RANGES.find((r) => r.id === range);
-  const data = seedSeries(
-    node.id + activeMetric + range,
-    rangeDef.points,
-    m.base,
-    m.jitter,
-    0,
-  );
-  const slice = brush ? data.slice(brush.start, brush.end + 1) : data;
-  const min = slice.reduce((a, b) => Math.min(a, b.v), Infinity);
-  const max = slice.reduce((a, b) => Math.max(a, b.v), -Infinity);
-  const avg = slice.reduce((a, b) => a + b.v, 0) / slice.length;
-  const gid = `nd-${activeMetric}-${range}-${node.id}`;
-  return (
-    <Dialog open={!!detail} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Server className="size-4 text-brand" /> {node.name}
-            <span className="text-[10px] font-mono text-muted-foreground">
-              {node.code}
-            </span>
-          </DialogTitle>
-          <DialogDescription className="font-mono text-[11px]">
-            {node.cpu} · {node.ram} · {node.storage} · {node.link} · {node.ip}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
-          {/* metric switcher */}
-          <div className="flex items-center gap-1 ring-1 ring-border rounded p-0.5 bg-surface/30">
-            {Object.keys(METRICS).map((k) => {
-              const on = k === activeMetric;
-              return (
-                <button
-                  key={k}
-                  onClick={() => {
-                    setActiveMetric(k);
-                    setBrush(null);
-                  }}
-                  className={
-                    "px-2.5 py-1 text-[11px] font-mono rounded transition-colors " +
-                    (on
-                      ? "bg-background ring-1 ring-border text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground")
-                  }
-                  style={on ? { color: METRICS[k].color } : void 0}
-                >
-                  {METRICS[k].label}
-                </button>
-              );
-            })}
-          </div>
-          {/* range presets */}
-          <div className="flex items-center gap-1 ring-1 ring-border rounded p-0.5 bg-surface/30">
-            {RANGES.map((r) => {
-              const on = r.id === range;
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => {
-                    setRange(r.id);
-                    setBrush(null);
-                  }}
-                  className={
-                    "px-2 py-1 text-[10px] font-mono rounded " +
-                    (on
-                      ? "bg-background ring-1 ring-border text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground")
-                  }
-                >
-                  {r.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Stat strip */}
-        <div className="grid grid-cols-4 gap-2 pt-1">
-          {[
-            { k: "Current", v: `${m.base.toFixed(2)}${m.unit}` },
-            { k: "Min", v: `${min.toFixed(2)}${m.unit}` },
-            { k: "Avg", v: `${avg.toFixed(2)}${m.unit}` },
-            { k: "Max", v: `${max.toFixed(2)}${m.unit}` },
-          ].map((s) => (
-            <div
-              key={s.k}
-              className="ring-1 ring-border rounded bg-surface/30 px-2 py-1.5"
-            >
-              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-                {s.k}
-              </div>
-              <div
-                className="text-sm font-mono font-bold"
-                style={{ color: m.color }}
-              >
-                {s.v}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Main chart */}
-        <div className="ring-1 ring-border rounded-md bg-black/30 p-2">
-          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest mb-1">
-            <span className="text-muted-foreground">
-              {m.label} · {rangeDef.label}
-              {brush ? " \xB7 zoomed" : ""}
-            </span>
-            <span className="text-muted-foreground">
-              drag the brush below to zoom
-              {brush && (
-                <button
-                  onClick={() => setBrush(null)}
-                  className="ml-2 text-brand hover:underline"
-                >
-                  reset
-                </button>
-              )}
-            </span>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={data}
-                margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={m.color} stopOpacity={0.45} />
-                    <stop offset="100%" stopColor={m.color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  stroke="currentColor"
-                  strokeOpacity={0.08}
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="i"
-                  tick={{ fill: "currentColor", fontSize: 9, opacity: 0.6 }}
-                  tickFormatter={(i) => rangeDef.tickFmt(i, data.length - 1)}
-                  stroke="currentColor"
-                  strokeOpacity={0.2}
-                  minTickGap={32}
-                />
-                <YAxis
-                  domain={[0, m.yMax ?? "auto"]}
-                  tick={{ fill: "currentColor", fontSize: 9, opacity: 0.6 }}
-                  stroke="currentColor"
-                  strokeOpacity={0.2}
-                  width={36}
-                  tickFormatter={(v) =>
-                    `${v}${m.unit === "Mbps" ? "" : m.unit}`
-                  }
-                />
-                <RTooltip
-                  contentStyle={{
-                    background: "hsl(var(--background))",
-                    border: "1px solid hsl(var(--border))",
-                    fontSize: 11,
-                    fontFamily: "ui-monospace, monospace",
-                  }}
-                  labelFormatter={(i) =>
-                    rangeDef.tickFmt(Number(i), data.length - 1)
-                  }
-                  formatter={(v) => [`${v}${m.unit}`, m.label]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="v"
-                  stroke={m.color}
-                  strokeWidth={1.75}
-                  fill={`url(#${gid})`}
-                  isAnimationActive={false}
-                  dot={false}
-                />
-                <Brush
-                  dataKey="i"
-                  height={22}
-                  stroke={m.color}
-                  fill="transparent"
-                  travellerWidth={8}
-                  startIndex={brush?.start}
-                  endIndex={brush?.end}
-                  onChange={(r) => {
-                    if (r?.startIndex != null && r?.endIndex != null) {
-                      if (r.startIndex === 0 && r.endIndex === data.length - 1)
-                        setBrush(null);
-                      else setBrush({ start: r.startIndex, end: r.endIndex });
-                    }
-                  }}
-                  tickFormatter={(i) =>
-                    rangeDef.tickFmt(Number(i), data.length - 1)
-                  }
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 export { Route };
-
