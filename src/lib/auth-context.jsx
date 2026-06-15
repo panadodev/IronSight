@@ -1,9 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { OWNER_STEAM_ID, TEAM_META } from "./mock-data";
-const ORGS = [
-  { id: "builders_sanctuary", name: "Builders Sanctuary", short: "BS" },
-  { id: "willjums", name: "Willjums", short: "WJ" },
-];
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
 const BAN_CATEGORY_LABEL = {
   cheating: "Cheating",

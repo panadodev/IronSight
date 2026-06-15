@@ -46,6 +46,7 @@ import {
     RefreshCw,
     ScrollText,
     Server,
+    Settings,
     Target,
     Terminal,
     Trash2,
@@ -158,238 +159,7 @@ function seedSeries(seed, n, base, jitter, floor = 0) {
   return out;
 }
 const MOCK_TAGS = ["2x", "vanilla", "main", "eu", "us", "modded"];
-const MOCK_SERVERS_BY_ORG = {
-  builders_sanctuary: [
-    {
-      id: "s_bs_main",
-      name: "BS \xB7 Main EU",
-      ip: "51.83.12.4",
-      port: 28015,
-      rconPort: 28016,
-      tags: ["main", "eu", "vanilla"],
-      node: "n_fra1",
-    },
-    {
-      id: "s_bs_2x",
-      name: "BS \xB7 2x EU",
-      ip: "51.83.12.5",
-      port: 28015,
-      rconPort: 28016,
-      tags: ["2x", "eu"],
-      node: "n_fra1",
-    },
-    {
-      id: "s_bs_us",
-      name: "BS \xB7 Main US",
-      ip: "104.21.4.91",
-      port: 28015,
-      rconPort: 28016,
-      tags: ["main", "us", "vanilla"],
-      node: "n_nyc1",
-    },
-    {
-      id: "s_bs_2x_old",
-      name: "BS \xB7 2x (legacy)",
-      ip: "51.83.99.10",
-      port: 28015,
-      rconPort: 28016,
-      tags: ["2x", "eu", "modded"],
-      node: "n_fra2",
-    },
-    {
-      id: "s_bs_5x_old",
-      name: "BS \xB7 5x (legacy)",
-      ip: "51.83.99.11",
-      port: 28015,
-      rconPort: 28016,
-      tags: ["modded", "eu"],
-      node: "n_fra2",
-    },
-  ],
-  willjums: [
-    {
-      id: "s_wj_eu_solo",
-      name: "[EU] Willjum's Solo Only | Small Map | Thursday Wipes",
-      ip: "185.83.154.89",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["eu", "solo", "thursday"],
-      node: "n_fra1",
-    },
-    {
-      id: "s_wj_na_solo",
-      name: "[NA] Willjum's Solo Only | Small Map | Thursday Wipes",
-      ip: "156.236.84.33",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["us", "solo", "thursday"],
-      node: "n_nyc1",
-    },
-    {
-      id: "s_wj_na_2x",
-      name: "[NA] Willjum's 2x Solo/Duo/Trio | Small maps | Monday wipes",
-      ip: "156.236.84.39",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["us", "2x", "monday"],
-      node: "n_nyc1",
-    },
-    {
-      id: "s_wj_na_casual",
-      name: "[NA] Willjum's Casual Solo/Duo | Small Map | Monthly",
-      ip: "156.236.84.54",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["us", "casual", "monthly"],
-      node: "n_nyc1",
-    },
-    {
-      id: "s_wj_eu_casual",
-      name: "[EU] Willjum's Casual Solo/Duo | Small Map | Monthly",
-      ip: "185.83.154.88",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["eu", "casual", "monthly"],
-      node: "n_fra1",
-    },
-    {
-      id: "s_wj_eu_15x",
-      name: "[EU] Willjum's 1.5x Solo/Duo/Trio",
-      ip: "185.83.154.87",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["eu", "1.5x"],
-      node: "n_fra1",
-    },
-    {
-      id: "s_wj_na_3x",
-      name: "[NA] Willjum's 3x Fridays",
-      ip: "156.236.84.48",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["us", "3x", "friday"],
-      node: "n_nyc1",
-    },
-    {
-      id: "s_wj_eu_2x",
-      name: "[EU] Willjum's 2x Solo/Duo/Trio | Small Maps | Monday wipes",
-      ip: "185.83.154.86",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["eu", "2x", "monday"],
-      node: "n_fra2",
-    },
-    {
-      id: "s_wj_eu_1grid",
-      name: "[EU] 2x Willjums 1grid Solo/Duo/Trio",
-      ip: "185.83.154.90",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["eu", "2x", "1grid"],
-      node: "n_fra2",
-    },
-    {
-      id: "s_wj_na_1grid",
-      name: "[NA] 2x Willjums 1grid Solo/Duo/Trio",
-      ip: "156.236.84.42",
-      port: 28014,
-      rconPort: 28015,
-      tags: ["us", "2x", "1grid"],
-      node: "n_nyc1",
-    },
-  ],
-};
-const MOCK_SCRIPTS = [
-  {
-    id: "sc_maxpop",
-    name: "maxpop 200",
-    command: "maxplayers 200",
-    description: "Raise pop cap before wipe",
-    minRank: 2,
-  },
-  {
-    id: "sc_save",
-    name: "force save",
-    command: "server.save",
-    description: "Force a world save",
-    minRank: 1,
-  },
-  {
-    id: "sc_restart",
-    name: "restart w/ warning",
-    command: "say Restart in {minutes} min \u2014 {reason}\nrestart {minutes}",
-    description: "Broadcast then restart. Variables: {minutes}, {reason}",
-    minRank: 3,
-  },
-  {
-    id: "sc_wipe",
-    name: "full wipe",
-    command: "say Wipe in 30s\nserver.save\nwipe map\nrestart 30",
-    description: "Multi-step wipe sequence",
-    minRank: 4,
-  },
-];
-const MOCK_PLUGINS = [
-  {
-    id: "p_admin",
-    name: "AdminMenu",
-    source: "umod",
-    umodSlug: "admin-menu",
-    installedVersion: "2.1.3",
-    latestVersion: "2.1.4",
-    latestUpdatedAt: "2026-05-26T11:00:00Z",
-    assignedTags: ["2x", "main"],
-    risk: 1,
-    enabled: true,
-  },
-  {
-    id: "p_kits",
-    name: "Kits",
-    source: "umod",
-    umodSlug: "kits",
-    installedVersion: "4.2.9",
-    latestVersion: "4.2.9",
-    latestUpdatedAt: "2026-04-12T14:00:00Z",
-    assignedTags: ["2x"],
-    risk: 1,
-    enabled: true,
-  },
-  {
-    id: "p_disc",
-    name: "DiscordCore",
-    source: "umod",
-    umodSlug: "discord-core",
-    installedVersion: "3.0.1",
-    latestVersion: "3.1.0",
-    latestUpdatedAt: "2026-05-27T08:30:00Z",
-    assignedTags: ["main", "2x", "modded"],
-    risk: 2,
-    enabled: true,
-  },
-  {
-    id: "p_zone",
-    name: "ZoneManager",
-    source: "umod",
-    umodSlug: "zone-manager",
-    installedVersion: "3.0.5",
-    latestVersion: "3.0.5",
-    latestUpdatedAt: "2026-02-01T09:00:00Z",
-    assignedTags: ["modded"],
-    risk: 2,
-    enabled: true,
-  },
-  {
-    id: "p_wj_custom",
-    name: "WillJum.Anticheat",
-    source: "custom",
-    installedVersion: "0.4.2",
-    latestVersion: "0.4.2",
-    latestUpdatedAt: "2026-05-20T10:00:00Z",
-    assignedTags: ["main", "eu", "us"],
-    risk: 3,
-    enabled: true,
-  },
-];
+
 const PANEL_ORG_KEY = "panel.selectedOrgId";
 function PanelPage() {
   const { orgs, manageableOrgIds, myOrgIds } = useAuth();
@@ -416,9 +186,40 @@ function PanelPage() {
     setOrgIdState(id);
     if (typeof window !== "undefined") localStorage.setItem(PANEL_ORG_KEY, id);
   };
+
+  const [allServers, setAllServers] = useState([]);
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    fetch("/api/servers", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        if (!cancelled)
+          setAllServers(
+            (d.servers ?? []).map((s) => ({
+              id: s.serverId,
+              name: s.serverName,
+              ownerOrgId: s.ownerOrgId,
+              ip: s.rconHost ?? "",
+              port: s.gamePort ?? 28015,
+              rconPort: s.rconPort ?? 28016,
+              tags: Array.isArray(s.tags) ? s.tags : [],
+              rconConfigured: s.rconConfigured ?? false,
+            })),
+          );
+      })
+      .catch(() => {
+        if (!cancelled) setAllServers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
   if (allowedOrgs.length === 0) {
     const isScripts = tab === "scripts";
     return (
+      <SteamRequiredGate>
       <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
         <SiteNav />
         <main className="flex-1 overflow-y-auto">
@@ -439,10 +240,11 @@ function PanelPage() {
           </div>
         </main>
       </div>
+      </SteamRequiredGate>
     );
   }
   const activeOrg = allowedOrgs.find((o) => o.id === orgId) ?? allowedOrgs[0];
-  const servers = MOCK_SERVERS_BY_ORG[activeOrg.id] ?? [];
+  const servers = allServers.filter((s) => s.ownerOrgId === activeOrg.id);
   return (
     <SteamRequiredGate>
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
@@ -458,7 +260,7 @@ function PanelPage() {
             />
           </div>
 
-          {tab === "rcon" && <RconTab key={activeOrg.id} servers={servers} />}
+          {tab === "rcon" && <RconTab key={activeOrg.id} servers={servers} orgId={activeOrg.id} />}
           {tab === "scripts" && (
             <ScriptsTab
               key={activeOrg.id}
@@ -467,7 +269,7 @@ function PanelPage() {
             />
           )}
           {tab === "presets" && (
-            <PresetsTab key={activeOrg.id} servers={servers} />
+            <PresetsTab key={activeOrg.id} servers={servers} orgId={activeOrg.id} />
           )}
           {tab === "status" && (
             <StatusTab key={activeOrg.id} servers={servers} />
@@ -532,43 +334,73 @@ function OrgSwitcher({ orgs, value, onChange }) {
     </Popover>
   );
 }
-function RconTab({ servers }) {
+function RconTab({ servers, orgId }) {
   const [selected, setSelected] = useState(servers[0]?.id ?? "");
-  const [lines, setLines] = useState([
-    "[INFO] Connected to RCON",
-    "[INFO] Server is running on map procedural_map (size 4500, seed 1337)",
-    "[INFO] Population: 142/200",
-  ]);
+  const [lines, setLines] = useState([]);
   const [cmd, setCmd] = useState("");
+  const [sending, setSending] = useState(false);
   const [pendingScript, setPendingScript] = useState(null);
+  const [scripts, setScripts] = useState([]);
   const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/orgs/${orgId}/scripts`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setScripts(d.scripts ?? []))
+      .catch(() => setScripts([]));
+  }, [orgId]);
+
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [lines]);
-  const send = () => {
-    if (!cmd.trim()) return;
-    setLines((prev) => [
-      ...prev,
-      `> ${cmd}`,
-      `[RCON] command "${cmd.split(" ")[0]}" executed`,
-    ]);
-    setCmd("");
+
+  const log = (line) => setLines((prev) => [...prev, line]);
+
+  const execCommand = async (serverId, command) => {
+    const res = await fetch(`/api/servers/${serverId}/rcon/exec`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error ?? "RCON error");
+    return String(data.response ?? "");
   };
-  const runScript = (script, vars) => {
+
+  const send = async () => {
+    const c = cmd.trim();
+    if (!c || sending) return;
+    setCmd("");
+    setSending(true);
+    log(`> ${c}`);
+    try {
+      const response = await execCommand(selected, c);
+      if (response) log(`[RCON] ${response}`);
+    } catch (err) {
+      log(`[ERR] ${String(err?.message ?? err)}`);
+    } finally {
+      setSending(false);
+    }
+  };
+  const runScript = async (script, vars) => {
     const cmds = applyVars(script.command, vars)
       .split("\n")
       .map((c) => c.trim())
       .filter(Boolean);
-    setLines((prev) => [
-      ...prev,
-      `[SCRIPT] \u25B6 ${script.name} on ${server?.name}`,
-      ...cmds.flatMap((c) => [
-        `> ${c}`,
-        `[RCON] command "${c.split(" ")[0]}" executed`,
-      ]),
-    ]);
     setPendingScript(null);
+    log(`[SCRIPT] \u25B6 ${script.name} on ${server?.name}`);
+    for (const c of cmds) {
+      log(`> ${c}`);
+      try {
+        const response = await execCommand(selected, c);
+        if (response) log(`[RCON] ${response}`);
+      } catch (err) {
+        log(`[ERR] ${String(err?.message ?? err)}`);
+      }
+    }
   };
   const onPickScript = (script) => {
     if (extractVars(script.command).length === 0) {
@@ -597,11 +429,16 @@ function RconTab({ servers }) {
                 : "hover:bg-surface")
             }
           >
-            <CircleDot className="size-3 text-success" />
+            <CircleDot
+              className={
+                "size-3 " +
+                (s.rconConfigured ? "text-success" : "text-muted-foreground/40")
+              }
+            />
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate">{s.name}</div>
               <div className="text-[10px] font-mono text-muted-foreground truncate">
-                {s.ip}:{s.port}
+                {s.rconConfigured ? `${s.ip}:${s.rconPort}` : "No RCON"}
               </div>
             </div>
           </button>
@@ -613,12 +450,21 @@ function RconTab({ servers }) {
           <div className="flex items-center gap-2 min-w-0">
             <Terminal className="size-3.5 text-brand shrink-0" />
             <span className="text-xs font-mono truncate">{server?.name}</span>
-            <Badge variant="outline" className="text-[9px] font-mono shrink-0">
-              RCON · {server?.ip}:{server?.rconPort}
-            </Badge>
+            {server?.rconConfigured ? (
+              <Badge variant="outline" className="text-[9px] font-mono shrink-0">
+                RCON · {server.ip}:{server.rconPort}
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="text-[9px] font-mono shrink-0 border-warning/40 text-warning"
+              >
+                RCON not configured
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <ScriptPickerButton scripts={MOCK_SCRIPTS} onPick={onPickScript} />
+            <ScriptPickerButton scripts={scripts} onPick={onPickScript} />
             <Button size="sm" variant="ghost" onClick={() => setLines([])}>
               Clear
             </Button>
@@ -628,6 +474,13 @@ function RconTab({ servers }) {
           ref={scrollRef}
           className="h-[420px] overflow-y-auto p-3 font-mono text-[11px] leading-relaxed bg-black/40"
         >
+          {lines.length === 0 && (
+            <div className="text-muted-foreground/40">
+              {server?.rconConfigured
+                ? "Ready. Type a command below or pick a script."
+                : "Configure RCON credentials for this server in the Servers tab."}
+            </div>
+          )}
           {lines.map((l, i) => (
             <div
               key={i}
@@ -638,7 +491,9 @@ function RconTab({ servers }) {
                     ? "text-success"
                     : l.includes("[SCRIPT]")
                       ? "text-warning"
-                      : "text-muted-foreground"
+                      : l.includes("[ERR]")
+                        ? "text-destructive"
+                        : "text-muted-foreground"
               }
             >
               {l}
@@ -653,11 +508,20 @@ function RconTab({ servers }) {
             value={cmd}
             onChange={(e) => setCmd(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder="Type an RCON command…"
+            placeholder={
+              server?.rconConfigured
+                ? "Type an RCON command…"
+                : "Configure RCON first"
+            }
+            disabled={!server?.rconConfigured || sending}
             className="font-mono text-xs"
           />
-          <Button size="sm" onClick={send}>
-            Send
+          <Button
+            size="sm"
+            onClick={send}
+            disabled={!server?.rconConfigured || sending || !cmd.trim()}
+          >
+            {sending ? "…" : "Send"}
           </Button>
         </div>
       </div>
@@ -756,22 +620,100 @@ function ScriptPickerButton({ scripts, onPick }) {
 function ScriptsTab({ servers, orgId }) {
   const { rankOf } = useAuth();
   const userRank = rankOf(orgId);
-  const [scripts, setScripts] = useState(MOCK_SCRIPTS);
+  const [scripts, setScripts] = useState([]);
+  const [scriptsLoading, setScriptsLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [pendingRun, setPendingRun] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setScriptsLoading(true);
+    fetch(`/api/orgs/${orgId}/scripts`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        if (!cancelled) setScripts(d.scripts ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setScripts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setScriptsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
   const allTags = useMemo(
     () => Array.from(new Set(servers.flatMap((s) => s.tags))),
     [servers],
   );
-  const executeRun = (script, targets, vars) => {
+
+  const deleteScript = async (scriptId) => {
+    setScripts((p) => p.filter((x) => x.id !== scriptId));
+    await fetch(`/api/orgs/${orgId}/scripts/${scriptId}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => null);
+  };
+
+  const saveScript = async (draft) => {
+    if (editing) {
+      const res = await fetch(`/api/orgs/${orgId}/scripts/${editing.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name,
+          command: draft.command,
+          description: draft.description,
+          minRank: draft.minRank,
+        }),
+      });
+      if (res.ok) {
+        const { script } = await res.json();
+        setScripts((p) => p.map((x) => (x.id === editing.id ? script : x)));
+      }
+    } else {
+      const res = await fetch(`/api/orgs/${orgId}/scripts`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name,
+          command: draft.command,
+          description: draft.description,
+          minRank: draft.minRank,
+        }),
+      });
+      if (res.ok) {
+        const { script } = await res.json();
+        setScripts((p) => [...p, script]);
+      }
+    }
+    setCreating(false);
+    setEditing(null);
+  };
+
+  const executeRun = async (script, targets, vars) => {
     const cmds = applyVars(script.command, vars)
       .split("\n")
       .map((c) => c.trim())
       .filter(Boolean);
-    console.log("[mock] running", cmds, "on", targets);
     setPendingRun(null);
+    for (const serverId of targets) {
+      for (const cmd of cmds) {
+        await fetch(`/api/servers/${serverId}/rcon/exec`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ command: cmd }),
+        }).catch(() => null);
+      }
+    }
   };
+
   const triggerRun = (script, targets, targetLabel) => {
     if (!targets.length) return;
     if (userRank < script.minRank) return;
@@ -796,13 +738,16 @@ function ScriptsTab({ servers, orgId }) {
         </Button>
       </div>
 
+      {scriptsLoading && (
+        <p className="text-xs text-muted-foreground">Loading scripts…</p>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {scripts
-          .filter((s) => userRank >= s.minRank)
           .map((s) => {
             const lines = s.command.split("\n").filter(Boolean);
             const vars = extractVars(s.command);
-            const allowed = true;
+            const allowed = userRank >= s.minRank;
             return (
               <div
                 key={s.id}
@@ -865,9 +810,7 @@ function ScriptsTab({ servers, orgId }) {
                       size="icon"
                       variant="ghost"
                       className="size-7 text-destructive"
-                      onClick={() =>
-                        setScripts((p) => p.filter((x) => x.id !== s.id))
-                      }
+                      onClick={() => deleteScript(s.id)}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -935,22 +878,7 @@ function ScriptsTab({ servers, orgId }) {
           setCreating(false);
           setEditing(null);
         }}
-        onSave={(s) => {
-          if (editing) {
-            setScripts((p) =>
-              p.map((x) =>
-                x.id === editing.id ? { ...s, id: editing.id } : x,
-              ),
-            );
-          } else {
-            setScripts((p) => [
-              ...p,
-              { ...s, id: "sc_" + Math.random().toString(36).slice(2, 7) },
-            ]);
-          }
-          setCreating(false);
-          setEditing(null);
-        }}
+        onSave={saveScript}
       />
     </div>
   );
@@ -1210,61 +1138,131 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
     </Dialog>
   );
 }
-function PresetsTab({ servers }) {
-  const [plugins, setPlugins] = useState(MOCK_PLUGINS);
+function PresetsTab({ servers, orgId }) {
+  const [plugins, setPlugins] = useState([]);
+  const [pluginsLoading, setPluginsLoading] = useState(true);
   const [groupTags, setGroupTags] = useState(
     Array.from(new Set(servers.flatMap((s) => s.tags))),
   );
   const [newGroupTag, setNewGroupTag] = useState("");
   const [addingCustom, setAddingCustom] = useState(false);
-  const update = (p) => {
-    const affected = servers.filter((s) =>
-      s.tags.some((t) => p.assignedTags.includes(t)),
-    );
-    console.log(
-      "[mock] pushing",
-      p.name,
-      p.latestVersion,
-      "to",
-      affected.map((s) => s.name),
-    );
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setPluginsLoading(true);
+    fetch(`/api/orgs/${orgId}/plugins`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        if (!cancelled) {
+          setPlugins(d.plugins ?? []);
+          setPluginsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPluginsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  const patchPlugin = async (pluginId, fields) => {
+    await fetch(`/api/orgs/${orgId}/plugins/${pluginId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+  };
+
+  const update = async (p) => {
     setPlugins((prev) =>
       prev.map((x) =>
         x.id === p.id ? { ...x, installedVersion: x.latestVersion } : x,
       ),
     );
+    await fetch(`/api/orgs/${orgId}/plugins/${p.id}/push`, {
+      method: "POST",
+      credentials: "include",
+    });
   };
-  const toggleTag = (pluginId, t) => {
+
+  const toggleTag = async (pluginId, t) => {
+    const plugin = plugins.find((p) => p.id === pluginId);
+    if (!plugin) return;
+    const newTags = plugin.assignedTags.includes(t)
+      ? plugin.assignedTags.filter((x) => x !== t)
+      : [...plugin.assignedTags, t];
     setPlugins((prev) =>
       prev.map((p) =>
-        p.id !== pluginId
-          ? p
-          : {
-              ...p,
-              assignedTags: p.assignedTags.includes(t)
-                ? p.assignedTags.filter((x) => x !== t)
-                : [...p.assignedTags, t],
-            },
+        p.id === pluginId ? { ...p, assignedTags: newTags } : p,
       ),
     );
+    await patchPlugin(pluginId, { assignedTags: newTags });
   };
-  const setRisk = (pluginId, r) => {
+
+  const setRisk = async (pluginId, r) => {
     setPlugins((prev) =>
       prev.map((p) => (p.id === pluginId ? { ...p, risk: r } : p)),
     );
+    await patchPlugin(pluginId, { risk: r });
   };
-  const unloadRisk = (r) => {
+
+  const unloadRisk = async (r) => {
     setPlugins((prev) =>
       prev.map((p) => (p.risk === r ? { ...p, enabled: false } : p)),
     );
+    await fetch(`/api/orgs/${orgId}/plugins/unload-risk`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ risk: r }),
+    });
   };
-  const togglePlugin = (id) => {
+
+  const togglePlugin = async (id) => {
+    const plugin = plugins.find((p) => p.id === id);
+    if (!plugin) return;
+    const newEnabled = !plugin.enabled;
     setPlugins((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p)),
+      prev.map((p) => (p.id === id ? { ...p, enabled: newEnabled } : p)),
     );
+    await patchPlugin(id, { enabled: newEnabled });
   };
+
+  const addPlugin = async (draft) => {
+    const res = await fetch(`/api/orgs/${orgId}/plugins`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    setPlugins((prev) => [
+      ...prev,
+      {
+        id: data.pluginId,
+        name: draft.name,
+        source: draft.source ?? "custom",
+        umodSlug: draft.umodSlug ?? null,
+        installedVersion: draft.installedVersion ?? null,
+        latestVersion: draft.latestVersion ?? null,
+        latestUpdatedAt: draft.latestUpdatedAt ?? null,
+        assignedTags: draft.assignedTags ?? [],
+        risk: draft.risk ?? 2,
+        enabled: true,
+      },
+    ]);
+  };
+
   const riskCount = (r) =>
     plugins.filter((p) => p.risk === r && p.enabled).length;
+  if (pluginsLoading)
+    return (
+      <p className="text-sm text-muted-foreground py-4">Loading plugins…</p>
+    );
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1476,11 +1474,8 @@ function PresetsTab({ servers }) {
         open={addingCustom}
         groupTags={groupTags}
         onClose={() => setAddingCustom(false)}
-        onSave={(p) => {
-          setPlugins((prev) => [
-            ...prev,
-            { ...p, id: "p_" + Math.random().toString(36).slice(2, 7) },
-          ]);
+        onSave={async (p) => {
+          await addPlugin(p);
           setAddingCustom(false);
         }}
       />
@@ -2105,6 +2100,47 @@ function ServersTab({ orgId }) {
   const [rotatingKey, setRotatingKey] = useState(null);
   const [rotatedKeyReveal, setRotatedKeyReveal] = useState(null); // { apiKey, serverName }
 
+  const [rconConfigFor, setRconConfigFor] = useState(null); // { serverId, serverName, rconHost, rconPort, gamePort, tags }
+  const [rconSavingFor, setRconSavingFor] = useState(null);
+  const [rconSaveError, setRconSaveError] = useState(null);
+
+  const saveRconConfig = async (serverId, form) => {
+    setRconSavingFor(serverId);
+    setRconSaveError(null);
+    try {
+      const res = await fetch(`/api/servers/${serverId}/rcon`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRconSaveError(data?.error ?? "Failed to save");
+        return;
+      }
+      setRegisteredServers((prev) =>
+        prev.map((s) =>
+          s.serverId === serverId
+            ? {
+                ...s,
+                rconHost: form.rconHost,
+                rconPort: form.rconPort,
+                gamePort: form.gamePort ?? s.gamePort,
+                tags: form.tags ?? s.tags,
+                rconConfigured: true,
+              }
+            : s,
+        ),
+      );
+      setRconConfigFor(null);
+    } catch {
+      setRconSaveError("Network error");
+    } finally {
+      setRconSavingFor(null);
+    }
+  };
+
   // Load ptero connection status
   useEffect(() => {
     let cancelled = false;
@@ -2241,7 +2277,7 @@ function ServersTab({ orgId }) {
         </div>
 
         {pteroStatus === null ? (
-          <p className="text-xs text-muted-foreground">Loading�</p>
+          <p className="text-xs text-muted-foreground">Loading…</p>
         ) : pteroStatus.connected ? (
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-mono text-muted-foreground">{pteroStatus.panelUrl}</span>
@@ -2275,7 +2311,7 @@ function ServersTab({ orgId }) {
                   type="password"
                   value={pteroForm.apiKey}
                   onChange={(e) => setPteroForm({ ...pteroForm, apiKey: e.target.value })}
-                  placeholder="ptla_�"
+                  placeholder="ptla_…"
                   className="text-xs font-mono h-8"
                 />
               </div>
@@ -2286,7 +2322,7 @@ function ServersTab({ orgId }) {
               disabled={pteroSaving || !pteroForm.panelUrl || !pteroForm.apiKey}
               onClick={savePtero}
             >
-              {pteroSaving ? "Connecting�" : "Connect"}
+              {pteroSaving ? "Connecting…" : "Connect"}
             </Button>
           </div>
         )}
@@ -2506,6 +2542,17 @@ function ServersTab({ orgId }) {
         </Dialog>
       )}
 
+      {/* RCON config dialog */}
+      {rconConfigFor && (
+        <RconConfigDialog
+          server={rconConfigFor}
+          saving={rconSavingFor === rconConfigFor.serverId}
+          error={rconSaveError}
+          onClose={() => { setRconConfigFor(null); setRconSaveError(null); }}
+          onSave={(form) => saveRconConfig(rconConfigFor.serverId, form)}
+        />
+      )}
+
       {/* Registered IronSight servers */}
       <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -2549,7 +2596,14 @@ function ServersTab({ orgId }) {
               return (
                 <div key={s.serverId} className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-3 items-center">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{s.serverName}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="text-sm font-medium truncate">{s.serverName}</div>
+                      {s.rconConfigured ? (
+                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">RCON</span>
+                      ) : (
+                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-warning/10 text-warning ring-1 ring-warning/30">No RCON</span>
+                      )}
+                    </div>
                     <div className="text-[10px] font-mono text-muted-foreground">{s.serverId.slice(0, 8)}…</div>
                   </div>
                   <div className="min-w-0">
@@ -2571,7 +2625,25 @@ function ServersTab({ orgId }) {
                     )}
                   </div>
                   <div className="text-[11px] text-muted-foreground">{addedDate}</div>
-                  <div className="flex items-center gap-1 justify-end w-20">
+                  <div className="flex items-center gap-1 justify-end w-24">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      title="Configure RCON"
+                      onClick={() =>
+                        setRconConfigFor({
+                          serverId: s.serverId,
+                          serverName: s.serverName,
+                          rconHost: s.rconHost ?? "",
+                          rconPort: s.rconPort ?? 28016,
+                          gamePort: s.gamePort ?? 28015,
+                          tags: s.tags ?? [],
+                        })
+                      }
+                    >
+                      <Settings className="size-3.5 text-muted-foreground" />
+                    </Button>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -2605,6 +2677,138 @@ function ServersTab({ orgId }) {
     </div>
   );
 }
+function RconConfigDialog({ server, saving, error, onClose, onSave }) {
+  const [form, setForm] = useState({
+    rconHost: server.rconHost ?? "",
+    rconPort: server.rconPort ?? 28016,
+    rconPassword: "",
+    gamePort: server.gamePort ?? 28015,
+    tags: (server.tags ?? []).join(", "),
+  });
+  useEffect(() => {
+    setForm({
+      rconHost: server.rconHost ?? "",
+      rconPort: server.rconPort ?? 28016,
+      rconPassword: "",
+      gamePort: server.gamePort ?? 28015,
+      tags: (server.tags ?? []).join(", "),
+    });
+  }, [server.serverId]);
+
+  const submit = () => {
+    const tags = form.tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    onSave({
+      rconHost: form.rconHost.trim(),
+      rconPort: Number(form.rconPort),
+      rconPassword: form.rconPassword,
+      gamePort: Number(form.gamePort),
+      tags,
+    });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Configure RCON — {server.serverName}</DialogTitle>
+          <DialogDescription>
+            RCON credentials are encrypted at rest. Password is required to
+            save changes.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                RCON Host
+              </Label>
+              <Input
+                value={form.rconHost}
+                onChange={(e) => setForm({ ...form, rconHost: e.target.value })}
+                placeholder="51.83.12.4"
+                className="font-mono text-xs h-8"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                RCON Port
+              </Label>
+              <Input
+                type="number"
+                value={form.rconPort}
+                onChange={(e) =>
+                  setForm({ ...form, rconPort: Number(e.target.value) })
+                }
+                className="font-mono text-xs h-8"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                RCON Password
+              </Label>
+              <Input
+                type="password"
+                value={form.rconPassword}
+                onChange={(e) =>
+                  setForm({ ...form, rconPassword: e.target.value })
+                }
+                placeholder="leave blank to keep existing"
+                className="font-mono text-xs h-8"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Game Port
+              </Label>
+              <Input
+                type="number"
+                value={form.gamePort}
+                onChange={(e) =>
+                  setForm({ ...form, gamePort: Number(e.target.value) })
+                }
+                className="font-mono text-xs h-8"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Tags (comma-separated)
+            </Label>
+            <Input
+              value={form.tags}
+              onChange={(e) => setForm({ ...form, tags: e.target.value })}
+              placeholder="main, eu, vanilla"
+              className="font-mono text-xs h-8"
+            />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={
+              saving ||
+              !form.rconHost.trim() ||
+              !form.rconPort ||
+              !form.rconPassword
+            }
+            onClick={submit}
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ServerEditDialog({ open, initial, tags, nodes, onClose, onSave }) {
   const [draft, setDraft] = useState({
     id: "",

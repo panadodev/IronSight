@@ -764,6 +764,21 @@ async function ensureSchema() {
   await pool.query(
     `ALTER TABLE servers ADD COLUMN IF NOT EXISTS ptero_identifier TEXT`,
   );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS rcon_host TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS rcon_port INTEGER`,
+  );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS rcon_password_enc TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS game_port INTEGER`,
+  );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
+  );
 
   // ── Text chat log ─────────────────────────────────────────────────────────
 
@@ -815,6 +830,47 @@ async function ensureSchema() {
   );
   await pool.query(
     `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL`,
+  );
+
+  // ── RCON scripts ────────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_scripts (
+      script_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      min_rank INTEGER NOT NULL DEFAULT 1,
+      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_scripts_org_id ON org_scripts(org_id)`,
+  );
+
+  // ── Plugin presets ──────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_plugins (
+      plugin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'umod',
+      umod_slug TEXT,
+      installed_version TEXT,
+      latest_version TEXT,
+      latest_updated_at TIMESTAMPTZ,
+      assigned_tags JSONB NOT NULL DEFAULT '[]',
+      risk INTEGER NOT NULL DEFAULT 2 CHECK (risk IN (1,2,3)),
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(org_id, name)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_plugins_org_id ON org_plugins(org_id)`,
   );
 }
 
@@ -4269,7 +4325,9 @@ async function handleListServers(request) {
   const orgIds = userOrgs.map((o) => o.orgId);
 
   const { rows } = await pool.query(
-    `SELECT server_id, server_name, owner_org_id, created_at, ptero_identifier
+    `SELECT server_id, server_name, owner_org_id, created_at, ptero_identifier,
+            rcon_host, rcon_port, game_port, tags,
+            (rcon_password_enc IS NOT NULL AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL) AS rcon_configured
      FROM servers
      WHERE owner_org_id = ANY($1::text[])
      ORDER BY server_name ASC`,
@@ -4283,8 +4341,735 @@ async function handleListServers(request) {
       ownerOrgId: String(row.owner_org_id),
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
       pteroIdentifier: row.ptero_identifier ?? null,
+      rconConfigured: row.rcon_configured === true,
+      rconHost: row.rcon_host ?? null,
+      rconPort: row.rcon_port ?? null,
+      gamePort: row.game_port ?? null,
+      tags: Array.isArray(row.tags) ? row.tags : [],
     })),
   });
+}
+
+// ── Scripts ──────────────────────────────────────────────────────────────────
+
+async function handleListScripts(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const memberRes = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
+    [orgId, session.userId],
+  );
+  if (!memberRes.rows[0] && !canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT script_id, name, command, description, min_rank, created_at, updated_at
+     FROM org_scripts WHERE org_id = $1 ORDER BY name ASC`,
+    [orgId],
+  );
+
+  return json({
+    scripts: rows.map((row) => ({
+      id: String(row.script_id),
+      name: String(row.name),
+      command: String(row.command),
+      description: String(row.description),
+      minRank: Number(row.min_rank),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    })),
+  });
+}
+
+async function handleCreateScript(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const name = String(body?.name ?? "").trim();
+  const command = String(body?.command ?? "").trim();
+  const description = String(body?.description ?? "").trim();
+  const minRank = Number(body?.minRank ?? 1);
+
+  if (!name) return json({ error: "name is required" }, 400);
+  if (!command) return json({ error: "command is required" }, 400);
+  if (name.length > 128)
+    return json({ error: "name must be 128 characters or fewer" }, 400);
+  if (!Number.isInteger(minRank) || minRank < 1 || minRank > 5)
+    return json({ error: "minRank must be 1–5" }, 400);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_scripts (org_id, name, command, description, min_rank, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING script_id, name, command, description, min_rank, created_at, updated_at`,
+    [orgId, name, command, description, minRank, session.userId],
+  );
+  const row = rows[0];
+
+  return json(
+    {
+      script: {
+        id: String(row.script_id),
+        name: String(row.name),
+        command: String(row.command),
+        description: String(row.description),
+        minRank: Number(row.min_rank),
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString(),
+      },
+    },
+    201,
+  );
+}
+
+async function handleUpdateScript(request, orgId, scriptId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const existingRes = await pool.query(
+    `SELECT script_id FROM org_scripts WHERE script_id = $1 AND org_id = $2`,
+    [scriptId, orgId],
+  );
+  if (!existingRes.rows[0]) return json({ error: "Script not found" }, 404);
+
+  const setClauses = [];
+  const params = [];
+
+  if (body?.name !== undefined) {
+    const name = String(body.name).trim();
+    if (!name) return json({ error: "name is required" }, 400);
+    if (name.length > 128)
+      return json({ error: "name must be 128 characters or fewer" }, 400);
+    params.push(name);
+    setClauses.push(`name = $${params.length}`);
+  }
+  if (body?.command !== undefined) {
+    const command = String(body.command).trim();
+    if (!command) return json({ error: "command is required" }, 400);
+    params.push(command);
+    setClauses.push(`command = $${params.length}`);
+  }
+  if (body?.description !== undefined) {
+    params.push(String(body.description).trim());
+    setClauses.push(`description = $${params.length}`);
+  }
+  if (body?.minRank !== undefined) {
+    const minRank = Number(body.minRank);
+    if (!Number.isInteger(minRank) || minRank < 1 || minRank > 5)
+      return json({ error: "minRank must be 1–5" }, 400);
+    params.push(minRank);
+    setClauses.push(`min_rank = $${params.length}`);
+  }
+
+  if (setClauses.length === 0)
+    return json({ error: "No fields to update" }, 400);
+  setClauses.push(`updated_at = NOW()`);
+
+  params.push(scriptId);
+  params.push(orgId);
+
+  const { rows } = await pool.query(
+    `UPDATE org_scripts SET ${setClauses.join(", ")}
+     WHERE script_id = $${params.length - 1} AND org_id = $${params.length}
+     RETURNING script_id, name, command, description, min_rank, created_at, updated_at`,
+    params,
+  );
+  const row = rows[0];
+
+  return json({
+    script: {
+      id: String(row.script_id),
+      name: String(row.name),
+      command: String(row.command),
+      description: String(row.description),
+      minRank: Number(row.min_rank),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+    },
+  });
+}
+
+async function handleDeleteScript(request, orgId, scriptId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const res = await pool.query(
+    `DELETE FROM org_scripts WHERE script_id = $1 AND org_id = $2`,
+    [scriptId, orgId],
+  );
+  if (res.rowCount === 0) return json({ error: "Script not found" }, 404);
+
+  return json({ ok: true });
+}
+
+// ── Plugin presets ────────────────────────────────────────────────────────────
+
+async function handleListPlugins(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const memberRes = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
+    [orgId, session.userId],
+  );
+  if (!memberRes.rows[0] && !canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT plugin_id, name, source, umod_slug, installed_version, latest_version,
+            latest_updated_at, assigned_tags, risk, enabled, created_at
+     FROM org_plugins WHERE org_id = $1 ORDER BY name ASC`,
+    [orgId],
+  );
+
+  return json({
+    plugins: rows.map((r) => ({
+      id: r.plugin_id,
+      name: r.name,
+      source: r.source,
+      umodSlug: r.umod_slug ?? null,
+      installedVersion: r.installed_version ?? null,
+      latestVersion: r.latest_version ?? null,
+      latestUpdatedAt: r.latest_updated_at ?? null,
+      assignedTags: Array.isArray(r.assigned_tags) ? r.assigned_tags : [],
+      risk: r.risk,
+      enabled: r.enabled,
+      createdAt: r.created_at,
+    })),
+  });
+}
+
+async function handleCreatePlugin(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const name = String(body?.name ?? "").trim();
+  const source = String(body?.source ?? "umod").trim();
+  if (!name) return json({ error: "name is required" }, 400);
+  if (!["umod", "custom"].includes(source))
+    return json({ error: "source must be umod or custom" }, 400);
+
+  const umodSlug =
+    source === "umod" ? String(body?.umodSlug ?? "").trim() || null : null;
+  const installedVersion = String(body?.installedVersion ?? "").trim() || null;
+  const latestVersion = String(body?.latestVersion ?? "").trim() || null;
+  const latestUpdatedAt = body?.latestUpdatedAt
+    ? new Date(body.latestUpdatedAt)
+    : null;
+  const assignedTags = Array.isArray(body?.assignedTags)
+    ? body.assignedTags.map(String).filter(Boolean)
+    : [];
+  const risk = Number(body?.risk ?? 2);
+  if (![1, 2, 3].includes(risk))
+    return json({ error: "risk must be 1, 2, or 3" }, 400);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_plugins
+       (org_id, name, source, umod_slug, installed_version, latest_version,
+        latest_updated_at, assigned_tags, risk, enabled)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE)
+     ON CONFLICT (org_id, name) DO NOTHING
+     RETURNING plugin_id`,
+    [
+      orgId,
+      name,
+      source,
+      umodSlug,
+      installedVersion,
+      latestVersion,
+      latestUpdatedAt,
+      JSON.stringify(assignedTags),
+      risk,
+    ],
+  );
+
+  if (rows.length === 0) {
+    return json({ error: "A plugin with that name already exists" }, 409);
+  }
+
+  return json({ ok: true, pluginId: rows[0].plugin_id });
+}
+
+async function handleUpdatePlugin(request, orgId, pluginId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const setClauses = [];
+  const params = [];
+
+  if (body?.name !== undefined) {
+    const n = String(body.name).trim();
+    if (!n) return json({ error: "name cannot be empty" }, 400);
+    params.push(n);
+    setClauses.push(`name = $${params.length}`);
+  }
+  if (body?.risk !== undefined) {
+    const r = Number(body.risk);
+    if (![1, 2, 3].includes(r))
+      return json({ error: "risk must be 1, 2, or 3" }, 400);
+    params.push(r);
+    setClauses.push(`risk = $${params.length}`);
+  }
+  if (body?.enabled !== undefined) {
+    params.push(Boolean(body.enabled));
+    setClauses.push(`enabled = $${params.length}`);
+  }
+  if (body?.assignedTags !== undefined) {
+    const tags = Array.isArray(body.assignedTags)
+      ? body.assignedTags.map(String).filter(Boolean)
+      : [];
+    params.push(JSON.stringify(tags));
+    setClauses.push(`assigned_tags = $${params.length}`);
+  }
+  if (body?.installedVersion !== undefined) {
+    params.push(String(body.installedVersion).trim() || null);
+    setClauses.push(`installed_version = $${params.length}`);
+  }
+  if (body?.latestVersion !== undefined) {
+    params.push(String(body.latestVersion).trim() || null);
+    setClauses.push(`latest_version = $${params.length}`);
+  }
+
+  if (setClauses.length === 0) {
+    return json({ error: "No fields to update" }, 400);
+  }
+
+  params.push(pluginId);
+  params.push(orgId);
+
+  const res = await pool.query(
+    `UPDATE org_plugins SET ${setClauses.join(", ")}
+     WHERE plugin_id = $${params.length - 1} AND org_id = $${params.length}
+     RETURNING name, enabled, assigned_tags`,
+    params,
+  );
+
+  if (res.rowCount === 0) return json({ error: "Plugin not found" }, 404);
+
+  return json({ ok: true });
+}
+
+async function handleDeletePlugin(request, orgId, pluginId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const res = await pool.query(
+    `DELETE FROM org_plugins WHERE plugin_id = $1 AND org_id = $2`,
+    [pluginId, orgId],
+  );
+  if (res.rowCount === 0) return json({ error: "Plugin not found" }, 404);
+
+  return json({ ok: true });
+}
+
+async function getServersForRcon(orgId, tags) {
+  const { rows } = await pool.query(
+    `SELECT server_id, rcon_host, rcon_port, rcon_password_enc
+     FROM servers
+     WHERE owner_org_id = $1
+       AND rcon_host IS NOT NULL
+       AND rcon_port IS NOT NULL
+       AND rcon_password_enc IS NOT NULL
+       AND tags && $2::text[]`,
+    [orgId, tags],
+  );
+  return rows;
+}
+
+async function handlePluginPush(request, orgId, pluginId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const pluginRes = await pool.query(
+    `SELECT name, assigned_tags, latest_version FROM org_plugins
+     WHERE plugin_id = $1 AND org_id = $2`,
+    [pluginId, orgId],
+  );
+  if (!pluginRes.rows[0]) return json({ error: "Plugin not found" }, 404);
+
+  const { name, assigned_tags, latest_version } = pluginRes.rows[0];
+  const tags = Array.isArray(assigned_tags) ? assigned_tags : [];
+
+  const results = { pushed: [], failed: [] };
+
+  if (tags.length > 0) {
+    const servers = await getServersForRcon(orgId, tags);
+    await Promise.allSettled(
+      servers.map(async (s) => {
+        let password;
+        try {
+          password = decryptPterodactylApiKey(String(s.rcon_password_enc));
+        } catch {
+          results.failed.push(s.server_id);
+          return;
+        }
+        const rconUrl = `ws://${s.rcon_host}:${s.rcon_port}/${encodeURIComponent(password)}`;
+        try {
+          await executeRconCommand(rconUrl, `oxide.reload ${name}`);
+          results.pushed.push(s.server_id);
+        } catch {
+          results.failed.push(s.server_id);
+        }
+      }),
+    );
+  }
+
+  if (latest_version) {
+    await pool.query(
+      `UPDATE org_plugins SET installed_version = latest_version WHERE plugin_id = $1`,
+      [pluginId],
+    );
+  }
+
+  return json({ ok: true, ...results });
+}
+
+async function handleUnloadRisk(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const risk = Number(body?.risk ?? 0);
+  if (![1, 2, 3].includes(risk))
+    return json({ error: "risk must be 1, 2, or 3" }, 400);
+
+  const { rows: plugins } = await pool.query(
+    `SELECT plugin_id, name, assigned_tags FROM org_plugins
+     WHERE org_id = $1 AND risk = $2 AND enabled = TRUE`,
+    [orgId, risk],
+  );
+
+  const results = { unloaded: [], failed: [] };
+
+  await Promise.allSettled(
+    plugins.map(async (p) => {
+      const tags = Array.isArray(p.assigned_tags) ? p.assigned_tags : [];
+      if (tags.length === 0) return;
+      const servers = await getServersForRcon(orgId, tags);
+      await Promise.allSettled(
+        servers.map(async (s) => {
+          let password;
+          try {
+            password = decryptPterodactylApiKey(String(s.rcon_password_enc));
+          } catch {
+            results.failed.push({
+              pluginId: p.plugin_id,
+              serverId: s.server_id,
+            });
+            return;
+          }
+          const rconUrl = `ws://${s.rcon_host}:${s.rcon_port}/${encodeURIComponent(password)}`;
+          try {
+            await executeRconCommand(rconUrl, `oxide.unload ${p.name}`);
+            results.unloaded.push({
+              pluginId: p.plugin_id,
+              serverId: s.server_id,
+            });
+          } catch {
+            results.failed.push({
+              pluginId: p.plugin_id,
+              serverId: s.server_id,
+            });
+          }
+        }),
+      );
+    }),
+  );
+
+  await pool.query(
+    `UPDATE org_plugins SET enabled = FALSE WHERE org_id = $1 AND risk = $2 AND enabled = TRUE`,
+    [orgId, risk],
+  );
+
+  return json({ ok: true, ...results });
+}
+
+// ── Server RCON credentials ───────────────────────────────────────────────────
+
+async function handleSetServerRcon(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const { owner_org_id } = serverRes.rows[0];
+  if (!canManageOrg(session, owner_org_id)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const encKey = getPterodactylEncryptionKey();
+  if (!encKey) {
+    return json(
+      {
+        error:
+          "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)",
+      },
+      503,
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const rconHost = String(body?.rconHost ?? "").trim();
+  const rconPort = Number(body?.rconPort ?? 0);
+  const rconPassword = String(body?.rconPassword ?? "").trim();
+  const gamePort = body?.gamePort != null ? Number(body.gamePort) : null;
+  const tags = Array.isArray(body?.tags)
+    ? body.tags.map(String).filter(Boolean)
+    : null;
+
+  if (!rconHost) return json({ error: "rconHost is required" }, 400);
+  if (!rconPort || rconPort < 1 || rconPort > 65535)
+    return json({ error: "rconPort must be 1–65535" }, 400);
+  if (!rconPassword) return json({ error: "rconPassword is required" }, 400);
+
+  const encryptedPass = encryptPterodactylApiKey(rconPassword);
+
+  const setClauses = [
+    "rcon_host = $1",
+    "rcon_port = $2",
+    "rcon_password_enc = $3",
+  ];
+  const params = [rconHost, rconPort, encryptedPass];
+
+  if (gamePort !== null) {
+    params.push(gamePort);
+    setClauses.push(`game_port = $${params.length}`);
+  }
+  if (tags !== null) {
+    params.push(tags);
+    setClauses.push(`tags = $${params.length}`);
+  }
+
+  params.push(serverId);
+  await pool.query(
+    `UPDATE servers SET ${setClauses.join(", ")} WHERE server_id = $${params.length}`,
+    params,
+  );
+
+  return json({ ok: true });
+}
+
+async function handleGetServerRconStatus(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, rcon_host, rcon_port, rcon_password_enc, game_port, tags
+     FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const {
+    owner_org_id,
+    rcon_host,
+    rcon_port,
+    rcon_password_enc,
+    game_port,
+    tags,
+  } = serverRes.rows[0];
+  if (!canManageOrg(session, owner_org_id)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  return json({
+    configured: !!(rcon_host && rcon_port && rcon_password_enc),
+    rconHost: rcon_host ?? null,
+    rconPort: rcon_port ?? null,
+    gamePort: game_port ?? null,
+    tags: Array.isArray(tags) ? tags : [],
+  });
+}
+
+function executeRconCommand(rconUrl, command) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(val);
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        /* noop */
+      }
+      settle(reject, new Error("RCON connection timed out"));
+    }, 10000);
+
+    const ws = new WebSocket(rconUrl);
+    const requestId = Math.floor(Math.random() * 100000) + 1;
+
+    ws.addEventListener("open", () => {
+      ws.send(
+        JSON.stringify({
+          Identifier: requestId,
+          Message: command,
+          Name: "WebRcon",
+        }),
+      );
+    });
+
+    ws.addEventListener("message", (event) => {
+      try {
+        const msg = JSON.parse(String(event.data));
+        if (msg.Identifier === requestId || msg.Identifier === -1) {
+          try {
+            ws.close(1000, "Done");
+          } catch {
+            /* noop */
+          }
+          settle(resolve, String(msg.Message ?? ""));
+        }
+      } catch {
+        // ignore non-JSON messages
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      settle(reject, new Error("RCON connection failed"));
+    });
+
+    ws.addEventListener("close", ({ code }) => {
+      if (code !== 1000 && code !== 1001) {
+        settle(reject, new Error(`RCON disconnected (${code})`));
+      }
+    });
+  });
+}
+
+async function handleExecRconCommand(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const { owner_org_id, rcon_host, rcon_port, rcon_password_enc } =
+    serverRes.rows[0];
+
+  const memberRes = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
+    [owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !canManageOrg(session, owner_org_id)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  if (!rcon_host || !rcon_port || !rcon_password_enc) {
+    return json({ error: "RCON not configured for this server" }, 400);
+  }
+
+  let rconPassword;
+  try {
+    rconPassword = decryptPterodactylApiKey(rcon_password_enc);
+  } catch {
+    return json({ error: "RCON credentials corrupted" }, 500);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const command = String(body?.command ?? "").trim();
+  if (!command) return json({ error: "command is required" }, 400);
+
+  const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(rconPassword)}`;
+
+  try {
+    const response = await executeRconCommand(rconUrl, command);
+    return json({ ok: true, response });
+  } catch (err) {
+    return json({ error: `RCON error: ${String(err?.message ?? err)}` }, 502);
+  }
 }
 
 const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
@@ -4486,7 +5271,7 @@ export async function initializeInfra() {
   }
 }
 
-export async function handleApiRequest(request) {
+async function _handleApiRequest(request) {
   const earlyUrl = new URL(request.url);
   const earlyPath = earlyUrl.pathname;
 
@@ -4702,6 +5487,56 @@ export async function handleApiRequest(request) {
       return handleUpdateRolePermissions(request, rolePermissionsMatch[1]);
     }
 
+    // Scripts CRUD
+    const orgScriptsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/scripts$/,
+    );
+    if (orgScriptsMatch && request.method === "GET")
+      return handleListScripts(request, orgScriptsMatch[1]);
+    if (orgScriptsMatch && request.method === "POST")
+      return handleCreateScript(request, orgScriptsMatch[1]);
+
+    const orgScriptMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/scripts\/([a-f0-9-]+)$/,
+    );
+    if (orgScriptMatch && request.method === "PATCH")
+      return handleUpdateScript(request, orgScriptMatch[1], orgScriptMatch[2]);
+    if (orgScriptMatch && request.method === "DELETE")
+      return handleDeleteScript(request, orgScriptMatch[1], orgScriptMatch[2]);
+
+    // Plugin presets CRUD
+    const orgPluginsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins$/,
+    );
+    if (orgPluginsMatch && request.method === "GET")
+      return handleListPlugins(request, orgPluginsMatch[1]);
+    if (orgPluginsMatch && request.method === "POST")
+      return handleCreatePlugin(request, orgPluginsMatch[1]);
+
+    const orgPluginUnloadRiskMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins\/unload-risk$/,
+    );
+    if (orgPluginUnloadRiskMatch && request.method === "POST")
+      return handleUnloadRisk(request, orgPluginUnloadRiskMatch[1]);
+
+    const orgPluginPushMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins\/([a-f0-9-]+)\/push$/,
+    );
+    if (orgPluginPushMatch && request.method === "POST")
+      return handlePluginPush(
+        request,
+        orgPluginPushMatch[1],
+        orgPluginPushMatch[2],
+      );
+
+    const orgPluginMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins\/([a-f0-9-]+)$/,
+    );
+    if (orgPluginMatch && request.method === "PATCH")
+      return handleUpdatePlugin(request, orgPluginMatch[1], orgPluginMatch[2]);
+    if (orgPluginMatch && request.method === "DELETE")
+      return handleDeletePlugin(request, orgPluginMatch[1], orgPluginMatch[2]);
+
     if (pathname === "/api/servers" && request.method === "GET") {
       return handleListServers(request);
     }
@@ -4719,6 +5554,21 @@ export async function handleApiRequest(request) {
     if (serverRotateMatch && request.method === "POST") {
       return handleRotateServerKey(request, serverRotateMatch[1]);
     }
+
+    // Server RCON
+    const serverRconMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/rcon$/,
+    );
+    if (serverRconMatch && request.method === "GET")
+      return handleGetServerRconStatus(request, serverRconMatch[1]);
+    if (serverRconMatch && request.method === "PATCH")
+      return handleSetServerRcon(request, serverRconMatch[1]);
+
+    const serverRconExecMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/rcon\/exec$/,
+    );
+    if (serverRconExecMatch && request.method === "POST")
+      return handleExecRconCommand(request, serverRconExecMatch[1]);
 
     const orgPteroMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero$/,
@@ -4757,4 +5607,15 @@ export async function handleApiRequest(request) {
 
     return json({ error: "Not found" }, 404);
   });
+}
+
+export async function handleApiRequest(request) {
+  const t0 = Date.now();
+  const { method } = request;
+  const { pathname } = new URL(request.url);
+  const response = await _handleApiRequest(request);
+  console.log(
+    `[api] ${method} ${pathname} → ${response.status} (${Date.now() - t0}ms)`,
+  );
+  return response;
 }
