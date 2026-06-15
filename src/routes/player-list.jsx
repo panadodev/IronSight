@@ -1,3 +1,4 @@
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { PlayerLinks } from "@/components/player-links";
 import { SiteNav } from "@/components/site-nav";
 import { Input } from "@/components/ui/input";
@@ -301,6 +302,7 @@ function PlayerListPage() {
     );
   }
   return (
+    <SteamRequiredGate>
     <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
       <div className="flex-1 overflow-y-auto">
@@ -614,6 +616,7 @@ function PlayerListPage() {
         </div>
       </div>
     </div>
+    </SteamRequiredGate>
   );
 }
 function HeaderCell({ label, k, sortKey, sortDir, onClick, align = "left" }) {

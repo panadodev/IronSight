@@ -1,3 +1,4 @@
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { SiteNav } from "@/components/site-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -441,6 +442,7 @@ function PanelPage() {
   const activeOrg = allowedOrgs.find((o) => o.id === orgId) ?? allowedOrgs[0];
   const servers = MOCK_SERVERS_BY_ORG[activeOrg.id] ?? [];
   return (
+    <SteamRequiredGate>
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />
       <main className="flex-1 overflow-y-auto">
@@ -474,6 +476,7 @@ function PanelPage() {
         </div>
       </main>
     </div>
+    </SteamRequiredGate>
   );
 }
 function OrgSwitcher({ orgs, value, onChange }) {

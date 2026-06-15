@@ -1,3 +1,4 @@
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Search, ExternalLink } from "lucide-react";
@@ -109,6 +110,7 @@ function PlayerLookupPage() {
     setMuteOpen(false);
   };
   return (
+    <SteamRequiredGate>
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       <SiteNav />
       <main className="flex-1 flex flex-col min-h-0">
@@ -741,6 +743,7 @@ function TicketGroup({ label, subjectId, tickets }) {
         })}
       </ul>
     </div>
+    </SteamRequiredGate>
   );
 }
 export { Route };

@@ -1,3 +1,4 @@
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { SiteNav } from "@/components/site-nav";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -178,6 +179,7 @@ function ChatPage() {
   const activeServer = availableServers.find((s) => s.serverId === serverId);
 
   return (
+    <SteamRequiredGate>
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />
       <main className="flex-1 overflow-hidden flex flex-col">
@@ -369,6 +371,7 @@ function ChatPage() {
         </div>
       </main>
     </div>
+    </SteamRequiredGate>
   );
 }
 export { Route };

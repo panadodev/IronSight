@@ -1,3 +1,4 @@
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ShieldAlert, ChevronDown, Edit3, X } from "lucide-react";
@@ -205,6 +206,7 @@ function BansMutesPage() {
   }
   const TYPES = tab === "bans" ? BAN_TYPES : MUTE_TYPES;
   return (
+    <SteamRequiredGate>
     <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
       <div className="flex-1 overflow-y-auto">
@@ -427,6 +429,7 @@ function BansMutesPage() {
         onSave={saveEdit}
       />
     </div>
+    </SteamRequiredGate>
   );
 }
 function EditDialog({ record, kind, onClose, onSave }) {

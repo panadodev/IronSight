@@ -3439,6 +3439,16 @@ async function handleCreateTicket(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
+  if (!session.steamId) {
+    return json(
+      {
+        error:
+          "Steam account required. Link your Steam account before submitting a ticket.",
+      },
+      403,
+    );
+  }
+
   let body;
   try {
     body = await request.json();

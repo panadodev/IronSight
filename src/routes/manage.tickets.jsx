@@ -1,7 +1,8 @@
-import { GateRank, SectionHeader } from "@/components/manage-section";
+import { SectionHeader } from "@/components/manage-section";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
+import { ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const Route = createFileRoute("/manage/tickets")({
@@ -349,20 +350,15 @@ function TicketThread({ orgId, ticketId, session, onStatusChange }) {
 }
 
 function TicketsPage() {
-  const { realRankOf } = useAuth();
+  const { orgs, sessionOrgAdminIds, sessionUser } = useAuth();
   const orgId = useManageOrgId();
-  const [session, setSession] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedTicketId, setSelectedTicketId] = useState(null);
 
-  useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setSession(data?.user ?? null))
-      .catch(() => {});
-  }, []);
+  // User can see the support queue if they're a member or admin of the org
+  const isMember = orgs.some((o) => o.id === orgId) || sessionOrgAdminIds.includes(orgId);
 
   async function loadTickets() {
     if (!orgId) return;
@@ -388,10 +384,20 @@ function TicketsPage() {
 
   if (!orgId) return null;
 
-  const rank = realRankOf(orgId);
+  if (!isMember) {
+    return (
+      <div className="rounded-lg ring-1 ring-border bg-surface/40 p-8 text-center space-y-2">
+        <ShieldAlert className="size-8 mx-auto text-warning" />
+        <h2 className="text-base font-semibold">Insufficient permissions</h2>
+        <p className="text-sm text-muted-foreground">
+          You need to be a member of this organization to access the support queue.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <GateRank rank={rank} required={2}>
+    <div className="space-y-4">
       <SectionHeader
         title="Support Queue"
         blurb="View and respond to tickets submitted by your community."
@@ -510,13 +516,13 @@ function TicketsPage() {
               key={selectedTicketId}
               orgId={orgId}
               ticketId={selectedTicketId}
-              session={session}
+              session={sessionUser}
               onStatusChange={loadTickets}
             />
           )}
         </div>
       </div>
-    </GateRank>
+    </div>
   );
 }
 
