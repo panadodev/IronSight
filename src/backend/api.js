@@ -804,6 +804,9 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_text_chat_log_steam_id ON text_chat_log(steam_id)`,
   );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_server_created ON text_chat_log(server_id, created_at)`,
+  );
 
   // -- Pterodactyl integration -----------------------------------------------
 
@@ -5208,6 +5211,8 @@ async function handleGetChatLogs(request) {
   const cacheKey = `chat:server:${serverId}`;
 
   // Serve from Redis cache if the entire window falls within the last 7 days
+  // Only trust the cache when it actually has entries — if empty, fall through to
+  // Postgres so a partially-repopulated cache (e.g. after a flush) doesn't hide data.
   if (startUnix >= sevenDaysAgoUnix) {
     try {
       const cacheExists = await redis.exists(cacheKey);
@@ -5220,16 +5225,18 @@ async function handleGetChatLogs(request) {
           0,
           limit,
         );
-        const lines = rawEntries
-          .map((raw) => {
-            try {
-              return JSON.parse(raw);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-        return json({ lines });
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
       }
     } catch {
       // fall through to Postgres on Redis error
