@@ -5078,8 +5078,19 @@ async function handleExecRconCommand(request, serverId) {
 const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
 
 async function handleIngestChatMessage(request) {
-  const apiKeyRaw = (request.headers.get("x-api-key") ?? "").trim();
-  if (!apiKeyRaw) return json({ error: "Missing x-api-key header" }, 401);
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw)
+    return json(
+      {
+        error:
+          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
+      },
+      401,
+    );
 
   const apiKeyHash = crypto
     .createHash("sha256")
