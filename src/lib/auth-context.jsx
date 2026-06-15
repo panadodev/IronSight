@@ -654,7 +654,6 @@ export {
   AuthProvider,
   BAN_CATEGORIES,
   BAN_CATEGORY_LABEL,
-  ORGS,
   TICKET_TYPE_KEYS,
   TICKET_TYPE_LABELS,
   useAuth

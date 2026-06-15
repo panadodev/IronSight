@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ShieldAlert, ChevronDown, Edit3, X } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
-import { useAuth, ORGS } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import {
   BAN_RECORDS,
   MUTE_RECORDS,
@@ -76,7 +76,7 @@ const LENGTH_KEYS = [
   "permanent",
 ];
 function BansMutesPage() {
-  const { selectedOrgIds, maxRankAcross } = useAuth();
+  const { selectedOrgIds, maxRankAcross, orgs } = useAuth();
   const canAccess = maxRankAcross(selectedOrgIds) >= 2;
   const [tab, setTab] = useState("bans");
   const [bans, setBans] = useState(BAN_RECORDS);
@@ -339,7 +339,7 @@ function BansMutesPage() {
             <div className="divide-y divide-border/60">
               {rows.map((r) => {
                 const staff = getStaff(r.staffId);
-                const org = ORGS.find((o) => o.id === r.orgId);
+                const org = orgs.find((o) => o.id === r.orgId);
                 const srv = SERVERS.find((s) => s.id === r.serverId);
                 return (
                   <div
