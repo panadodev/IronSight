@@ -18,6 +18,7 @@ Copy `.env.example` to `.env` and set values:
 - `APP_URL`
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
+- `SYS_ADMIN_DISCORD_ID`
 
 Optional runtime tuning:
 
@@ -28,6 +29,8 @@ Optional runtime tuning:
 - `DISCORD_REDIRECT_URI`
 - `STEAM_REALM`
 - `STEAM_RETURN_URL`
+- `PTERODACTYL_ALLOWED_HOSTS`
+- `PTERODACTYL_ENCRYPTION_KEY`
 
 ## Login Flow
 
@@ -68,6 +71,67 @@ If dependencies are unavailable, API routes return `503`.
 `npm run start`
 
 The container exposes port `3000` and defines default env vars that should be overridden in production.
+
+## Database Tables
+
+All tables are created on startup via `ensureSchema()`. Additive migrations (ALTER TABLE … ADD COLUMN IF NOT EXISTS) run on every restart.
+
+### Identity & Auth
+
+| Table | Purpose |
+| --- | --- |
+| `users` | One row per human. Identified by `discord_id` and/or `steam_id` (at least one required). |
+| `sessions` | Active login tokens — `token_hash` + `expires_at` + `revoked` flag. JWT cookie points to `session_id`. |
+| `public_identity_links` | Links a public portal user's Discord + Steam back to a `users` row. Used to verify identity before ticket submission. |
+
+### Organizations & RBAC
+
+| Table | Purpose |
+| --- | --- |
+| `organizations` | Top-level tenant. `org_id` is a human slug; `guild_id` is the linked Discord server. |
+| `organization_members` | Joins `users` → `organizations` with a `role_id`. |
+| `roles` | Seeded: `org_member`, `org_admin`, `org_owner` (+ legacy `sysadmin` for the global org). |
+| `permissions` | Seeded: `todo_write`, `org_manage`, `role_create`. |
+| `role_permissions` | Many-to-many join between `roles` and `permissions`. |
+| `api_keys` | Org-scoped API keys (hashed). Used for server-to-panel ingest. |
+| `audit_logs` | Append-only log of staff actions. Fields: actor, target, resource, action type/category, severity, before/after state, IP, user agent, correlation ID. |
+
+### Tickets
+
+| Table | Purpose |
+| --- | --- |
+| `ticket_types` | Per-org ticket categories (e.g. "Ban Appeal"). |
+| `ticket_type_roles` | Which roles can handle each ticket type. |
+| `tickets` | One row per ticket. Status: `open` / `waiting_response` / `closed`. Priority: `urgent` / `high` / `normal` / `low`. |
+| `ticket_messages` | Thread messages. `is_internal` (added via migration) marks staff-only notes. |
+| `ticket_audit_log` | Per-ticket action history (status changes, assignments, etc.). |
+
+### Servers & Chat
+
+| Table | Purpose |
+| --- | --- |
+| `servers` | Game servers registered to an org. Authenticated by `api_key_hash`. |
+| `text_chat_log` | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`. |
+
+### Integrations
+
+| Table | Purpose |
+| --- | --- |
+| `ptero_api_keys` | One row per org. Stores the Pterodactyl panel URL and AES-256-GCM encrypted API key. Plaintext `api_key` column is migrated to `api_key_encrypted` on startup. |
+| `todos` | Legacy internal task tracker (todo/in_progress/completed/blocked). |
+
+## Redis Keys
+
+| Key pattern | Type | TTL | Purpose |
+| --- | --- | --- | --- |
+| `session:<sid>` | String (JSON) | `SESSION_TTL_SECONDS` (default 24 h) | Cached session payload (userId, username, orgAdminOrgIds, etc.). Validated against the `sessions` table on every request. Updated in-place on username or role changes. |
+| `rl:login:<ip>` | Counter | 60 s | Login rate limiter. Incremented on each Discord OAuth attempt; requests rejected above `LOGIN_RATE_LIMIT_PER_MINUTE` (default 10). |
+| `openid:steam:<nonce>` | String | 10 min | One-time nonce for staff Steam OpenID callback validation. Deleted on use. |
+| `openid:public:<nonce>` | String (JSON) | 10 min | One-time nonce for public portal Steam OpenID callback. Carries the target org. Deleted on use. |
+| `cache:members:<sorted-org-ids>` | String (JSON) | 30 s | Cached org member list for the bootstrap endpoint. Invalidated on any member add / remove / role change. |
+| `ticket:<ticketId>` | String (JSON) | 30 days (open) · 7 days after close | Cached ticket row. Populated on first load, invalidated on any ticket mutation. |
+| `chat:server:<serverId>` | Sorted set | 7 days | Last 7 days of chat messages for a server, scored by Unix timestamp. Used to serve chat log queries without hitting Postgres for recent windows. |
+| `rl:chat:<serverId>` | Counter | 60 s | Chat ingest rate limiter per server. |
 
 ---
 
