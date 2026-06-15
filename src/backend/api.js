@@ -5083,7 +5083,8 @@ async function handleIngestChatMessage(request) {
   const apiKeyRaw = (
     bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
   ).trim();
-  if (!apiKeyRaw)
+  if (!apiKeyRaw) {
+    console.log("[ingest:chat] rejected — missing API key");
     return json(
       {
         error:
@@ -5091,6 +5092,7 @@ async function handleIngestChatMessage(request) {
       },
       401,
     );
+  }
 
   const apiKeyHash = crypto
     .createHash("sha256")
@@ -5101,7 +5103,10 @@ async function handleIngestChatMessage(request) {
     "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
     [apiKeyHash],
   );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  if (!serverRes.rows[0]) {
+    console.log("[ingest:chat] rejected — invalid API key");
+    return json({ error: "Invalid API key" }, 401);
+  }
   const server = serverRes.rows[0];
 
   // Per-server rate limit
@@ -5110,6 +5115,9 @@ async function handleIngestChatMessage(request) {
     const attempts = await redis.incr(rlKey);
     if (attempts === 1) await redis.expire(rlKey, 60);
     if (attempts > CHAT_INGEST_RATE_LIMIT_PER_MINUTE) {
+      console.log(
+        `[ingest:chat] rate limited — server=${server.server_name} (${server.server_id})`,
+      );
       return json({ error: "Rate limit exceeded" }, 429);
     }
   } catch {
@@ -5120,6 +5128,9 @@ async function handleIngestChatMessage(request) {
   try {
     body = await request.json();
   } catch {
+    console.log(
+      `[ingest:chat] rejected — invalid JSON body (server=${server.server_name})`,
+    );
     return json({ error: "Invalid JSON body" }, 400);
   }
 
@@ -5130,10 +5141,17 @@ async function handleIngestChatMessage(request) {
     body?.player_name == null ? null : String(body.player_name).trim();
 
   if (!message || !steamId) {
+    console.log(
+      `[ingest:chat] rejected — missing message or steam_id (server=${server.server_name})`,
+    );
     return json({ error: "message and steam_id are required" }, 400);
   }
-  if (message.length > 1000)
+  if (message.length > 1000) {
+    console.log(
+      `[ingest:chat] rejected — message too long (server=${server.server_name}, steamId=${steamId})`,
+    );
     return json({ error: "message must be 1000 characters or fewer" }, 400);
+  }
   if (steamId.length > 64)
     return json({ error: "steam_id must be 64 characters or fewer" }, 400);
   if (playerName && playerName.length > 128)
@@ -5154,6 +5172,10 @@ async function handleIngestChatMessage(request) {
   );
   const row = insertRes.rows[0];
   const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+
+  console.log(
+    `[ingest:chat] stored — id=${row.id} server=${server.server_name} player=${playerName ?? steamId} team=${teamMessage} msg=${JSON.stringify(message)}`,
+  );
 
   // Cache in Redis sorted set (last 7 days window)
   const cacheKey = `chat:server:${server.server_id}`;
