@@ -4515,6 +4515,72 @@ async function handleGetPteroStatus(request, orgId) {
   });
 }
 
+// Mint a short-lived Wings websocket token + socket URL for a server so the
+// browser can stream live stats. Requires a client-capable API key.
+async function handleGetPteroServerWebsocket(request, orgId, identifier) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(orgId);
+  } catch (err) {
+    console.error("[ptero] Failed to load credentials:", err.message);
+    return json({ error: "Stored Pterodactyl credentials are invalid." }, 500);
+  }
+  if (!credentials) {
+    return json({ error: "Pterodactyl not connected for this org" }, 400);
+  }
+
+  const { panelUrl, apiKey } = credentials;
+  let res;
+  try {
+    res = await fetch(
+      `${panelUrl}/api/client/servers/${encodeURIComponent(identifier)}/websocket`,
+      { headers: PTERO_HEADERS(apiKey), signal: AbortSignal.timeout(8000) },
+    );
+  } catch (err) {
+    return json(
+      {
+        error: `Could not reach Pterodactyl panel: ${String(err.message ?? err)}`,
+      },
+      502,
+    );
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    return json(
+      {
+        error:
+          "The stored key cannot open the live websocket. A Pterodactyl client API key is required for real-time stats.",
+      },
+      400,
+    );
+  }
+  if (!res.ok) {
+    return json({ error: `Pterodactyl returned HTTP ${res.status}` }, 502);
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return json({ error: "Invalid response from panel" }, 502);
+  }
+  const attr = data?.data ?? data?.attributes ?? {};
+  if (!attr.socket || !attr.token) {
+    return json({ error: "Panel did not return websocket credentials" }, 502);
+  }
+
+  return json({ socket: attr.socket, token: attr.token });
+}
+
 async function handleDeleteServer(request, serverId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -6389,6 +6455,17 @@ async function _handleApiRequest(request) {
     );
     if (orgPteroImportMatch && request.method === "POST") {
       return handleImportPteroServer(request, orgPteroImportMatch[1]);
+    }
+
+    const orgPteroWsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero\/servers\/([a-zA-Z0-9]+)\/websocket$/,
+    );
+    if (orgPteroWsMatch && request.method === "GET") {
+      return handleGetPteroServerWebsocket(
+        request,
+        orgPteroWsMatch[1],
+        orgPteroWsMatch[2],
+      );
     }
 
     if (pathname === "/api/ingest/chat" && request.method === "POST") {
