@@ -144,7 +144,7 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 
 ## Game Event Ingest API
 
-All ingest endpoints use the same server API key auth as `/api/ingest/chat`.
+All ingest endpoints authenticate with the server API key.
 
 **Authentication** — pass the server key via either header:
 
@@ -152,6 +152,60 @@ All ingest endpoints use the same server API key auth as `/api/ingest/chat`.
 - `x-api-key: <api-key>`
 
 The key is SHA-256 hashed and matched against `servers.api_key_hash`.
+
+---
+
+### POST /api/ingest/chat
+
+Ingest an in-game chat message.
+
+**Request body:**
+
+```json
+{
+  "message": "Hello everyone",
+  "steam_id": "76561198825911004",
+  "player_name": "Nightfall",
+  "team_message": false
+}
+```
+
+`player_name` is optional (defaults to `null`). `team_message` is optional (defaults to `false`). `message` max 1000 chars, `steam_id` max 64 chars.
+
+**Response `201`:**
+
+```json
+{ "ok": true, "id": "99999" }
+```
+
+---
+
+### GET /api/chat/logs
+
+Read chat messages for a server. Requires a valid staff session (org member or sysadmin).
+
+**Query params:**
+
+- `serverId` *(required)* — UUID of the server
+- `start` / `end` — Unix timestamps (default: last 6 hours)
+- `limit` — max rows (default 200, max 500)
+
+**Response:**
+
+```json
+{
+  "lines": [
+    {
+      "id": "99999",
+      "message": "Hello everyone",
+      "steamId": "76561198825911004",
+      "playerName": "Nightfall",
+      "teamMessage": false,
+      "ts": 1750000000
+    }
+  ]
+}
+```
 
 ---
 
@@ -212,35 +266,6 @@ Ingest a player report submitted in-game.
 
 ---
 
-### POST /api/ingest/teaminfo
-
-Ingest a team lifecycle event.
-
-**Request body:**
-
-```json
-{
-  "event_type": "joined",
-  "team_leader": "76561198825911004",
-  "team_members": [
-    "76561198825911004",
-    "76561198000000001",
-    "76561198000000002"
-  ],
-  "event_time": "2026-06-16T12:00:00Z"
-}
-```
-
-`event_type` must be one of `created`, `joined`, or `left`. `event_time` is optional (defaults to server receive time) and accepts ISO 8601 strings.
-
-**Response `201`:**
-
-```json
-{ "ok": true, "id": "11111" }
-```
-
----
-
 ### GET /api/pvp/logs
 
 Read PVP kill events for a server. Requires a valid staff session (org member or sysadmin).
@@ -296,9 +321,40 @@ Read player reports for a server. Requires a valid staff session.
 
 ---
 
-### GET /api/team/logs
+### /api/teaminfo
 
-Read team lifecycle events for a server. Requires a valid staff session.
+Single endpoint for team lifecycle events — `POST` to ingest, `GET` to read.
+
+#### POST /api/teaminfo
+
+Uses server API key auth.
+
+**Request body:**
+
+```json
+{
+  "event_type": "joined",
+  "team_leader": "76561198825911004",
+  "team_members": [
+    "76561198825911004",
+    "76561198000000001",
+    "76561198000000002"
+  ],
+  "event_time": "2026-06-16T12:00:00Z"
+}
+```
+
+`event_type` must be one of `created`, `joined`, or `left`. `event_time` is optional (defaults to server receive time) and accepts ISO 8601 strings. `team_members` max 100 entries.
+
+**Response `201`:**
+
+```json
+{ "ok": true, "id": "11111" }
+```
+
+#### GET /api/teaminfo
+
+Requires a valid staff session (org member or sysadmin).
 
 **Query params:** same as `/api/pvp/logs`
 

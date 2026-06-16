@@ -7509,12 +7509,9 @@ async function _handleApiRequest(request) {
       return handleGetReports(request);
     }
 
-    if (pathname === "/api/ingest/teaminfo" && request.method === "POST") {
-      return handleIngestTeamEvent(request);
-    }
-
-    if (pathname === "/api/team/logs" && request.method === "GET") {
-      return handleGetTeamEvents(request);
+    if (pathname === "/api/teaminfo") {
+      if (request.method === "POST") return handleIngestTeamEvent(request);
+      if (request.method === "GET") return handleGetTeamEvents(request);
     }
 
     return json({ error: "Not found" }, 404);
