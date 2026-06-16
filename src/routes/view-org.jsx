@@ -175,6 +175,11 @@ function ViewOrgPage() {
     );
   }, [sessionUser, globalAdmin, selectedOrgId]);
 
+  const isOwner = useMemo(
+    () => globalAdmin || Boolean(sessionUser?.orgOwnerOrgIds?.includes(selectedOrgId)),
+    [globalAdmin, sessionUser, selectedOrgId],
+  );
+
   async function handleAddMember(event) {
     event.preventDefault();
     if (!selectedOrgId || !canManageSelectedOrg) return;
@@ -456,6 +461,7 @@ function ViewOrgPage() {
                     >
                       <option value="org_member">Member</option>
                       <option value="org_admin">Admin</option>
+                      {isOwner && <option value="org_owner">Owner</option>}
                       {customRoles.map((r) => (
                         <option key={r.roleId} value={r.roleId}>
                           {r.roleName}
@@ -495,6 +501,8 @@ function ViewOrgPage() {
                     memberTeams.get(member.userId) ||
                     orgMemberRoles.get(member.userId) ||
                     "org_member";
+                  const isOwnerRow = hasUserId && orgMemberRoles.get(member.userId) === "org_owner";
+                  const canActOnRow = isOwner || !isOwnerRow;
                   return (
                     <div
                       key={member.discordId}
@@ -541,11 +549,12 @@ function ViewOrgPage() {
                         <select
                           value={currentRole}
                           onChange={(e) => handleChangeTeam(member.userId, e.target.value)}
-                          disabled={!canManageSelectedOrg || !hasUserId || actionInProgress.has(`team-${member.userId}`)}
+                          disabled={!canManageSelectedOrg || !hasUserId || !canActOnRow || actionInProgress.has(`team-${member.userId}`)}
                           className="bg-surface border border-border rounded px-2 py-1 text-[11px] font-mono disabled:opacity-50"
                         >
                           <option value="org_member">Member</option>
                           <option value="org_admin">Admin</option>
+                          {isOwner && <option value="org_owner">Owner</option>}
                           {customRoles.map((r) => (
                             <option key={r.roleId} value={r.roleId}>
                               {r.roleName}
@@ -590,7 +599,8 @@ async function safeJson(response) {
 function roleLabel(roleId) {
   if (roleId === "org_owner") return "Owner";
   if (roleId === "org_admin") return "Admin";
-  return "Member";
+  if (roleId === "org_member") return "Member";
+  return roleId;
 }
 
 const PERMISSION_LABELS = {
