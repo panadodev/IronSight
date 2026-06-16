@@ -312,7 +312,6 @@ function SiteNav() {
     {
       label: "Moderation",
       links: [
-        { to: "/", label: "Support", show: true },
         {
           to: "/manage/tickets",
           label: "Tickets",
@@ -381,7 +380,6 @@ function SiteNav() {
   const lastVisits = useLastVisits();
   const meId = activeStaff?.id;
   const todoLastVisit = lastVisits["/todo"] ?? 0;
-  const supportLastVisit = lastVisits["/"] ?? 0;
   const hasNewTodo =
     !!meId &&
     todos.some(
@@ -389,13 +387,6 @@ function SiteNav() {
         c.assigneeId === meId &&
         c.status !== "completed" &&
         new Date(c.createdAt).getTime() > todoLastVisit,
-    );
-  const hasNewSupport =
-    !!meId &&
-    TICKETS.some(
-      (t) =>
-        t.assigneeId === meId &&
-        new Date(t.createdAt).getTime() > supportLastVisit,
     );
   useEffect(() => {
     if (effectiveView !== "staff") return;
@@ -533,8 +524,7 @@ function SiteNav() {
                       ? { org: currentOrgId }
                       : void 0);
                   const showDot =
-                    (l.to === "/todo" && hasNewTodo && path !== "/todo") ||
-                    (l.to === "/" && hasNewSupport && path !== "/");
+                    l.to === "/todo" && hasNewTodo && path !== "/todo";
                   return (
                     <Link
                       key={l.to + ":" + (l.label ?? idx)}
