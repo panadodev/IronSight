@@ -1,60 +1,48 @@
-import { PlayerSidebar } from "@/components/player-sidebar";
 import { SiteNav } from "@/components/site-nav";
-import {
-  SERVERS,
-  TEAM_META,
-  TICKETS,
-  getPlayer,
-  getStaff,
-} from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
-import { ChevronDown, Lock, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export const Route = createFileRoute("/tickets")({
   head: () => ({ meta: [{ title: "Ticket Queue - IronSight" }] }),
   component: TicketsPage,
 });
 
-function getOrgId(serverId) {
-  if (!serverId) return null;
-  return SERVERS.find((s) => s.id === serverId)?.orgId ?? null;
-}
-
-function getOrgPrefix(orgId) {
-  if (orgId === "willjums") return "WJ";
-  if (orgId === "builders_sanctuary") return "BS";
-  return orgId ? orgId.slice(0, 2).toUpperCase() : "??";
-}
-
 const TYPE_META = {
-  cheating:        { label: "Cheating", color: "text-rose-400" },
-  teaming:         { label: "Teaming",  color: "text-orange-400" },
-  toxicity:        { label: "Toxicity", color: "text-violet-400" },
-  other:           { label: "Other",    color: "text-muted-foreground" },
+  player_report:   { label: "Report",   color: "text-rose-400" },
   ban_appeal:      { label: "Appeal",   color: "text-yellow-400" },
   vip_issue:       { label: "VIP",      color: "text-cyan-400" },
   general_support: { label: "Support",  color: "text-green-400" },
 };
 
-function ticketMeta(ticket) {
-  if (ticket.type === "player_report") return TYPE_META[ticket.category] ?? TYPE_META.other;
-  return TYPE_META[ticket.type] ?? TYPE_META.other;
+function typeFromName(name) {
+  const n = (name ?? "").toLowerCase();
+  if (n.includes("ban appeal") || n.includes("appeal")) return "ban_appeal";
+  if (n.includes("vip")) return "vip_issue";
+  if (n.includes("player report") || n.includes("report")) return "player_report";
+  return "general_support";
 }
 
-const TEAM_BADGE_COLOR = {
-  management: "text-pink-400",
-  sr_admins:  "text-amber-400",
-  admins:     "text-orange-400",
-  support:    "text-green-400",
-};
+function ticketMeta(ticket) {
+  return TYPE_META[ticket.type] ?? TYPE_META.general_support;
+}
 
-const NON_CLOSED = new Set(["open", "in_progress", "triage", "waiting_response"]);
+function formatRelativeTime(unixSec) {
+  if (!unixSec) return "";
+  const diff = Math.floor(Date.now() / 1000) - unixSec;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+const NON_CLOSED = new Set(["open", "waiting_response"]);
 
 const TAB_STATUSES = {
-  active:  new Set(["open", "in_progress", "triage"]),
+  active:  new Set(["open"]),
   waiting: new Set(["waiting_response"]),
-  closed:  new Set(["closed", "resolved", "cleared", "banned"]),
+  closed:  new Set(["closed"]),
 };
 
 const TYPE_FILTERS = ["ALL", "REPORT", "APPEAL", "VIP", "SUPPORT"];
@@ -64,37 +52,167 @@ const TYPE_FILTER_MAP = {
 };
 
 function TicketsPage() {
+  const { adminableOrgIds, orgs, sessionUser, orgsLoaded } = useAuth();
+
   const [tab, setTab] = useState("active");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState(TICKETS[0]?.id ?? null);
+  const [tickets, setTickets] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [selectedMessages, setSelectedMessages] = useState([]);
   const [noteText, setNoteText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!orgsLoaded || !adminableOrgIds.length) return;
+    let cancelled = false;
+    setLoading(true);
+
+    Promise.all(
+      adminableOrgIds.map((orgId) =>
+        fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=200`, {
+          credentials: "include",
+        })
+          .then((r) => (r.ok ? r.json() : { tickets: [] }))
+          .then((data) =>
+            (data.tickets ?? []).map((t) => ({
+              ...t,
+              type: typeFromName(t.ticket_type_name),
+            })),
+          )
+          .catch(() => []),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const all = results.flat().sort((a, b) => b.created_at - a.created_at);
+      setTickets(all);
+      if (all.length > 0) setSelectedId((prev) => prev ?? all[0].ticket_id);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgsLoaded, adminableOrgIds]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    let cancelled = false;
+    setDetailLoading(true);
+    setSelectedMessages([]);
+
+    fetch(`/api/tickets/${selectedId}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { messages: [] }))
+      .then((data) => {
+        if (!cancelled) {
+          setSelectedMessages(data.messages ?? []);
+          setDetailLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   const totalNonClosed = useMemo(
-    () => TICKETS.filter((t) => NON_CLOSED.has(t.status)).length,
-    [],
+    () => tickets.filter((t) => NON_CLOSED.has(t.status)).length,
+    [tickets],
   );
 
   const filtered = useMemo(() => {
     const statuses = TAB_STATUSES[tab];
     const typeVal = TYPE_FILTER_MAP[typeFilter];
     const q = search.trim().toLowerCase();
-    return TICKETS.filter((t) => {
+    return tickets.filter((t) => {
       if (!statuses.has(t.status)) return false;
       if (typeVal && t.type !== typeVal) return false;
       if (q) {
-        const name = getPlayer(t.subjectId ?? t.reporterId)?.name ?? "";
-        if (!t.title.toLowerCase().includes(q) && !name.toLowerCase().includes(q))
+        const name = (t.created_by_username ?? "").toLowerCase();
+        const steamId = t.created_by_steam_id ?? "";
+        if (
+          !t.title.toLowerCase().includes(q) &&
+          !name.includes(q) &&
+          !steamId.includes(q)
+        )
           return false;
       }
       return true;
     });
-  }, [tab, typeFilter, search]);
+  }, [tab, typeFilter, search, tickets]);
 
-  const selectedTicket = TICKETS.find((t) => t.id === selectedId) ?? null;
-  const subject = selectedTicket?.subjectId ? getPlayer(selectedTicket.subjectId) : null;
-  const reporter = selectedTicket ? getPlayer(selectedTicket.reporterId) : null;
-  const orgId = selectedTicket ? getOrgId(selectedTicket.serverId) : null;
+  const selectedTicket = tickets.find((t) => t.ticket_id === selectedId) ?? null;
+
+  const handlePostNote = useCallback(async () => {
+    if (!noteText.trim() || !selectedId || submitting) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/tickets/${selectedId}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: noteText.trim(), isInternal: true }),
+      });
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedMessages(data.messages ?? []);
+      }
+      setNoteText("");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [noteText, selectedId, submitting]);
+
+  const handleClaim = useCallback(async () => {
+    if (!selectedId || !sessionUser?.userId) return;
+    const res = await fetch(`/api/tickets/${selectedId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedTo: sessionUser.userId }),
+    });
+    if (res.ok) {
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.ticket_id === selectedId
+            ? {
+                ...t,
+                assigned_to: sessionUser.userId,
+                assigned_to_username: sessionUser.username,
+              }
+            : t,
+        ),
+      );
+    }
+  }, [selectedId, sessionUser]);
+
+  const handleUpdateStatus = useCallback(
+    async (status) => {
+      if (!selectedId) return;
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.ticket_id === selectedId ? { ...t, status } : t,
+          ),
+        );
+      }
+    },
+    [selectedId],
+  );
 
   return (
     <div className="h-screen w-full flex flex-col bg-background">
@@ -102,7 +220,6 @@ function TicketsPage() {
       <div className="flex-1 flex min-h-0">
         {/* Left: ticket list */}
         <aside className="w-[230px] shrink-0 border-r border-border flex flex-col bg-background">
-          {/* Header + tabs */}
           <div className="px-3 py-2 border-b border-border shrink-0">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
@@ -129,7 +246,6 @@ function TicketsPage() {
             </div>
           </div>
 
-          {/* Search */}
           <div className="px-2 py-2 border-b border-border shrink-0">
             <div className="relative">
               <Search className="size-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -142,7 +258,6 @@ function TicketsPage() {
             </div>
           </div>
 
-          {/* Type filter pills */}
           <div className="px-2 py-1.5 border-b border-border flex gap-0.5 flex-wrap shrink-0">
             {TYPE_FILTERS.map((f) => (
               <button
@@ -159,19 +274,23 @@ function TicketsPage() {
             ))}
           </div>
 
-          {/* Ticket rows */}
           <div className="flex-1 overflow-y-auto">
-            {filtered.length === 0 ? (
+            {loading ? (
+              <div className="text-[10px] text-muted-foreground text-center py-10">
+                Loading...
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="text-[10px] text-muted-foreground text-center py-10">
                 No tickets
               </div>
             ) : (
               filtered.map((ticket) => (
                 <TicketListItem
-                  key={ticket.id}
+                  key={ticket.ticket_id}
                   ticket={ticket}
-                  selected={ticket.id === selectedId}
-                  onClick={() => setSelectedId(ticket.id)}
+                  orgs={orgs}
+                  selected={ticket.ticket_id === selectedId}
+                  onClick={() => setSelectedId(ticket.ticket_id)}
                 />
               ))
             )}
@@ -180,48 +299,40 @@ function TicketsPage() {
 
         {/* Center: detail */}
         {selectedTicket ? (
-          <main className="flex-1 flex flex-col min-w-0 overflow-hidden border-r border-border">
+          <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <TicketDetail
               ticket={selectedTicket}
+              messages={selectedMessages}
               noteText={noteText}
               onNoteChange={setNoteText}
+              onPostNote={handlePostNote}
+              onClaim={handleClaim}
+              onUpdateStatus={handleUpdateStatus}
+              submitting={submitting}
+              detailLoading={detailLoading}
+              sessionUser={sessionUser}
             />
           </main>
         ) : (
           <main className="flex-1 grid place-items-center">
-            <p className="text-sm text-muted-foreground">Select a ticket</p>
+            <p className="text-sm text-muted-foreground">
+              {loading ? "Loading tickets..." : "Select a ticket"}
+            </p>
           </main>
-        )}
-
-        {/* Right: player sidebar */}
-        {selectedTicket && subject && (
-          <PlayerSidebar
-            subject={subject}
-            reporter={reporter}
-            team={selectedTicket.team}
-            reports={
-              selectedTicket.reports?.length ? selectedTicket.reports : undefined
-            }
-            category={selectedTicket.category ?? selectedTicket.type}
-            serverId={selectedTicket.serverId}
-            ticketStatus={selectedTicket.status}
-            onAutoReopen={() => {}}
-            messages={selectedTicket.messages}
-            orgId={orgId}
-          />
         )}
       </div>
     </div>
   );
 }
 
-function TicketListItem({ ticket, selected, onClick }) {
+function getOrgPrefix(orgId, orgs) {
+  const org = orgs.find((o) => o.id === orgId);
+  return org ? org.short : (orgId ?? "??").slice(0, 2).toUpperCase();
+}
+
+function TicketListItem({ ticket, orgs, selected, onClick }) {
   const meta = ticketMeta(ticket);
-  const prefix = getOrgPrefix(getOrgId(ticket.serverId));
-  const teamColor = TEAM_BADGE_COLOR[ticket.team] ?? "text-muted-foreground";
-  const teamShort = TEAM_META[ticket.team]?.short ?? ticket.team;
-  const person = getPlayer(ticket.subjectId ?? ticket.reporterId);
-  const reportCount = ticket.reports?.length ?? 0;
+  const prefix = getOrgPrefix(ticket.org_id, orgs);
 
   return (
     <button
@@ -240,23 +351,15 @@ function TicketListItem({ ticket, selected, onClick }) {
           </span>
           <span className="text-[9px] text-muted-foreground shrink-0">·</span>
           <span className="text-[10px] font-medium truncate min-w-0">
-            {person?.name ?? "Unknown"}
+            {ticket.created_by_username ?? "Unknown"}
           </span>
         </div>
         <div className="flex items-center gap-1 mt-0.5">
-          {reportCount > 1 && (
-            <span className="text-[9px] font-mono text-muted-foreground">
-              +{reportCount - 1}
-            </span>
-          )}
-          <span className={`text-[9px] font-mono font-bold ${teamColor}`}>
-            {teamShort}
+          <span className="text-[9px] font-mono text-muted-foreground capitalize">
+            {ticket.priority}
           </span>
-          {ticket.restrictedRank && (
-            <Lock size={9} className="text-muted-foreground shrink-0" />
-          )}
           <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
-            {ticket.createdLabel}
+            {formatRelativeTime(ticket.created_at)}
           </span>
         </div>
       </div>
@@ -264,132 +367,137 @@ function TicketListItem({ ticket, selected, onClick }) {
   );
 }
 
-function TicketDetail({ ticket, noteText, onNoteChange }) {
-  const [subFilter, setSubFilter] = useState("all");
-  const assignee = ticket.assigneeId ? getStaff(ticket.assigneeId) : null;
-  const reports = ticket.reports ?? [];
-  const sysMessages = ticket.messages
-    .filter((m) => m.authorKind === "system")
-    .slice(0, 4);
-  const convMessages = ticket.messages.filter((m) => m.authorKind !== "system");
+function TicketDetail({
+  ticket,
+  messages,
+  noteText,
+  onNoteChange,
+  onPostNote,
+  onClaim,
+  onUpdateStatus,
+  submitting,
+  detailLoading,
+  sessionUser,
+}) {
+  const isClaimed = ticket.assigned_to === sessionUser?.userId;
+  const isClosed = ticket.status === "closed";
+
+  const internalMessages = messages.filter((m) => m.isInternal);
+  const publicMessages = messages.filter((m) => !m.isInternal);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Ticket header */}
+      {/* Header */}
       <div className="px-4 py-2.5 border-b border-border shrink-0">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-[10px] font-mono text-brand shrink-0">
-            #{ticket.number}
+            #{ticket.ticket_id}
           </span>
           <h2 className="text-sm font-bold truncate">{ticket.title}</h2>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5">
+            {ticket.ticket_type_name ?? "Unknown type"}
+          </span>
           <button className="flex items-center gap-1 text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors">
-            → {TEAM_META[ticket.team]?.label ?? ticket.team}
+            {ticket.assigned_to_username ?? "Assign"}
             <ChevronDown size={9} className="text-muted-foreground" />
           </button>
-          <button className="flex items-center gap-1 text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors">
-            {assignee ? assignee.name : "Assign"}
-            <ChevronDown size={9} className="text-muted-foreground" />
+          <button
+            onClick={onClaim}
+            className={`text-[10px] font-mono rounded px-2 py-0.5 hover:opacity-90 transition-colors ${
+              isClaimed
+                ? "bg-surface/60 ring-1 ring-border text-muted-foreground"
+                : "bg-brand text-brand-foreground"
+            }`}
+          >
+            {isClaimed ? "CLAIMED" : "CLAIM"}
           </button>
-          <button className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-2 py-0.5 hover:opacity-90">
-            CLAIM
-          </button>
-          <button className="flex items-center gap-1 text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors">
-            <Lock size={9} /> Lock
-          </button>
+          <span
+            className={`text-[9px] font-mono uppercase font-bold tracking-wider ml-auto ${
+              ticket.priority === "urgent"
+                ? "text-danger"
+                : ticket.priority === "high"
+                  ? "text-warning"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {ticket.priority}
+          </span>
         </div>
       </div>
 
-      {/* Action filter row */}
+      {/* Action row */}
       <div className="px-4 py-1.5 border-b border-border flex items-center gap-1 shrink-0">
-        {[
-          ["all", "All time"],
-          ["proof", "Proof only"],
-          ["waitonline", "Wait online"],
-          ["close", "Close"],
-        ].map(([val, label]) => (
+        {!isClosed ? (
+          <>
+            <button
+              onClick={() => onUpdateStatus("waiting_response")}
+              className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Wait for response
+            </button>
+            <button
+              onClick={() => onUpdateStatus("closed")}
+              className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Close
+            </button>
+          </>
+        ) : (
           <button
-            key={val}
-            onClick={() => setSubFilter(val)}
-            className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
-              subFilter === val
-                ? "text-foreground bg-surface/80 ring-1 ring-border"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            onClick={() => onUpdateStatus("open")}
+            className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
           >
-            {label}
+            Reopen
           </button>
-        ))}
-        <button className="text-[10px] font-mono px-2 py-0.5 rounded bg-danger/20 text-danger hover:bg-danger/30 ml-1 transition-colors">
-          Ban
-        </button>
+        )}
+        {ticket.status === "waiting_response" && (
+          <button
+            onClick={() => onUpdateStatus("open")}
+            className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
+          >
+            Mark Active
+          </button>
+        )}
       </div>
 
-      {/* Scrollable content */}
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        {/* Reporter submissions */}
-        {reports.length > 0 && (
-          <div className="px-4 pt-3 pb-2">
-            <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
-              Reporter Submissions ({reports.length} · All Time)
-            </div>
-            <div className="space-y-3">
-              {reports.map((r) => (
-                <ReporterCard key={r.id} report={r} />
-              ))}
-            </div>
+        {detailLoading ? (
+          <div className="text-[10px] text-muted-foreground text-center py-10">
+            Loading...
           </div>
-        )}
-
-        {/* System messages */}
-        {sysMessages.length > 0 && (
-          <div className="px-4 py-2 space-y-3">
-            {sysMessages.map((msg, i) => (
-              <div key={i}>
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-                    {msg.authorName === "F7 Report" ? "F7 Report" : "System Action"}
-                  </span>
-                  <span className="text-[9px] font-mono text-muted-foreground">
-                    {msg.timestamp}
-                  </span>
+        ) : (
+          <>
+            {publicMessages.length > 0 && (
+              <div className="px-4 pt-3 pb-2 space-y-2">
+                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                  Conversation
                 </div>
-                <p className="text-[10px] font-mono text-foreground/70 leading-relaxed break-words">
-                  {msg.body}
-                </p>
+                {publicMessages.map((msg) => (
+                  <MessageBubble key={msg.messageId} msg={msg} />
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/* Conversation messages (staff/reporter) */}
-        {convMessages.length > 0 && (
-          <div className="px-4 py-2 space-y-2">
-            {convMessages.map((msg, i) => (
-              <div
-                key={i}
-                className={`rounded-md px-3 py-2 ring-1 text-xs ${
-                  msg.authorKind === "staff"
-                    ? "bg-brand/10 ring-brand/20"
-                    : "bg-surface/60 ring-border"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-semibold text-[10px]">{msg.authorName}</span>
-                  <span className="font-mono text-[9px] text-muted-foreground">
-                    {msg.timestamp}
-                  </span>
-                  {msg.authorKind !== "staff" && (
-                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
-                      Internal Note
-                    </span>
-                  )}
+            {internalMessages.length > 0 && (
+              <div className="px-4 py-2 space-y-2">
+                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+                  Internal Notes
                 </div>
-                <p className="leading-relaxed">{msg.body}</p>
+                {internalMessages.map((msg) => (
+                  <MessageBubble key={msg.messageId} msg={msg} internal />
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+
+            {messages.length === 0 && (
+              <div className="text-[10px] text-muted-foreground text-center py-10">
+                No messages yet
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -398,22 +506,23 @@ function TicketDetail({ ticket, noteText, onNoteChange }) {
         <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
           Internal Note{" "}
           <span className="normal-case tracking-normal text-muted-foreground/50">
-            · Staff-only discussion. Reporters never see these.
+            · Staff-only. Reporters never see these.
           </span>
         </div>
         <textarea
           value={noteText}
           onChange={(e) => onNoteChange(e.target.value)}
           placeholder="Discuss this case with other staff — evidence checks, second opinions, decisions..."
-          className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40"
+          disabled={isClosed}
+          className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
         />
-        <div className="flex items-center justify-between mt-1.5">
-          <label className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground cursor-pointer select-none">
-            <input type="checkbox" className="size-3 accent-brand" />
-            Pin to bottom of thread
-          </label>
-          <button className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90">
-            Post Note
+        <div className="flex items-center justify-end mt-1.5">
+          <button
+            onClick={onPostNote}
+            disabled={!noteText.trim() || submitting || isClosed}
+            className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {submitting ? "Posting..." : "Post Note"}
           </button>
         </div>
       </div>
@@ -421,63 +530,25 @@ function TicketDetail({ ticket, noteText, onNoteChange }) {
   );
 }
 
-function ReporterCard({ report }) {
-  const reporter = getPlayer(report.reporterId);
-  const statusColor =
-    report.status === "pending"
-      ? "text-warning"
-      : report.status === "banned"
-        ? "text-danger"
-        : "text-muted-foreground";
-  const evidenceLines = report.evidence
-    ? report.evidence.split("\n").filter(Boolean)
-    : [];
-
+function MessageBubble({ msg, internal }) {
   return (
-    <div className="ring-1 ring-border rounded-lg overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 bg-surface/40 border-b border-border">
-        <div className="flex items-center gap-2">
-          <div
-            className="size-6 rounded-full grid place-items-center text-[9px] font-bold text-background shrink-0"
-            style={{ background: reporter?.avatarColor ?? "oklch(0.4 0.02 285)" }}
-          >
-            {(reporter?.name ?? "?").replace(/[\[\]]/g, "").slice(0, 2).toUpperCase()}
-          </div>
-          <span className="text-xs font-semibold">{reporter?.name ?? report.reporterId}</span>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            {report.submittedLabel}
-          </span>
-        </div>
-        <span className={`text-[9px] font-mono uppercase font-bold tracking-wider ${statusColor}`}>
-          {report.status}
+    <div
+      className={`rounded-md px-3 py-2 ring-1 text-xs ${
+        internal ? "bg-brand/10 ring-brand/20" : "bg-surface/60 ring-border"
+      }`}
+    >
+      <div className="flex items-center gap-2 mb-0.5">
+        <span className="font-semibold text-[10px]">{msg.username ?? "Unknown"}</span>
+        <span className="font-mono text-[9px] text-muted-foreground">
+          {formatRelativeTime(msg.createdAt)}
         </span>
+        {internal && (
+          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
+            Internal Note
+          </span>
+        )}
       </div>
-      <div className="px-3 py-2.5 space-y-2">
-        <div>
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5">
-            Description
-          </div>
-          <p className="text-xs leading-relaxed">{report.description}</p>
-        </div>
-        <div>
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5">
-            Evidence
-          </div>
-          {evidenceLines.length > 0 ? (
-            <div className="space-y-0.5">
-              {evidenceLines.map((link, i) => (
-                <p key={i} className="text-[10px] font-mono text-brand break-all">
-                  {link}
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[10px] font-mono text-muted-foreground italic">
-              No evidence attached.
-            </p>
-          )}
-        </div>
-      </div>
+      <p className="leading-relaxed">{msg.message}</p>
     </div>
   );
 }
