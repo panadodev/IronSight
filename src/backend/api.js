@@ -1014,6 +1014,46 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_org_plugins_org_id ON org_plugins(org_id)`,
   );
+
+  // ── Player bans / mutes ──────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_bans (
+      ban_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      action_type TEXT NOT NULL DEFAULT 'ban',
+      identifier TEXT NOT NULL,
+      identifier_type TEXT NOT NULL,
+      category TEXT,
+      reason TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      expires_at TIMESTAMPTZ,
+      issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      issued_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      revoked BOOLEAN NOT NULL DEFAULT FALSE,
+      revoked_at TIMESTAMPTZ,
+      revoked_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      CONSTRAINT chk_ban_action_type CHECK (action_type IN ('ban', 'mute')),
+      CONSTRAINT chk_ban_identifier_type CHECK (identifier_type IN ('steam_id', 'ip'))
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bans_org_id ON player_bans(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bans_identifier ON player_bans(identifier)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bans_issued_at ON player_bans(issued_at)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ban_server_targets (
+      ban_id UUID NOT NULL REFERENCES player_bans(ban_id) ON DELETE CASCADE,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      PRIMARY KEY (ban_id, server_id)
+    )
+  `);
 }
 
 async function migratePterodactylApiKeys() {
@@ -7111,6 +7151,284 @@ async function handleGetTeamEvents(request) {
   return json({ lines });
 }
 
+// ── Ban / Mute handlers ──────────────────────────────────────────────────────
+
+async function handleListOrgBans(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const url = new URL(request.url);
+  const actionType = url.searchParams.get("type") ?? "ban";
+
+  const { rows } = await pool.query(
+    `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
+            b.category, b.reason, b.note, b.expires_at, b.issued_at,
+            b.issued_by, b.revoked, b.revoked_at, b.revoked_by,
+            u.username AS issued_by_name,
+            COALESCE(
+              json_agg(bst.server_id::text) FILTER (WHERE bst.server_id IS NOT NULL),
+              '[]'::json
+            ) AS server_ids
+     FROM player_bans b
+     LEFT JOIN users u ON u.user_id = b.issued_by
+     LEFT JOIN ban_server_targets bst ON bst.ban_id = b.ban_id
+     WHERE b.org_id = $1 AND b.action_type = $2
+     GROUP BY b.ban_id, u.username
+     ORDER BY b.issued_at DESC
+     LIMIT 500`,
+    [orgId, actionType],
+  );
+
+  return json({
+    bans: rows.map((r) => ({
+      banId: String(r.ban_id),
+      orgId: String(r.org_id),
+      actionType: String(r.action_type),
+      identifier: String(r.identifier),
+      identifierType: String(r.identifier_type),
+      category: r.category ?? null,
+      reason: String(r.reason),
+      note: String(r.note),
+      expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+      issuedAt: new Date(r.issued_at).toISOString(),
+      issuedBy: r.issued_by ? String(r.issued_by) : null,
+      issuedByName: r.issued_by_name ?? null,
+      revoked: Boolean(r.revoked),
+      revokedAt: r.revoked_at ? new Date(r.revoked_at).toISOString() : null,
+      serverIds: Array.isArray(r.server_ids) ? r.server_ids : [],
+    })),
+  });
+}
+
+async function handleCreateBan(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const body = await request.json().catch(() => null);
+  if (!body) return json({ error: "Invalid JSON" }, 400);
+
+  const {
+    actionType = "ban",
+    identifier,
+    identifierType,
+    reason = "",
+    note = "",
+    expiresAt,
+    serverIds = [],
+    category,
+  } = body;
+
+  if (!identifier?.trim())
+    return json({ error: "identifier is required" }, 400);
+  if (!["steam_id", "ip"].includes(identifierType)) {
+    return json({ error: "identifierType must be 'steam_id' or 'ip'" }, 400);
+  }
+  if (!["ban", "mute"].includes(actionType)) {
+    return json({ error: "actionType must be 'ban' or 'mute'" }, 400);
+  }
+  if (identifierType === "ip" && actionType === "mute") {
+    return json({ error: "Cannot mute by IP address" }, 400);
+  }
+
+  const banId = crypto.randomUUID();
+  const expiresAtDate = expiresAt ? new Date(expiresAt) : null;
+
+  await pool.query(
+    `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_type, category, reason, note, expires_at, issued_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      banId,
+      orgId,
+      actionType,
+      identifier.trim(),
+      identifierType,
+      category ?? null,
+      reason,
+      note,
+      expiresAtDate,
+      session.userId,
+    ],
+  );
+
+  const validServerIds = [];
+  if (serverIds.length > 0) {
+    const serverCheck = await pool.query(
+      `SELECT server_id FROM servers WHERE server_id = ANY($1::uuid[]) AND owner_org_id = $2`,
+      [serverIds, orgId],
+    );
+    for (const row of serverCheck.rows) {
+      const sid = String(row.server_id);
+      await pool.query(
+        `INSERT INTO ban_server_targets (ban_id, server_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [banId, sid],
+      );
+      validServerIds.push(sid);
+    }
+  }
+
+  const rconResults = [];
+  if (validServerIds.length > 0) {
+    const serversWithRcon = await pool.query(
+      `SELECT server_id, server_name, rcon_host, rcon_port, rcon_password_enc
+       FROM servers
+       WHERE server_id = ANY($1::uuid[])
+         AND rcon_host IS NOT NULL
+         AND rcon_port IS NOT NULL
+         AND rcon_password_enc IS NOT NULL`,
+      [validServerIds],
+    );
+
+    for (const srv of serversWithRcon.rows) {
+      try {
+        const password = decryptPterodactylApiKey(
+          String(srv.rcon_password_enc),
+        );
+        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${password}`;
+        let command;
+        if (actionType === "mute") {
+          command = `mute ${identifier.trim()}`;
+        } else if (identifierType === "ip") {
+          command = `banip ${identifier.trim()}`;
+        } else {
+          const safeReason = reason.replace(/"/g, "'");
+          command = `ban ${identifier.trim()} "${safeReason}"`;
+        }
+        const result = await executeRconCommand(rconUrl, command);
+        rconResults.push({
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          ok: true,
+          response: result.response,
+        });
+      } catch (err) {
+        rconResults.push({
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          ok: false,
+          error: String(err.message),
+        });
+      }
+    }
+  }
+
+  return json({ ok: true, banId, rconResults }, 201);
+}
+
+async function handleUpdateBan(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+
+  const banCheck = await pool.query(
+    `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    [banId, orgId],
+  );
+  if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
+
+  const body = await request.json().catch(() => null);
+  if (!body) return json({ error: "Invalid JSON" }, 400);
+
+  const sets = [];
+  const params = [banId, orgId];
+  let idx = 3;
+
+  if (body.reason !== undefined) {
+    sets.push(`reason = $${idx}`);
+    params.push(String(body.reason));
+    idx++;
+  }
+  if (body.note !== undefined) {
+    sets.push(`note = $${idx}`);
+    params.push(String(body.note));
+    idx++;
+  }
+  if ("expiresAt" in body) {
+    sets.push(`expires_at = $${idx}`);
+    params.push(body.expiresAt ? new Date(body.expiresAt) : null);
+    idx++;
+  }
+
+  if (sets.length > 0) {
+    await pool.query(
+      `UPDATE player_bans SET ${sets.join(", ")} WHERE ban_id = $1 AND org_id = $2`,
+      params,
+    );
+  }
+
+  return json({ ok: true });
+}
+
+async function handleRevokeBan(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+
+  const banCheck = await pool.query(
+    `SELECT ban_id, identifier, identifier_type, action_type
+     FROM player_bans WHERE ban_id = $1 AND org_id = $2 AND revoked = FALSE`,
+    [banId, orgId],
+  );
+  if (!banCheck.rows[0])
+    return json({ error: "Ban not found or already revoked" }, 404);
+
+  const { identifier, identifier_type, action_type } = banCheck.rows[0];
+
+  await pool.query(
+    `UPDATE player_bans SET revoked = TRUE, revoked_at = NOW(), revoked_by = $3
+     WHERE ban_id = $1 AND org_id = $2`,
+    [banId, orgId, session.userId],
+  );
+
+  const targetServers = await pool.query(
+    `SELECT s.server_id, s.server_name, s.rcon_host, s.rcon_port, s.rcon_password_enc
+     FROM ban_server_targets bst
+     JOIN servers s ON s.server_id = bst.server_id
+     WHERE bst.ban_id = $1
+       AND s.rcon_host IS NOT NULL
+       AND s.rcon_port IS NOT NULL
+       AND s.rcon_password_enc IS NOT NULL`,
+    [banId],
+  );
+
+  const rconResults = [];
+  for (const srv of targetServers.rows) {
+    try {
+      const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${password}`;
+      let command;
+      if (action_type === "mute") {
+        command = `unmute ${String(identifier)}`;
+      } else if (identifier_type === "ip") {
+        command = `unbanip ${String(identifier)}`;
+      } else {
+        command = `unban ${String(identifier)}`;
+      }
+      const result = await executeRconCommand(rconUrl, command);
+      rconResults.push({
+        serverId: String(srv.server_id),
+        serverName: String(srv.server_name),
+        ok: true,
+        response: result.response,
+      });
+    } catch (err) {
+      rconResults.push({
+        serverId: String(srv.server_id),
+        serverName: String(srv.server_name),
+        ok: false,
+        error: String(err.message),
+      });
+    }
+  }
+
+  return json({ ok: true, rconResults });
+}
+
 export async function initializeInfra() {
   try {
     await init();
@@ -7424,6 +7742,31 @@ async function _handleApiRequest(request) {
     );
     if (orgBanNoteMatch && request.method === "PUT")
       return handleSetBanNoteFormat(request, orgBanNoteMatch[1]);
+
+    // Player bans / mutes
+    const orgBansMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans$/,
+    );
+    if (orgBansMatch && request.method === "GET")
+      return handleListOrgBans(request, orgBansMatch[1]);
+    if (orgBansMatch && request.method === "POST")
+      return handleCreateBan(request, orgBansMatch[1]);
+
+    const orgBanDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)$/,
+    );
+    if (orgBanDetailMatch && request.method === "PATCH")
+      return handleUpdateBan(
+        request,
+        orgBanDetailMatch[1],
+        orgBanDetailMatch[2],
+      );
+    if (orgBanDetailMatch && request.method === "DELETE")
+      return handleRevokeBan(
+        request,
+        orgBanDetailMatch[1],
+        orgBanDetailMatch[2],
+      );
 
     // Scripts CRUD
     const orgScriptsMatch = pathname.match(
