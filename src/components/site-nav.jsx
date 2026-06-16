@@ -316,7 +316,7 @@ function SiteNav() {
         {
           to: "/manage/tickets",
           label: "Tickets",
-          show: isSysAdminSession || adminableOrgIds.length > 0,
+          show: adminableOrgIds.length > 0,
         },
         { to: "/player-lookup", label: "Player Lookup", show: canPlayerList },
         { to: "/player-list", label: "Player List", show: canPlayerList },
@@ -331,49 +331,39 @@ function SiteNav() {
         {
           to: "/manage/details",
           label: "Manage",
-          show: isSysAdminSession || adminableOrgIds.length > 0,
+          show: adminableOrgIds.length > 0,
         },
         {
           to: "/manage/predefines",
           label: "Pre-defines",
-          show: isSysAdminSession || adminableOrgIds.length > 0,
+          show: adminableOrgIds.length > 0,
         },
         {
           to: "/manage/toxicity",
           label: "Toxicity",
-          show: isSysAdminSession || adminableOrgIds.length > 0,
+          show: adminableOrgIds.length > 0,
         },
         {
           to: "/manage/ban-configs",
           label: "Ban configs",
-          show: isSysAdminSession || adminableOrgIds.length > 0,
+          show: adminableOrgIds.length > 0,
         },
         {
           to: "/view-org",
           label: "Staff",
-          show: isSysAdminSession || manageableOrgIds.length > 0,
+          show: manageableOrgIds.length > 0,
         },
         {
           to: "/threat-triggers",
           label: "Triggers",
-          show: isSysAdminSession || canThreatTriggers,
+          show: canThreatTriggers,
         },
         {
           to: "/panel",
           label: "Servers",
           search: { tab: "servers" },
           matchSearch: (s) => s.tab === "servers",
-          show: isSysAdminSession || manageableOrgIds.length > 0,
-        },
-      ],
-    },
-    {
-      label: "SYS_ADMIN",
-      links: [
-        {
-          to: "/sys-admin/roles",
-          label: "Roles",
-          show: Boolean(sessionUser?.isSysAdmin),
+          show: manageableOrgIds.length > 0,
         },
       ],
     },
@@ -518,11 +508,9 @@ function SiteNav() {
                   {group.label}
                 </span>
                 {group.label === "Manage Org" &&
-                  (manageableOrgsForSwitcher.length > 0 ||
-                    sessionUser?.isSysAdmin) && (
+                  manageableOrgsForSwitcher.length > 0 && (
                     <ManageOrgInlineSwitcher
                       orgs={manageableOrgsForSwitcher}
-                      isSysAdmin={Boolean(sessionUser?.isSysAdmin)}
                     />
                   )}
               </div>
@@ -883,7 +871,7 @@ function LinkedAccountRow({
     </div>
   );
 }
-function ManageOrgInlineSwitcher({ orgs, isSysAdmin = false }) {
+function ManageOrgInlineSwitcher({ orgs }) {
   const [localOrgs, setLocalOrgs] = useState(orgs);
 
   useEffect(() => {
@@ -909,7 +897,7 @@ function ManageOrgInlineSwitcher({ orgs, isSysAdmin = false }) {
     }
   }, [localOrgs, currentId]);
 
-  if (!active && !isSysAdmin) return null;
+  if (!active) return null;
 
   return (
     <Popover>
