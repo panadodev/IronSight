@@ -631,6 +631,7 @@ async function ensureSchema() {
       assigned_to UUID REFERENCES users(user_id) ON DELETE SET NULL,
       status TEXT NOT NULL DEFAULT 'open',
       priority TEXT NOT NULL DEFAULT 'normal',
+      category TEXT,
       title TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

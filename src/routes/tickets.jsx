@@ -1,7 +1,7 @@
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
-import { ChevronDown, Search } from "lucide-react";
+import { ChevronDown, Search, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 export const Route = createFileRoute("/tickets")({
@@ -10,10 +10,10 @@ export const Route = createFileRoute("/tickets")({
 });
 
 const TYPE_META = {
-  player_report:   { label: "Report",   color: "text-rose-400" },
-  ban_appeal:      { label: "Appeal",   color: "text-yellow-400" },
-  vip_issue:       { label: "VIP",      color: "text-cyan-400" },
-  general_support: { label: "Support",  color: "text-green-400" },
+  player_report:   { label: "Report",  color: "text-rose-400" },
+  ban_appeal:      { label: "Appeal",  color: "text-yellow-400" },
+  vip_issue:       { label: "VIP",     color: "text-cyan-400" },
+  general_support: { label: "Support", color: "text-green-400" },
 };
 
 function typeFromName(name) {
@@ -35,6 +35,59 @@ function formatRelativeTime(unixSec) {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
+}
+
+// Parse the teaminfo RCON response.
+// Format: [RCON] ID: 445 steamID username online leader 76561198047982255 DEADLY x x 76561198041858160 Ringo Starfish
+// "online" and "leader" columns are the literal character "x" when true, absent when false.
+function parseTeamInfoResponse(raw) {
+  if (!raw) return null;
+  const text = raw.replace(/^\[RCON\]\s*/i, "").trim();
+
+  const idMatch = text.match(/\bID:\s*(\d+)/i);
+  if (!idMatch) return null;
+  const teamId = Number(idMatch[1]);
+
+  // Strip everything up to and including the column header row
+  const afterHeader = text
+    .replace(/\bID:\s*\d+\s+steamID\s+username\s+online\s+leader\s*/i, "")
+    .trim();
+
+  if (!afterHeader) return { teamId, members: [] };
+
+  // Steam IDs are always 17-digit numbers beginning with 7656119
+  const steamIdRe = /\b(7656119\d{10})\b/g;
+  const positions = [];
+  let m;
+  while ((m = steamIdRe.exec(afterHeader)) !== null) {
+    positions.push({ steamId: m[1], end: m.index + m[1].length });
+  }
+
+  if (!positions.length) return { teamId, members: [] };
+
+  const members = positions.map(({ steamId, end }, i) => {
+    const nextStart =
+      i + 1 < positions.length ? positions[i + 1].index : afterHeader.length;
+    const segment = afterHeader.slice(end, nextStart).trim();
+    const tokens = segment.split(/\s+/).filter(Boolean);
+
+    // "online" precedes "leader" in the column order. Both are "x" when true.
+    // Pop from the end so we don't confuse multi-word names.
+    let leader = false;
+    let online = false;
+    if (tokens[tokens.length - 1] === "x") {
+      leader = true;
+      tokens.pop();
+    }
+    if (tokens[tokens.length - 1] === "x") {
+      online = true;
+      tokens.pop();
+    }
+
+    return { steamId, username: tokens.join(" ") || "Unknown", online, leader };
+  });
+
+  return { teamId, members };
 }
 
 const NON_CLOSED = new Set(["open", "waiting_response"]);
@@ -65,6 +118,14 @@ function TicketsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Team info panel state
+  const [orgServers, setOrgServers] = useState([]);
+  const [teamSteamId, setTeamSteamId] = useState("");
+  const [teamServerId, setTeamServerId] = useState("");
+  const [teamResult, setTeamResult] = useState(null);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState("");
+
   useEffect(() => {
     if (!orgsLoaded || !adminableOrgIds.length) return;
     let cancelled = false;
@@ -92,9 +153,7 @@ function TicketsPage() {
       setLoading(false);
     });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [orgsLoaded, adminableOrgIds]);
 
   useEffect(() => {
@@ -111,14 +170,32 @@ function TicketsPage() {
           setDetailLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
+      .catch(() => { if (!cancelled) setDetailLoading(false); });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [selectedId]);
+
+  // Fetch RCON-configured servers for the selected ticket's org
+  const selectedOrgId = tickets.find((t) => t.ticket_id === selectedId)?.org_id ?? null;
+  useEffect(() => {
+    if (!selectedOrgId) return;
+    setTeamResult(null);
+    setTeamError("");
+
+    fetch("/api/servers", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { servers: [] }))
+      .then((data) => {
+        const filtered = (data.servers ?? []).filter(
+          (s) => s.ownerOrgId === selectedOrgId && s.rconConfigured,
+        );
+        setOrgServers(filtered);
+        setTeamServerId((prev) => {
+          const stillValid = filtered.some((s) => s.serverId === prev);
+          return stillValid ? prev : (filtered[0]?.serverId ?? "");
+        });
+      })
+      .catch(() => {});
+  }, [selectedOrgId]);
 
   const totalNonClosed = useMemo(
     () => tickets.filter((t) => NON_CLOSED.has(t.status)).length,
@@ -158,9 +235,7 @@ function TicketsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: noteText.trim(), isInternal: true }),
       });
-      const res = await fetch(`/api/tickets/${selectedId}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setSelectedMessages(data.messages ?? []);
@@ -183,36 +258,61 @@ function TicketsPage() {
       setTickets((prev) =>
         prev.map((t) =>
           t.ticket_id === selectedId
-            ? {
-                ...t,
-                assigned_to: sessionUser.userId,
-                assigned_to_username: sessionUser.username,
-              }
+            ? { ...t, assigned_to: sessionUser.userId, assigned_to_username: sessionUser.username }
             : t,
         ),
       );
     }
   }, [selectedId, sessionUser]);
 
-  const handleUpdateStatus = useCallback(
-    async (status) => {
-      if (!selectedId) return;
-      const res = await fetch(`/api/tickets/${selectedId}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      if (res.ok) {
-        setTickets((prev) =>
-          prev.map((t) =>
-            t.ticket_id === selectedId ? { ...t, status } : t,
-          ),
-        );
+  const handleUpdateStatus = useCallback(async (status) => {
+    if (!selectedId) return;
+    const res = await fetch(`/api/tickets/${selectedId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (res.ok) {
+      setTickets((prev) =>
+        prev.map((t) => (t.ticket_id === selectedId ? { ...t, status } : t)),
+      );
+    }
+  }, [selectedId]);
+
+  const handleTeamLookup = useCallback(async () => {
+    const sid = teamSteamId.trim();
+    if (!sid || !teamServerId || teamLoading) return;
+    setTeamLoading(true);
+    setTeamError("");
+    setTeamResult(null);
+    try {
+      const res = await fetch(
+        `/api/servers/${encodeURIComponent(teamServerId)}/rcon/exec`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command: `teaminfo ${sid}` }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setTeamError(data?.error ?? "RCON command failed");
+        return;
       }
-    },
-    [selectedId],
-  );
+      const parsed = parseTeamInfoResponse(data.response ?? "");
+      if (parsed && parsed.members.length > 0) {
+        setTeamResult(parsed);
+      } else {
+        setTeamError("Player is not in a team or no result returned.");
+      }
+    } catch {
+      setTeamError("Failed to reach server.");
+    } finally {
+      setTeamLoading(false);
+    }
+  }, [teamSteamId, teamServerId, teamLoading]);
 
   return (
     <div className="h-screen w-full flex flex-col bg-background">
@@ -299,7 +399,7 @@ function TicketsPage() {
 
         {/* Center: detail */}
         {selectedTicket ? (
-          <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <main className="flex-1 flex flex-col min-w-0 overflow-hidden border-r border-border">
             <TicketDetail
               ticket={selectedTicket}
               messages={selectedMessages}
@@ -314,11 +414,26 @@ function TicketsPage() {
             />
           </main>
         ) : (
-          <main className="flex-1 grid place-items-center">
+          <main className="flex-1 grid place-items-center border-r border-border">
             <p className="text-sm text-muted-foreground">
               {loading ? "Loading tickets..." : "Select a ticket"}
             </p>
           </main>
+        )}
+
+        {/* Right: team info panel */}
+        {selectedTicket && (
+          <TeamInfoPanel
+            servers={orgServers}
+            steamId={teamSteamId}
+            onSteamIdChange={setTeamSteamId}
+            serverId={teamServerId}
+            onServerIdChange={setTeamServerId}
+            onLookup={handleTeamLookup}
+            loading={teamLoading}
+            result={teamResult}
+            error={teamError}
+          />
         )}
       </div>
     </div>
@@ -381,7 +496,6 @@ function TicketDetail({
 }) {
   const isClaimed = ticket.assigned_to === sessionUser?.userId;
   const isClosed = ticket.status === "closed";
-
   const internalMessages = messages.filter((m) => m.isInternal);
   const publicMessages = messages.filter((m) => !m.isInternal);
 
@@ -480,7 +594,6 @@ function TicketDetail({
                 ))}
               </div>
             )}
-
             {internalMessages.length > 0 && (
               <div className="px-4 py-2 space-y-2">
                 <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
@@ -491,7 +604,6 @@ function TicketDetail({
                 ))}
               </div>
             )}
-
             {messages.length === 0 && (
               <div className="text-[10px] text-muted-foreground text-center py-10">
                 No messages yet
@@ -550,5 +662,113 @@ function MessageBubble({ msg, internal }) {
       </div>
       <p className="leading-relaxed">{msg.message}</p>
     </div>
+  );
+}
+
+function TeamInfoPanel({
+  servers,
+  steamId,
+  onSteamIdChange,
+  serverId,
+  onServerIdChange,
+  onLookup,
+  loading,
+  result,
+  error,
+}) {
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") onLookup();
+  };
+
+  return (
+    <aside className="w-[220px] shrink-0 flex flex-col bg-background overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2 border-b border-border shrink-0 flex items-center gap-1.5">
+        <Users size={10} className="text-muted-foreground shrink-0" />
+        <span className="text-[10px] font-mono uppercase tracking-widest font-bold">
+          Team Info
+        </span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+        {/* Steam ID input */}
+        <input
+          value={steamId}
+          onChange={(e) => onSteamIdChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Steam ID..."
+          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+        />
+
+        {/* Server selector — only shown when multiple RCON servers exist */}
+        {servers.length > 1 && (
+          <select
+            value={serverId}
+            onChange={(e) => onServerIdChange(e.target.value)}
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+          >
+            {servers.map((s) => (
+              <option key={s.serverId} value={s.serverId}>
+                {s.serverName}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {servers.length === 0 && (
+          <p className="text-[10px] font-mono text-muted-foreground">
+            No RCON servers configured for this org.
+          </p>
+        )}
+
+        <button
+          onClick={onLookup}
+          disabled={!steamId.trim() || !serverId || loading || servers.length === 0}
+          className="w-full text-[10px] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+        >
+          {loading ? "Looking up..." : "Lookup"}
+        </button>
+
+        {/* Error */}
+        {error && (
+          <p className="text-[10px] font-mono text-danger leading-snug">{error}</p>
+        )}
+
+        {/* Results */}
+        {result && (
+          <div>
+            <div className="text-[9px] font-mono text-muted-foreground mb-1.5">
+              Team #{result.teamId} · {result.members.length}{" "}
+              {result.members.length === 1 ? "member" : "members"}
+            </div>
+            <div className="space-y-1">
+              {result.members.map((member) => (
+                <div
+                  key={member.steamId}
+                  className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30"
+                >
+                  <div className="flex items-center gap-1 min-w-0">
+                    {member.online && (
+                      <span className="text-[8px] text-green-400 shrink-0">●</span>
+                    )}
+                    {member.leader && (
+                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">
+                        Lead
+                      </span>
+                    )}
+                    <span className="text-[10px] font-medium truncate">
+                      {member.username}
+                    </span>
+                  </div>
+                  <div className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate">
+                    {member.steamId}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
