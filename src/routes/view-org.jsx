@@ -61,13 +61,14 @@ function ViewOrgPage() {
 
   const [newMemberName, setNewMemberName] = useState("");
   const [newMemberIdentifier, setNewMemberIdentifier] = useState("");
-  const [newTeam, setNewTeam] = useState("support");
+  const [newTeam, setNewTeam] = useState("org_member");
   const [isAdding, setIsAdding] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(new Set());
   const [memberTeams, setMemberTeams] = useState(new Map());
   const [impersonateModalOpen, setImpersonateModalOpen] = useState(false);
   const [impersonateTarget, setImpersonateTarget] = useState(null);
   const [orgMemberRoles, setOrgMemberRoles] = useState(new Map()); // userId → roleId
+  const [customRoles, setCustomRoles] = useState([]);
 
   async function fetchBootstrap() {
     setLoading(true);
@@ -113,6 +114,18 @@ function ViewOrgPage() {
     }
   }
 
+  async function fetchCustomRoles(orgId) {
+    if (!orgId) return;
+    try {
+      const res = await authFetch(`/api/orgs/${orgId}/roles`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setCustomRoles(data.roles ?? []);
+    } catch {
+      // non-fatal
+    }
+  }
+
   useEffect(() => {
     fetchBootstrap().catch((error) => {
       if (isAuthExpired(error)) return;
@@ -124,6 +137,7 @@ function ViewOrgPage() {
   useEffect(() => {
     if (selectedOrgId) {
       fetchOrgMemberRoles(selectedOrgId);
+      fetchCustomRoles(selectedOrgId);
     }
   }, [selectedOrgId]);
 
@@ -201,7 +215,7 @@ function ViewOrgPage() {
 
       setNewMemberName("");
       setNewMemberIdentifier("");
-      setNewTeam("support");
+      setNewTeam("org_member");
       await fetchBootstrap();
     } catch (error) {
       if (isAuthExpired(error)) return;
@@ -433,17 +447,20 @@ function ViewOrgPage() {
                     />
                   </div>
                   <div className="space-y-1 min-w-[140px]">
-                    <Label className="text-[11px]">Team</Label>
+                    <Label className="text-[11px]">Role</Label>
                     <select
                       className="h-9 w-full rounded-md border border-border bg-background px-2 text-xs"
                       value={newTeam}
                       onChange={(e) => setNewTeam(e.target.value)}
                       disabled={!canManageSelectedOrg || isAdding}
                     >
-                      <option value="management">Management</option>
-                      <option value="sr_admins">Sr. Admins</option>
-                      <option value="admins">Admins</option>
-                      <option value="support">Support</option>
+                      <option value="org_member">Member</option>
+                      <option value="org_admin">Admin</option>
+                      {customRoles.map((r) => (
+                        <option key={r.roleId} value={r.roleId}>
+                          {r.roleName}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <Button
@@ -529,6 +546,11 @@ function ViewOrgPage() {
                         >
                           <option value="org_member">Member</option>
                           <option value="org_admin">Admin</option>
+                          {customRoles.map((r) => (
+                            <option key={r.roleId} value={r.roleId}>
+                              {r.roleName}
+                            </option>
+                          ))}
                         </select>
                         <Button
                           size="icon"
