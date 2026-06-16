@@ -353,9 +353,9 @@ function SiteNav() {
           show: adminableOrgIds.length > 0,
         },
         {
-          to: "/view-org",
+          to: "/manage/staff",
           label: "Staff",
-          show: manageableOrgIds.length > 0,
+          show: adminableOrgIds.length > 0,
         },
         {
           to: "/threat-triggers",
