@@ -52,14 +52,23 @@ const PERMISSION_GROUPS = [
     label: "Moderation",
     perms: [
       {
-        id: "tickets_view",
-        label: "View Tickets",
-        desc: "View support tickets",
-      },
-      {
-        id: "tickets_manage",
-        label: "Manage Tickets",
-        desc: "Respond to and close support tickets",
+        isParent: true,
+        id: "_tickets",
+        label: "Tickets",
+        desc: "Access to the ticket system",
+        showTicketTypes: true,
+        children: [
+          {
+            id: "tickets_view",
+            label: "View Tickets",
+            desc: "View and search support tickets",
+          },
+          {
+            id: "tickets_manage",
+            label: "Manage Tickets",
+            desc: "Respond to and close support tickets",
+          },
+        ],
       },
       {
         id: "ban_configs_manage",
@@ -140,6 +149,48 @@ function PermCheckbox({ checked, onClick, label, desc }) {
   );
 }
 
+function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-start gap-2.5 px-2 py-1.5 rounded hover:bg-surface/60 text-left w-full group"
+    >
+      <span
+        className={
+          "mt-0.5 size-4 rounded grid place-items-center ring-1 shrink-0 transition-colors " +
+          (allChecked
+            ? "bg-brand ring-brand text-brand-foreground"
+            : someChecked
+              ? "bg-brand/20 ring-brand/50 text-brand"
+              : "ring-border text-transparent group-hover:ring-brand/40")
+        }
+      >
+        {allChecked && (
+          <svg viewBox="0 0 10 8" className="size-2.5 fill-none stroke-current">
+            <path
+              d="M1 4L3.5 6.5L9 1"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+        {someChecked && !allChecked && (
+          <svg viewBox="0 0 10 2" className="size-2.5 fill-none stroke-current">
+            <path d="M2 1H8" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        )}
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-medium leading-tight">{label}</p>
+        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+          {desc}
+        </p>
+      </div>
+    </button>
+  );
+}
+
 function RolesPage() {
   const { sessionOrgAdminIds } = useAuth();
   const orgId = useManageOrgId();
@@ -185,7 +236,7 @@ function RolesPage() {
     fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, {
       credentials: "include",
     })
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => (r.ok ? r.json() : null))
       .then((body) => body && setTicketTypes(body.ticketTypes ?? []))
       .catch(() => {});
   }, [orgId]);
@@ -285,6 +336,18 @@ function RolesPage() {
         [roleId]: cur.includes(permId)
           ? cur.filter((p) => p !== permId)
           : [...cur, permId],
+      };
+    });
+  }
+
+  function toggleParentPerm(roleId, childIds, allChecked) {
+    setDraftPerms((prev) => {
+      const cur = prev[roleId] ?? [];
+      return {
+        ...prev,
+        [roleId]: allChecked
+          ? cur.filter((p) => !childIds.includes(p))
+          : [...new Set([...cur, ...childIds])],
       };
     });
   }
@@ -417,39 +480,94 @@ function RolesPage() {
                           {group.label}
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                          {group.perms.map((perm) => (
-                            <PermCheckbox
-                              key={perm.id}
-                              checked={draft.includes(perm.id)}
-                              onClick={() => togglePerm(role.roleId, perm.id)}
-                              label={perm.label}
-                              desc={perm.desc}
-                            />
-                          ))}
+                          {group.perms.map((perm) => {
+                            if (perm.isParent) {
+                              const childIds = perm.children.map((c) => c.id);
+                              const checkedCount = childIds.filter((id) =>
+                                draft.includes(id),
+                              ).length;
+                              const allChecked =
+                                checkedCount === childIds.length &&
+                                childIds.length > 0;
+                              const someChecked =
+                                checkedCount > 0 && !allChecked;
+                              const ticketsActive =
+                                perm.showTicketTypes &&
+                                childIds.some((id) => draft.includes(id));
+
+                              return (
+                                <div key={perm.id} className="col-span-full">
+                                  <ParentPermCheckbox
+                                    allChecked={allChecked}
+                                    someChecked={someChecked}
+                                    label={perm.label}
+                                    desc={perm.desc}
+                                    onClick={() =>
+                                      toggleParentPerm(
+                                        role.roleId,
+                                        childIds,
+                                        allChecked,
+                                      )
+                                    }
+                                  />
+                                  <div className="ml-6 border-l border-border/40 pl-2 mt-0.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                    {perm.children.map((child) => (
+                                      <PermCheckbox
+                                        key={child.id}
+                                        checked={draft.includes(child.id)}
+                                        onClick={() =>
+                                          togglePerm(role.roleId, child.id)
+                                        }
+                                        label={child.label}
+                                        desc={child.desc}
+                                      />
+                                    ))}
+                                  </div>
+                                  {ticketsActive &&
+                                    ticketTypes.length > 0 && (
+                                      <div className="ml-6 border-l border-border/40 pl-2 mt-2">
+                                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1 px-2">
+                                          Ticket Types
+                                        </p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                          {ticketTypes.map((tt) => (
+                                            <PermCheckbox
+                                              key={tt.ticketTypeId}
+                                              checked={draftTT.includes(
+                                                tt.ticketTypeId,
+                                              )}
+                                              onClick={() =>
+                                                toggleTicketType(
+                                                  role.roleId,
+                                                  tt.ticketTypeId,
+                                                )
+                                              }
+                                              label={tt.name}
+                                              desc={tt.description}
+                                            />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <PermCheckbox
+                                key={perm.id}
+                                checked={draft.includes(perm.id)}
+                                onClick={() =>
+                                  togglePerm(role.roleId, perm.id)
+                                }
+                                label={perm.label}
+                                desc={perm.desc}
+                              />
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
-
-                    {ticketTypes.length > 0 && (
-                      <div>
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
-                          Ticket Types
-                        </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                          {ticketTypes.map((tt) => (
-                            <PermCheckbox
-                              key={tt.ticketTypeId}
-                              checked={draftTT.includes(tt.ticketTypeId)}
-                              onClick={() =>
-                                toggleTicketType(role.roleId, tt.ticketTypeId)
-                              }
-                              label={tt.name}
-                              desc={tt.description}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
                     {isDirty && (
                       <div className="flex justify-end pt-1 border-t border-border">

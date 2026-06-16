@@ -36,6 +36,7 @@ function AuthProvider({ children }) {
   const [publicSignedIn, setPublicSignedIn] = useState(false);
   const [orgsLoaded, setOrgsLoaded] = useState(false);
   const [sessionOrgAdminIds, setSessionOrgAdminIds] = useState([]);
+  const [sessionOrgOwnerIds, setSessionOrgOwnerIds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
 
   useEffect(() => {
@@ -58,6 +59,11 @@ function AuthProvider({ children }) {
           ? body.user.orgAdminOrgIds.map(String)
           : [];
         if (!cancelled) setSessionOrgAdminIds(adminIds);
+
+        const ownerIds = Array.isArray(body?.user?.orgOwnerOrgIds)
+          ? body.user.orgOwnerOrgIds.map(String)
+          : [];
+        if (!cancelled) setSessionOrgOwnerIds(ownerIds);
 
         if (body?.user && !cancelled) {
           setSessionUser({
@@ -608,6 +614,7 @@ function AuthProvider({ children }) {
       maxRankAcross,
       sessionUser,
       sessionOrgAdminIds,
+      sessionOrgOwnerIds,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -638,6 +645,7 @@ function AuthProvider({ children }) {
       isImpersonating,
       activeRank,
       sessionOrgAdminIds,
+      sessionOrgOwnerIds,
       sessionUser,
     ],
   );

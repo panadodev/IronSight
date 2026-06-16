@@ -1301,6 +1301,7 @@ async function loadUserAccess(userId) {
 
   const permissions = new Set();
   const orgAdminOrgIds = new Set();
+  const orgOwnerOrgIds = new Set();
 
   for (const row of rows) {
     const orgId = String(row.org_id);
@@ -1315,6 +1316,10 @@ async function loadUserAccess(userId) {
       (roleId === "org_admin" || roleId === "org_owner")
     ) {
       orgAdminOrgIds.add(orgId);
+    }
+
+    if (orgId !== SYSADMIN.globalOrgId && roleId === "org_owner") {
+      orgOwnerOrgIds.add(orgId);
     }
   }
 
@@ -1333,6 +1338,7 @@ async function loadUserAccess(userId) {
     globalAdmin: false,
     canWrite,
     orgAdminOrgIds: Array.from(orgAdminOrgIds),
+    orgOwnerOrgIds: Array.from(orgOwnerOrgIds),
   };
 }
 
@@ -1413,6 +1419,7 @@ async function createSessionForUser(user, options = {}) {
     steamId: user.steamId == null ? null : String(user.steamId),
     groups: access.groups,
     orgAdminOrgIds: access.orgAdminOrgIds,
+    orgOwnerOrgIds: access.orgOwnerOrgIds,
     globalAdmin: access.globalAdmin,
     canWrite: access.canWrite,
   };
@@ -2265,6 +2272,7 @@ async function handleTodoBootstrap(request) {
       steamId: session.steamId,
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
+      orgOwnerOrgIds: session.orgOwnerOrgIds ?? [],
     },
     orgs: userOrgs,
     members,
@@ -2678,11 +2686,18 @@ async function handleCreateOrgRole(request, orgId) {
   }
 
   // Create the role
-  await pool.query(
-    `INSERT INTO roles (role_id, role_name)
-     VALUES ($1, $2)`,
-    [roleId, roleName],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO roles (role_id, role_name)
+       VALUES ($1, $2)`,
+      [roleId, roleName],
+    );
+  } catch (err) {
+    if (err.code === "23505") {
+      return json({ error: "A role with this name already exists" }, 409);
+    }
+    throw err;
+  }
 
   // Add permissions to the role
   if (permissions.length > 0) {
@@ -2966,7 +2981,7 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   }
 
   const memberRes = await pool.query(
-    `SELECT om.role_id, u.username FROM organization_members om
+    `SELECT om.role_id, u.username, u.discord_id FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1 AND om.user_id = $2`,
     [orgId, userId],
@@ -2976,6 +2991,25 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   }
 
   const beforeState = memberRes.rows[0];
+
+  // Configured sys admin can never be removed
+  const configuredSysAdminDiscordId = String(
+    env.sysAdminDiscordId ?? "",
+  ).trim();
+  if (
+    configuredSysAdminDiscordId &&
+    beforeState.discord_id === configuredSysAdminDiscordId
+  ) {
+    return json({ error: "This member cannot be removed" }, 403);
+  }
+
+  // Only org owners can remove other org owners
+  const actorIsOwner =
+    (session.orgOwnerOrgIds ?? []).includes(orgId) ||
+    isConfiguredSysAdmin(session);
+  if (beforeState.role_id === "org_owner" && !actorIsOwner) {
+    return json({ error: "Only org owners can remove other owners" }, 403);
+  }
 
   await pool.query(
     `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`,
@@ -3030,19 +3064,39 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     return json({ error: "team is required in request body" }, 400);
   }
 
-  // Validate team is a valid role
-  const validTeams = ["org_member", "org_admin", "org_owner"];
-  // Accept both direct role IDs and legacy friendly names
-  let mappedTeam;
-  if (newTeam === "org_admin" || newTeam === "management") {
-    mappedTeam = "org_admin";
-  } else if (newTeam === "org_owner") {
-    mappedTeam = "org_owner";
-  } else {
-    mappedTeam = "org_member";
+  // Legacy friendly-name mapping
+  let resolvedTeam = newTeam === "management" ? "org_admin" : newTeam;
+
+  const builtInRoles = ["org_member", "org_admin", "org_owner"];
+
+  if (!builtInRoles.includes(resolvedTeam)) {
+    // Must be a valid custom role belonging to this org
+    if (!resolvedTeam.startsWith(`${orgId}_`)) {
+      return json({ error: "Invalid role" }, 400);
+    }
+    const customRoleRes = await pool.query(
+      `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
+      [resolvedTeam],
+    );
+    if (!customRoleRes.rows[0]) {
+      return json({ error: "Invalid role" }, 400);
+    }
   }
-  if (!validTeams.includes(mappedTeam)) {
-    return json({ error: "Invalid team value" }, 400);
+
+  // Determine if the actor is an org owner (vs just admin)
+  const actorIsOwner =
+    (session.orgOwnerOrgIds ?? []).includes(orgId) ||
+    isConfiguredSysAdmin(session);
+
+  // Only owners can assign built-in elevated roles
+  if (
+    (resolvedTeam === "org_admin" || resolvedTeam === "org_owner") &&
+    !actorIsOwner
+  ) {
+    return json(
+      { error: "Only org owners can assign admin or owner roles" },
+      403,
+    );
   }
 
   const orgRes = await pool.query(
@@ -3064,13 +3118,19 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   }
 
   const beforeState = memberRes.rows[0];
-  if (beforeState.role_id === mappedTeam) {
+
+  // Admins cannot modify org owners
+  if (beforeState.role_id === "org_owner" && !actorIsOwner) {
+    return json({ error: "Only org owners can modify other owners" }, 403);
+  }
+
+  if (beforeState.role_id === resolvedTeam) {
     return json({ ok: true, orgId, userId, message: "Team unchanged" });
   }
 
   await pool.query(
     `UPDATE organization_members SET role_id = $1 WHERE org_id = $2 AND user_id = $3`,
-    [mappedTeam, orgId, userId],
+    [resolvedTeam, orgId, userId],
   );
 
   await scanDel("cache:members:*");
@@ -3087,7 +3147,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     severity: 2,
     metadata: {
       username: beforeState.username,
-      newTeam: mappedTeam,
+      newTeam: resolvedTeam,
     },
     beforeState: {
       orgId,
@@ -3097,7 +3157,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     afterState: {
       orgId,
       userId,
-      roleId: mappedTeam,
+      roleId: resolvedTeam,
     },
   });
 
