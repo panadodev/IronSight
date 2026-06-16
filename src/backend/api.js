@@ -3137,7 +3137,7 @@ async function handleGetStaffAuditLog(request, orgId) {
 
   const url = new URL(request.url);
   const staffId = url.searchParams.get("staffId");
-  const limit = Math.min(100, Number(url.searchParams.get("limit") ?? 50));
+  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 50));
   const offset = Number(url.searchParams.get("offset") ?? 0);
 
   if (!staffId) {
@@ -3150,14 +3150,14 @@ async function handleGetStaffAuditLog(request, orgId) {
        action_type, action_category, severity, metadata, before_state, after_state,
        created_at
      FROM audit_logs
-     WHERE org_id = $1 AND target_user_id = $2
+     WHERE org_id = $1 AND actor_user_id = $2
      ORDER BY created_at DESC
      LIMIT $3 OFFSET $4`,
     [orgId, staffId, limit, offset],
   );
 
   const countRes = await pool.query(
-    `SELECT COUNT(*) as total FROM audit_logs WHERE org_id = $1 AND target_user_id = $2`,
+    `SELECT COUNT(*) as total FROM audit_logs WHERE org_id = $1 AND actor_user_id = $2`,
     [orgId, staffId],
   );
 

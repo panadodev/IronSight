@@ -208,7 +208,7 @@ function StaffPage() {
                     className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
                     title="View audit log"
                   >
-                    <Link to="/staff-audit" search={{ staff: m.userId }}>
+                    <Link to="/staff-audit" search={{ staff: m.userId, org: orgId, name: m.username ?? undefined }}>
                       <Activity className="size-3" />
                       Audit
                     </Link>
