@@ -2,7 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { BAN_CATEGORIES } from "@/lib/auth-context";
+import { BAN_CATEGORIES, TICKET_TYPE_KEYS, TICKET_TYPE_LABELS } from "@/lib/auth-context";
+import { Switch } from "@/components/ui/switch";
 import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 function ToxicityPanel({ orgId, config, onSave }) {
@@ -513,4 +514,31 @@ function BanConfigsPanel({
     </div>
   );
 }
-export { BanConfigsPanel, PredefinesPanel, ToxicityPanel };
+function TicketTypesPanel({ enabled, onToggle }) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
+        <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+          Ticket types
+        </Label>
+        <p className="text-[11px] text-muted-foreground">
+          Disabled types are hidden from the public submit form and from staff
+          queues for this org.
+        </p>
+        <div className="divide-y divide-border">
+          {TICKET_TYPE_KEYS.map((key) => (
+            <div key={key} className="flex items-center justify-between py-2">
+              <span className="text-sm">{TICKET_TYPE_LABELS[key]}</span>
+              <Switch
+                checked={enabled[key] ?? true}
+                onCheckedChange={(v) => onToggle(key, v)}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export { BanConfigsPanel, PredefinesPanel, ToxicityPanel, TicketTypesPanel };

@@ -1847,10 +1847,16 @@ async function handleDiscordCallback(request) {
 
     const existing = existingRes.rows[0];
     if (existing?.steam_id) {
+      if (String(existing.username) !== discordUser.username) {
+        await pool.query(
+          "UPDATE users SET username = $1, updated_at = NOW() WHERE user_id = $2",
+          [discordUser.username, String(existing.user_id)],
+        );
+      }
       return createSessionForUser(
         {
           userId: String(existing.user_id),
-          username: String(existing.username),
+          username: discordUser.username,
           discordId: String(existing.discord_id),
           steamId: String(existing.steam_id),
         },
@@ -1864,7 +1870,7 @@ async function handleDiscordCallback(request) {
 
     const pendingToken = signPendingLink({
       discordId: discordUser.discordId,
-      username: existing ? String(existing.username) : discordUser.username,
+      username: discordUser.username,
       next: sanitizeNext(stateData.next),
     });
 
