@@ -5709,6 +5709,9 @@ async function handleGetServerRconStatus(request, serverId) {
 function executeRconCommand(rconUrl, command) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let commandSent = false;
+    const consoleLogs = [];
+
     const settle = (fn, val) => {
       if (settled) return;
       settled = true;
@@ -5729,6 +5732,7 @@ function executeRconCommand(rconUrl, command) {
     const requestId = Math.floor(Math.random() * 100000) + 1;
 
     ws.addEventListener("open", () => {
+      commandSent = true;
       ws.send(
         JSON.stringify({
           Identifier: requestId,
@@ -5741,13 +5745,15 @@ function executeRconCommand(rconUrl, command) {
     ws.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(String(event.data));
-        if (msg.Identifier === requestId || msg.Identifier === -1) {
+        if (msg.Identifier === requestId) {
           try {
             ws.close(1000, "Done");
           } catch {
             /* noop */
           }
-          settle(resolve, String(msg.Message ?? ""));
+          settle(resolve, { response: String(msg.Message ?? ""), consoleLogs });
+        } else if (msg.Identifier === -1 && commandSent) {
+          consoleLogs.push(String(msg.Message ?? ""));
         }
       } catch {
         // ignore non-JSON messages
@@ -5812,8 +5818,11 @@ async function handleExecRconCommand(request, serverId) {
   const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(rconPassword)}`;
 
   try {
-    const response = await executeRconCommand(rconUrl, command);
-    return json({ ok: true, response });
+    const { response, consoleLogs } = await executeRconCommand(
+      rconUrl,
+      command,
+    );
+    return json({ ok: true, response, consoleLogs });
   } catch (err) {
     return json({ error: `RCON error: ${String(err?.message ?? err)}` }, 502);
   }

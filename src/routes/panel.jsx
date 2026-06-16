@@ -304,7 +304,10 @@ function RconTab({ servers, orgId }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error ?? "RCON error");
-    return String(data.response ?? "");
+    return {
+      response: String(data.response ?? ""),
+      consoleLogs: Array.isArray(data.consoleLogs) ? data.consoleLogs : [],
+    };
   };
 
   const send = async () => {
@@ -314,7 +317,8 @@ function RconTab({ servers, orgId }) {
     setSending(true);
     log(`> ${c}`);
     try {
-      const response = await execCommand(selected, c);
+      const { response, consoleLogs } = await execCommand(selected, c);
+      for (const l of consoleLogs) log(`[LOG] ${l}`);
       if (response) log(`[RCON] ${response}`);
     } catch (err) {
       log(`[ERR] ${String(err?.message ?? err)}`);
@@ -332,7 +336,8 @@ function RconTab({ servers, orgId }) {
     for (const c of cmds) {
       log(`> ${c}`);
       try {
-        const response = await execCommand(selected, c);
+        const { response, consoleLogs } = await execCommand(selected, c);
+        for (const l of consoleLogs) log(`[LOG] ${l}`);
         if (response) log(`[RCON] ${response}`);
       } catch (err) {
         log(`[ERR] ${String(err?.message ?? err)}`);
@@ -433,7 +438,9 @@ function RconTab({ servers, orgId }) {
                       ? "text-warning"
                       : l.includes("[ERR]")
                         ? "text-destructive"
-                        : "text-muted-foreground"
+                        : l.includes("[LOG]")
+                          ? "text-foreground/70"
+                          : "text-muted-foreground"
               }
             >
               {l}
