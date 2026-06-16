@@ -313,7 +313,7 @@ function SiteNav() {
       label: "Moderation",
       links: [
         {
-          to: "/manage/tickets",
+          to: "/tickets",
           label: "Tickets",
           show: adminableOrgIds.length > 0,
         },
