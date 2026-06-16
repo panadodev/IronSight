@@ -334,6 +334,11 @@ function SiteNav() {
           show: adminableOrgIds.length > 0,
         },
         {
+          to: "/manage/roles",
+          label: "Roles",
+          show: adminableOrgIds.length > 0,
+        },
+        {
           to: "/manage/predefines",
           label: "Pre-defines",
           show: adminableOrgIds.length > 0,

@@ -1006,9 +1006,21 @@ async function ensureRolePermissionSeed() {
   await pool.query(
     `INSERT INTO permissions (permission_id, permission_name)
      VALUES
-      ('todo_write', 'Can create and update todos'),
-      ('org_manage', 'Can manage organization members'),
-      ('role_create', 'Can create and manage custom roles')
+      ('todo_read',           'View todos'),
+      ('todo_write',          'Create and edit todos'),
+      ('org_manage',          'Manage organization members'),
+      ('role_create',         'Create and manage custom roles'),
+      ('rcon_access',         'Use RCON console'),
+      ('scripts_view',        'View RCON scripts'),
+      ('scripts_manage',      'Manage RCON scripts'),
+      ('presets_manage',      'Manage server presets'),
+      ('status_view',         'View server status'),
+      ('servers_manage',      'Manage server connections'),
+      ('tickets_view',        'View support tickets'),
+      ('tickets_manage',      'Manage and respond to tickets'),
+      ('ban_configs_manage',  'Manage ban and mute configurations'),
+      ('toxicity_manage',     'Manage toxicity filters'),
+      ('predefines_manage',   'Manage ticket pre-defines')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 
@@ -2636,6 +2648,176 @@ async function handleCreateOrgRole(request, orgId) {
     },
     201,
   );
+}
+
+async function handleListOrgRoles(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT r.role_id, r.role_name,
+            COALESCE(array_agg(rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions
+     FROM roles r
+     LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
+     WHERE r.role_id LIKE ($1 || '_%')
+       AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner')
+     GROUP BY r.role_id, r.role_name
+     ORDER BY r.role_name ASC`,
+    [orgId],
+  );
+
+  return json({
+    roles: rows.map((row) => ({
+      roleId: String(row.role_id),
+      roleName: String(row.role_name),
+      permissions: Array.isArray(row.permissions) ? row.permissions : [],
+    })),
+  });
+}
+
+async function handleUpdateOrgRole(request, orgId, roleId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  if (!roleId.startsWith(`${orgId}_`)) {
+    return json({ error: "Role does not belong to this organization" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const roleExists = await pool.query(
+    `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
+    [roleId],
+  );
+  if (!roleExists.rows[0]) return json({ error: "Role not found" }, 404);
+
+  if (body?.roleName !== undefined) {
+    const roleName = String(body.roleName).trim();
+    if (!roleName) return json({ error: "roleName cannot be empty" }, 400);
+    if (roleName.length > 64) return json({ error: "roleName too long" }, 400);
+    await pool.query(`UPDATE roles SET role_name = $1 WHERE role_id = $2`, [
+      roleName,
+      roleId,
+    ]);
+  }
+
+  if (Array.isArray(body?.permissions)) {
+    const VALID_PERMISSIONS = [
+      "todo_read",
+      "todo_write",
+      "org_manage",
+      "role_create",
+      "rcon_access",
+      "scripts_view",
+      "scripts_manage",
+      "presets_manage",
+      "status_view",
+      "servers_manage",
+      "tickets_view",
+      "tickets_manage",
+      "ban_configs_manage",
+      "toxicity_manage",
+      "predefines_manage",
+    ];
+    const filtered = body.permissions
+      .map((p) => String(p).trim())
+      .filter((p) => VALID_PERMISSIONS.includes(p));
+
+    await pool.query(`BEGIN`);
+    try {
+      await pool.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
+        roleId,
+      ]);
+      for (const permId of filtered) {
+        await pool.query(
+          `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [roleId, permId],
+        );
+      }
+      await pool.query(`COMMIT`);
+    } catch (err) {
+      await pool.query(`ROLLBACK`);
+      throw err;
+    }
+  }
+
+  const { rows } = await pool.query(
+    `SELECT r.role_id, r.role_name,
+            COALESCE(array_agg(rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions
+     FROM roles r
+     LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
+     WHERE r.role_id = $1
+     GROUP BY r.role_id, r.role_name`,
+    [roleId],
+  );
+
+  const role = rows[0];
+  return json({
+    ok: true,
+    role: {
+      roleId: String(role.role_id),
+      roleName: String(role.role_name),
+      permissions: Array.isArray(role.permissions) ? role.permissions : [],
+    },
+  });
+}
+
+async function handleDeleteOrgRole(request, orgId, roleId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  if (!roleId.startsWith(`${orgId}_`)) {
+    return json({ error: "Role does not belong to this organization" }, 403);
+  }
+
+  const roleExists = await pool.query(
+    `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
+    [roleId],
+  );
+  if (!roleExists.rows[0]) return json({ error: "Role not found" }, 404);
+
+  // Reassign members on this custom role back to org_member
+  await pool.query(
+    `UPDATE organization_members SET role_id = 'org_member'
+     WHERE org_id = $1 AND role_id = $2`,
+    [orgId, roleId],
+  );
+
+  // CASCADE handles role_permissions cleanup
+  await pool.query(`DELETE FROM roles WHERE role_id = $1`, [roleId]);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "role",
+    resourceId: roleId,
+    actionType: "ROLE_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { roleId },
+  });
+
+  return json({ ok: true });
 }
 
 async function handleRemoveOrgMember(request, orgId, userId) {
@@ -4497,10 +4679,23 @@ async function handleGetPteroStatus(request, orgId) {
     }
   }
 
-  const mergedServers = servers.map((s) => ({
-    ...s,
-    live: s.identifier ? (liveByIdentifier[s.identifier] ?? null) : null,
-  }));
+  // Only surface servers that are registered in IronSight.
+  const { rows: registeredRows } = await pool.query(
+    `SELECT server_id, server_name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    [orgId],
+  );
+  const registeredByIdentifier = new Map(
+    registeredRows.map((r) => [r.ptero_identifier, r]),
+  );
+
+  const mergedServers = servers
+    .filter((s) => s.identifier && registeredByIdentifier.has(s.identifier))
+    .map((s) => ({
+      ...s,
+      live: liveByIdentifier[s.identifier] ?? null,
+      ironsightServerId: registeredByIdentifier.get(s.identifier).server_id,
+      ironsightServerName: registeredByIdentifier.get(s.identifier).server_name,
+    }));
 
   await pool.query(
     `UPDATE ptero_api_keys SET last_used_at = NOW() WHERE org_id = $1`,
@@ -6196,8 +6391,29 @@ async function _handleApiRequest(request) {
     const orgRolesMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/roles$/,
     );
+    if (orgRolesMatch && request.method === "GET") {
+      return handleListOrgRoles(request, orgRolesMatch[1]);
+    }
     if (orgRolesMatch && request.method === "POST") {
       return handleCreateOrgRole(request, orgRolesMatch[1]);
+    }
+
+    const orgRoleDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/roles\/([a-zA-Z0-9_-]+)$/,
+    );
+    if (orgRoleDetailMatch && request.method === "PATCH") {
+      return handleUpdateOrgRole(
+        request,
+        orgRoleDetailMatch[1],
+        orgRoleDetailMatch[2],
+      );
+    }
+    if (orgRoleDetailMatch && request.method === "DELETE") {
+      return handleDeleteOrgRole(
+        request,
+        orgRoleDetailMatch[1],
+        orgRoleDetailMatch[2],
+      );
     }
 
     const orgMemberDetailMatch = pathname.match(

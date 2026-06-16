@@ -1,11 +1,21 @@
 import { SiteNav } from "@/components/site-nav";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
     Building2,
     ClipboardList,
+    Key,
     Trash2,
     UserCog,
     UserPlus,
@@ -279,36 +289,31 @@ function ViewOrgPage() {
     }
   }
 
-  async function handleImpersonate(memberId, memberName) {
+  async function handleImpersonate(memberId) {
     if (!selectedOrgId || !canManageSelectedOrg) return;
 
     setActionInProgress((prev) => new Set([...prev, `impersonate-${memberId}`]));
     setPageError("");
 
     try {
-      const result = await impersonate(selectedOrgId, memberId);
-      
-      if (!result.ok) {
-        setPageError(result.error ?? "Failed to view member data.");
-        setActionInProgress((prev) => {
-          const next = new Set(prev);
-          next.delete(`impersonate-${memberId}`);
-          return next;
-        });
+      const res = await authFetch(
+        `/api/orgs/${selectedOrgId}/members/${memberId}/impersonate`,
+        { method: "POST", credentials: "include" },
+      );
+
+      const result = await safeJson(res);
+
+      if (!res.ok || !result?.ok) {
+        setPageError(result?.error ?? "Failed to load member data.");
         return;
       }
 
-      // Successfully entered view-only mode
-      // The viewingAs data is now in the auth context
-      // You can display a badge/indicator and show the member's data
-      setActionInProgress((prev) => {
-        const next = new Set(prev);
-        next.delete(`impersonate-${memberId}`);
-        return next;
-      });
+      setImpersonateTarget(result);
+      setImpersonateModalOpen(true);
     } catch (error) {
       if (isAuthExpired(error)) return;
       setPageError(error?.message ?? "Failed to view member data.");
+    } finally {
       setActionInProgress((prev) => {
         const next = new Set(prev);
         next.delete(`impersonate-${memberId}`);
@@ -348,6 +353,15 @@ function ViewOrgPage() {
               Loading...
             </div>
           ) : null}
+
+          <ImpersonateModal
+            open={impersonateModalOpen}
+            data={impersonateTarget}
+            onClose={() => {
+              setImpersonateModalOpen(false);
+              setImpersonateTarget(null);
+            }}
+          />
 
           {!loading ? (
             <section className="rounded-lg ring-1 ring-border bg-surface/30 p-4 space-y-4">
@@ -497,7 +511,7 @@ function ViewOrgPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleImpersonate(member.userId, member.username)}
+                          onClick={() => handleImpersonate(member.userId)}
                           disabled={!canManageSelectedOrg || !hasUserId || actionInProgress.has(`impersonate-${member.userId}`)}
                           className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
                           title={!hasUserId ? "Member not yet in the system" : undefined}
@@ -549,4 +563,128 @@ async function safeJson(response) {
   } catch {
     return null;
   }
+}
+
+function roleLabel(roleId) {
+  if (roleId === "org_owner") return "Owner";
+  if (roleId === "org_admin") return "Admin";
+  return "Member";
+}
+
+const PERMISSION_LABELS = {
+  org_manage: "Manage Members",
+  role_create: "Manage Roles",
+  todo_write: "Write Todos",
+};
+
+function ImpersonateModal({ open, data, onClose }) {
+  if (!data) return null;
+  const { member, access } = data;
+  const permissions = access?.permissions ?? [];
+  const canWrite = access?.canWrite ?? false;
+  const managedOrgs = access?.orgAdminOrgIds ?? [];
+
+  const allPerms = Array.from(
+    new Set([
+      ...permissions,
+      ...(canWrite && !permissions.includes("todo_write") ? ["todo_write"] : []),
+    ]),
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCog className="size-4 text-brand" />
+            Member view — {member?.username}
+          </DialogTitle>
+          <DialogDescription>
+            Read-only snapshot of this member's identity and permissions.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Identity */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Identity
+            </p>
+            <div className="rounded-md ring-1 ring-border bg-surface/40 px-3 py-2.5 space-y-1.5 text-xs font-mono">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Username</span>
+                <span className="font-semibold">{member?.username ?? "—"}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Role</span>
+                <Badge variant="outline" className="text-[9px] font-mono h-4 px-1.5">
+                  {roleLabel(member?.roleId)}
+                </Badge>
+              </div>
+              {member?.steamId && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Steam</span>
+                  <span className="text-brand truncate max-w-[200px]">{member.steamId}</span>
+                </div>
+              )}
+              {member?.discordId && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Discord</span>
+                  <span className="text-brand truncate max-w-[200px]">{member.discordId}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Permissions */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+              <Key className="size-3" /> Permissions
+            </p>
+            {allPerms.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No explicit permissions.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {allPerms.map((p) => (
+                  <Badge
+                    key={p}
+                    variant="outline"
+                    className="text-[9px] font-mono h-4 px-1.5 border-brand/40 text-brand bg-brand/5"
+                  >
+                    {PERMISSION_LABELS[p] ?? p}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Org admin access */}
+          {managedOrgs.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Manages orgs
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {managedOrgs.map((id) => (
+                  <Badge
+                    key={id}
+                    variant="outline"
+                    className="text-[9px] font-mono h-4 px-1.5"
+                  >
+                    {id}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

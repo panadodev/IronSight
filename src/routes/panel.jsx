@@ -2271,7 +2271,9 @@ function StatusTab({ orgId }) {
 
         {servers.length === 0 ? (
           <p className="text-xs text-muted-foreground italic">
-            No servers found on the connected panel.
+            No registered IronSight servers found. Link a Pterodactyl server to
+            an IronSight server in the{" "}
+            <span className="font-mono text-foreground">Servers</span> tab.
           </p>
         ) : (
           <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
