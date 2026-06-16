@@ -112,6 +112,9 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | --- | --- |
 | `servers` | Game servers registered to an org. Authenticated by `api_key_hash`. |
 | `text_chat_log` | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`. |
+| `pvp_log` | Ingested PVP kill events. Indexed by `server_id`, `killer_steam_id`, and `created_at`. |
+| `player_reports` | Player-submitted in-game reports. Indexed by `server_id`, `reported_steam_id`, and `created_at`. |
+| `team_events` | Team lifecycle events (`created`/`joined`/`left`). Indexed by `server_id` and `created_at`. |
 
 ### Integrations
 
@@ -132,6 +135,192 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | `ticket:<ticketId>` | String (JSON) | 30 days (open) · 7 days after close | Cached ticket row. Populated on first load, invalidated on any ticket mutation. |
 | `chat:server:<serverId>` | Sorted set | 7 days | Last 7 days of chat messages for a server, scored by Unix timestamp. Used to serve chat log queries without hitting Postgres for recent windows. |
 | `rl:chat:<serverId>` | Counter | 60 s | Chat ingest rate limiter per server. |
+| `pvp:server:<serverId>` | Sorted set | 7 days | Last 7 days of PVP kill events for a server, scored by Unix timestamp. |
+| `rl:pvp:<serverId>` | Counter | 60 s | PVP ingest rate limiter per server (120 req/min). |
+| `reports:server:<serverId>` | Sorted set | 7 days | Last 7 days of player reports for a server, scored by Unix timestamp. |
+| `rl:reports:<serverId>` | Counter | 60 s | Reports ingest rate limiter per server (60 req/min). |
+| `team:server:<serverId>` | Sorted set | 7 days | Last 7 days of team lifecycle events for a server, scored by Unix timestamp. |
+| `rl:team:<serverId>` | Counter | 60 s | Team event ingest rate limiter per server (120 req/min). |
+
+## Game Event Ingest API
+
+All ingest endpoints use the same server API key auth as `/api/ingest/chat`.
+
+**Authentication** — pass the server key via either header:
+
+- `Authorization: Bearer <api-key>`
+- `x-api-key: <api-key>`
+
+The key is SHA-256 hashed and matched against `servers.api_key_hash`.
+
+---
+
+### POST /api/ingest/pvp
+
+Ingest a PVP kill event.
+
+**Request body:**
+
+```json
+{
+  "killer_steam_id": "76561198825911004",
+  "victim_name": "Nightfall",
+  "combatlog_cache": {
+    "distance": 42.5,
+    "weapon": "AK47",
+    "bodypart": "head",
+    "hp_before": 100,
+    "hp_after": 0
+  }
+}
+```
+
+`combatlog_cache` is a free-form JSON object — include any extra fields your plugin produces. Defaults to `{}`.
+
+**Response `201`:**
+
+```json
+{ "ok": true, "id": "12345" }
+```
+
+---
+
+### POST /api/ingest/reports
+
+Ingest a player report submitted in-game.
+
+**Request body:**
+
+```json
+{
+  "report_type": "cheating",
+  "report_reason": "Aimbot",
+  "report_description": "Snapping to heads through walls at 200m",
+  "reporter_name": "Nightfall",
+  "reporter_steam_id": "76561198825911004",
+  "reported_steam_id": "76561198000000001"
+}
+```
+
+`report_description` is optional (defaults to `""`).
+
+**Response `201`:**
+
+```json
+{ "ok": true, "id": "67890" }
+```
+
+---
+
+### POST /api/ingest/teaminfo
+
+Ingest a team lifecycle event.
+
+**Request body:**
+
+```json
+{
+  "event_type": "joined",
+  "team_leader": "76561198825911004",
+  "team_members": [
+    "76561198825911004",
+    "76561198000000001",
+    "76561198000000002"
+  ],
+  "event_time": "2026-06-16T12:00:00Z"
+}
+```
+
+`event_type` must be one of `created`, `joined`, or `left`. `event_time` is optional (defaults to server receive time) and accepts ISO 8601 strings.
+
+**Response `201`:**
+
+```json
+{ "ok": true, "id": "11111" }
+```
+
+---
+
+### GET /api/pvp/logs
+
+Read PVP kill events for a server. Requires a valid staff session (org member or sysadmin).
+
+**Query params:**
+
+- `serverId` *(required)* — UUID of the server
+- `start` / `end` — Unix timestamps (default: last 6 hours)
+- `limit` — max rows (default 200, max 500)
+
+**Response:**
+
+```json
+{
+  "lines": [
+    {
+      "id": "12345",
+      "killerSteamId": "76561198825911004",
+      "victimName": "Nightfall",
+      "combatlogCache": { "distance": 42.5, "weapon": "AK47", "bodypart": "head" },
+      "ts": 1750000000
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/reports/logs
+
+Read player reports for a server. Requires a valid staff session.
+
+**Query params:** same as `/api/pvp/logs`
+
+**Response:**
+
+```json
+{
+  "lines": [
+    {
+      "id": "67890",
+      "reportType": "cheating",
+      "reportReason": "Aimbot",
+      "reportDescription": "Snapping to heads through walls at 200m",
+      "reporterName": "Nightfall",
+      "reporterSteamId": "76561198825911004",
+      "reportedSteamId": "76561198000000001",
+      "ts": 1750000000
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/team/logs
+
+Read team lifecycle events for a server. Requires a valid staff session.
+
+**Query params:** same as `/api/pvp/logs`
+
+**Response:**
+
+```json
+{
+  "lines": [
+    {
+      "id": "11111",
+      "eventType": "joined",
+      "teamLeader": "76561198825911004",
+      "teamMembers": [
+        "76561198825911004",
+        "76561198000000001"
+      ],
+      "eventTimeUnix": 1749999000,
+      "ts": 1750000000
+    }
+  ]
+}
+```
 
 ---
 

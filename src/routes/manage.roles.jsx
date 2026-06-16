@@ -146,11 +146,13 @@ function RolesPage() {
 
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [ticketTypes, setTicketTypes] = useState([]);
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [draftPerms, setDraftPerms] = useState({});
+  const [draftTicketTypes, setDraftTicketTypes] = useState({});
   const [savingId, setSavingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -176,6 +178,16 @@ function RolesPage() {
 
   useEffect(() => {
     loadRoles();
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, {
+      credentials: "include",
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((body) => body && setTicketTypes(body.ticketTypes ?? []))
+      .catch(() => {});
   }, [orgId]);
 
   if (!orgId) return null;
@@ -209,6 +221,7 @@ function RolesPage() {
       if (newRoleId) {
         setExpandedId(newRoleId);
         setDraftPerms((prev) => ({ ...prev, [newRoleId]: [] }));
+        setDraftTicketTypes((prev) => ({ ...prev, [newRoleId]: [] }));
       }
     } catch {
       setCreateErr("Network error.");
@@ -221,13 +234,14 @@ function RolesPage() {
     setSavingId(roleId);
     try {
       const permissions = draftPerms[roleId] ?? [];
+      const ticketTypeIds = draftTicketTypes[roleId] ?? [];
       await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`,
         {
           method: "PATCH",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ permissions }),
+          body: JSON.stringify({ permissions, ticketTypeIds }),
         },
       );
       await loadRoles();
@@ -250,12 +264,16 @@ function RolesPage() {
     }
   }
 
-  function toggleExpand(roleId, currentPerms) {
+  function toggleExpand(roleId, currentPerms, currentTicketTypeIds) {
     if (expandedId === roleId) {
       setExpandedId(null);
     } else {
       setExpandedId(roleId);
       setDraftPerms((prev) => ({ ...prev, [roleId]: [...currentPerms] }));
+      setDraftTicketTypes((prev) => ({
+        ...prev,
+        [roleId]: [...currentTicketTypeIds],
+      }));
     }
   }
 
@@ -267,6 +285,18 @@ function RolesPage() {
         [roleId]: cur.includes(permId)
           ? cur.filter((p) => p !== permId)
           : [...cur, permId],
+      };
+    });
+  }
+
+  function toggleTicketType(roleId, typeId) {
+    setDraftTicketTypes((prev) => {
+      const cur = prev[roleId] ?? [];
+      return {
+        ...prev,
+        [roleId]: cur.includes(typeId)
+          ? cur.filter((t) => t !== typeId)
+          : [...cur, typeId],
       };
     });
   }
@@ -314,10 +344,16 @@ function RolesPage() {
           roles.map((role) => {
             const isExpanded = expandedId === role.roleId;
             const draft = draftPerms[role.roleId] ?? role.permissions;
+            const draftTT =
+              draftTicketTypes[role.roleId] ?? role.ticketTypeIds ?? [];
             const isDirty =
               isExpanded &&
-              JSON.stringify([...draft].sort()) !==
-                JSON.stringify([...role.permissions].sort());
+              (JSON.stringify([...draft].sort()) !==
+                JSON.stringify([...role.permissions].sort()) ||
+                JSON.stringify([...draftTT].sort((a, b) => a - b)) !==
+                  JSON.stringify(
+                    [...(role.ticketTypeIds ?? [])].sort((a, b) => a - b),
+                  ));
 
             return (
               <div
@@ -327,7 +363,13 @@ function RolesPage() {
                 <div className="flex items-center justify-between gap-2 p-2.5">
                   <button
                     className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                    onClick={() => toggleExpand(role.roleId, role.permissions)}
+                    onClick={() =>
+                      toggleExpand(
+                        role.roleId,
+                        role.permissions,
+                        role.ticketTypeIds ?? [],
+                      )
+                    }
                   >
                     {isExpanded ? (
                       <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
@@ -387,6 +429,27 @@ function RolesPage() {
                         </div>
                       </div>
                     ))}
+
+                    {ticketTypes.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                          Ticket Types
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                          {ticketTypes.map((tt) => (
+                            <PermCheckbox
+                              key={tt.ticketTypeId}
+                              checked={draftTT.includes(tt.ticketTypeId)}
+                              onClick={() =>
+                                toggleTicketType(role.roleId, tt.ticketTypeId)
+                              }
+                              label={tt.name}
+                              desc={tt.description}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {isDirty && (
                       <div className="flex justify-end pt-1 border-t border-border">

@@ -808,6 +808,89 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS idx_text_chat_log_server_created ON text_chat_log(server_id, created_at)`,
   );
 
+  // ── PVP log ─────────────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pvp_log (
+      id BIGSERIAL PRIMARY KEY,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      server_name TEXT NOT NULL,
+      killer_steam_id TEXT NOT NULL,
+      victim_name TEXT NOT NULL,
+      combatlog_cache JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pvp_log_server_id ON pvp_log(server_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pvp_log_created_at ON pvp_log(created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pvp_log_killer_steam_id ON pvp_log(killer_steam_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pvp_log_server_created ON pvp_log(server_id, created_at)`,
+  );
+
+  // ── Player reports ───────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_reports (
+      id BIGSERIAL PRIMARY KEY,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      server_name TEXT NOT NULL,
+      report_type TEXT NOT NULL,
+      report_reason TEXT NOT NULL,
+      report_description TEXT NOT NULL DEFAULT '',
+      reporter_name TEXT NOT NULL,
+      reporter_steam_id TEXT NOT NULL,
+      reported_steam_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_reports_server_id ON player_reports(server_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_reports_created_at ON player_reports(created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_reports_reported_steam_id ON player_reports(reported_steam_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_reports_server_created ON player_reports(server_id, created_at)`,
+  );
+
+  // ── Team events ──────────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS team_events (
+      id BIGSERIAL PRIMARY KEY,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      server_name TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      team_members JSONB NOT NULL DEFAULT '[]',
+      team_leader TEXT NOT NULL,
+      event_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT chk_team_events_type CHECK (event_type IN ('created', 'joined', 'left'))
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_team_events_server_id ON team_events(server_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_team_events_created_at ON team_events(created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_team_events_server_created ON team_events(server_id, created_at)`,
+  );
+
   // -- Pterodactyl integration -----------------------------------------------
 
   await pool.query(`
@@ -2665,9 +2748,11 @@ async function handleListOrgRoles(request, orgId) {
 
   const { rows } = await pool.query(
     `SELECT r.role_id, r.role_name,
-            COALESCE(array_agg(rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions
+            COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
+            COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids
      FROM roles r
      LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
+     LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
      WHERE r.role_id LIKE ($1 || '_%')
        AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner')
      GROUP BY r.role_id, r.role_name
@@ -2680,6 +2765,9 @@ async function handleListOrgRoles(request, orgId) {
       roleId: String(row.role_id),
       roleName: String(row.role_name),
       permissions: Array.isArray(row.permissions) ? row.permissions : [],
+      ticketTypeIds: Array.isArray(row.ticket_type_ids)
+        ? row.ticket_type_ids.map(Number)
+        : [],
     })),
   });
 }
@@ -2718,38 +2806,71 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
     ]);
   }
 
-  if (Array.isArray(body?.permissions)) {
-    const VALID_PERMISSIONS = [
-      "todo_read",
-      "todo_write",
-      "org_manage",
-      "role_create",
-      "rcon_access",
-      "scripts_view",
-      "scripts_manage",
-      "presets_manage",
-      "status_view",
-      "servers_manage",
-      "tickets_view",
-      "tickets_manage",
-      "ban_configs_manage",
-      "toxicity_manage",
-      "predefines_manage",
-    ];
-    const filtered = body.permissions
-      .map((p) => String(p).trim())
-      .filter((p) => VALID_PERMISSIONS.includes(p));
+  const hasPermissions = Array.isArray(body?.permissions);
+  const hasTicketTypes = Array.isArray(body?.ticketTypeIds);
+
+  if (hasPermissions || hasTicketTypes) {
+    let filteredPerms = [];
+    if (hasPermissions) {
+      const VALID_PERMISSIONS = [
+        "todo_read",
+        "todo_write",
+        "org_manage",
+        "role_create",
+        "rcon_access",
+        "scripts_view",
+        "scripts_manage",
+        "presets_manage",
+        "status_view",
+        "servers_manage",
+        "tickets_view",
+        "tickets_manage",
+        "ban_configs_manage",
+        "toxicity_manage",
+        "predefines_manage",
+      ];
+      filteredPerms = body.permissions
+        .map((p) => String(p).trim())
+        .filter((p) => VALID_PERMISSIONS.includes(p));
+    }
+
+    let validTypeIds = [];
+    if (hasTicketTypes) {
+      const rawIds = body.ticketTypeIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0);
+      if (rawIds.length > 0) {
+        const typeRes = await pool.query(
+          `SELECT ticket_type_id FROM ticket_types WHERE org_id = $1 AND ticket_type_id = ANY($2)`,
+          [orgId, rawIds],
+        );
+        validTypeIds = typeRes.rows.map((r) => Number(r.ticket_type_id));
+      }
+    }
 
     await pool.query(`BEGIN`);
     try {
-      await pool.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
-        roleId,
-      ]);
-      for (const permId of filtered) {
-        await pool.query(
-          `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [roleId, permId],
-        );
+      if (hasPermissions) {
+        await pool.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
+          roleId,
+        ]);
+        for (const permId of filteredPerms) {
+          await pool.query(
+            `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [roleId, permId],
+          );
+        }
+      }
+      if (hasTicketTypes) {
+        await pool.query(`DELETE FROM ticket_type_roles WHERE role_id = $1`, [
+          roleId,
+        ]);
+        for (const typeId of validTypeIds) {
+          await pool.query(
+            `INSERT INTO ticket_type_roles (ticket_type_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [typeId, roleId],
+          );
+        }
       }
       await pool.query(`COMMIT`);
     } catch (err) {
@@ -2760,9 +2881,11 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
 
   const { rows } = await pool.query(
     `SELECT r.role_id, r.role_name,
-            COALESCE(array_agg(rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions
+            COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
+            COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids
      FROM roles r
      LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
+     LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
      WHERE r.role_id = $1
      GROUP BY r.role_id, r.role_name`,
     [roleId],
@@ -2775,6 +2898,9 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
       roleId: String(role.role_id),
       roleName: String(role.role_name),
       permissions: Array.isArray(role.permissions) ? role.permissions : [],
+      ticketTypeIds: Array.isArray(role.ticket_type_ids)
+        ? role.ticket_type_ids.map(Number)
+        : [],
     },
   });
 }
@@ -6251,6 +6377,672 @@ async function handleGetChatLogs(request) {
   return json({ lines });
 }
 
+const PVP_INGEST_RATE_LIMIT_PER_MINUTE = 120;
+
+async function handleIngestPvp(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) {
+    return json(
+      {
+        error:
+          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
+      },
+      401,
+    );
+  }
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  const rlKey = `rl:pvp:${server.server_id}`;
+  try {
+    const attempts = await redis.incr(rlKey);
+    await redis.expire(rlKey, 60);
+    if (attempts > PVP_INGEST_RATE_LIMIT_PER_MINUTE) {
+      return json({ error: "Rate limit exceeded" }, 429);
+    }
+  } catch {
+    // fail-open
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const killerSteamId = String(body?.killer_steam_id ?? "").trim();
+  const victimName = String(body?.victim_name ?? "").trim();
+  const combatlogCache = body?.combatlog_cache ?? {};
+
+  if (!killerSteamId || !victimName) {
+    return json({ error: "killer_steam_id and victim_name are required" }, 400);
+  }
+  if (killerSteamId.length > 64)
+    return json(
+      { error: "killer_steam_id must be 64 characters or fewer" },
+      400,
+    );
+  if (victimName.length > 128)
+    return json({ error: "victim_name must be 128 characters or fewer" }, 400);
+  if (typeof combatlogCache !== "object" || Array.isArray(combatlogCache))
+    return json({ error: "combatlog_cache must be a JSON object" }, 400);
+
+  const insertRes = await pool.query(
+    `INSERT INTO pvp_log (server_id, server_name, killer_steam_id, victim_name, combatlog_cache)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, created_at`,
+    [
+      server.server_id,
+      server.server_name,
+      killerSteamId,
+      victimName,
+      JSON.stringify(combatlogCache),
+    ],
+  );
+  const row = insertRes.rows[0];
+  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+
+  const cacheKey = `pvp:server:${server.server_id}`;
+  const cacheEntry = JSON.stringify({
+    id: String(row.id),
+    killerSteamId,
+    victimName,
+    combatlogCache,
+    ts: createdUnix,
+  });
+  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
+  try {
+    await redis.zadd(cacheKey, createdUnix, cacheEntry);
+    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
+    await redis.expire(cacheKey, 7 * 24 * 3600);
+  } catch {
+    // best-effort cache; message already persisted in Postgres
+  }
+
+  return json({ ok: true, id: String(row.id) }, 201);
+}
+
+async function handleGetPvpLogs(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [server.owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `pvp:server:${serverId}`;
+
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
+      }
+    } catch {
+      // fall through to Postgres
+    }
+  }
+
+  const startDate = new Date(startUnix * 1000).toISOString();
+  const endDate = new Date(endUnix * 1000).toISOString();
+
+  const { rows } = await pool.query(
+    `SELECT id, killer_steam_id, victim_name, combatlog_cache,
+            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+     FROM pvp_log
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startDate, endDate, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    killerSteamId: String(row.killer_steam_id),
+    victimName: String(row.victim_name),
+    combatlogCache: row.combatlog_cache ?? {},
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}
+
+const REPORTS_INGEST_RATE_LIMIT_PER_MINUTE = 60;
+
+async function handleIngestReport(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) {
+    return json(
+      {
+        error:
+          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
+      },
+      401,
+    );
+  }
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  const rlKey = `rl:reports:${server.server_id}`;
+  try {
+    const attempts = await redis.incr(rlKey);
+    await redis.expire(rlKey, 60);
+    if (attempts > REPORTS_INGEST_RATE_LIMIT_PER_MINUTE) {
+      return json({ error: "Rate limit exceeded" }, 429);
+    }
+  } catch {
+    // fail-open
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const reportType = String(body?.report_type ?? "").trim();
+  const reportReason = String(body?.report_reason ?? "").trim();
+  const reportDescription = String(body?.report_description ?? "").trim();
+  const reporterName = String(body?.reporter_name ?? "").trim();
+  const reporterSteamId = String(body?.reporter_steam_id ?? "").trim();
+  const reportedSteamId = String(body?.reported_steam_id ?? "").trim();
+
+  if (
+    !reportType ||
+    !reportReason ||
+    !reporterName ||
+    !reporterSteamId ||
+    !reportedSteamId
+  ) {
+    return json(
+      {
+        error:
+          "report_type, report_reason, reporter_name, reporter_steam_id, and reported_steam_id are required",
+      },
+      400,
+    );
+  }
+  if (reportType.length > 64)
+    return json({ error: "report_type must be 64 characters or fewer" }, 400);
+  if (reportReason.length > 256)
+    return json(
+      { error: "report_reason must be 256 characters or fewer" },
+      400,
+    );
+  if (reportDescription.length > 2000)
+    return json(
+      { error: "report_description must be 2000 characters or fewer" },
+      400,
+    );
+  if (reporterName.length > 128)
+    return json(
+      { error: "reporter_name must be 128 characters or fewer" },
+      400,
+    );
+  if (reporterSteamId.length > 64)
+    return json(
+      { error: "reporter_steam_id must be 64 characters or fewer" },
+      400,
+    );
+  if (reportedSteamId.length > 64)
+    return json(
+      { error: "reported_steam_id must be 64 characters or fewer" },
+      400,
+    );
+
+  const insertRes = await pool.query(
+    `INSERT INTO player_reports
+       (server_id, server_name, report_type, report_reason, report_description,
+        reporter_name, reporter_steam_id, reported_steam_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, created_at`,
+    [
+      server.server_id,
+      server.server_name,
+      reportType,
+      reportReason,
+      reportDescription,
+      reporterName,
+      reporterSteamId,
+      reportedSteamId,
+    ],
+  );
+  const row = insertRes.rows[0];
+  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+
+  const cacheKey = `reports:server:${server.server_id}`;
+  const cacheEntry = JSON.stringify({
+    id: String(row.id),
+    reportType,
+    reportReason,
+    reportDescription,
+    reporterName,
+    reporterSteamId,
+    reportedSteamId,
+    ts: createdUnix,
+  });
+  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
+  try {
+    await redis.zadd(cacheKey, createdUnix, cacheEntry);
+    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
+    await redis.expire(cacheKey, 7 * 24 * 3600);
+  } catch {
+    // best-effort cache; report already persisted in Postgres
+  }
+
+  return json({ ok: true, id: String(row.id) }, 201);
+}
+
+async function handleGetReports(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [server.owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `reports:server:${serverId}`;
+
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
+      }
+    } catch {
+      // fall through to Postgres
+    }
+  }
+
+  const startDate = new Date(startUnix * 1000).toISOString();
+  const endDate = new Date(endUnix * 1000).toISOString();
+
+  const { rows } = await pool.query(
+    `SELECT id, report_type, report_reason, report_description,
+            reporter_name, reporter_steam_id, reported_steam_id,
+            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+     FROM player_reports
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startDate, endDate, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    reportType: String(row.report_type),
+    reportReason: String(row.report_reason),
+    reportDescription: String(row.report_description),
+    reporterName: String(row.reporter_name),
+    reporterSteamId: String(row.reporter_steam_id),
+    reportedSteamId: String(row.reported_steam_id),
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}
+
+const TEAM_INGEST_RATE_LIMIT_PER_MINUTE = 120;
+
+async function handleIngestTeamEvent(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) {
+    return json(
+      {
+        error:
+          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
+      },
+      401,
+    );
+  }
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  const rlKey = `rl:team:${server.server_id}`;
+  try {
+    const attempts = await redis.incr(rlKey);
+    await redis.expire(rlKey, 60);
+    if (attempts > TEAM_INGEST_RATE_LIMIT_PER_MINUTE) {
+      return json({ error: "Rate limit exceeded" }, 429);
+    }
+  } catch {
+    // fail-open
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const eventType = String(body?.event_type ?? "").trim();
+  const teamLeader = String(body?.team_leader ?? "").trim();
+  const teamMembers = body?.team_members;
+  const eventTimeRaw = body?.event_time;
+
+  if (!eventType || !teamLeader) {
+    return json({ error: "event_type and team_leader are required" }, 400);
+  }
+  if (!["created", "joined", "left"].includes(eventType)) {
+    return json(
+      { error: "event_type must be one of: created, joined, left" },
+      400,
+    );
+  }
+  if (!Array.isArray(teamMembers)) {
+    return json({ error: "team_members must be an array" }, 400);
+  }
+  if (teamLeader.length > 128)
+    return json({ error: "team_leader must be 128 characters or fewer" }, 400);
+  if (teamMembers.length > 100)
+    return json(
+      { error: "team_members must contain 100 entries or fewer" },
+      400,
+    );
+
+  let eventTime = new Date();
+  if (eventTimeRaw != null) {
+    const parsed = new Date(eventTimeRaw);
+    if (!Number.isFinite(parsed.getTime())) {
+      return json(
+        { error: "event_time must be a valid ISO timestamp or Unix seconds" },
+        400,
+      );
+    }
+    eventTime = parsed;
+  }
+
+  const safeMembers = teamMembers.map((m) => String(m).slice(0, 128));
+
+  const insertRes = await pool.query(
+    `INSERT INTO team_events (server_id, server_name, event_type, team_members, team_leader, event_time)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, created_at`,
+    [
+      server.server_id,
+      server.server_name,
+      eventType,
+      JSON.stringify(safeMembers),
+      teamLeader,
+      eventTime.toISOString(),
+    ],
+  );
+  const row = insertRes.rows[0];
+  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+  const eventTimeUnix = Math.floor(eventTime.getTime() / 1000);
+
+  const cacheKey = `team:server:${server.server_id}`;
+  const cacheEntry = JSON.stringify({
+    id: String(row.id),
+    eventType,
+    teamLeader,
+    teamMembers: safeMembers,
+    eventTimeUnix,
+    ts: createdUnix,
+  });
+  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
+  try {
+    await redis.zadd(cacheKey, createdUnix, cacheEntry);
+    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
+    await redis.expire(cacheKey, 7 * 24 * 3600);
+  } catch {
+    // best-effort cache; event already persisted in Postgres
+  }
+
+  return json({ ok: true, id: String(row.id) }, 201);
+}
+
+async function handleGetTeamEvents(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [server.owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `team:server:${serverId}`;
+
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
+      }
+    } catch {
+      // fall through to Postgres
+    }
+  }
+
+  const startDate = new Date(startUnix * 1000).toISOString();
+  const endDate = new Date(endUnix * 1000).toISOString();
+
+  const { rows } = await pool.query(
+    `SELECT id, event_type, team_members, team_leader,
+            EXTRACT(EPOCH FROM event_time)::BIGINT AS event_time_unix,
+            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+     FROM team_events
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startDate, endDate, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    eventType: String(row.event_type),
+    teamLeader: String(row.team_leader),
+    teamMembers: Array.isArray(row.team_members) ? row.team_members : [],
+    eventTimeUnix: Number(row.event_time_unix),
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}
+
 export async function initializeInfra() {
   try {
     await init();
@@ -6699,6 +7491,30 @@ async function _handleApiRequest(request) {
 
     if (pathname === "/api/chat/logs" && request.method === "GET") {
       return handleGetChatLogs(request);
+    }
+
+    if (pathname === "/api/ingest/pvp" && request.method === "POST") {
+      return handleIngestPvp(request);
+    }
+
+    if (pathname === "/api/pvp/logs" && request.method === "GET") {
+      return handleGetPvpLogs(request);
+    }
+
+    if (pathname === "/api/ingest/reports" && request.method === "POST") {
+      return handleIngestReport(request);
+    }
+
+    if (pathname === "/api/reports/logs" && request.method === "GET") {
+      return handleGetReports(request);
+    }
+
+    if (pathname === "/api/ingest/teaminfo" && request.method === "POST") {
+      return handleIngestTeamEvent(request);
+    }
+
+    if (pathname === "/api/team/logs" && request.method === "GET") {
+      return handleGetTeamEvents(request);
     }
 
     return json({ error: "Not found" }, 404);
