@@ -214,9 +214,9 @@ function StaffPage() {
                     </Link>
                   </Button>
 
-                  {!isOwnerRow && !isMe && (
+                  {!isMe && (
                     <select
-                      value={m.roleId === "org_admin" ? "org_admin" : "org_member"}
+                      value={m.roleId}
                       disabled={isChangingRole}
                       onChange={(e) => handleRoleChange(m.userId, e.target.value)}
                       className="bg-surface border border-border rounded px-2 py-1 text-[11px] font-mono disabled:opacity-50 h-7"
@@ -224,6 +224,7 @@ function StaffPage() {
                     >
                       <option value="org_member">Member</option>
                       <option value="org_admin">Admin</option>
+                      <option value="org_owner">Owner</option>
                     </select>
                   )}
 

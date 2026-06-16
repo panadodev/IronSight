@@ -3031,11 +3031,13 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   }
 
   // Validate team is a valid role
-  const validTeams = ["org_member", "org_admin"];
+  const validTeams = ["org_member", "org_admin", "org_owner"];
   // Accept both direct role IDs and legacy friendly names
   let mappedTeam;
   if (newTeam === "org_admin" || newTeam === "management") {
     mappedTeam = "org_admin";
+  } else if (newTeam === "org_owner") {
+    mappedTeam = "org_owner";
   } else {
     mappedTeam = "org_member";
   }
