@@ -114,6 +114,8 @@ function TicketsPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [noteText, setNoteText] = useState("");
+  const [replyText, setReplyText] = useState("");
+  const [composerMode, setComposerMode] = useState("reply");
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -245,6 +247,27 @@ function TicketsPage() {
       setSubmitting(false);
     }
   }, [noteText, selectedId, submitting]);
+
+  const handlePostReply = useCallback(async () => {
+    if (!replyText.trim() || !selectedId || submitting) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/tickets/${selectedId}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: replyText.trim(), isInternal: false }),
+      });
+      const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedMessages(data.messages ?? []);
+      }
+      setReplyText("");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [replyText, selectedId, submitting]);
 
   const handleClaim = useCallback(async () => {
     if (!selectedId || !sessionUser?.userId) return;
@@ -406,6 +429,11 @@ function TicketsPage() {
               noteText={noteText}
               onNoteChange={setNoteText}
               onPostNote={handlePostNote}
+              replyText={replyText}
+              onReplyChange={setReplyText}
+              onPostReply={handlePostReply}
+              composerMode={composerMode}
+              onComposerModeChange={setComposerMode}
               onClaim={handleClaim}
               onUpdateStatus={handleUpdateStatus}
               submitting={submitting}
@@ -488,6 +516,11 @@ function TicketDetail({
   noteText,
   onNoteChange,
   onPostNote,
+  replyText,
+  onReplyChange,
+  onPostReply,
+  composerMode,
+  onComposerModeChange,
   onClaim,
   onUpdateStatus,
   submitting,
@@ -613,30 +646,74 @@ function TicketDetail({
         )}
       </div>
 
-      {/* Note composer */}
+      {/* Composer */}
       <div className="border-t border-border px-4 py-3 shrink-0">
-        <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
-          Internal Note{" "}
-          <span className="normal-case tracking-normal text-muted-foreground/50">
-            · Staff-only. Reporters never see these.
-          </span>
-        </div>
-        <textarea
-          value={noteText}
-          onChange={(e) => onNoteChange(e.target.value)}
-          placeholder="Discuss this case with other staff — evidence checks, second opinions, decisions..."
-          disabled={isClosed}
-          className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
-        />
-        <div className="flex items-center justify-end mt-1.5">
+        <div className="flex items-center gap-1 mb-2">
           <button
-            onClick={onPostNote}
-            disabled={!noteText.trim() || submitting || isClosed}
-            className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => onComposerModeChange("reply")}
+            className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+              composerMode === "reply"
+                ? "bg-brand text-brand-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            {submitting ? "Posting..." : "Post Note"}
+            Reply
           </button>
+          <button
+            onClick={() => onComposerModeChange("note")}
+            className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+              composerMode === "note"
+                ? "bg-brand text-brand-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Internal Note
+          </button>
+          {composerMode === "note" && (
+            <span className="text-[9px] font-mono text-muted-foreground/50 ml-1">
+              · Staff-only. Reporters never see these.
+            </span>
+          )}
         </div>
+        {composerMode === "reply" ? (
+          <>
+            <textarea
+              value={replyText}
+              onChange={(e) => onReplyChange(e.target.value)}
+              placeholder="Write a reply to the submitter..."
+              disabled={isClosed}
+              className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
+            />
+            <div className="flex items-center justify-end mt-1.5">
+              <button
+                onClick={onPostReply}
+                disabled={!replyText.trim() || submitting || isClosed}
+                className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {submitting ? "Sending..." : "Send Reply"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <textarea
+              value={noteText}
+              onChange={(e) => onNoteChange(e.target.value)}
+              placeholder="Discuss this case with other staff — evidence checks, second opinions, decisions..."
+              disabled={isClosed}
+              className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
+            />
+            <div className="flex items-center justify-end mt-1.5">
+              <button
+                onClick={onPostNote}
+                disabled={!noteText.trim() || submitting || isClosed}
+                className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {submitting ? "Posting..." : "Post Note"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

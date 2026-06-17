@@ -2084,14 +2084,37 @@ function StatusTab({ orgId }) {
     const map = new Map();
     for (const s of servers) {
       const key = s.nodeId ?? s.nodeName ?? "unknown";
-      const agg = map.get(key) ?? { count: 0, mem: 0, disk: 0 };
+      const agg = map.get(key) ?? {
+        count: 0,
+        allocMem: 0,
+        allocDisk: 0,
+        usedMemBytes: 0,
+        usedDiskBytes: 0,
+        hasUsage: false,
+      };
       agg.count += 1;
-      agg.mem += s.limits?.memory ?? 0;
-      agg.disk += s.limits?.disk ?? 0;
+      agg.allocMem += s.limits?.memory ?? 0;
+      agg.allocDisk += s.limits?.disk ?? 0;
+      const liveStream = streams[s.identifier];
+      const usedMem =
+        liveStream?.status === "live"
+          ? liveStream.mem
+          : s.live?.resources.memoryBytes;
+      const usedDisk =
+        liveStream?.status === "live"
+          ? liveStream.disk
+          : s.live?.resources.diskBytes;
+      if (usedMem != null) {
+        agg.usedMemBytes += usedMem;
+        agg.hasUsage = true;
+      }
+      if (usedDisk != null) {
+        agg.usedDiskBytes += usedDisk;
+      }
       map.set(key, agg);
     }
     return map;
-  }, [servers]);
+  }, [servers, streams]);
 
   if (loading && !data) {
     return (
@@ -2215,25 +2238,36 @@ function StatusTab({ orgId }) {
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[10px] font-mono">
                       <span className="text-muted-foreground uppercase tracking-widest">
-                        Memory allocated
+                        {agg.hasUsage ? "Memory used" : "Memory allocated"}
                       </span>
                       <span className="text-muted-foreground">
-                        {fmtMB(agg.mem)} / {fmtMB(memCap)}
+                        {agg.hasUsage
+                          ? `${fmtBytes(agg.usedMemBytes)} / ${fmtMB(memCap)}`
+                          : `${fmtMB(agg.allocMem)} / ${fmtMB(memCap)}`}
                       </span>
                     </div>
-                    <UsageBar value={agg.mem} max={memCap} />
+                    <UsageBar
+                      value={agg.hasUsage ? agg.usedMemBytes : agg.allocMem}
+                      max={agg.hasUsage ? memCap * 1048576 : memCap}
+                    />
                   </div>
 
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[10px] font-mono">
                       <span className="text-muted-foreground uppercase tracking-widest">
-                        Disk allocated
+                        {agg.hasUsage ? "Disk used" : "Disk allocated"}
                       </span>
                       <span className="text-muted-foreground">
-                        {fmtMB(agg.disk)} / {fmtMB(diskCap)}
+                        {agg.hasUsage
+                          ? `${fmtBytes(agg.usedDiskBytes)} / ${fmtMB(diskCap)}`
+                          : `${fmtMB(agg.allocDisk)} / ${fmtMB(diskCap)}`}
                       </span>
                     </div>
-                    <UsageBar value={agg.disk} max={diskCap} tone="bg-brand" />
+                    <UsageBar
+                      value={agg.hasUsage ? agg.usedDiskBytes : agg.allocDisk}
+                      max={agg.hasUsage ? diskCap * 1048576 : diskCap}
+                      tone="bg-brand"
+                    />
                   </div>
 
                   <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground pt-1 border-t border-border">
