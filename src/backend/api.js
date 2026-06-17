@@ -7960,13 +7960,16 @@ async function findBMIdBySteamId(steamId, orgId) {
     return null;
   }
 
-  const url =
-    `https://api.battlemetrics.com/players` +
-    `?filter[identifier]=${encodeURIComponent(steamId)}` +
-    `&filter[identifierType]=steamID` +
-    `&include=identifier&page[size]=5`;
+  const payload = JSON.stringify({
+    data: [{ type: "identifier", attributes: { type: "steamID", identifier: String(steamId) } }],
+  });
 
-  const resp = await bmFetch(orgId, url);
+  const resp = await bmFetch(orgId, "https://api.battlemetrics.com/players/match", {
+    method: "POST",
+    body: payload,
+    headers: { "Content-Type": "application/json" },
+  });
+
   if (!resp) {
     console.warn(`[player:bm] all BM keys for org=${orgId} are rate-limited or failed`);
     return null;
@@ -7978,26 +7981,19 @@ async function findBMIdBySteamId(steamId, orgId) {
     return null;
   }
 
-  const data = await resp.json();
-  const players = data.data ?? [];
-  const included = data.included ?? [];
-
-  for (const player of players) {
-    const match = included.find(
-      (inc) =>
-        inc.type === "identifier" &&
-        inc.attributes?.type === "steamID" &&
-        String(inc.attributes?.identifier) === String(steamId) &&
-        inc.relationships?.player?.data?.id === player.id,
-    );
-    if (match) {
-      console.log(`[player:bm] resolved steamId=${steamId} → bmId=${player.id}`);
-      return String(player.id);
+  const json = await resp.json();
+  for (const entry of json.data ?? []) {
+    if (entry.attributes?.type === "steamID") {
+      const bmId = entry.relationships?.player?.data?.id;
+      if (bmId) {
+        console.log(`[player:bm] resolved steamId=${steamId} → bmId=${bmId}`);
+        return String(bmId);
+      }
     }
   }
 
   console.log(
-    `[player:bm] steamId=${steamId} not found in BattleMetrics (${players.length} results returned — player may not have played on any tracked server)`,
+    `[player:bm] steamId=${steamId} not found in BattleMetrics (player may not have played on any tracked server)`,
   );
   return null;
 }
