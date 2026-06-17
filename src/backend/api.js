@@ -782,6 +782,9 @@ async function ensureSchema() {
   await pool.query(
     `ALTER TABLE servers ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
   );
+  await pool.query(
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS last_health_ping TIMESTAMPTZ`,
+  );
 
   // ── Text chat log ─────────────────────────────────────────────────────────
 
@@ -5128,7 +5131,7 @@ async function handleGetPteroStatus(request, orgId) {
 
   // Only surface servers that are registered in IronSight.
   const { rows: registeredRows } = await pool.query(
-    `SELECT server_id, server_name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    `SELECT server_id, server_name, ptero_identifier, last_health_ping FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
     [orgId],
   );
   const registeredByIdentifier = new Map(
@@ -5137,12 +5140,18 @@ async function handleGetPteroStatus(request, orgId) {
 
   const mergedServers = servers
     .filter((s) => s.identifier && registeredByIdentifier.has(s.identifier))
-    .map((s) => ({
-      ...s,
-      live: liveByIdentifier[s.identifier] ?? null,
-      ironsightServerId: registeredByIdentifier.get(s.identifier).server_id,
-      ironsightServerName: registeredByIdentifier.get(s.identifier).server_name,
-    }));
+    .map((s) => {
+      const reg = registeredByIdentifier.get(s.identifier);
+      return {
+        ...s,
+        live: liveByIdentifier[s.identifier] ?? null,
+        ironsightServerId: reg.server_id,
+        ironsightServerName: reg.server_name,
+        lastHealthPing: reg.last_health_ping
+          ? new Date(reg.last_health_ping).toISOString()
+          : null,
+      };
+    });
 
   await pool.query(
     `UPDATE ptero_api_keys SET last_used_at = NOW() WHERE org_id = $1`,
@@ -5338,7 +5347,7 @@ async function handleListServers(request) {
 
   const { rows } = await pool.query(
     `SELECT server_id, server_name, owner_org_id, created_at, ptero_identifier,
-            rcon_host, rcon_port, game_port, tags,
+            rcon_host, rcon_port, game_port, tags, last_health_ping,
             (rcon_password_enc IS NOT NULL AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL) AS rcon_configured
      FROM servers
      WHERE owner_org_id = ANY($1::text[])
@@ -5358,6 +5367,9 @@ async function handleListServers(request) {
       rconPort: row.rcon_port ?? null,
       gamePort: row.game_port ?? null,
       tags: Array.isArray(row.tags) ? row.tags : [],
+      lastHealthPing: row.last_health_ping
+        ? new Date(row.last_health_ping).toISOString()
+        : null,
     })),
   });
 }
@@ -6468,6 +6480,47 @@ async function handleExecRconCommand(request, serverId) {
   } catch (err) {
     return json({ error: `RCON error: ${String(err?.message ?? err)}` }, 502);
   }
+}
+
+async function handleServerHealthCheck(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) {
+    return json(
+      {
+        error:
+          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
+      },
+      401,
+    );
+  }
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) {
+    return json({ error: "Invalid API key" }, 401);
+  }
+  const server = serverRes.rows[0];
+
+  await pool.query(
+    `UPDATE servers SET last_health_ping = NOW() WHERE server_id = $1`,
+    [server.server_id],
+  );
+
+  console.log(
+    `[health-check] ping from server=${server.server_name} (${server.server_id})`,
+  );
+  return json({ ok: true });
 }
 
 const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
@@ -9353,6 +9406,10 @@ async function _handleApiRequest(request) {
         orgPteroWsMatch[1],
         orgPteroWsMatch[2],
       );
+    }
+
+    if (pathname === "/api/server-health-check" && request.method === "POST") {
+      return handleServerHealthCheck(request);
     }
 
     if (pathname === "/api/ingest/chat" && request.method === "POST") {

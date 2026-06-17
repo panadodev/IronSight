@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  Activity,
   AlertTriangle,
   Building2,
   Check,
@@ -85,6 +86,41 @@ function extractVars(cmd) {
 }
 function applyVars(cmd, values) {
   return cmd.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, k) => values[k] ?? `{${k}}`);
+}
+function PingBadge({ lastHealthPing, className = "" }) {
+  if (!lastHealthPing) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.5 rounded ring-1 bg-muted/20 text-muted-foreground ring-border ${className}`}
+        title="Plugin has never pinged"
+      >
+        <Activity className="size-2.5" /> never
+      </span>
+    );
+  }
+  const ageMs = Date.now() - new Date(lastHealthPing).getTime();
+  const ageSec = Math.floor(ageMs / 1000);
+  let label, cls;
+  if (ageSec < 90) {
+    label = `${ageSec}s ago`;
+    cls = "bg-success/10 text-success ring-success/30";
+  } else if (ageSec < 300) {
+    const m = Math.floor(ageSec / 60);
+    label = `${m}m ago`;
+    cls = "bg-warning/10 text-warning ring-warning/30";
+  } else {
+    const m = Math.floor(ageSec / 60);
+    label = m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`;
+    cls = "bg-destructive/10 text-destructive ring-destructive/30";
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.5 rounded ring-1 ${cls} ${className}`}
+      title={`Last plugin ping: ${new Date(lastHealthPing).toLocaleString()}`}
+    >
+      <Activity className="size-2.5" /> {label}
+    </span>
+  );
 }
 
 const PANEL_ORG_KEY = "panel.selectedOrgId";
@@ -2381,6 +2417,10 @@ function StatusTab({ orgId }) {
                           suspended
                         </span>
                       )}
+                      <PingBadge
+                        lastHealthPing={s.lastHealthPing}
+                        className="shrink-0"
+                      />
                       <span className="text-[9px] font-mono text-muted-foreground truncate">
                         {s.ip ? `${s.ip}:${s.port ?? ""}` : ""}
                       </span>
@@ -3123,9 +3163,10 @@ function ServersTab({ orgId }) {
           </p>
         ) : (
           <div className="divide-y divide-border">
-            <div className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Server</div>
               <div>Pterodactyl</div>
+              <div>Last Ping</div>
               <div>Added</div>
               <div className="w-20 text-right">Actions</div>
             </div>
@@ -3144,7 +3185,7 @@ function ServersTab({ orgId }) {
               return (
                 <div
                   key={s.serverId}
-                  className="grid grid-cols-[2fr_1fr_1.2fr_auto] gap-3 px-4 py-3 items-center"
+                  className="grid grid-cols-[2fr_1fr_1fr_1.2fr_auto] gap-3 px-4 py-3 items-center"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -3186,6 +3227,9 @@ function ServersTab({ orgId }) {
                         —
                       </span>
                     )}
+                  </div>
+                  <div>
+                    <PingBadge lastHealthPing={s.lastHealthPing} />
                   </div>
                   <div className="text-[11px] text-muted-foreground">
                     {addedDate}
