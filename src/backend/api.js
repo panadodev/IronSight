@@ -7899,27 +7899,55 @@ const RUST_APP_ID = 252490;
 const AIM_SERVER_KEYWORDS = ["ukn", "aim"];
 
 async function findBMIdBySteamId(steamId, orgId) {
-  const url =
-    `https://api.battlemetrics.com/players` +
-    `?filter[game]=rust` +
-    `&filter[identifiers][type]=steamID` +
-    `&filter[identifiers][value]=${encodeURIComponent(steamId)}` +
-    `&include=identifier&page[size]=5`;
+  const keys = await getAvailableExternalKeys(orgId, "battlemetrics");
+  if (!keys.length) {
+    console.warn(
+      `[player:bm] org=${orgId} has no BattleMetrics API keys — go to Manage Org → API Keys to add one`,
+    );
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    "filter[identifiers][type]": "steamID",
+    "filter[identifiers][value]": steamId,
+    "include": "identifier",
+    "page[size]": "5",
+  });
+  const url = `https://api.battlemetrics.com/players?${params}`;
 
   const resp = await bmFetch(orgId, url);
-  if (!resp?.ok) return null;
+  if (!resp) {
+    console.warn(`[player:bm] all BM keys for org=${orgId} are rate-limited or failed`);
+    return null;
+  }
+  if (!resp.ok) {
+    let body = "";
+    try { body = await resp.text(); } catch {}
+    console.warn(`[player:bm] BM API returned ${resp.status} for steamId=${steamId}: ${body.slice(0, 200)}`);
+    return null;
+  }
 
   const data = await resp.json();
-  for (const player of data.data ?? []) {
-    const match = (data.included ?? []).find(
+  const players = data.data ?? [];
+  const included = data.included ?? [];
+
+  for (const player of players) {
+    const match = included.find(
       (inc) =>
         inc.type === "identifier" &&
         inc.attributes?.type === "steamID" &&
         String(inc.attributes?.identifier) === String(steamId) &&
         inc.relationships?.player?.data?.id === player.id,
     );
-    if (match) return String(player.id);
+    if (match) {
+      console.log(`[player:bm] resolved steamId=${steamId} → bmId=${player.id}`);
+      return String(player.id);
+    }
   }
+
+  console.log(
+    `[player:bm] steamId=${steamId} not found in BattleMetrics (${players.length} results returned — player may not have played on any tracked server)`,
+  );
   return null;
 }
 
