@@ -338,6 +338,8 @@ function parseMaybeList(value) {
 
 function canWriteTodos(session) {
   if (session?.canWrite) return true;
+  if (session?.orgOwnerOrgIds?.length) return true;
+  if (session?.orgAdminOrgIds?.length) return true;
   if (!session?.groups?.length) return false;
   return session.groups.some((g) => g.admin || g.editUsers);
 }
@@ -2311,6 +2313,38 @@ async function handleTodoBootstrap(request) {
 
   const todos = await getTodoRowsForOrgs(orgIds);
 
+  // Re-derive canWrite using fresh DB data so stale sessions and org owners
+  // (who have implicit write access regardless of explicit permissions) get the
+  // correct value without requiring re-login.
+  const freshAccess = await loadUserAccess(session.userId);
+  const freshSession = { ...session, ...freshAccess };
+  const canWrite = canWriteTodos(freshSession);
+
+  if (canWrite !== session.canWrite) {
+    try {
+      const cookies = parseCookie(request.headers.get("cookie") ?? "");
+      const token = cookies[SESSION_COOKIE];
+      if (token) {
+        const decoded = jwt.verify(token, env.jwtSecret);
+        const sid = decoded?.sid;
+        if (sid && typeof sid === "string") {
+          const raw = await redis.get(`session:${sid}`);
+          if (raw) {
+            const cached = JSON.parse(raw);
+            cached.canWrite = canWrite;
+            await redis.set(
+              `session:${sid}`,
+              JSON.stringify(cached),
+              "KEEPTTL",
+            );
+          }
+        }
+      }
+    } catch {
+      // Non-fatal: user can re-login to pick up the change if this fails.
+    }
+  }
+
   return json({
     user: {
       userId: session.userId,
@@ -2324,7 +2358,7 @@ async function handleTodoBootstrap(request) {
     orgs: userOrgs,
     members,
     todos,
-    canWrite: canWriteTodos(session),
+    canWrite,
   });
 }
 
