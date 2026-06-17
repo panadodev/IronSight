@@ -1,6 +1,6 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, RefreshCw } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { Field, OffensesTable } from "@/components/player-sidebar";
@@ -122,6 +122,8 @@ function PlayerLookupPage() {
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
   const [playerError, setPlayerError] = useState(null);
+  const [firstFetch, setFirstFetch] = useState(false);
+  const pollRef = useRef(null);
 
   const [offenses, setOffenses] = useState([]);
   const [offensesLoading, setOffensesLoading] = useState(false);
@@ -159,11 +161,11 @@ function PlayerLookupPage() {
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
+      if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
       if (!steamId || !fetchOrgId) return;
       setPlayerLoading(true);
       setPlayerError(null);
       try {
-        const endpoint = forceRefresh ? "refresh" : steamId;
         const url = forceRefresh
           ? `/api/players/${encodeURIComponent(steamId)}/refresh?orgId=${encodeURIComponent(fetchOrgId)}`
           : `/api/players/${encodeURIComponent(steamId)}?orgId=${encodeURIComponent(fetchOrgId)}`;
@@ -175,7 +177,15 @@ function PlayerLookupPage() {
         if (!res.ok) {
           setPlayerError(body?.error ?? "Failed to fetch player data.");
           setPlayerData(null);
+        } else if (!forceRefresh && body.fetching) {
+          // Backend is fetching for the first time — poll until data is ready
+          setFirstFetch(true);
+          setPlayerData(null);
+          setPlayerLoading(false);
+          pollRef.current = setTimeout(() => fetchPlayer(false), 3000);
+          return;
         } else {
+          setFirstFetch(false);
           setPlayerData(body);
         }
       } catch {
@@ -192,7 +202,9 @@ function PlayerLookupPage() {
   useEffect(() => {
     if (!orgsLoaded) return;
     setPlayerData(null);
+    setFirstFetch(false);
     setOffenses([]);
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
     fetchPlayer(false);
   }, [steamId, fetchOrgId, orgsLoaded]);
 
@@ -381,6 +393,13 @@ function PlayerLookupPage() {
           ) : playerLoading ? (
             <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
               Loading…
+            </div>
+          ) : firstFetch ? (
+            <div className="flex-1 grid place-items-center text-center space-y-1.5">
+              <p className="text-sm text-muted-foreground">Fetching player data for the first time…</p>
+              <p className="text-xs text-muted-foreground/60">
+                No cached data found for this player. This may take a moment.
+              </p>
             </div>
           ) : playerError ? (
             <div className="flex-1 grid place-items-center">

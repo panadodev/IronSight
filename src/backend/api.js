@@ -8899,6 +8899,101 @@ async function handleDeleteExternalKey(request, orgId, keyId) {
   return json({ ok: true });
 }
 
+// ── Player connect ingest ─────────────────────────────────────────────────────
+
+const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
+
+async function handleIngestPlayerConnect(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) return json({ error: "Missing API key" }, 401);
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  const rlKey = `rl:connect:${server.server_id}`;
+  try {
+    const attempts = await redis.incr(rlKey);
+    await redis.expire(rlKey, 60);
+    if (attempts > CONNECT_INGEST_RATE_LIMIT_PER_MINUTE)
+      return json({ error: "Rate limit exceeded" }, 429);
+  } catch {}
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const steamId = String(body?.steam_id ?? "").trim();
+  const ip = body?.ip ? String(body.ip).trim() : null;
+  const playerName = body?.player_name ? String(body.player_name).trim() : null;
+
+  if (!steamId) return json({ error: "steam_id is required" }, 400);
+  if (!/^765611\d{11}$/.test(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  // Record the IP immediately with server context
+  if (ip) {
+    await pool.query(
+      `INSERT INTO player_ip_history (steam_id, ip_address, server_id, server_name, last_seen)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (steam_id, ip_address) DO UPDATE SET
+         last_seen   = NOW(),
+         server_id   = EXCLUDED.server_id,
+         server_name = EXCLUDED.server_name`,
+      [steamId, ip, server.server_id, server.server_name],
+    );
+  }
+
+  // Update display name from in-game name if we don't have a Steam-sourced one yet
+  if (playerName) {
+    await ensurePlayerCacheRow(steamId);
+    await pool.query(
+      `UPDATE player_cache SET display_name = $2
+       WHERE steam_id = $1 AND display_name IS NULL`,
+      [steamId, playerName],
+    );
+  }
+
+  // Background refresh only if cache is stale or missing
+  const cacheCheck = await pool.query(
+    `SELECT cache_expires_at FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+    [steamId],
+  );
+  const cacheRow = cacheCheck.rows[0];
+  const needsRefresh =
+    !cacheRow ||
+    !cacheRow.cache_expires_at ||
+    new Date(cacheRow.cache_expires_at) < new Date();
+
+  if (needsRefresh) {
+    refreshPlayerData(steamId, server.owner_org_id).catch((err) =>
+      console.error(
+        `[ingest:connect] refresh error for ${steamId}:`,
+        err.message,
+      ),
+    );
+  }
+
+  console.log(
+    `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh} ip=${ip ?? "-"}`,
+  );
+
+  return json({ ok: true });
+}
+
 // ── Player lookup route handlers ──────────────────────────────────────────────
 
 function isValidSteamId(steamId) {
@@ -8921,11 +9016,19 @@ async function handleGetPlayer(request, steamId) {
 
   const cached = await getPlayerCacheData(steamId);
 
-  if (!cached || cached.isStale) {
-    await refreshPlayerData(steamId, orgId);
-    const fresh = await getPlayerCacheData(steamId);
-    if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
-    return json(fresh);
+  if (!cached) {
+    // No cache at all — kick off background refresh and tell the client to poll
+    refreshPlayerData(steamId, orgId).catch((err) =>
+      console.error(`[player] bg refresh error for ${steamId}:`, err.message),
+    );
+    return json({ fetching: true });
+  }
+
+  if (cached.isStale) {
+    // Return stale data immediately; refresh in the background
+    refreshPlayerData(steamId, orgId).catch((err) =>
+      console.error(`[player] bg refresh error for ${steamId}:`, err.message),
+    );
   }
 
   return json(cached);
@@ -9413,6 +9516,9 @@ async function _handleApiRequest(request) {
     if (pathname === "/api/server-health-check" && request.method === "GET") {
       return handleServerHealthCheck(request);
     }
+
+    if (pathname === "/api/ingest/connect" && request.method === "POST")
+      return handleIngestPlayerConnect(request);
 
     if (pathname === "/api/ingest/chat" && request.method === "POST") {
       return handleIngestChatMessage(request);
