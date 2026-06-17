@@ -7909,7 +7909,7 @@ async function findBMIdBySteamId(steamId, orgId) {
 
   const url =
     `https://api.battlemetrics.com/players` +
-    `?filter[identifiers]=steamID:${encodeURIComponent(steamId)}` +
+    `?filter[search]=${encodeURIComponent(steamId)}` +
     `&include=identifier&page[size]=5`;
 
   const resp = await bmFetch(orgId, url);
