@@ -141,6 +141,7 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | `rl:reports:<serverId>` | Counter | 60 s | Reports ingest rate limiter per server (60 req/min). |
 | `team:server:<serverId>` | Sorted set | 7 days | Last 7 days of team lifecycle events for a server, scored by Unix timestamp. |
 | `rl:team:<serverId>` | Counter | 60 s | Team event ingest rate limiter per server (120 req/min). |
+| `rl:mute-check:<serverId>` | Counter | 60 s | Mute check rate limiter per server (60 req/min). |
 
 ## Game Event Ingest API
 
@@ -377,6 +378,48 @@ Requires a valid staff session (org member or sysadmin).
   ]
 }
 ```
+
+---
+
+### GET /api/mute-check
+
+Check whether a player is currently muted. Intended for server plugins to call on player join.
+
+Authenticated with the server API key (same headers as ingest endpoints). The org scope is derived from the key — only mutes issued under the key's org are returned.
+
+**Query params:**
+
+- `steam_id` *(required)* — 64-bit Steam ID of the player to check
+
+**Response — player is muted:**
+
+```json
+{
+  "muted": true,
+  "permanent": false,
+  "reason": "Excessive toxicity in voice chat",
+  "expiresAt": "2026-07-01T00:00:00.000Z",
+  "expiresUnix": 1751328000
+}
+```
+
+`permanent: true` when the mute has no expiry; in that case `expiresAt` and `expiresUnix` are both `null`.
+
+**Response — player is not muted (or mute has expired/been revoked):**
+
+```json
+{ "muted": false }
+```
+
+**Errors:**
+
+| Status | Body | Reason |
+| --- | --- | --- |
+| `400` | `{ "error": "steam_id query parameter is required" }` | Missing query param |
+| `400` | `{ "error": "Invalid steam_id" }` | Non-numeric or too long |
+| `401` | `{ "error": "Missing API key …" }` | No auth header |
+| `401` | `{ "error": "Invalid API key" }` | Key not found |
+| `429` | `{ "error": "Rate limit exceeded" }` | > 60 req/min per server |
 
 ---
 

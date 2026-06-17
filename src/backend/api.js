@@ -1057,6 +1057,184 @@ async function ensureSchema() {
       PRIMARY KEY (ban_id, server_id)
     )
   `);
+
+  // ── External API keys (BattleMetrics / Steam / Proxycheck) per org ─────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_external_api_keys (
+      key_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      service TEXT NOT NULL,
+      key_encrypted TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      priority INT NOT NULL DEFAULT 0,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      rate_limited_until TIMESTAMPTZ,
+      last_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      CONSTRAINT chk_ext_api_key_service
+        CHECK (service IN ('battlemetrics', 'steam', 'proxycheck'))
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_external_api_keys_org_service
+     ON org_external_api_keys(org_id, service)`,
+  );
+
+  // ── Player data cache tables ───────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_cache (
+      steam_id TEXT PRIMARY KEY,
+      display_name TEXT,
+      avatar_url TEXT,
+      steam_profile_visibility TEXT,
+      steam_profile_created_at TIMESTAMPTZ,
+      steam_rust_hours NUMERIC(10,1),
+      steam_data_public BOOLEAN NOT NULL DEFAULT TRUE,
+      bm_id TEXT,
+      bm_profile_created_at TIMESTAMPTZ,
+      bm_private BOOLEAN NOT NULL DEFAULT FALSE,
+      bm_rust_hours NUMERIC(10,1),
+      bm_aimtrain_hours NUMERIC(10,1),
+      bm_server_count INT NOT NULL DEFAULT 0,
+      bm_rust_bans_count INT NOT NULL DEFAULT 0,
+      bm_rust_bans_last_ban TIMESTAMPTZ,
+      bm_rust_bans_banned BOOLEAN NOT NULL DEFAULT FALSE,
+      bm_cheating_reports INT NOT NULL DEFAULT 0,
+      bm_teaming_reports INT NOT NULL DEFAULT 0,
+      bm_other_reports INT NOT NULL DEFAULT 0,
+      bm_kills INT NOT NULL DEFAULT 0,
+      bm_deaths INT NOT NULL DEFAULT 0,
+      steam_cached_at TIMESTAMPTZ,
+      bm_cached_at TIMESTAMPTZ,
+      activity_cached_at TIMESTAMPTZ,
+      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_cache_bm_id ON player_cache(bm_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_cache_expires ON player_cache(cache_expires_at)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_bm_sessions (
+      steam_id TEXT NOT NULL,
+      bm_server_id TEXT NOT NULL,
+      server_name TEXT,
+      hours_played NUMERIC(10,1) NOT NULL DEFAULT 0,
+      last_seen TIMESTAMPTZ,
+      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (steam_id, bm_server_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bm_sessions_steam_id
+     ON player_bm_sessions(steam_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_friends_meta (
+      steam_id TEXT PRIMARY KEY,
+      friends_public BOOLEAN NOT NULL DEFAULT TRUE,
+      friend_count INT NOT NULL DEFAULT 0,
+      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_friends (
+      steam_id TEXT NOT NULL,
+      friend_steam_id TEXT NOT NULL,
+      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_confirmed TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (steam_id, friend_steam_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_friends_steam_id
+     ON player_friends(steam_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_ip_history (
+      id BIGSERIAL PRIMARY KEY,
+      steam_id TEXT NOT NULL,
+      ip_address TEXT NOT NULL,
+      server_id UUID REFERENCES servers(server_id) ON DELETE SET NULL,
+      server_name TEXT,
+      is_vpn BOOLEAN,
+      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(steam_id, ip_address)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_ip_history_steam_id
+     ON player_ip_history(steam_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_ip_history_ip_address
+     ON player_ip_history(ip_address)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ip_metadata (
+      ip_address TEXT PRIMARY KEY,
+      is_proxy BOOLEAN,
+      is_vpn BOOLEAN,
+      isp TEXT,
+      country TEXT,
+      asn TEXT,
+      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_related_accounts (
+      steam_id TEXT NOT NULL,
+      related_bm_id TEXT NOT NULL,
+      related_name TEXT,
+      match_count INT NOT NULL DEFAULT 1,
+      has_bm_bans BOOLEAN NOT NULL DEFAULT FALSE,
+      bm_ban_count INT NOT NULL DEFAULT 0,
+      has_eac_bans BOOLEAN NOT NULL DEFAULT FALSE,
+      eac_last_ban TIMESTAMPTZ,
+      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days',
+      PRIMARY KEY (steam_id, related_bm_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_related_accounts_steam_id
+     ON player_related_accounts(steam_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_bm_bans_cache (
+      id BIGSERIAL PRIMARY KEY,
+      steam_id TEXT NOT NULL,
+      bm_ban_id TEXT NOT NULL UNIQUE,
+      bm_org_id TEXT,
+      bm_org_name TEXT,
+      reason TEXT,
+      note TEXT,
+      expires_at TIMESTAMPTZ,
+      banned_at TIMESTAMPTZ,
+      permanent BOOLEAN NOT NULL DEFAULT TRUE,
+      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bm_bans_cache_steam_id
+     ON player_bm_bans_cache(steam_id)`,
+  );
 }
 
 async function migratePterodactylApiKeys() {
@@ -7464,12 +7642,1258 @@ async function handleRevokeBan(request, orgId, banId) {
   return json({ ok: true, rconResults });
 }
 
+const MUTE_CHECK_RATE_LIMIT_PER_MINUTE = 60;
+
+async function handleMuteCheck(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) {
+    return json(
+      {
+        error:
+          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
+      },
+      401,
+    );
+  }
+
+  const apiKeyHash = crypto
+    .createHash("sha256")
+    .update(apiKeyRaw)
+    .digest("hex");
+
+  const serverRes = await pool.query(
+    "SELECT server_id, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) {
+    return json({ error: "Invalid API key" }, 401);
+  }
+  const server = serverRes.rows[0];
+
+  const rlKey = `rl:mute-check:${server.server_id}`;
+  try {
+    const attempts = await redis.incr(rlKey);
+    await redis.expire(rlKey, 60);
+    if (attempts > MUTE_CHECK_RATE_LIMIT_PER_MINUTE) {
+      return json({ error: "Rate limit exceeded" }, 429);
+    }
+  } catch {
+    // fail-open on Redis errors
+  }
+
+  const url = new URL(request.url);
+  const steamId = (url.searchParams.get("steam_id") ?? "").trim();
+  if (!steamId) {
+    return json({ error: "steam_id query parameter is required" }, 400);
+  }
+  if (!/^\d{1,20}$/.test(steamId)) {
+    return json({ error: "Invalid steam_id" }, 400);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT reason, expires_at
+     FROM player_bans
+     WHERE org_id = $1
+       AND identifier = $2
+       AND identifier_type = 'steam_id'
+       AND action_type = 'mute'
+       AND revoked = FALSE
+       AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY issued_at DESC
+     LIMIT 1`,
+    [server.owner_org_id, steamId],
+  );
+
+  if (!rows[0]) {
+    return json({ muted: false });
+  }
+
+  const row = rows[0];
+  const expiresAt = row.expires_at ? new Date(row.expires_at).toISOString() : null;
+  const expiresUnix = row.expires_at ? Math.floor(new Date(row.expires_at).getTime() / 1000) : null;
+
+  return json({
+    muted: true,
+    permanent: expiresAt === null,
+    reason: String(row.reason),
+    expiresAt,
+    expiresUnix,
+  });
+}
+
 export async function initializeInfra() {
   try {
     await init();
   } catch {
     // startup failures are exposed via API startup guard responses
   }
+}
+
+// ── External API key helpers (BM / Steam / Proxycheck) ───────────────────────
+
+function encryptExternalApiKey(apiKey) {
+  return encryptPterodactylApiKey(apiKey);
+}
+
+function decryptExternalApiKey(payload) {
+  return decryptPterodactylApiKey(payload);
+}
+
+async function getAvailableExternalKeys(orgId, service) {
+  const { rows } = await pool.query(
+    `SELECT key_id, key_encrypted
+     FROM org_external_api_keys
+     WHERE org_id = $1
+       AND service = $2
+       AND enabled = TRUE
+       AND (rate_limited_until IS NULL OR rate_limited_until < NOW())
+     ORDER BY priority DESC, last_used_at ASC NULLS FIRST`,
+    [orgId, service],
+  );
+  return rows.map((r) => ({
+    keyId: String(r.key_id),
+    key: decryptExternalApiKey(String(r.key_encrypted)),
+  }));
+}
+
+async function markExternalKeyRateLimited(keyId, retryAfterSeconds) {
+  const secs = Math.min(Math.max(Number(retryAfterSeconds) || 60, 1), 7200);
+  await pool.query(
+    `UPDATE org_external_api_keys
+     SET rate_limited_until = NOW() + ($1 * INTERVAL '1 second')
+     WHERE key_id = $2`,
+    [secs, keyId],
+  );
+}
+
+async function markExternalKeyUsed(keyId) {
+  await pool.query(
+    `UPDATE org_external_api_keys SET last_used_at = NOW() WHERE key_id = $1`,
+    [keyId],
+  );
+}
+
+// Tries each available key in priority order; returns Response or null if all fail
+async function externalFetchWithRotation(orgId, service, buildRequest) {
+  const keys = await getAvailableExternalKeys(orgId, service);
+  if (!keys.length) return null;
+
+  for (const { keyId, key } of keys) {
+    const { url, options } = buildRequest(key);
+    let resp;
+    try {
+      resp = await fetch(url, options ?? {});
+    } catch (err) {
+      console.warn(
+        `[ext-api:${service}] key=${keyId} network error: ${err.message}`,
+      );
+      continue;
+    }
+
+    if (resp.status === 429) {
+      const retryAfter = parseFloat(resp.headers.get("Retry-After") ?? "60");
+      await markExternalKeyRateLimited(keyId, retryAfter);
+      console.warn(
+        `[ext-api:${service}] key=${keyId} rate-limited (${retryAfter}s), trying next`,
+      );
+      continue;
+    }
+
+    await markExternalKeyUsed(keyId);
+    return resp;
+  }
+
+  return null;
+}
+
+async function bmFetch(orgId, url, opts = {}) {
+  return externalFetchWithRotation(orgId, "battlemetrics", (key) => ({
+    url,
+    options: {
+      ...opts,
+      headers: { Authorization: `Bearer ${key}`, ...(opts.headers ?? {}) },
+    },
+  }));
+}
+
+async function steamApiFetch(orgId, path, params = {}) {
+  return externalFetchWithRotation(orgId, "steam", (key) => {
+    const u = new URL(`https://api.steampowered.com${path}`);
+    u.searchParams.set("key", key);
+    for (const [k, v] of Object.entries(params))
+      u.searchParams.set(k, String(v));
+    return { url: u.toString(), options: {} };
+  });
+}
+
+async function proxycheckApiFetch(orgId, ipList) {
+  const ips = Array.isArray(ipList) ? ipList.join(",") : String(ipList);
+  return externalFetchWithRotation(orgId, "proxycheck", (key) => ({
+    url: `https://proxycheck.io/v2/${ips}?key=${encodeURIComponent(key)}&vpn=1&asn=1`,
+    options: {},
+  }));
+}
+
+// ── Player data fetchers ──────────────────────────────────────────────────────
+
+const RUST_APP_ID = 252490;
+const AIM_SERVER_KEYWORDS = ["ukn", "aim"];
+
+async function findBMIdBySteamId(steamId, orgId) {
+  const url =
+    `https://api.battlemetrics.com/players` +
+    `?filter[game]=rust` +
+    `&filter[identifiers][type]=steamID` +
+    `&filter[identifiers][value]=${encodeURIComponent(steamId)}` +
+    `&include=identifier&page[size]=5`;
+
+  const resp = await bmFetch(orgId, url);
+  if (!resp?.ok) return null;
+
+  const data = await resp.json();
+  for (const player of data.data ?? []) {
+    const match = (data.included ?? []).find(
+      (inc) =>
+        inc.type === "identifier" &&
+        inc.attributes?.type === "steamID" &&
+        String(inc.attributes?.identifier) === String(steamId) &&
+        inc.relationships?.player?.data?.id === player.id,
+    );
+    if (match) return String(player.id);
+  }
+  return null;
+}
+
+async function fetchSteamPlayerData(steamId, orgId) {
+  const [summaryResp, playtimeResp] = await Promise.all([
+    steamApiFetch(orgId, "/ISteamUser/GetPlayerSummaries/v0002/", {
+      steamids: steamId,
+    }),
+    steamApiFetch(orgId, "/IPlayerService/GetOwnedGames/v0001/", {
+      steamid: steamId,
+      include_appinfo: "0",
+      include_played_free_games: "0",
+    }),
+  ]);
+
+  let displayName = null,
+    avatarUrl = null,
+    profileVisibility = null,
+    profileCreatedAt = null,
+    summaryOk = false;
+
+  if (summaryResp?.ok) {
+    const json = await summaryResp.json();
+    const p = json.response?.players?.[0];
+    if (p) {
+      summaryOk = true;
+      displayName = p.personaname ?? null;
+      avatarUrl = p.avatarmedium ?? null;
+      const visState =
+        p.profilestate === 0 ? 0 : (p.communityvisibilitystate ?? 1);
+      profileVisibility =
+        { 0: "Not Configured", 1: "Private", 2: "Private", 3: "Public" }[
+          visState
+        ] ?? "Private";
+      profileCreatedAt =
+        p.timecreated != null ? new Date(p.timecreated * 1000) : null;
+    }
+  }
+
+  let rustHours = null,
+    hoursPublic = false;
+  if (playtimeResp?.ok) {
+    const json = await playtimeResp.json();
+    const games = json.response?.games;
+    if (games?.length) {
+      hoursPublic = true;
+      const rust = games.find((g) => g.appid === RUST_APP_ID);
+      if (rust) rustHours = Math.round((rust.playtime_forever / 60) * 10) / 10;
+    }
+  }
+
+  return {
+    success: summaryOk,
+    displayName,
+    avatarUrl,
+    profileVisibility,
+    profileCreatedAt,
+    rustHours,
+    hoursPublic,
+  };
+}
+
+async function fetchBMPlayerData(bmId, orgId) {
+  const url =
+    `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}` +
+    `?include=server,identifier&fields[server]=name,ip,port`;
+  const resp = await bmFetch(orgId, url);
+  if (!resp?.ok) return null;
+
+  const json = await resp.json();
+  const steamIdentifier = (json.included ?? []).find(
+    (inc) => inc.type === "identifier" && inc.attributes?.type === "steamID",
+  );
+
+  let bmRustHours = 0,
+    bmAimtrainHours = 0,
+    serverCount = 0,
+    totalIncluded = 0;
+  const sessions = [];
+
+  for (const entry of json.included ?? []) {
+    if (entry.type !== "server") continue;
+    totalIncluded++;
+    if (entry.relationships?.game?.data?.id !== "rust") continue;
+
+    const hours = (entry.meta?.timePlayed ?? 0) / 3600;
+    serverCount++;
+    bmRustHours += hours;
+    if (
+      AIM_SERVER_KEYWORDS.some((kw) =>
+        entry.attributes?.name?.toLowerCase().includes(kw),
+      )
+    )
+      bmAimtrainHours += hours;
+
+    sessions.push({
+      bmServerId: String(entry.id),
+      serverName: entry.attributes?.name ?? null,
+      hoursPlayed: Math.round(hours * 10) / 10,
+      lastSeen: entry.meta?.lastSeen ? new Date(entry.meta.lastSeen) : null,
+    });
+  }
+
+  const rustBans = steamIdentifier?.attributes?.metadata?.rustBans ?? null;
+
+  return {
+    bmProfileCreatedAt: json.data?.attributes?.createdAt
+      ? new Date(json.data.attributes.createdAt)
+      : null,
+    bmPrivate: json.data?.attributes?.private ?? false,
+    bmRustHours: Math.round(bmRustHours * 10) / 10,
+    bmAimtrainHours: Math.round(bmAimtrainHours * 10) / 10,
+    bmServerCount: serverCount,
+    bmRustBansCount: rustBans?.count ?? 0,
+    bmRustBansLastBan: rustBans?.lastBan ? new Date(rustBans.lastBan) : null,
+    bmRustBansBanned: rustBans?.banned ?? false,
+    sessions,
+    hoursInaccurate: totalIncluded >= 250,
+  };
+}
+
+async function fetchBMRelatedIdentifiers(bmId, orgId) {
+  const url =
+    `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}` +
+    `/relationships/related-identifiers?version=%5E0.1.0`;
+  const resp = await bmFetch(orgId, url);
+  if (!resp?.ok) return { ips: [], relatedPlayers: [] };
+
+  const data = await resp.json();
+  const ips = [];
+  const relatedCounts = {};
+
+  for (const identifier of data.data ?? []) {
+    if (identifier.attributes?.type === "ip") {
+      const ip = identifier.attributes?.identifier;
+      const isProxy =
+        identifier.attributes?.metadata?.connectionInfo?.proxy === true;
+      if (ip) ips.push({ ip, isProxy });
+    }
+
+    for (const rel of identifier.relationships?.relatedPlayers?.data ?? []) {
+      relatedCounts[rel.id] = (relatedCounts[rel.id] ?? 0) + 1;
+    }
+  }
+
+  // Remove the player's own BM ID from related (they reference themselves)
+  delete relatedCounts[bmId];
+
+  const relatedPlayers = Object.entries(relatedCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([id, count]) => ({ bmId: id, matchCount: count }));
+
+  return { ips, relatedPlayers };
+}
+
+async function fetchBMPlayerBans(bmId, orgId) {
+  const url =
+    `https://api.battlemetrics.com/bans` +
+    `?version=%5E0.1.0&filter[player]=${encodeURIComponent(bmId)}` +
+    `&include=organization&page[size]=100`;
+  const resp = await bmFetch(orgId, url);
+  if (!resp?.ok) return [];
+
+  const data = await resp.json();
+  const orgs = {};
+  for (const inc of data.included ?? []) {
+    if (inc.type === "organization")
+      orgs[inc.id] = inc.attributes?.name ?? null;
+  }
+
+  return (data.data ?? []).map((ban) => {
+    const orgRef = ban.relationships?.organization?.data?.id;
+    return {
+      bmBanId: String(ban.id),
+      bmOrgId: orgRef ? String(orgRef) : null,
+      bmOrgName: orgRef ? (orgs[orgRef] ?? null) : null,
+      reason: ban.attributes?.reason ?? null,
+      note: ban.attributes?.note ?? null,
+      expiresAt: ban.attributes?.expires
+        ? new Date(ban.attributes.expires)
+        : null,
+      bannedAt: ban.attributes?.timestamp
+        ? new Date(ban.attributes.timestamp)
+        : null,
+      permanent: ban.attributes?.permanent ?? !ban.attributes?.expires,
+    };
+  });
+}
+
+async function fetchBMActivity(bmId, orgId) {
+  const url =
+    `https://api.battlemetrics.com/activity` +
+    `?tagTypeMode=and&filter[types][blacklist]=event:query` +
+    `&filter[players]=${encodeURIComponent(bmId)}` +
+    `&include=organization,user&page[size]=1000`;
+
+  const CHEAT_KW = [
+    "cheat",
+    "hack",
+    "aim",
+    "wallhack",
+    "wh",
+    "esp",
+    "fly",
+    "head",
+    "vision",
+    "speed",
+  ];
+  const TEAM_KW = [
+    " team",
+    "teaming",
+    "teamming",
+    "limit",
+    "rule",
+    "alliance",
+    "max",
+    "group",
+    "duo",
+    "trio",
+    "quad",
+    "squad",
+    "man",
+  ];
+
+  let nextUrl = url;
+  const activities = [];
+  while (nextUrl) {
+    const resp = await bmFetch(orgId, nextUrl);
+    if (!resp?.ok) break;
+    const json = await resp.json();
+    activities.push(...(json.data ?? []));
+    nextUrl = json.links?.next ?? null;
+  }
+
+  const reporters = {
+    cheating: new Set(),
+    teaming: new Set(),
+    other: new Set(),
+  };
+  let kills = 0,
+    deaths = 0;
+
+  for (const activity of activities) {
+    const attrs = activity.attributes;
+
+    if (
+      attrs.messageType === "rustLog:playerReport" &&
+      String(attrs.data?.forPlayerId) === String(bmId)
+    ) {
+      const text = (
+        (attrs.data.reason ?? "").replace(
+          /\[cheat\]|\[spam\]|\[abusive\]/g,
+          "",
+        ) +
+        " " +
+        (attrs.data.message ?? "")
+      ).toLowerCase();
+
+      let category = "other";
+      if (CHEAT_KW.some((w) => text.includes(w))) category = "cheating";
+      else if (TEAM_KW.some((w) => text.includes(w))) category = "teaming";
+      else if (attrs.data.reportType === "cheat") category = "cheating";
+
+      reporters[category].add(attrs.data.fromPlayerId);
+    } else if (attrs.messageType === "rustLog:playerDeath:PVP") {
+      if (String(attrs.data?.killer_id) === String(bmId)) kills++;
+      else if (String(attrs.data?.player_id) === String(bmId)) deaths++;
+    }
+  }
+
+  return {
+    cheatingReports: reporters.cheating.size,
+    teamingReports: reporters.teaming.size,
+    otherReports: reporters.other.size,
+    kills,
+    deaths,
+  };
+}
+
+async function fetchSteamFriends(steamId, orgId) {
+  const resp = await steamApiFetch(orgId, "/ISteamUser/GetFriendList/v0001/", {
+    steamid: steamId,
+    relationship: "friend",
+  });
+
+  if (!resp || resp.status === 401 || resp.status === 403) {
+    return { isPublic: false, friends: null };
+  }
+  if (!resp.ok) return { isPublic: false, friends: null };
+
+  const json = await resp.json();
+  const friends = json.friendslist?.friends;
+  if (!friends) return { isPublic: false, friends: [] };
+
+  return {
+    isPublic: true,
+    friends: friends.map((f) => String(f.steamid)),
+  };
+}
+
+async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
+  const results = [];
+  for (const { bmId, matchCount } of relatedPlayers.slice(0, 12)) {
+    try {
+      const profileResp = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}?include=identifier&version=%5E0.1.0`,
+      );
+      if (!profileResp?.ok) continue;
+
+      const profileJson = await profileResp.json();
+      const steamId = (profileJson.included ?? []).find(
+        (inc) =>
+          inc.type === "identifier" && inc.attributes?.type === "steamID",
+      );
+      const rustBans = steamId?.attributes?.metadata?.rustBans;
+
+      const bansResp = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/bans?version=%5E0.1.0&filter[player]=${encodeURIComponent(bmId)}`,
+      );
+      let bmBanCount = 0;
+      if (bansResp?.ok) {
+        const bansJson = await bansResp.json();
+        bmBanCount = bansJson.data?.length ?? 0;
+      }
+
+      results.push({
+        relatedBmId: String(bmId),
+        relatedName: profileJson.data?.attributes?.name ?? null,
+        matchCount,
+        hasBmBans: bmBanCount > 0,
+        bmBanCount,
+        hasEacBans: (rustBans?.count ?? 0) > 0,
+        eacLastBan: rustBans?.lastBan ? new Date(rustBans.lastBan) : null,
+      });
+    } catch (err) {
+      console.warn(
+        `[player] related account ${bmId} fetch error: ${err.message}`,
+      );
+    }
+  }
+  return results;
+}
+
+async function runProxycheckForIps(ipList, orgId) {
+  if (!ipList.length) return {};
+  const results = {};
+  for (let i = 0; i < ipList.length; i += 100) {
+    const chunk = ipList.slice(i, i + 100);
+    const resp = await proxycheckApiFetch(orgId, chunk);
+    if (!resp?.ok) continue;
+    const data = await resp.json();
+    for (const [ip, meta] of Object.entries(data)) {
+      if (ip === "status" || ip === "message") continue;
+      results[ip] = {
+        isProxy: meta.proxy === "yes",
+        isVpn: meta.type === "VPN",
+        isp: meta.isp ?? null,
+        country: meta.country ?? null,
+        asn: meta.asn ?? null,
+      };
+    }
+  }
+  return results;
+}
+
+// ── Player cache write helpers ────────────────────────────────────────────────
+
+async function ensurePlayerCacheRow(steamId) {
+  await pool.query(
+    `INSERT INTO player_cache (steam_id) VALUES ($1)
+     ON CONFLICT (steam_id) DO NOTHING`,
+    [steamId],
+  );
+}
+
+async function writeSteamDataToCache(steamId, data) {
+  await ensurePlayerCacheRow(steamId);
+  await pool.query(
+    `UPDATE player_cache SET
+       display_name             = COALESCE($2, display_name),
+       avatar_url               = COALESCE($3, avatar_url),
+       steam_profile_visibility = $4,
+       steam_profile_created_at = COALESCE($5, steam_profile_created_at),
+       steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE steam_rust_hours END,
+       steam_data_public        = $6,
+       steam_cached_at          = NOW(),
+       cache_expires_at         = NOW() + INTERVAL '30 days'
+     WHERE steam_id = $1`,
+    [
+      steamId,
+      data.displayName,
+      data.avatarUrl,
+      data.profileVisibility,
+      data.profileCreatedAt,
+      data.hoursPublic,
+      data.rustHours,
+    ],
+  );
+}
+
+async function writeBMDataToCache(steamId, bmId, data) {
+  await ensurePlayerCacheRow(steamId);
+  await pool.query(
+    `UPDATE player_cache SET
+       bm_id                = $2,
+       bm_profile_created_at = COALESCE($3, bm_profile_created_at),
+       bm_private           = $4,
+       bm_rust_hours        = $5,
+       bm_aimtrain_hours    = $6,
+       bm_server_count      = $7,
+       bm_rust_bans_count   = $8,
+       bm_rust_bans_last_ban = $9,
+       bm_rust_bans_banned  = $10,
+       bm_cached_at         = NOW(),
+       cache_expires_at     = NOW() + INTERVAL '30 days'
+     WHERE steam_id = $1`,
+    [
+      steamId,
+      bmId,
+      data.bmProfileCreatedAt,
+      data.bmPrivate,
+      data.bmRustHours,
+      data.bmAimtrainHours,
+      data.bmServerCount,
+      data.bmRustBansCount,
+      data.bmRustBansLastBan,
+      data.bmRustBansBanned,
+    ],
+  );
+}
+
+async function writeActivityToCache(steamId, data) {
+  await pool.query(
+    `UPDATE player_cache SET
+       bm_cheating_reports = $2,
+       bm_teaming_reports  = $3,
+       bm_other_reports    = $4,
+       bm_kills            = $5,
+       bm_deaths           = $6,
+       activity_cached_at  = NOW()
+     WHERE steam_id = $1`,
+    [
+      steamId,
+      data.cheatingReports,
+      data.teamingReports,
+      data.otherReports,
+      data.kills,
+      data.deaths,
+    ],
+  );
+}
+
+async function writeBMSessionsToCache(steamId, sessions) {
+  if (!sessions.length) return;
+  await pool.query(
+    `INSERT INTO player_bm_sessions
+       (steam_id, bm_server_id, server_name, hours_played, last_seen)
+     SELECT $1, unnest($2::text[]), unnest($3::text[]),
+            unnest($4::numeric[]), unnest($5::timestamptz[])
+     ON CONFLICT (steam_id, bm_server_id) DO UPDATE SET
+       server_name  = EXCLUDED.server_name,
+       hours_played = EXCLUDED.hours_played,
+       last_seen    = EXCLUDED.last_seen,
+       cached_at    = NOW()`,
+    [
+      steamId,
+      sessions.map((s) => s.bmServerId),
+      sessions.map((s) => s.serverName),
+      sessions.map((s) => s.hoursPlayed),
+      sessions.map((s) => s.lastSeen),
+    ],
+  );
+}
+
+async function writeBMBansToCache(steamId, bans) {
+  for (const ban of bans) {
+    await pool.query(
+      `INSERT INTO player_bm_bans_cache
+         (steam_id, bm_ban_id, bm_org_id, bm_org_name, reason, note,
+          expires_at, banned_at, permanent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (bm_ban_id) DO UPDATE SET
+         bm_org_name  = EXCLUDED.bm_org_name,
+         reason       = EXCLUDED.reason,
+         note         = EXCLUDED.note,
+         expires_at   = EXCLUDED.expires_at,
+         permanent    = EXCLUDED.permanent,
+         cached_at    = NOW(),
+         cache_expires_at = NOW() + INTERVAL '30 days'`,
+      [
+        steamId,
+        ban.bmBanId,
+        ban.bmOrgId,
+        ban.bmOrgName,
+        ban.reason,
+        ban.note,
+        ban.expiresAt,
+        ban.bannedAt,
+        ban.permanent,
+      ],
+    );
+  }
+}
+
+async function writeIpsToHistory(steamId, ips) {
+  for (const { ip, isProxy } of ips) {
+    await pool.query(
+      `INSERT INTO player_ip_history (steam_id, ip_address, is_vpn, last_seen)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (steam_id, ip_address) DO UPDATE SET
+         last_seen = NOW(),
+         is_vpn    = COALESCE($3, player_ip_history.is_vpn)`,
+      [steamId, ip, isProxy],
+    );
+  }
+}
+
+async function writeRelatedAccountsToCache(steamId, accounts) {
+  for (const acc of accounts) {
+    await pool.query(
+      `INSERT INTO player_related_accounts
+         (steam_id, related_bm_id, related_name, match_count,
+          has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
+         related_name  = COALESCE(EXCLUDED.related_name, player_related_accounts.related_name),
+         match_count   = EXCLUDED.match_count,
+         has_bm_bans   = EXCLUDED.has_bm_bans,
+         bm_ban_count  = EXCLUDED.bm_ban_count,
+         has_eac_bans  = EXCLUDED.has_eac_bans,
+         eac_last_ban  = EXCLUDED.eac_last_ban,
+         cached_at     = NOW(),
+         cache_expires_at = NOW() + INTERVAL '30 days'`,
+      [
+        steamId,
+        acc.relatedBmId,
+        acc.relatedName,
+        acc.matchCount,
+        acc.hasBmBans,
+        acc.bmBanCount,
+        acc.hasEacBans,
+        acc.eacLastBan,
+      ],
+    );
+  }
+}
+
+async function writeFriendsToCache(steamId, result) {
+  await pool.query(
+    `INSERT INTO player_friends_meta (steam_id, friends_public, friend_count)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (steam_id) DO UPDATE SET
+       friends_public   = $2,
+       friend_count     = $3,
+       cached_at        = NOW(),
+       cache_expires_at = NOW() + INTERVAL '30 days'`,
+    [steamId, result.isPublic, result.friends?.length ?? 0],
+  );
+
+  if (!result.isPublic || !result.friends?.length) return;
+
+  const now = new Date();
+  for (const friendId of result.friends) {
+    await pool.query(
+      `INSERT INTO player_friends (steam_id, friend_steam_id, last_confirmed)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (steam_id, friend_steam_id) DO UPDATE SET
+         last_confirmed = $3`,
+      [steamId, friendId, now],
+    );
+  }
+}
+
+async function writeProxycheckToCache(ipResults) {
+  for (const [ip, meta] of Object.entries(ipResults)) {
+    await pool.query(
+      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, isp, country, asn)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (ip_address) DO UPDATE SET
+         is_proxy  = $2, is_vpn = $3, isp = $4,
+         country   = $5, asn = $6,
+         cached_at = NOW(),
+         cache_expires_at = NOW() + INTERVAL '30 days'`,
+      [ip, meta.isProxy, meta.isVpn, meta.isp, meta.country, meta.asn],
+    );
+    await pool.query(
+      `UPDATE player_ip_history SET is_vpn = $2 WHERE ip_address = $1`,
+      [ip, meta.isVpn],
+    );
+  }
+}
+
+// ── Main player refresh orchestrator ─────────────────────────────────────────
+
+async function refreshPlayerData(steamId, orgId) {
+  const [steamData, bmIdResult] = await Promise.all([
+    fetchSteamPlayerData(steamId, orgId),
+    (async () => {
+      const { rows } = await pool.query(
+        `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+        [steamId],
+      );
+      return rows[0]?.bm_id ?? null;
+    })(),
+  ]);
+
+  let bmId = bmIdResult;
+
+  if (steamData.success) {
+    await writeSteamDataToCache(steamId, steamData);
+  } else {
+    await ensurePlayerCacheRow(steamId);
+  }
+
+  if (!bmId) {
+    bmId = await findBMIdBySteamId(steamId, orgId);
+  }
+
+  let bmData = null;
+  let relIdentifiers = { ips: [], relatedPlayers: [] };
+  let bmBans = [];
+
+  if (bmId) {
+    [bmData, relIdentifiers, bmBans] = await Promise.all([
+      fetchBMPlayerData(bmId, orgId),
+      fetchBMRelatedIdentifiers(bmId, orgId),
+      fetchBMPlayerBans(bmId, orgId),
+    ]);
+
+    if (bmData) {
+      await writeBMDataToCache(steamId, bmId, bmData);
+      await writeBMSessionsToCache(steamId, bmData.sessions);
+    }
+    await writeIpsToHistory(steamId, relIdentifiers.ips);
+    await writeBMBansToCache(steamId, bmBans);
+  }
+
+  // Background: friends, activity, related account details, proxycheck
+  const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
+  Promise.all([
+    fetchSteamFriends(steamId, orgId).then((r) =>
+      writeFriendsToCache(steamId, r),
+    ),
+    bmId
+      ? fetchBMActivity(bmId, orgId).then((r) =>
+          writeActivityToCache(steamId, r),
+        )
+      : Promise.resolve(),
+    bmId && relIdentifiers.relatedPlayers.length
+      ? fetchRelatedAccountDetails(relIdentifiers.relatedPlayers, orgId).then(
+          (r) => writeRelatedAccountsToCache(steamId, r),
+        )
+      : Promise.resolve(),
+    ipsOnly.length
+      ? runProxycheckForIps(ipsOnly, orgId).then((r) =>
+          writeProxycheckToCache(r),
+        )
+      : Promise.resolve(),
+  ]).catch((err) =>
+    console.error(
+      `[player] background fetch error for ${steamId}:`,
+      err.message,
+    ),
+  );
+}
+
+async function getPlayerCacheData(steamId) {
+  const [profile, sessions, bans, friendsMeta, ips, related] =
+    await Promise.all([
+      pool.query(
+        `SELECT *, cache_expires_at < NOW() AS is_stale
+         FROM player_cache WHERE steam_id = $1`,
+        [steamId],
+      ),
+      pool.query(
+        `SELECT bm_server_id, server_name, hours_played, last_seen
+         FROM player_bm_sessions WHERE steam_id = $1
+         ORDER BY hours_played DESC`,
+        [steamId],
+      ),
+      pool.query(
+        `SELECT bm_ban_id, bm_org_id, bm_org_name, reason, note,
+                expires_at, banned_at, permanent, cached_at
+         FROM player_bm_bans_cache WHERE steam_id = $1
+         ORDER BY banned_at DESC NULLS LAST`,
+        [steamId],
+      ),
+      pool.query(
+        `SELECT friends_public, friend_count, cached_at, cache_expires_at
+         FROM player_friends_meta WHERE steam_id = $1`,
+        [steamId],
+      ),
+      pool.query(
+        `SELECT ip_address, is_vpn, server_name, first_seen, last_seen,
+                im.is_proxy, im.isp, im.country, im.asn
+         FROM player_ip_history pih
+         LEFT JOIN ip_metadata im USING (ip_address)
+         WHERE pih.steam_id = $1
+         ORDER BY pih.last_seen DESC`,
+        [steamId],
+      ),
+      pool.query(
+        `SELECT related_bm_id, related_name, match_count,
+                has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban, cached_at
+         FROM player_related_accounts WHERE steam_id = $1
+         ORDER BY match_count DESC`,
+        [steamId],
+      ),
+    ]);
+
+  const p = profile.rows[0] ?? null;
+  if (!p) return null;
+
+  const friendsMetaRow = friendsMeta.rows[0] ?? null;
+  let friendsList = null;
+  if (friendsMetaRow?.friends_public) {
+    const fr = await pool.query(
+      `SELECT friend_steam_id FROM player_friends WHERE steam_id = $1`,
+      [steamId],
+    );
+    friendsList = fr.rows.map((r) => String(r.friend_steam_id));
+  }
+
+  return {
+    steamId: String(p.steam_id),
+    displayName: p.display_name ?? null,
+    avatarUrl: p.avatar_url ?? null,
+    steam: {
+      profileVisibility: p.steam_profile_visibility ?? null,
+      profileCreatedAt: p.steam_profile_created_at ?? null,
+      rustHours: p.steam_rust_hours != null ? Number(p.steam_rust_hours) : null,
+      dataPublic: Boolean(p.steam_data_public),
+      cachedAt: p.steam_cached_at ?? null,
+    },
+    bm: p.bm_id
+      ? {
+          id: p.bm_id,
+          profileCreatedAt: p.bm_profile_created_at ?? null,
+          private: Boolean(p.bm_private),
+          rustHours: p.bm_rust_hours != null ? Number(p.bm_rust_hours) : null,
+          aimtrainHours:
+            p.bm_aimtrain_hours != null ? Number(p.bm_aimtrain_hours) : null,
+          serverCount: Number(p.bm_server_count),
+          rustBansCount: Number(p.bm_rust_bans_count),
+          rustBansLastBan: p.bm_rust_bans_last_ban ?? null,
+          rustBansBanned: Boolean(p.bm_rust_bans_banned),
+          cheatingReports: Number(p.bm_cheating_reports),
+          teamingReports: Number(p.bm_teaming_reports),
+          otherReports: Number(p.bm_other_reports),
+          kills: Number(p.bm_kills),
+          deaths: Number(p.bm_deaths),
+          cachedAt: p.bm_cached_at ?? null,
+          activityCachedAt: p.activity_cached_at ?? null,
+        }
+      : null,
+    bmSessions: sessions.rows.map((r) => ({
+      bmServerId: String(r.bm_server_id),
+      serverName: r.server_name ?? null,
+      hoursPlayed: Number(r.hours_played),
+      lastSeen: r.last_seen ?? null,
+    })),
+    bmBans: bans.rows.map((r) => ({
+      bmBanId: String(r.bm_ban_id),
+      bmOrgId: r.bm_org_id ?? null,
+      bmOrgName: r.bm_org_name ?? null,
+      reason: r.reason ?? null,
+      note: r.note ?? null,
+      expiresAt: r.expires_at ?? null,
+      bannedAt: r.banned_at ?? null,
+      permanent: Boolean(r.permanent),
+    })),
+    friends: {
+      public: friendsMetaRow?.friends_public ?? null,
+      friendCount: friendsMetaRow?.friend_count ?? null,
+      friends: friendsList,
+      wasPublic: friendsMetaRow
+        ? !friendsMetaRow.friends_public && friendsList !== null
+        : false,
+      cachedAt: friendsMetaRow?.cached_at ?? null,
+    },
+    ipHistory: ips.rows.map((r) => ({
+      ipAddress: String(r.ip_address),
+      isVpn: r.is_vpn ?? null,
+      isProxy: r.is_proxy ?? null,
+      isp: r.isp ?? null,
+      country: r.country ?? null,
+      asn: r.asn ?? null,
+      serverName: r.server_name ?? null,
+      firstSeen: r.first_seen,
+      lastSeen: r.last_seen,
+    })),
+    relatedAccounts: related.rows.map((r) => ({
+      relatedBmId: String(r.related_bm_id),
+      relatedName: r.related_name ?? null,
+      matchCount: Number(r.match_count),
+      hasBmBans: Boolean(r.has_bm_bans),
+      bmBanCount: Number(r.bm_ban_count),
+      hasEacBans: Boolean(r.has_eac_bans),
+      eacLastBan: r.eac_last_ban ?? null,
+      cachedAt: r.cached_at,
+    })),
+    isStale: Boolean(p.is_stale),
+    cacheExpiresAt: p.cache_expires_at,
+  };
+}
+
+async function isSessionOrgMember(session, orgId) {
+  if (session.globalAdmin) return true;
+  if (session.orgAdminOrgIds.includes(orgId)) return true;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+    [orgId, session.userId],
+  );
+  return rows.length > 0;
+}
+
+// ── External API key route handlers ──────────────────────────────────────────
+
+async function handleListExternalKeys(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin role required" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT key_id, org_id, service, label, priority, enabled,
+            rate_limited_until, last_used_at, created_at
+     FROM org_external_api_keys
+     WHERE org_id = $1
+     ORDER BY service, priority DESC, created_at`,
+    [orgId],
+  );
+
+  return json({
+    keys: rows.map((r) => ({
+      keyId: String(r.key_id),
+      service: r.service,
+      label: r.label,
+      priority: Number(r.priority),
+      enabled: Boolean(r.enabled),
+      rateLimitedUntil: r.rate_limited_until ?? null,
+      lastUsedAt: r.last_used_at ?? null,
+      createdAt: r.created_at,
+    })),
+  });
+}
+
+async function handleAddExternalKey(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin role required" }, 403);
+
+  if (!getPterodactylEncryptionKey())
+    return json(
+      {
+        error:
+          "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)",
+      },
+      503,
+    );
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const service = String(body?.service ?? "")
+    .trim()
+    .toLowerCase();
+  const rawKey = String(body?.key ?? "").trim();
+  const label = String(body?.label ?? "")
+    .trim()
+    .slice(0, 128);
+  const priority = Number(body?.priority ?? 0);
+
+  if (!["battlemetrics", "steam", "proxycheck"].includes(service))
+    return json(
+      { error: "service must be battlemetrics, steam, or proxycheck" },
+      400,
+    );
+  if (!rawKey) return json({ error: "key is required" }, 400);
+  if (rawKey.length > 512)
+    return json({ error: "key is too long (max 512 characters)" }, 400);
+
+  let keyEncrypted;
+  try {
+    keyEncrypted = encryptExternalApiKey(rawKey);
+  } catch {
+    return json({ error: "Encryption error" }, 500);
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_external_api_keys
+       (org_id, service, key_encrypted, label, priority, created_by_user_id)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING key_id, service, label, priority, enabled, created_at`,
+    [orgId, service, keyEncrypted, label, priority, session.userId],
+  );
+
+  const r = rows[0];
+  return json(
+    {
+      keyId: String(r.key_id),
+      service: r.service,
+      label: r.label,
+      priority: Number(r.priority),
+      enabled: Boolean(r.enabled),
+      createdAt: r.created_at,
+    },
+    201,
+  );
+}
+
+async function handleUpdateExternalKey(request, orgId, keyId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin role required" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const sets = [];
+  const params = [keyId, orgId];
+  let idx = 3;
+
+  if ("label" in body) {
+    sets.push(`label = $${idx++}`);
+    params.push(String(body.label).trim().slice(0, 128));
+  }
+  if ("priority" in body) {
+    sets.push(`priority = $${idx++}`);
+    params.push(Number(body.priority));
+  }
+  if ("enabled" in body) {
+    sets.push(`enabled = $${idx++}`);
+    params.push(Boolean(body.enabled));
+  }
+  if (body.clearRateLimit === true) {
+    sets.push(`rate_limited_until = NULL`);
+  }
+
+  if (!sets.length) return json({ error: "Nothing to update" }, 400);
+
+  const { rowCount } = await pool.query(
+    `UPDATE org_external_api_keys SET ${sets.join(", ")}
+     WHERE key_id = $1 AND org_id = $2`,
+    params,
+  );
+  if (!rowCount) return json({ error: "Key not found" }, 404);
+
+  return json({ ok: true });
+}
+
+async function handleDeleteExternalKey(request, orgId, keyId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin role required" }, 403);
+
+  const { rowCount } = await pool.query(
+    `DELETE FROM org_external_api_keys WHERE key_id = $1 AND org_id = $2`,
+    [keyId, orgId],
+  );
+  if (!rowCount) return json({ error: "Key not found" }, 404);
+
+  return json({ ok: true });
+}
+
+// ── Player lookup route handlers ──────────────────────────────────────────────
+
+function isValidSteamId(steamId) {
+  return /^765611\d{11}$/.test(String(steamId));
+}
+
+async function handleGetPlayer(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const url = new URL(request.url);
+  const orgId = url.searchParams.get("orgId");
+  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+
+  const isMember = await isSessionOrgMember(session, orgId);
+  if (!isMember)
+    return json({ error: "Forbidden: not a member of this org" }, 403);
+
+  const cached = await getPlayerCacheData(steamId);
+
+  if (!cached || cached.isStale) {
+    await refreshPlayerData(steamId, orgId);
+    const fresh = await getPlayerCacheData(steamId);
+    if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
+    return json(fresh);
+  }
+
+  return json(cached);
+}
+
+async function handleRefreshPlayer(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const url = new URL(request.url);
+  const orgId = url.searchParams.get("orgId");
+  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+
+  const isMember = await isSessionOrgMember(session, orgId);
+  if (!isMember)
+    return json({ error: "Forbidden: not a member of this org" }, 403);
+
+  await refreshPlayerData(steamId, orgId);
+  const fresh = await getPlayerCacheData(steamId);
+  if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
+  return json(fresh);
 }
 
 async function _handleApiRequest(request) {
@@ -7959,6 +9383,45 @@ async function _handleApiRequest(request) {
       if (request.method === "POST") return handleIngestTeamEvent(request);
       if (request.method === "GET") return handleGetTeamEvents(request);
     }
+
+    if (pathname === "/api/mute-check" && request.method === "GET")
+      return handleMuteCheck(request);
+
+    // External API keys (BM / Steam / Proxycheck) per org
+    const orgExternalKeysMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/external-keys$/,
+    );
+    if (orgExternalKeysMatch && request.method === "GET")
+      return handleListExternalKeys(request, orgExternalKeysMatch[1]);
+    if (orgExternalKeysMatch && request.method === "POST")
+      return handleAddExternalKey(request, orgExternalKeysMatch[1]);
+
+    const orgExternalKeyDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/external-keys\/([a-f0-9-]+)$/,
+    );
+    if (orgExternalKeyDetailMatch && request.method === "PATCH")
+      return handleUpdateExternalKey(
+        request,
+        orgExternalKeyDetailMatch[1],
+        orgExternalKeyDetailMatch[2],
+      );
+    if (orgExternalKeyDetailMatch && request.method === "DELETE")
+      return handleDeleteExternalKey(
+        request,
+        orgExternalKeyDetailMatch[1],
+        orgExternalKeyDetailMatch[2],
+      );
+
+    // Player lookup
+    const playerMatch = pathname.match(/^\/api\/players\/(\d+)$/);
+    if (playerMatch && request.method === "GET")
+      return handleGetPlayer(request, playerMatch[1]);
+
+    const playerRefreshMatch = pathname.match(
+      /^\/api\/players\/(\d+)\/refresh$/,
+    );
+    if (playerRefreshMatch && request.method === "POST")
+      return handleRefreshPlayer(request, playerRefreshMatch[1]);
 
     return json({ error: "Not found" }, 404);
   });
