@@ -7428,6 +7428,7 @@ async function handleListOrgBans(request, orgId) {
 
   const url = new URL(request.url);
   const actionType = url.searchParams.get("type") ?? "ban";
+  const identifier = url.searchParams.get("identifier") ?? null;
 
   const { rows } = await pool.query(
     `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
@@ -7442,10 +7443,11 @@ async function handleListOrgBans(request, orgId) {
      LEFT JOIN users u ON u.user_id = b.issued_by
      LEFT JOIN ban_server_targets bst ON bst.ban_id = b.ban_id
      WHERE b.org_id = $1 AND b.action_type = $2
+       AND ($3::text IS NULL OR b.identifier = $3)
      GROUP BY b.ban_id, u.username
      ORDER BY b.issued_at DESC
      LIMIT 500`,
-    [orgId, actionType],
+    [orgId, actionType, identifier],
   );
 
   return json({

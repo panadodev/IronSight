@@ -1,6 +1,6 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search, ExternalLink } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { Slider } from "@/components/ui/slider";
@@ -16,8 +16,7 @@ import {
   ChatLogSection,
   KillFeedSection,
 } from "@/components/player-sidebar";
-import { BanDialog } from "@/components/ban-dialog";
-import { AppealModerationActions } from "@/components/appeal-sidebar";
+import { BanDialog, LENGTH_OPTIONS } from "@/components/ban-dialog";
 import { fmtNum, getPlayer, REPORT_CATEGORIES, TICKETS } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { PlayerLinks } from "@/components/player-links";
@@ -25,6 +24,24 @@ import { LinkedAccountsSection } from "@/components/linked-accounts";
 import { ExternalBansSection } from "@/components/external-bans";
 import { PlayerNotesSection } from "@/components/player-notes";
 import { Ban, MicOff } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+const LENGTH_MINUTES = {
+  "1h": 60, "3h": 180, "6h": 360, "12h": 720, "24h": 1440,
+  "2d": 2880, "3d": 4320, "4d": 5760, "5d": 7200, "6d": 8640,
+  "next_wipe": 10080, "7d": 10080, "14d": 20160, "30d": 43200,
+};
+function lengthToExpiresAt(length) {
+  if (length === "permanent" || !LENGTH_MINUTES[length]) return null;
+  return new Date(Date.now() + LENGTH_MINUTES[length] * 60000).toISOString();
+}
+
 const Route = createFileRoute("/player-lookup")({
   head: () => ({
     meta: [{ title: "Player Lookup \u2014 IronSight" }],
@@ -56,7 +73,7 @@ function Avatar({ player, size = 64 }) {
   );
 }
 function PlayerLookupPage() {
-  const { selectedOrgIds, orgs, maxRankAcross } = useAuth();
+  const { selectedOrgIds, orgs, maxRankAcross, adminableOrgIds } = useAuth();
   const isSupportOnly = maxRankAcross(selectedOrgIds) < 2;
   const search = Route.useSearch();
   const [input, setInput] = useState(search.steam ?? "");
@@ -64,6 +81,8 @@ function PlayerLookupPage() {
   const [banPickerOpen, setBanPickerOpen] = useState(false);
   const [banCategory, setBanCategory] = useState(null);
   const [muteOpen, setMuteOpen] = useState(false);
+  const [manageBansOpen, setManageBansOpen] = useState(false);
+  const [manageMutesOpen, setManageMutesOpen] = useState(false);
   useEffect(() => {
     if (search.steam && search.steam !== steamId) {
       setSteamId(search.steam);
@@ -77,7 +96,12 @@ function PlayerLookupPage() {
   };
   const subject = steamId ? getPlayer(steamId) : null;
   const stats = subject ? deriveStats(subject) : null;
-  const banOrgId = selectedOrgIds[0] ?? orgs[0]?.id ?? "";
+  const banOrgId =
+    adminableOrgIds.find((id) => selectedOrgIds.includes(id)) ??
+    adminableOrgIds[0] ??
+    selectedOrgIds[0] ??
+    orgs[0]?.id ??
+    "";
   const playerTickets = useMemo(() => {
     if (!subject) return [];
     return TICKETS.filter((t) =>
@@ -101,12 +125,46 @@ function PlayerLookupPage() {
     }
     return out;
   }, [subject]);
-  const submitBan = (sub) => {
-    console.log("Ban from lookup", { steamId, category: banCategory, ...sub });
+  const submitBan = async (sub) => {
+    const orgId = banOrgId;
+    if (orgId && steamId) {
+      await fetch(`/api/orgs/${encodeURIComponent(orgId)}/bans`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          actionType: "ban",
+          identifier: steamId,
+          identifierType: "steam_id",
+          category: banCategory || null,
+          reason: sub.reason,
+          note: sub.note,
+          expiresAt: lengthToExpiresAt(sub.length),
+          serverIds: [],
+        }),
+      });
+    }
     setBanCategory(null);
   };
-  const submitMute = (sub) => {
-    console.log("Mute from lookup", { steamId, ...sub });
+  const submitMute = async (sub) => {
+    const orgId = banOrgId;
+    if (orgId && steamId) {
+      await fetch(`/api/orgs/${encodeURIComponent(orgId)}/bans`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          actionType: "mute",
+          identifier: steamId,
+          identifierType: "steam_id",
+          category: "toxicity",
+          reason: sub.reason,
+          note: sub.note,
+          expiresAt: lengthToExpiresAt(sub.length),
+          serverIds: [],
+        }),
+      });
+    }
     setMuteOpen(false);
   };
   return (
@@ -169,7 +227,26 @@ function PlayerLookupPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <AppealModerationActions appellant={subject} />
+                      {!isSupportOnly && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setManageBansOpen(true)}
+                            className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
+                          >
+                            <Ban className="size-3.5" aria-hidden />
+                            Manage Bans
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setManageMutesOpen(true)}
+                            className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
+                          >
+                            <MicOff className="size-3.5" aria-hidden />
+                            Manage Mutes
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() => setMuteOpen(true)}
                         className="flex items-center gap-2 px-3 py-2 bg-warning/15 text-warning ring-1 ring-warning/40 rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-warning/25"
@@ -358,6 +435,24 @@ function PlayerLookupPage() {
             subjectName={subject.name}
             onSubmit={submitMute}
             mode="mute"
+          />
+        )}
+        {subject && (
+          <PlayerManageDialog
+            steamId={subject.steamId}
+            kind="Ban"
+            orgIds={adminableOrgIds.filter(id => selectedOrgIds.includes(id))}
+            open={manageBansOpen}
+            onOpenChange={setManageBansOpen}
+          />
+        )}
+        {subject && (
+          <PlayerManageDialog
+            steamId={subject.steamId}
+            kind="Mute"
+            orgIds={adminableOrgIds.filter(id => selectedOrgIds.includes(id))}
+            open={manageMutesOpen}
+            onOpenChange={setManageMutesOpen}
           />
         )}
       </main>
@@ -746,4 +841,154 @@ function TicketGroup({ label, subjectId, tickets }) {
     </div>
   );
 }
+const BAN_STATUS_TONE = {
+  danger: "text-danger bg-danger/10 ring-danger/30",
+  warning: "text-warning bg-warning/10 ring-warning/30",
+  muted: "text-muted-foreground bg-surface ring-border",
+  success: "text-success bg-success/10 ring-success/30",
+};
+
+function banRecordStatus(r) {
+  if (r.revoked) return { label: "Revoked", tone: "muted" };
+  if (!r.expiresAt) return { label: "Permanent", tone: "danger" };
+  const ms = Date.parse(r.expiresAt) - Date.now();
+  if (ms <= 0) return { label: "Expired", tone: "muted" };
+  const days = Math.floor(ms / 864e5);
+  const hours = Math.floor((ms % 864e5) / 36e5);
+  return { label: days > 0 ? `${days}d left` : `${hours}h left`, tone: "warning" };
+}
+
+function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [drafts, setDrafts] = useState({});
+  const [busy, setBusy] = useState({});
+
+  const loadRecords = useCallback(async () => {
+    if (!orgIds.length || !steamId) { setRecords([]); return; }
+    setLoading(true);
+    try {
+      const type = kind === "Ban" ? "ban" : "mute";
+      const groups = await Promise.all(
+        orgIds.map((orgId) =>
+          fetch(
+            `/api/orgs/${encodeURIComponent(orgId)}/bans?type=${type}&identifier=${encodeURIComponent(steamId)}`,
+            { credentials: "include" },
+          )
+            .then((r) => r.json())
+            .then((b) => b.bans ?? [])
+            .catch(() => []),
+        ),
+      );
+      setRecords(groups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)));
+    } finally {
+      setLoading(false);
+    }
+  }, [steamId, kind, orgIds]);
+
+  useEffect(() => {
+    if (open) { setDrafts({}); loadRecords(); }
+  }, [open, loadRecords]);
+
+  const revoke = async (r) => {
+    setBusy((p) => ({ ...p, [r.banId]: true }));
+    await fetch(`/api/orgs/${encodeURIComponent(r.orgId)}/bans/${r.banId}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => {});
+    setBusy((p) => ({ ...p, [r.banId]: false }));
+    loadRecords();
+  };
+
+  const applyDuration = async (r) => {
+    const newLength = drafts[r.banId];
+    if (!newLength) return;
+    setBusy((p) => ({ ...p, [r.banId]: true }));
+    await fetch(`/api/orgs/${encodeURIComponent(r.orgId)}/bans/${r.banId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expiresAt: lengthToExpiresAt(newLength) }),
+    }).catch(() => {});
+    setBusy((p) => ({ ...p, [r.banId]: false }));
+    loadRecords();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{kind === "Ban" ? "Manage Bans" : "Manage Mutes"}</DialogTitle>
+          <DialogDescription>
+            Adjust duration or lift {kind.toLowerCase()}s. Records remain in the system for audit.
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <p className="text-xs text-muted-foreground py-6 text-center">Loading…</p>
+        ) : records.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic py-6 text-center">
+            No {kind.toLowerCase()}s on record.
+          </p>
+        ) : (
+          <ul className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {records.map((r) => {
+              const st = banRecordStatus(r);
+              const isActive = !r.revoked && (!r.expiresAt || Date.parse(r.expiresAt) > Date.now());
+              return (
+                <li key={r.banId} className="bg-surface/40 ring-1 ring-border rounded p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium truncate">{r.reason}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">
+                        {new Date(r.issuedAt).toLocaleDateString()} · by {r.issuedByName ?? "unknown"}
+                        {r.category ? ` · ${r.category}` : ""}
+                      </p>
+                    </div>
+                    <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${BAN_STATUS_TONE[st.tone]}`}>
+                      {st.label}
+                    </span>
+                  </div>
+                  {isActive && (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={drafts[r.banId] ?? ""}
+                        onChange={(e) => setDrafts((p) => ({ ...p, [r.banId]: e.target.value }))}
+                        className="flex-1 h-8 text-xs bg-surface border border-border rounded px-2"
+                        disabled={busy[r.banId]}
+                      >
+                        <option value="">New duration…</option>
+                        {LENGTH_OPTIONS.map((o) => (
+                          <option key={o.id} value={o.id}>{o.label}</option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-8"
+                        onClick={() => applyDuration(r)}
+                        disabled={!drafts[r.banId] || !!busy[r.banId]}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-8"
+                        onClick={() => revoke(r)}
+                        disabled={!!busy[r.banId]}
+                      >
+                        {kind === "Ban" ? "Unban" : "Unmute"}
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export { Route };
