@@ -6325,7 +6325,17 @@ async function handleSetServerRcon(request, serverId) {
     params,
   );
 
-  return json({ ok: true });
+  const rconUrl = `ws://${rconHost}:${rconPort}/${encodeURIComponent(rconPassword)}`;
+  let testPassed = false;
+  let testError = null;
+  try {
+    await executeRconCommand(rconUrl, "sysinfo");
+    testPassed = true;
+  } catch (err) {
+    testError = String(err?.message ?? err);
+  }
+
+  return json({ ok: true, testPassed, testError });
 }
 
 async function handleGetServerRconStatus(request, serverId) {

@@ -168,6 +168,7 @@ function PanelPage() {
               rconPort: s.rconPort ?? 28016,
               tags: Array.isArray(s.tags) ? s.tags : [],
               rconConfigured: s.rconConfigured ?? false,
+              rconWorking: null,
             })),
           );
       })
@@ -410,7 +411,11 @@ function RconTab({ servers, orgId }) {
             <CircleDot
               className={
                 "size-3 " +
-                (s.rconConfigured ? "text-success" : "text-muted-foreground/40")
+                (s.rconConfigured
+                  ? s.rconWorking === false
+                    ? "text-destructive"
+                    : "text-success"
+                  : "text-muted-foreground/40")
               }
             />
             <div className="flex-1 min-w-0">
@@ -2557,6 +2562,7 @@ function ServersTab({ orgId }) {
   const [deleting, setDeleting] = useState(null);
   const [rotatingKey, setRotatingKey] = useState(null);
   const [rotatedKeyReveal, setRotatedKeyReveal] = useState(null); // { apiKey, serverName }
+  const [rotateKeyConfirm, setRotateKeyConfirm] = useState(null); // { serverId, serverName }
 
   const [rconConfigFor, setRconConfigFor] = useState(null); // { serverId, serverName, rconHost, rconPort, gamePort, tags }
   const [rconSavingFor, setRconSavingFor] = useState(null);
@@ -2577,6 +2583,7 @@ function ServersTab({ orgId }) {
         setRconSaveError(data?.error ?? "Failed to save");
         return;
       }
+      const testPassed = data.testPassed ?? null;
       setRegisteredServers((prev) =>
         prev.map((s) =>
           s.serverId === serverId
@@ -2587,7 +2594,15 @@ function ServersTab({ orgId }) {
                 gamePort: form.gamePort ?? s.gamePort,
                 tags: form.tags ?? s.tags,
                 rconConfigured: true,
+                rconWorking: testPassed,
               }
+            : s,
+        ),
+      );
+      setAllServers((prev) =>
+        prev.map((s) =>
+          s.id === serverId
+            ? { ...s, rconConfigured: true, rconWorking: testPassed }
             : s,
         ),
       );
@@ -3041,6 +3056,46 @@ function ServersTab({ orgId }) {
         </Dialog>
       )}
 
+      {/* Rotate key confirm dialog */}
+      {rotateKeyConfirm && (
+        <Dialog open onOpenChange={(o) => !o && setRotateKeyConfirm(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reset API key?</DialogTitle>
+              <DialogDescription>
+                This will immediately invalidate the current API key for{" "}
+                <strong>{rotateKeyConfirm.serverName}</strong>. Any server
+                plugins using the old key will stop working until updated. This
+                cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setRotateKeyConfirm(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={rotatingKey === rotateKeyConfirm.serverId}
+                onClick={() => {
+                  rotateKey(rotateKeyConfirm.serverId, rotateKeyConfirm.serverName);
+                  setRotateKeyConfirm(null);
+                }}
+              >
+                {rotatingKey === rotateKeyConfirm.serverId ? (
+                  <RefreshCw className="size-3.5 mr-1 animate-spin" />
+                ) : (
+                  <Key className="size-3.5 mr-1" />
+                )}
+                Reset key
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Rotate key reveal dialog */}
       {rotatedKeyReveal && (
         <Dialog open onOpenChange={() => setRotatedKeyReveal(null)}>
@@ -3193,9 +3248,15 @@ function ServersTab({ orgId }) {
                         {s.serverName}
                       </div>
                       {s.rconConfigured ? (
-                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
-                          RCON
-                        </span>
+                        s.rconWorking === false ? (
+                          <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-destructive/10 text-destructive ring-1 ring-destructive/30">
+                            RCON
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
+                            RCON
+                          </span>
+                        )
                       ) : (
                         <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-warning/10 text-warning ring-1 ring-warning/30">
                           No RCON
@@ -3259,7 +3320,12 @@ function ServersTab({ orgId }) {
                       className="size-7"
                       title="Rotate API key"
                       disabled={rotatingKey === s.serverId}
-                      onClick={() => rotateKey(s.serverId, s.serverName)}
+                      onClick={() =>
+                        setRotateKeyConfirm({
+                          serverId: s.serverId,
+                          serverName: s.serverName,
+                        })
+                      }
                     >
                       {rotatingKey === s.serverId ? (
                         <RefreshCw className="size-3.5 animate-spin" />
@@ -3415,7 +3481,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
             }
             onClick={submit}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Testing…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>
