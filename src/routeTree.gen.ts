@@ -9,8 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ViewOrgRouteImport } from './routes/view-org'
 import { Route as TodoRouteImport } from './routes/todo'
+import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as SubmitRouteImport } from './routes/submit'
@@ -29,18 +29,19 @@ import { Route as SysAdminRolesRouteImport } from './routes/sys-admin.roles'
 import { Route as ManageToxicityRouteImport } from './routes/manage.toxicity'
 import { Route as ManageTicketsRouteImport } from './routes/manage.tickets'
 import { Route as ManageStaffRouteImport } from './routes/manage.staff'
+import { Route as ManageRolesRouteImport } from './routes/manage.roles'
 import { Route as ManagePredefinesRouteImport } from './routes/manage.predefines'
 import { Route as ManageDetailsRouteImport } from './routes/manage.details'
 import { Route as ManageBanConfigsRouteImport } from './routes/manage.ban-configs'
 
-const ViewOrgRoute = ViewOrgRouteImport.update({
-  id: '/view-org',
-  path: '/view-org',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TodoRoute = TodoRouteImport.update({
   id: '/todo',
   path: '/todo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TicketsRoute = TicketsRouteImport.update({
+  id: '/tickets',
+  path: '/tickets',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ThreatTriggersRoute = ThreatTriggersRouteImport.update({
@@ -133,6 +134,11 @@ const ManageStaffRoute = ManageStaffRouteImport.update({
   path: '/staff',
   getParentRoute: () => ManageRoute,
 } as any)
+const ManageRolesRoute = ManageRolesRouteImport.update({
+  id: '/roles',
+  path: '/roles',
+  getParentRoute: () => ManageRoute,
+} as any)
 const ManagePredefinesRoute = ManagePredefinesRouteImport.update({
   id: '/predefines',
   path: '/predefines',
@@ -164,11 +170,12 @@ export interface FileRoutesByFullPath {
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
   '/threat-triggers': typeof ThreatTriggersRoute
+  '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
-  '/view-org': typeof ViewOrgRoute
   '/manage/ban-configs': typeof ManageBanConfigsRoute
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
+  '/manage/roles': typeof ManageRolesRoute
   '/manage/staff': typeof ManageStaffRoute
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
@@ -189,11 +196,12 @@ export interface FileRoutesByTo {
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
   '/threat-triggers': typeof ThreatTriggersRoute
+  '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
-  '/view-org': typeof ViewOrgRoute
   '/manage/ban-configs': typeof ManageBanConfigsRoute
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
+  '/manage/roles': typeof ManageRolesRoute
   '/manage/staff': typeof ManageStaffRoute
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
@@ -215,11 +223,12 @@ export interface FileRoutesById {
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
   '/threat-triggers': typeof ThreatTriggersRoute
+  '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
-  '/view-org': typeof ViewOrgRoute
   '/manage/ban-configs': typeof ManageBanConfigsRoute
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
+  '/manage/roles': typeof ManageRolesRoute
   '/manage/staff': typeof ManageStaffRoute
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
@@ -242,11 +251,12 @@ export interface FileRouteTypes {
     | '/submit'
     | '/support'
     | '/threat-triggers'
+    | '/tickets'
     | '/todo'
-    | '/view-org'
     | '/manage/ban-configs'
     | '/manage/details'
     | '/manage/predefines'
+    | '/manage/roles'
     | '/manage/staff'
     | '/manage/tickets'
     | '/manage/toxicity'
@@ -267,11 +277,12 @@ export interface FileRouteTypes {
     | '/submit'
     | '/support'
     | '/threat-triggers'
+    | '/tickets'
     | '/todo'
-    | '/view-org'
     | '/manage/ban-configs'
     | '/manage/details'
     | '/manage/predefines'
+    | '/manage/roles'
     | '/manage/staff'
     | '/manage/tickets'
     | '/manage/toxicity'
@@ -292,11 +303,12 @@ export interface FileRouteTypes {
     | '/submit'
     | '/support'
     | '/threat-triggers'
+    | '/tickets'
     | '/todo'
-    | '/view-org'
     | '/manage/ban-configs'
     | '/manage/details'
     | '/manage/predefines'
+    | '/manage/roles'
     | '/manage/staff'
     | '/manage/tickets'
     | '/manage/toxicity'
@@ -318,25 +330,25 @@ export interface RootRouteChildren {
   SubmitRoute: typeof SubmitRoute
   SupportRoute: typeof SupportRoute
   ThreatTriggersRoute: typeof ThreatTriggersRoute
+  TicketsRoute: typeof TicketsRoute
   TodoRoute: typeof TodoRoute
-  ViewOrgRoute: typeof ViewOrgRoute
   SysAdminRolesRoute: typeof SysAdminRolesRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/view-org': {
-      id: '/view-org'
-      path: '/view-org'
-      fullPath: '/view-org'
-      preLoaderRoute: typeof ViewOrgRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/todo': {
       id: '/todo'
       path: '/todo'
       fullPath: '/todo'
       preLoaderRoute: typeof TodoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tickets': {
+      id: '/tickets'
+      path: '/tickets'
+      fullPath: '/tickets'
+      preLoaderRoute: typeof TicketsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/threat-triggers': {
@@ -465,6 +477,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManageStaffRouteImport
       parentRoute: typeof ManageRoute
     }
+    '/manage/roles': {
+      id: '/manage/roles'
+      path: '/roles'
+      fullPath: '/manage/roles'
+      preLoaderRoute: typeof ManageRolesRouteImport
+      parentRoute: typeof ManageRoute
+    }
     '/manage/predefines': {
       id: '/manage/predefines'
       path: '/predefines'
@@ -493,6 +512,7 @@ interface ManageRouteChildren {
   ManageBanConfigsRoute: typeof ManageBanConfigsRoute
   ManageDetailsRoute: typeof ManageDetailsRoute
   ManagePredefinesRoute: typeof ManagePredefinesRoute
+  ManageRolesRoute: typeof ManageRolesRoute
   ManageStaffRoute: typeof ManageStaffRoute
   ManageTicketsRoute: typeof ManageTicketsRoute
   ManageToxicityRoute: typeof ManageToxicityRoute
@@ -502,6 +522,7 @@ const ManageRouteChildren: ManageRouteChildren = {
   ManageBanConfigsRoute: ManageBanConfigsRoute,
   ManageDetailsRoute: ManageDetailsRoute,
   ManagePredefinesRoute: ManagePredefinesRoute,
+  ManageRolesRoute: ManageRolesRoute,
   ManageStaffRoute: ManageStaffRoute,
   ManageTicketsRoute: ManageTicketsRoute,
   ManageToxicityRoute: ManageToxicityRoute,
@@ -525,8 +546,8 @@ const rootRouteChildren: RootRouteChildren = {
   SubmitRoute: SubmitRoute,
   SupportRoute: SupportRoute,
   ThreatTriggersRoute: ThreatTriggersRoute,
+  TicketsRoute: TicketsRoute,
   TodoRoute: TodoRoute,
-  ViewOrgRoute: ViewOrgRoute,
   SysAdminRolesRoute: SysAdminRolesRoute,
 }
 export const routeTree = rootRouteImport

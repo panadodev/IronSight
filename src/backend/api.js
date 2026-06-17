@@ -9202,6 +9202,205 @@ async function handleRefreshPlayer(request, steamId) {
   return json(fresh);
 }
 
+// ── Org player list (live, RCON-sourced) ─────────────────────────────────────
+
+async function handleGetOrgPlayerList(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const isMember = await isSessionOrgMember(session, orgId);
+  if (!isMember) return json({ error: "Forbidden" }, 403);
+
+  const cacheKey = `player-list:${orgId}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return json(JSON.parse(cached));
+  } catch {}
+
+  const serversRes = await pool.query(
+    `SELECT server_id, server_name, rcon_host, rcon_port, rcon_password_enc
+     FROM servers
+     WHERE owner_org_id = $1
+       AND rcon_host IS NOT NULL
+       AND rcon_port IS NOT NULL
+       AND rcon_password_enc IS NOT NULL`,
+    [orgId],
+  );
+
+  if (!serversRes.rows.length) {
+    return json({ players: [], servers: [] });
+  }
+
+  const serverResults = await Promise.allSettled(
+    serversRes.rows.map(async (srv) => {
+      let password;
+      try {
+        password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+      } catch {
+        return {
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          rconError: "Credentials corrupted",
+          players: [],
+        };
+      }
+      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+      try {
+        const { response } = await executeRconCommand(rconUrl, "global.playerlist");
+        let rawPlayers;
+        try {
+          rawPlayers = JSON.parse(response);
+        } catch {
+          return {
+            serverId: String(srv.server_id),
+            serverName: String(srv.server_name),
+            rconError: "Failed to parse playerlist",
+            players: [],
+          };
+        }
+        if (!Array.isArray(rawPlayers)) {
+          return {
+            serverId: String(srv.server_id),
+            serverName: String(srv.server_name),
+            rconError: "Unexpected response format",
+            players: [],
+          };
+        }
+        return {
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          rconError: null,
+          players: rawPlayers
+            .map((p) => ({
+              steamId: String(p.SteamID ?? ""),
+              name: String(p.DisplayName ?? ""),
+              ping: Number(p.Ping ?? 0),
+            }))
+            .filter((p) => /^\d{17}$/.test(p.steamId)),
+        };
+      } catch (err) {
+        return {
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          rconError: String(err.message),
+          players: [],
+        };
+      }
+    }),
+  );
+
+  const servers = [];
+  const allPlayers = [];
+  for (const result of serverResults) {
+    const val =
+      result.status === "fulfilled"
+        ? result.value
+        : {
+            serverId: "?",
+            serverName: "?",
+            rconError: String(result.reason?.message ?? result.reason),
+            players: [],
+          };
+    servers.push({
+      serverId: val.serverId,
+      serverName: val.serverName,
+      rconError: val.rconError,
+      playerCount: val.players.length,
+    });
+    for (const p of val.players) {
+      allPlayers.push({ ...p, serverId: val.serverId, serverName: val.serverName });
+    }
+  }
+
+  const steamIds = [...new Set(allPlayers.map((p) => p.steamId))];
+
+  let cacheMap = {};
+  let ipMap = {};
+
+  if (steamIds.length > 0) {
+    const [cacheRes, ipRes] = await Promise.all([
+      pool.query(
+        `SELECT steam_id, display_name, avatar_url,
+                steam_rust_hours, steam_profile_created_at,
+                bm_rust_hours, bm_kills, bm_deaths,
+                bm_cheating_reports, bm_teaming_reports, bm_other_reports,
+                bm_rust_bans_count
+         FROM player_cache
+         WHERE steam_id = ANY($1)`,
+        [steamIds],
+      ),
+      pool.query(
+        `SELECT DISTINCT ON (pih.steam_id)
+                pih.steam_id, im.is_proxy, im.country
+         FROM player_ip_history pih
+         LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
+         WHERE pih.steam_id = ANY($1)
+         ORDER BY pih.steam_id, pih.last_seen DESC`,
+        [steamIds],
+      ),
+    ]);
+    cacheMap = Object.fromEntries(cacheRes.rows.map((r) => [r.steam_id, r]));
+    ipMap = Object.fromEntries(ipRes.rows.map((r) => [r.steam_id, r]));
+  }
+
+  const enriched = allPlayers.map((p) => {
+    const cache = cacheMap[p.steamId] ?? null;
+    const ip = ipMap[p.steamId] ?? null;
+
+    const totalHours =
+      cache?.steam_rust_hours != null
+        ? Number(cache.steam_rust_hours)
+        : cache?.bm_rust_hours != null
+          ? Number(cache.bm_rust_hours)
+          : 0;
+    const kills = Number(cache?.bm_kills ?? 0);
+    const deaths = Number(cache?.bm_deaths ?? 0);
+    const kd = deaths > 0 ? kills / deaths : kills > 0 ? kills : 0;
+    const reportCount =
+      Number(cache?.bm_cheating_reports ?? 0) +
+      Number(cache?.bm_teaming_reports ?? 0) +
+      Number(cache?.bm_other_reports ?? 0);
+    const accountCreated = cache?.steam_profile_created_at
+      ? new Date(cache.steam_profile_created_at)
+      : null;
+    const accountAgeDays = accountCreated
+      ? Math.floor((Date.now() - accountCreated.getTime()) / 86400000)
+      : 0;
+
+    const h = totalHours === 0 ? 1 : totalHours;
+    const susScore =
+      Math.round(((1 / h) * Math.pow(kd, reportCount) * 10) * 10) / 10;
+
+    return {
+      steamId: p.steamId,
+      name: cache?.display_name ?? p.name,
+      serverId: p.serverId,
+      serverName: p.serverName,
+      ping: p.ping,
+      susScore,
+      rustHours: totalHours,
+      bmHours: cache?.bm_rust_hours != null ? Number(cache.bm_rust_hours) : 0,
+      kills,
+      deaths,
+      kd: Math.round(kd * 100) / 100,
+      reportCount,
+      isProxy: ip?.is_proxy ?? false,
+      country: ip?.country ?? null,
+      avatarUrl: cache?.avatar_url ?? null,
+      bmBans: Number(cache?.bm_rust_bans_count ?? 0),
+      accountAgeDays,
+    };
+  });
+
+  const result = { players: enriched, servers };
+
+  try {
+    await redis.set(cacheKey, JSON.stringify(result), "EX", 30);
+  } catch {}
+
+  return json(result);
+}
+
 async function _handleApiRequest(request) {
   const earlyUrl = new URL(request.url);
   const earlyPath = earlyUrl.pathname;
@@ -9724,6 +9923,13 @@ async function _handleApiRequest(request) {
         orgExternalKeyDetailMatch[1],
         orgExternalKeyDetailMatch[2],
       );
+
+    // Org player list
+    const orgPlayerListMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/player-list$/,
+    );
+    if (orgPlayerListMatch && request.method === "GET")
+      return handleGetOrgPlayerList(request, orgPlayerListMatch[1]);
 
     // Player lookup
     const playerMatch = pathname.match(/^\/api\/players\/(\d+)$/);
