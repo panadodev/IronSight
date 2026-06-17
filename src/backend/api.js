@@ -6604,21 +6604,6 @@ async function handleIngestChatMessage(request) {
   }
   const server = serverRes.rows[0];
 
-  // Per-server rate limit
-  const rlKey = `rl:chat:${server.server_id}`;
-  try {
-    const attempts = await redis.incr(rlKey);
-    await redis.expire(rlKey, 60);
-    if (attempts > CHAT_INGEST_RATE_LIMIT_PER_MINUTE) {
-      console.log(
-        `[ingest:chat] rate limited — server=${server.server_name} (${server.server_id})`,
-      );
-      return json({ error: "Rate limit exceeded" }, 429);
-    }
-  } catch {
-    // fail-open on Redis errors
-  }
-
   let body;
   try {
     body = await request.json();
