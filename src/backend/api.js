@@ -9063,16 +9063,20 @@ async function handleIngestPlayerConnect(request) {
     );
   }
 
-  // Background refresh only if cache is stale or missing
+  // Refresh on every join, but throttle to once per hour per player.
+  // Also force a refresh if BM data was never successfully fetched (bm_cached_at IS NULL)
+  // so a partial Steam-only cache doesn't block BM data from ever being populated.
   const cacheCheck = await pool.query(
-    `SELECT cache_expires_at FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+    `SELECT steam_cached_at, bm_cached_at FROM player_cache WHERE steam_id = $1 LIMIT 1`,
     [steamId],
   );
   const cacheRow = cacheCheck.rows[0];
+  const oneHourAgo = new Date(Date.now() - 3600000);
   const needsRefresh =
     !cacheRow ||
-    !cacheRow.cache_expires_at ||
-    new Date(cacheRow.cache_expires_at) < new Date();
+    !cacheRow.steam_cached_at ||
+    !cacheRow.bm_cached_at ||
+    new Date(cacheRow.steam_cached_at) < oneHourAgo;
 
   if (needsRefresh) {
     refreshPlayerData(steamId, server.owner_org_id).catch((err) =>
@@ -9083,8 +9087,17 @@ async function handleIngestPlayerConnect(request) {
     );
   }
 
+  const refreshReason = !cacheRow
+    ? "no-cache"
+    : !cacheRow.steam_cached_at
+      ? "steam-never-fetched"
+      : !cacheRow.bm_cached_at
+        ? "bm-never-fetched"
+        : needsRefresh
+          ? "stale(>1h)"
+          : "fresh";
   console.log(
-    `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh} ip=${ip ?? "-"}`,
+    `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh}(${refreshReason}) ip=${ip ?? "-"}`,
   );
 
   return json({ ok: true });
