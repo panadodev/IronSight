@@ -1351,7 +1351,8 @@ async function ensureRolePermissionSeed() {
       ('tickets_manage',      'Manage and respond to tickets'),
       ('ban_configs_manage',  'Manage ban and mute configurations'),
       ('toxicity_manage',     'Manage toxicity filters'),
-      ('predefines_manage',   'Manage ticket pre-defines')
+      ('predefines_manage',   'Manage ticket pre-defines'),
+      ('bans_delete',         'Delete and revoke bans')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 
@@ -1581,6 +1582,7 @@ async function loadUserAccess(userId) {
   }
 
   const canWrite = permissions.has("todo_write");
+  const canDeleteBans = permissions.has("bans_delete");
   const groups = [
     {
       groupId: "member",
@@ -1594,6 +1596,7 @@ async function loadUserAccess(userId) {
     groups,
     globalAdmin: false,
     canWrite,
+    canDeleteBans,
     orgAdminOrgIds: Array.from(orgAdminOrgIds),
     orgOwnerOrgIds: Array.from(orgOwnerOrgIds),
   };
@@ -3138,6 +3141,7 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
         "ban_configs_manage",
         "toxicity_manage",
         "predefines_manage",
+        "bans_delete",
       ];
       filteredPerms = body.permissions
         .map((p) => String(p).trim())
@@ -7678,7 +7682,8 @@ async function handleUpdateBan(request, orgId, banId) {
 async function handleRevokeBan(request, orgId, banId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId) && !session.canDeleteBans)
+    return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
     `SELECT ban_id, identifier, identifier_type, action_type
@@ -7957,7 +7962,8 @@ async function findBMIdBySteamId(steamId, orgId) {
 
   const url =
     `https://api.battlemetrics.com/players` +
-    `?filter[search]=${encodeURIComponent(steamId)}` +
+    `?filter[identifier]=${encodeURIComponent(steamId)}` +
+    `&filter[identifierType]=steamID` +
     `&include=identifier&page[size]=5`;
 
   const resp = await bmFetch(orgId, url);
