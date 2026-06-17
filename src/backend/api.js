@@ -8616,10 +8616,10 @@ async function getPlayerCacheData(steamId) {
         [steamId],
       ),
       pool.query(
-        `SELECT ip_address, is_vpn, server_name, first_seen, last_seen,
+        `SELECT pih.ip_address, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
                 im.is_proxy, im.isp, im.country, im.asn
          FROM player_ip_history pih
-         LEFT JOIN ip_metadata im USING (ip_address)
+         LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
          WHERE pih.steam_id = $1
          ORDER BY pih.last_seen DESC`,
         [steamId],
