@@ -11,8 +11,6 @@ const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_ME_URL = "https://discord.com/api/users/@me";
 const STEAM_OPENID_URL = "https://steamcommunity.com/openid/login";
 const SYSADMIN = {
-  discordId: "476047124694433822",
-  steamId: "76561198825911004",
   globalOrgId: "__global__",
   sysadminRoleId: "sysadmin",
   username: "panado",
@@ -74,6 +72,7 @@ const env = {
   discordClientId: process.env.DISCORD_CLIENT_ID,
   discordClientSecret: process.env.DISCORD_CLIENT_SECRET,
   sysAdminDiscordId: process.env.SYS_ADMIN_DISCORD_ID,
+  sysAdminSteamId: process.env.SYSADMIN_STEAM_ID,
   // DISCORD_AUTH_CALLBACK is the legacy key used in .env; DISCORD_REDIRECT_URI takes precedence
   discordRedirectUri:
     process.env.DISCORD_REDIRECT_URI ?? process.env.DISCORD_AUTH_CALLBACK,
@@ -113,6 +112,11 @@ if (!env.sysAdminDiscordId?.trim()) {
     "[config] Missing SYS_ADMIN_DISCORD_ID. API startup will fail until fixed.",
   );
 }
+if (!env.sysAdminSteamId?.trim()) {
+  console.warn(
+    "[config] Missing SYSADMIN_STEAM_ID. Sysadmin seeding will fail until fixed.",
+  );
+}
 if (env.jwtSecret && !process.env.PTERODACTYL_ENCRYPTION_KEY?.trim()) {
   console.warn(
     "[config] Missing PTERODACTYL_ENCRYPTION_KEY. Falling back to JWT_SECRET for Pterodactyl key encryption.",
@@ -134,6 +138,7 @@ let initializationPromise = null;
 const SESSION_COOKIE = "panel_session";
 const PENDING_LINK_COOKIE = "pending_identity";
 let pterodactylEncryptionKey;
+let pterodactylEncryptionKeyV2;
 
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
@@ -141,19 +146,31 @@ function nowUnix() {
 
 function getPterodactylEncryptionKey() {
   if (pterodactylEncryptionKey) return pterodactylEncryptionKey;
-
   const secret = String(env.pterodactylEncryptionSecret ?? "").trim();
   if (!secret) return null;
-
-  pterodactylEncryptionKey = crypto
-    .createHash("sha256")
-    .update(secret)
-    .digest();
+  // Legacy SHA-256 key — used only for decrypting v1-prefixed ciphertexts.
+  pterodactylEncryptionKey = crypto.createHash("sha256").update(secret).digest();
   return pterodactylEncryptionKey;
 }
 
+function getPterodactylEncryptionKeyV2() {
+  if (pterodactylEncryptionKeyV2) return pterodactylEncryptionKeyV2;
+  const secret = String(env.pterodactylEncryptionSecret ?? "").trim();
+  if (!secret) return null;
+  pterodactylEncryptionKeyV2 = Buffer.from(
+    crypto.hkdfSync(
+      "sha256",
+      Buffer.from(secret, "utf8"),
+      Buffer.from("ironsight-v2-salt", "utf8"),
+      Buffer.from("pterodactyl-encryption", "utf8"),
+      32,
+    ),
+  );
+  return pterodactylEncryptionKeyV2;
+}
+
 function encryptPterodactylApiKey(apiKey) {
-  const key = getPterodactylEncryptionKey();
+  const key = getPterodactylEncryptionKeyV2();
   if (!key) throw new Error("pterodactyl_encryption_unconfigured");
 
   const iv = crypto.randomBytes(12);
@@ -165,7 +182,7 @@ function encryptPterodactylApiKey(apiKey) {
   const authTag = cipher.getAuthTag();
 
   return [
-    "v1",
+    "v2",
     iv.toString("base64url"),
     ciphertext.toString("base64url"),
     authTag.toString("base64url"),
@@ -173,15 +190,22 @@ function encryptPterodactylApiKey(apiKey) {
 }
 
 function decryptPterodactylApiKey(payload) {
-  const key = getPterodactylEncryptionKey();
-  if (!key) throw new Error("pterodactyl_encryption_unconfigured");
-
   const [version, ivB64, ciphertextB64, authTagB64] = String(
     payload ?? "",
   ).split(":");
-  if (version !== "v1" || !ivB64 || !ciphertextB64 || !authTagB64) {
+  if (!ivB64 || !ciphertextB64 || !authTagB64) {
     throw new Error("pterodactyl_encryption_invalid_payload");
   }
+
+  let key;
+  if (version === "v1") {
+    key = getPterodactylEncryptionKey();
+  } else if (version === "v2") {
+    key = getPterodactylEncryptionKeyV2();
+  } else {
+    throw new Error("pterodactyl_encryption_invalid_payload");
+  }
+  if (!key) throw new Error("pterodactyl_encryption_unconfigured");
 
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",
@@ -1469,12 +1493,21 @@ async function ensureSysadminSeed() {
     [SYSADMIN.globalOrgId],
   );
 
+  const sysAdminDiscordId = env.sysAdminDiscordId?.trim();
+  const sysAdminSteamId = env.sysAdminSteamId?.trim();
+
+  if (!sysAdminDiscordId || !sysAdminSteamId) {
+    throw new Error(
+      "SYSADMIN_STEAM_ID and SYS_ADMIN_DISCORD_ID must be set to seed the sysadmin account",
+    );
+  }
+
   const existingRes = await pool.query(
     `SELECT user_id
      FROM users
      WHERE discord_id = $1 OR steam_id = $2
      LIMIT 1`,
-    [SYSADMIN.discordId, SYSADMIN.steamId],
+    [sysAdminDiscordId, sysAdminSteamId],
   );
 
   const existing = existingRes.rows[0];
@@ -1488,14 +1521,14 @@ async function ensureSysadminSeed() {
            steam_id = $4,
            updated_at = NOW()
        WHERE user_id = $1`,
-      [userId, SYSADMIN.username, SYSADMIN.discordId, SYSADMIN.steamId],
+      [userId, SYSADMIN.username, sysAdminDiscordId, sysAdminSteamId],
     );
   } else {
     userId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO users (user_id, username, discord_id, steam_id)
        VALUES ($1, $2, $3, $4)`,
-      [userId, SYSADMIN.username, SYSADMIN.discordId, SYSADMIN.steamId],
+      [userId, SYSADMIN.username, sysAdminDiscordId, sysAdminSteamId],
     );
   }
 
@@ -3466,6 +3499,14 @@ async function handleGetStaffAuditLog(request, orgId) {
 
   if (!staffId) {
     return json({ error: "staffId query parameter is required" }, 400);
+  }
+
+  const memberCheck = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+    [orgId, staffId],
+  );
+  if (!memberCheck.rows[0]) {
+    return json({ error: "Staff member not found in this organization" }, 404);
   }
 
   const logsRes = await pool.query(
@@ -6450,12 +6491,8 @@ async function handleExecRconCommand(request, serverId) {
   const { owner_org_id, rcon_host, rcon_port, rcon_password_enc } =
     serverRes.rows[0];
 
-  const memberRes = await pool.query(
-    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
-    [owner_org_id, session.userId],
-  );
-  if (!memberRes.rows[0] && !canManageOrg(session, owner_org_id)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, owner_org_id)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
   }
 
   if (!rcon_host || !rcon_port || !rcon_password_enc) {
@@ -7507,6 +7544,16 @@ async function handleCreateBan(request, orgId) {
   if (!["steam_id", "ip"].includes(identifierType)) {
     return json({ error: "identifierType must be 'steam_id' or 'ip'" }, 400);
   }
+
+  if (identifierType === "steam_id" && !/^\d{17}$/.test(identifier.trim())) {
+    return json({ error: "identifier must be a 17-digit Steam64 ID" }, 400);
+  }
+  if (
+    identifierType === "ip" &&
+    !/^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/.test(identifier.trim())
+  ) {
+    return json({ error: "identifier must be a valid IPv4 or IPv6 address" }, 400);
+  }
   if (!["ban", "mute"].includes(actionType)) {
     return json({ error: "actionType must be 'ban' or 'mute'" }, 400);
   }
@@ -7567,15 +7614,16 @@ async function handleCreateBan(request, orgId) {
         const password = decryptPterodactylApiKey(
           String(srv.rcon_password_enc),
         );
-        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${password}`;
+        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+        const safeId = identifier.trim();
         let command;
         if (actionType === "mute") {
-          command = `mute ${identifier.trim()}`;
+          command = `mute ${safeId}`;
         } else if (identifierType === "ip") {
-          command = `banip ${identifier.trim()}`;
+          command = `banip ${safeId}`;
         } else {
           const safeReason = reason.replace(/"/g, "'");
-          command = `ban ${identifier.trim()} "${safeReason}"`;
+          command = `ban ${safeId} "${safeReason}"`;
         }
         const result = await executeRconCommand(rconUrl, command);
         rconResults.push({
@@ -7678,7 +7726,7 @@ async function handleRevokeBan(request, orgId, banId) {
   for (const srv of targetServers.rows) {
     try {
       const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
-      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${password}`;
+      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
       let command;
       if (action_type === "mute") {
         command = `unmute ${String(identifier)}`;
@@ -7895,8 +7943,13 @@ async function steamApiFetch(orgId, path, params = {}) {
   });
 }
 
+const VALID_IP_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
+
 async function proxycheckApiFetch(orgId, ipList) {
-  const ips = Array.isArray(ipList) ? ipList.join(",") : String(ipList);
+  const list = Array.isArray(ipList) ? ipList : [String(ipList)];
+  const validIps = list.filter((ip) => VALID_IP_RE.test(String(ip).trim()));
+  if (!validIps.length) return null;
+  const ips = validIps.join(",");
   return externalFetchWithRotation(orgId, "proxycheck", (key) => ({
     url: `https://proxycheck.io/v2/${ips}?key=${encodeURIComponent(key)}&vpn=1&asn=1`,
     options: {},
