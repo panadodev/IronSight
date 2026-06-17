@@ -9343,24 +9343,26 @@ async function handleGetOrgPlayerList(request, orgId) {
     ipMap = Object.fromEntries(ipRes.rows.map((r) => [r.steam_id, r]));
   }
 
-  const enriched = allPlayers.map((p) => {
-    const cache = cacheMap[p.steamId] ?? null;
+  const enriched = allPlayers.flatMap((p) => {
+    const cache = cacheMap[p.steamId];
+    if (!cache) return [];
+
     const ip = ipMap[p.steamId] ?? null;
 
     const totalHours =
-      cache?.steam_rust_hours != null
+      cache.steam_rust_hours != null
         ? Number(cache.steam_rust_hours)
-        : cache?.bm_rust_hours != null
+        : cache.bm_rust_hours != null
           ? Number(cache.bm_rust_hours)
           : 0;
-    const kills = Number(cache?.bm_kills ?? 0);
-    const deaths = Number(cache?.bm_deaths ?? 0);
+    const kills = Number(cache.bm_kills ?? 0);
+    const deaths = Number(cache.bm_deaths ?? 0);
     const kd = deaths > 0 ? kills / deaths : kills > 0 ? kills : 0;
     const reportCount =
-      Number(cache?.bm_cheating_reports ?? 0) +
-      Number(cache?.bm_teaming_reports ?? 0) +
-      Number(cache?.bm_other_reports ?? 0);
-    const accountCreated = cache?.steam_profile_created_at
+      Number(cache.bm_cheating_reports ?? 0) +
+      Number(cache.bm_teaming_reports ?? 0) +
+      Number(cache.bm_other_reports ?? 0);
+    const accountCreated = cache.steam_profile_created_at
       ? new Date(cache.steam_profile_created_at)
       : null;
     const accountAgeDays = accountCreated
@@ -9371,25 +9373,25 @@ async function handleGetOrgPlayerList(request, orgId) {
     const susScore =
       Math.round(((1 / h) * Math.pow(kd, reportCount) * 10) * 10) / 10;
 
-    return {
+    return [{
       steamId: p.steamId,
-      name: cache?.display_name ?? p.name,
+      name: cache.display_name ?? p.name,
       serverId: p.serverId,
       serverName: p.serverName,
       ping: p.ping,
       susScore,
       rustHours: totalHours,
-      bmHours: cache?.bm_rust_hours != null ? Number(cache.bm_rust_hours) : 0,
+      bmHours: cache.bm_rust_hours != null ? Number(cache.bm_rust_hours) : 0,
       kills,
       deaths,
       kd: Math.round(kd * 100) / 100,
       reportCount,
       isProxy: ip?.is_proxy ?? false,
       country: ip?.country ?? null,
-      avatarUrl: cache?.avatar_url ?? null,
-      bmBans: Number(cache?.bm_rust_bans_count ?? 0),
+      avatarUrl: cache.avatar_url ?? null,
+      bmBans: Number(cache.bm_rust_bans_count ?? 0),
       accountAgeDays,
-    };
+    }];
   });
 
   const result = { players: enriched, servers };
