@@ -9408,7 +9408,7 @@ async function _handleApiRequest(request) {
       );
     }
 
-    if (pathname === "/api/server-health-check" && request.method === "POST") {
+    if (pathname === "/api/server-health-check" && request.method === "GET") {
       return handleServerHealthCheck(request);
     }
 
