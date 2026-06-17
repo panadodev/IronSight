@@ -741,24 +741,6 @@ function SiteNav() {
               />
             </div>
 
-            {hasStaffAccount && (
-              <div className="space-y-1.5">
-                <Label htmlFor="bm-token">BattleMetrics API token</Label>
-                <Input
-                  id="bm-token"
-                  type="password"
-                  placeholder="Paste your BattleMetrics token"
-                  value={draft.battlemetricsToken}
-                  onChange={(e) =>
-                    setDraft({ ...draft, battlemetricsToken: e.target.value })
-                  }
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Used to issue bans from your BattleMetrics account when staff
-                  press the Ban button.
-                </p>
-              </div>
-            )}
           </div>
 
           <DialogFooter>
