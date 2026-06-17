@@ -392,7 +392,9 @@ function AuthProvider({ children }) {
     if (isOwner) return 4;
     let max = 0;
     for (const id of orgIds) {
-      const r = rankOf(id);
+      let r = rankOf(id);
+      if (sessionOrgOwnerIds.includes(id)) r = Math.max(r, 4);
+      else if (sessionOrgAdminIds.includes(id)) r = Math.max(r, 3);
       if (r > max) max = r;
     }
     return max;
