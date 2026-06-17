@@ -7908,8 +7908,7 @@ async function findBMIdBySteamId(steamId, orgId) {
   }
 
   const params = new URLSearchParams({
-    "filter[identifiers][type]": "steamID",
-    "filter[identifiers][value]": steamId,
+    "filter[identifiers]": `steamID:${steamId}`,
     "include": "identifier",
     "page[size]": "5",
   });
