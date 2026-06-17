@@ -8288,6 +8288,56 @@ async function runProxycheckForIps(ipList, orgId) {
   return results;
 }
 
+// ── Player Redis cache helpers ────────────────────────────────────────────────
+
+const playerRedisKey = (steamId) => `player:data:${steamId}`;
+const playerFetchLock = (steamId) => `player:fetching:${steamId}`;
+const PLAYER_REDIS_TTL = 30 * 24 * 3600; // 30 days — matches PostgreSQL cache_expires_at
+
+async function getPlayerDataFromRedis(steamId) {
+  try {
+    const raw = await redis.get(playerRedisKey(steamId));
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+async function writePlayerDataToRedis(steamId) {
+  try {
+    const data = await getPlayerCacheData(steamId);
+    if (!data) return;
+    await redis.set(
+      playerRedisKey(steamId),
+      JSON.stringify(data),
+      "EX",
+      PLAYER_REDIS_TTL,
+    );
+  } catch (err) {
+    console.error(`[player] redis write error for ${steamId}:`, err.message);
+  }
+}
+
+async function acquirePlayerFetchLock(steamId) {
+  try {
+    const result = await redis.set(
+      playerFetchLock(steamId),
+      "1",
+      "NX",
+      "EX",
+      120, // 2-minute lock TTL — refreshPlayerData should always complete within this
+    );
+    return result === "OK";
+  } catch {
+    return true; // fail-open: if Redis is down, allow the refresh
+  }
+}
+
+async function releasePlayerFetchLock(steamId) {
+  try {
+    await redis.del(playerFetchLock(steamId));
+  } catch {}
+}
+
 // ── Player cache write helpers ────────────────────────────────────────────────
 
 async function ensurePlayerCacheRow(steamId) {
@@ -8518,75 +8568,92 @@ async function writeProxycheckToCache(ipResults) {
 // ── Main player refresh orchestrator ─────────────────────────────────────────
 
 async function refreshPlayerData(steamId, orgId) {
-  const [steamData, bmIdResult] = await Promise.all([
-    fetchSteamPlayerData(steamId, orgId),
-    (async () => {
-      const { rows } = await pool.query(
-        `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
-        [steamId],
-      );
-      return rows[0]?.bm_id ?? null;
-    })(),
-  ]);
-
-  let bmId = bmIdResult;
-
-  if (steamData.success) {
-    await writeSteamDataToCache(steamId, steamData);
-  } else {
-    await ensurePlayerCacheRow(steamId);
+  const locked = await acquirePlayerFetchLock(steamId);
+  if (!locked) {
+    console.log(`[player] refresh already in progress for ${steamId}, skipping`);
+    return;
   }
 
-  if (!bmId) {
-    bmId = await findBMIdBySteamId(steamId, orgId);
-  }
-
-  let bmData = null;
-  let relIdentifiers = { ips: [], relatedPlayers: [] };
-  let bmBans = [];
-
-  if (bmId) {
-    [bmData, relIdentifiers, bmBans] = await Promise.all([
-      fetchBMPlayerData(bmId, orgId),
-      fetchBMRelatedIdentifiers(bmId, orgId),
-      fetchBMPlayerBans(bmId, orgId),
+  try {
+    const [steamData, bmIdResult] = await Promise.all([
+      fetchSteamPlayerData(steamId, orgId),
+      (async () => {
+        const { rows } = await pool.query(
+          `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+          [steamId],
+        );
+        return rows[0]?.bm_id ?? null;
+      })(),
     ]);
 
-    if (bmData) {
-      await writeBMDataToCache(steamId, bmId, bmData);
-      await writeBMSessionsToCache(steamId, bmData.sessions);
-    }
-    await writeIpsToHistory(steamId, relIdentifiers.ips);
-    await writeBMBansToCache(steamId, bmBans);
-  }
+    let bmId = bmIdResult;
 
-  // Background: friends, activity, related account details, proxycheck
-  const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
-  Promise.all([
-    fetchSteamFriends(steamId, orgId).then((r) =>
-      writeFriendsToCache(steamId, r),
-    ),
-    bmId
-      ? fetchBMActivity(bmId, orgId).then((r) =>
-          writeActivityToCache(steamId, r),
-        )
-      : Promise.resolve(),
-    bmId && relIdentifiers.relatedPlayers.length
-      ? fetchRelatedAccountDetails(relIdentifiers.relatedPlayers, orgId).then(
-          (r) => writeRelatedAccountsToCache(steamId, r),
-        )
-      : Promise.resolve(),
-    ipsOnly.length
-      ? runProxycheckForIps(ipsOnly, orgId).then((r) =>
-          writeProxycheckToCache(r),
-        )
-      : Promise.resolve(),
-  ]).catch((err) =>
-    console.error(
-      `[player] background fetch error for ${steamId}:`,
-      err.message,
-    ),
-  );
+    if (steamData.success) {
+      await writeSteamDataToCache(steamId, steamData);
+    } else {
+      await ensurePlayerCacheRow(steamId);
+    }
+
+    if (!bmId) {
+      bmId = await findBMIdBySteamId(steamId, orgId);
+    }
+
+    let bmData = null;
+    let relIdentifiers = { ips: [], relatedPlayers: [] };
+    let bmBans = [];
+
+    if (bmId) {
+      [bmData, relIdentifiers, bmBans] = await Promise.all([
+        fetchBMPlayerData(bmId, orgId),
+        fetchBMRelatedIdentifiers(bmId, orgId),
+        fetchBMPlayerBans(bmId, orgId),
+      ]);
+
+      if (bmData) {
+        await writeBMDataToCache(steamId, bmId, bmData);
+        await writeBMSessionsToCache(steamId, bmData.sessions);
+      }
+      await writeIpsToHistory(steamId, relIdentifiers.ips);
+      await writeBMBansToCache(steamId, bmBans);
+    }
+
+    // Write the core data (Steam + BM profile/sessions/bans/IPs) to Redis immediately
+    // so the frontend polling can get a response without waiting for the slower tasks below
+    await writePlayerDataToRedis(steamId);
+
+    // Background: friends, activity, related account details, proxycheck
+    // These update Redis a second time once complete so the cache reflects everything
+    const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
+    Promise.all([
+      fetchSteamFriends(steamId, orgId).then((r) =>
+        writeFriendsToCache(steamId, r),
+      ),
+      bmId
+        ? fetchBMActivity(bmId, orgId).then((r) =>
+            writeActivityToCache(steamId, r),
+          )
+        : Promise.resolve(),
+      bmId && relIdentifiers.relatedPlayers.length
+        ? fetchRelatedAccountDetails(relIdentifiers.relatedPlayers, orgId).then(
+            (r) => writeRelatedAccountsToCache(steamId, r),
+          )
+        : Promise.resolve(),
+      ipsOnly.length
+        ? runProxycheckForIps(ipsOnly, orgId).then((r) =>
+            writeProxycheckToCache(r),
+          )
+        : Promise.resolve(),
+    ])
+      .then(() => writePlayerDataToRedis(steamId))
+      .catch((err) =>
+        console.error(
+          `[player] background fetch error for ${steamId}:`,
+          err.message,
+        ),
+      );
+  } finally {
+    await releasePlayerFetchLock(steamId);
+  }
 }
 
 async function getPlayerCacheData(steamId) {
@@ -9014,6 +9081,18 @@ async function handleGetPlayer(request, steamId) {
   if (!isMember)
     return json({ error: "Forbidden: not a member of this org" }, 403);
 
+  // Redis first — avoids 6 PostgreSQL queries on the hot path
+  const fromRedis = await getPlayerDataFromRedis(steamId);
+  if (fromRedis) {
+    if (fromRedis.isStale) {
+      refreshPlayerData(steamId, orgId).catch((err) =>
+        console.error(`[player] bg refresh error for ${steamId}:`, err.message),
+      );
+    }
+    return json(fromRedis);
+  }
+
+  // Redis miss — fall back to PostgreSQL
   const cached = await getPlayerCacheData(steamId);
 
   if (!cached) {
@@ -9048,8 +9127,10 @@ async function handleRefreshPlayer(request, steamId) {
   if (!isMember)
     return json({ error: "Forbidden: not a member of this org" }, 403);
 
+  // Clear Redis so refreshPlayerData can acquire the lock and write fresh data
+  try { await redis.del(playerRedisKey(steamId)); } catch {}
   await refreshPlayerData(steamId, orgId);
-  const fresh = await getPlayerCacheData(steamId);
+  const fresh = await getPlayerDataFromRedis(steamId) ?? await getPlayerCacheData(steamId);
   if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
   return json(fresh);
 }
