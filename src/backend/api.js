@@ -8570,9 +8570,11 @@ async function writeProxycheckToCache(ipResults) {
 async function refreshPlayerData(steamId, orgId) {
   const locked = await acquirePlayerFetchLock(steamId);
   if (!locked) {
-    console.log(`[player] refresh already in progress for ${steamId}, skipping`);
+    console.log(`[player:refresh] ${steamId} — already in progress, skipping`);
     return;
   }
+
+  console.log(`[player:refresh] ${steamId} org=${orgId} — starting`);
 
   try {
     const [steamData, bmIdResult] = await Promise.all([
@@ -8586,16 +8588,30 @@ async function refreshPlayerData(steamId, orgId) {
       })(),
     ]);
 
+    console.log(
+      `[player:refresh] ${steamId} — steam ok=${steamData.success} name=${steamData.displayName ?? "(none)"} existingBmId=${bmIdResult ?? "none"}`,
+    );
+
     let bmId = bmIdResult;
 
     if (steamData.success) {
       await writeSteamDataToCache(steamId, steamData);
     } else {
+      console.warn(
+        `[player:refresh] ${steamId} — steam fetch failed (no steam key for org ${orgId}?)`,
+      );
       await ensurePlayerCacheRow(steamId);
     }
 
     if (!bmId) {
       bmId = await findBMIdBySteamId(steamId, orgId);
+      if (bmId) {
+        console.log(`[player:refresh] ${steamId} — resolved bmId=${bmId}`);
+      } else {
+        console.warn(
+          `[player:refresh] ${steamId} — BM ID not found (no BM key for org ${orgId}? player not in BM?)`,
+        );
+      }
     }
 
     let bmData = null;
@@ -8609,6 +8625,10 @@ async function refreshPlayerData(steamId, orgId) {
         fetchBMPlayerBans(bmId, orgId),
       ]);
 
+      console.log(
+        `[player:refresh] ${steamId} bmId=${bmId} — bmData ok=${!!bmData} ips=${relIdentifiers.ips.length} relatedPlayers=${relIdentifiers.relatedPlayers.length} bans=${bmBans.length}`,
+      );
+
       if (bmData) {
         await writeBMDataToCache(steamId, bmId, bmData);
         await writeBMSessionsToCache(steamId, bmData.sessions);
@@ -8617,12 +8637,13 @@ async function refreshPlayerData(steamId, orgId) {
       await writeBMBansToCache(steamId, bmBans);
     }
 
-    // Write the core data (Steam + BM profile/sessions/bans/IPs) to Redis immediately
-    // so the frontend polling can get a response without waiting for the slower tasks below
+    // Write core data (Steam + BM profile/sessions/bans/IPs) to Redis immediately
+    // so the frontend polling can respond without waiting for the slower tasks below
     await writePlayerDataToRedis(steamId);
+    console.log(`[player:refresh] ${steamId} — core data written to Redis`);
 
     // Background: friends, activity, related account details, proxycheck
-    // These update Redis a second time once complete so the cache reflects everything
+    // Updates Redis a second time once all complete
     const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
     Promise.all([
       fetchSteamFriends(steamId, orgId).then((r) =>
@@ -8644,13 +8665,21 @@ async function refreshPlayerData(steamId, orgId) {
           )
         : Promise.resolve(),
     ])
-      .then(() => writePlayerDataToRedis(steamId))
+      .then(async () => {
+        await writePlayerDataToRedis(steamId);
+        console.log(
+          `[player:refresh] ${steamId} — background tasks done, Redis updated`,
+        );
+      })
       .catch((err) =>
         console.error(
-          `[player] background fetch error for ${steamId}:`,
-          err.message,
+          `[player:refresh] ${steamId} — background task error: ${err.message}`,
         ),
       );
+  } catch (err) {
+    console.error(
+      `[player:refresh] ${steamId} — refresh failed: ${err.message}`,
+    );
   } finally {
     await releasePlayerFetchLock(steamId);
   }

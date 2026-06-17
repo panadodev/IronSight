@@ -111,6 +111,53 @@ function Avatar({ steamId, displayName, avatarUrl, size = 64 }) {
   );
 }
 
+function cacheAge(iso) {
+  if (!iso) return null;
+  const ms = Date.now() - Date.parse(iso);
+  if (ms < 60000) return "just now";
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+function CacheStamp({ playerData, refreshing }) {
+  const steamAt = playerData?.steam?.cachedAt;
+  const bmAt = playerData?.bm?.cachedAt;
+  const stale = playerData?.isStale;
+
+  const newest = [steamAt, bmAt]
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+
+  if (refreshing) {
+    return (
+      <span className="text-[10px] text-muted-foreground/70 font-mono">
+        refreshing…
+      </span>
+    );
+  }
+
+  if (!newest) {
+    return (
+      <span className="text-[10px] text-warning/80 font-mono">
+        not cached
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`text-[10px] font-mono ${stale ? "text-warning/80" : "text-muted-foreground/60"}`}
+      title={`Steam: ${steamAt ? new Date(steamAt).toLocaleString() : "—"}\nBM: ${bmAt ? new Date(bmAt).toLocaleString() : "—"}`}
+    >
+      cached {cacheAge(newest)}{stale ? " · stale" : ""}
+    </span>
+  );
+}
+
 function PlayerLookupPage() {
   const { selectedOrgIds, orgs, maxRankAcross, adminableOrgIds, orgsLoaded } = useAuth();
   const isSupportOnly = maxRankAcross(selectedOrgIds) < 2;
@@ -451,6 +498,7 @@ function PlayerLookupPage() {
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
+                        <CacheStamp playerData={playerData} refreshing={refreshing} />
                         <button
                           type="button"
                           onClick={handleRefresh}
