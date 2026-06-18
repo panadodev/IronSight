@@ -40,17 +40,12 @@ function SiteNav() {
     profile,
     updateProfile,
     realManageableOrgIds,
-    manageableOrgIds,
     adminableOrgIds,
-    myOrgIds,
     isImpersonating,
     stopImpersonating,
-    maxRankAcross,
+    hasOrgPermission,
   } = useAuth();
   void realManageableOrgIds;
-  const selectedMaxRank = maxRankAcross(selectedOrgIds);
-  const canPlayerList = selectedMaxRank >= 2;
-  const canThreatTriggers = selectedMaxRank >= 3;
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -65,6 +60,37 @@ function SiteNav() {
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
   const isSysAdminSession = Boolean(sessionUser?.isSysAdmin);
+
+  // Per-org permission helpers. A link should appear if the user has the
+  // relevant permission in ANY org (admins/owners pass via hasOrgPermission,
+  // sysadmins always pass). This mirrors the server-side permission checks so
+  // permission-granted (non-admin) staff see the features they can actually use.
+  const anyOrgHas = useMemo(() => {
+    return (perm) =>
+      isSysAdminSession || orgs.some((o) => hasOrgPermission(o.id, perm));
+  }, [isSysAdminSession, orgs, hasOrgPermission]);
+
+  const canRcon = anyOrgHas("rcon_access");
+  const canScriptsView = anyOrgHas("scripts_view");
+  const canPresets = anyOrgHas("presets_manage");
+  const canStatus = anyOrgHas("status_view");
+  const canServers = anyOrgHas("servers_manage");
+  const canTicketsView = anyOrgHas("tickets_view");
+  const canOrgManage = anyOrgHas("org_manage");
+  const canRoleManage = anyOrgHas("role_create");
+  const canPredefines = anyOrgHas("predefines_manage");
+  const canToxicity = anyOrgHas("toxicity_manage");
+  const canBanConfigs = anyOrgHas("ban_configs_manage");
+  const canPlayersView = anyOrgHas("players_view");
+  const canBansManage = anyOrgHas("bans_manage");
+  const canTriggers = anyOrgHas("triggers_manage");
+  const canDiscordMod = anyOrgHas("discord_mod");
+  const canManageSection =
+    canOrgManage ||
+    canRoleManage ||
+    canPredefines ||
+    canToxicity ||
+    canBanConfigs;
 
   const allOrgs = useMemo(() => {
     const map = new Map(orgs.map((o) => [o.id, o]));
@@ -167,15 +193,28 @@ function SiteNav() {
   const manageableOrgsForSwitcher = useMemo(() => {
     if (sessionUser?.isSysAdmin) return allOrgs;
 
+    const MANAGE_PERMS = [
+      "org_manage",
+      "role_create",
+      "ban_configs_manage",
+      "toxicity_manage",
+      "predefines_manage",
+    ];
     const sessionOrgAdminIds = Array.isArray(sessionUser?.orgAdminOrgIds)
       ? sessionUser.orgAdminOrgIds
       : [];
+    const orgPerms =
+      sessionUser?.orgPermissions && typeof sessionUser.orgPermissions === "object"
+        ? sessionUser.orgPermissions
+        : {};
 
-    if (sessionOrgAdminIds.length > 0) {
-      return allOrgs.filter((o) => sessionOrgAdminIds.includes(o.id));
-    }
-
-    return allOrgs.filter((o) => adminableOrgIds.includes(o.id));
+    const filtered = allOrgs.filter(
+      (o) =>
+        sessionOrgAdminIds.includes(o.id) ||
+        adminableOrgIds.includes(o.id) ||
+        MANAGE_PERMS.some((p) => (orgPerms[o.id] ?? []).includes(p)),
+    );
+    return filtered;
   }, [sessionUser, allOrgs, adminableOrgIds]);
 
   async function createOrganization() {
@@ -284,28 +323,28 @@ function SiteNav() {
           label: "RCON",
           search: { tab: "rcon" },
           matchSearch: (s) => (s.tab ?? "rcon") === "rcon",
-          show: manageableOrgIds.length > 0,
+          show: canRcon,
         },
         {
           to: "/panel",
           label: "Scripts",
           search: { tab: "scripts" },
           matchSearch: (s) => s.tab === "scripts",
-          show: myOrgIds.length > 0,
+          show: canScriptsView,
         },
         {
           to: "/panel",
           label: "Pre-sets",
           search: { tab: "presets" },
           matchSearch: (s) => s.tab === "presets",
-          show: manageableOrgIds.length > 0,
+          show: canPresets,
         },
         {
           to: "/panel",
           label: "Status",
           search: { tab: "status" },
           matchSearch: (s) => s.tab === "status",
-          show: manageableOrgIds.length > 0,
+          show: canStatus,
         },
       ],
     },
@@ -315,16 +354,16 @@ function SiteNav() {
         {
           to: "/tickets",
           label: "Tickets",
-          show: adminableOrgIds.length > 0,
+          show: canTicketsView,
         },
-        { to: "/player-lookup", label: "Player Lookup", show: canPlayerList },
-        { to: "/player-list", label: "Player List", show: canPlayerList },
+        { to: "/player-lookup", label: "Player Lookup", show: canPlayersView },
+        { to: "/player-list", label: "Player List", show: canPlayersView },
         { to: "/chat", label: "Chat", show: true },
-        { to: "/bans-mutes", label: "Bans / Mutes", show: canPlayerList },
+        { to: "/bans-mutes", label: "Bans / Mutes", show: canBansManage },
         {
           to: "/discord-mod",
           label: "Discord Mod",
-          show: adminableOrgIds.length > 0,
+          show: canDiscordMod,
         },
         { to: "/docs", label: "Docs", show: true },
       ],
@@ -335,44 +374,44 @@ function SiteNav() {
         {
           to: "/manage/details",
           label: "Manage",
-          show: adminableOrgIds.length > 0,
+          show: canManageSection,
         },
         {
           to: "/manage/roles",
           label: "Roles",
-          show: adminableOrgIds.length > 0,
+          show: canRoleManage,
         },
         {
           to: "/manage/predefines",
           label: "Pre-defines",
-          show: adminableOrgIds.length > 0,
+          show: canPredefines,
         },
         {
           to: "/manage/toxicity",
           label: "Toxicity",
-          show: adminableOrgIds.length > 0,
+          show: canToxicity,
         },
         {
           to: "/manage/ban-configs",
           label: "Ban configs",
-          show: adminableOrgIds.length > 0,
+          show: canBanConfigs,
         },
         {
           to: "/manage/staff",
           label: "Staff",
-          show: adminableOrgIds.length > 0,
+          show: canOrgManage,
         },
         {
           to: "/threat-triggers",
           label: "Triggers",
-          show: canThreatTriggers,
+          show: canTriggers,
         },
         {
           to: "/panel",
           label: "Servers",
           search: { tab: "servers" },
           matchSearch: (s) => s.tab === "servers",
-          show: manageableOrgIds.length > 0,
+          show: canServers,
         },
       ],
     },

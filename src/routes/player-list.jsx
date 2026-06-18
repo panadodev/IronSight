@@ -52,8 +52,10 @@ function steamIdAvatarColor(steamId) {
 }
 
 function PlayerListPage() {
-  const { orgs, selectedOrgIds, maxRankAcross } = useAuth();
-  const canAccess = maxRankAcross(selectedOrgIds) >= 2;
+  const { orgs, selectedOrgIds, hasOrgPermission } = useAuth();
+  const canAccess = selectedOrgIds.some((id) =>
+    hasOrgPermission(id, "players_view"),
+  );
 
   const [realServers, setRealServers] = useState([]);
   const [players, setPlayers] = useState([]);

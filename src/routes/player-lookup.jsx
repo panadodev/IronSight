@@ -296,9 +296,7 @@ function CacheStamp({ playerData, refreshing }) {
 }
 
 function PlayerLookupPage() {
-  const { selectedOrgIds, orgs, maxRankAcross, adminableOrgIds, orgsLoaded } =
-    useAuth();
-  const isSupportOnly = maxRankAcross(selectedOrgIds) < 2;
+  const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded } = useAuth();
   const search = Route.useSearch();
 
   const [input, setInput] = useState(search.steam ?? "");
@@ -327,22 +325,25 @@ function PlayerLookupPage() {
     }
   }, [search.steam, steamId]);
 
+  // Player lookup needs players_view; issuing/viewing bans needs bans_manage.
+  // Prefer a selected org the user has the relevant permission in, falling back
+  // to any such org so the page still works regardless of org selection.
   const fetchOrgId =
-    adminableOrgIds.find((id) => selectedOrgIds.includes(id)) ??
-    selectedOrgIds[0] ??
-    orgs[0]?.id ??
+    selectedOrgIds.find((id) => hasOrgPermission(id, "players_view")) ??
+    orgs.find((o) => hasOrgPermission(o.id, "players_view"))?.id ??
     null;
 
   const banOrgId =
-    adminableOrgIds.find((id) => selectedOrgIds.includes(id)) ??
-    adminableOrgIds[0] ??
-    selectedOrgIds[0] ??
-    orgs[0]?.id ??
+    selectedOrgIds.find((id) => hasOrgPermission(id, "bans_manage")) ??
+    orgs.find((o) => hasOrgPermission(o.id, "bans_manage"))?.id ??
     "";
 
-  const offenseOrgIds = adminableOrgIds.filter((id) =>
-    selectedOrgIds.includes(id),
+  const offenseOrgIds = selectedOrgIds.filter((id) =>
+    hasOrgPermission(id, "bans_manage"),
   );
+
+  // No ban permission anywhere → view-only (hide ban/mute actions).
+  const isSupportOnly = !banOrgId;
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {

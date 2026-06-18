@@ -1477,7 +1477,11 @@ async function ensureRolePermissionSeed() {
       ('ban_configs_manage',  'Manage ban and mute configurations'),
       ('toxicity_manage',     'Manage toxicity filters'),
       ('predefines_manage',   'Manage ticket pre-defines'),
-      ('bans_delete',         'Delete and revoke bans')
+      ('bans_delete',         'Delete and revoke bans'),
+      ('players_view',        'View player lookup and player list'),
+      ('bans_manage',         'Issue and manage bans and mutes'),
+      ('triggers_manage',     'Configure threat triggers'),
+      ('discord_mod',         'Use Discord moderation')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 
@@ -3165,6 +3169,7 @@ async function handleCreateOrgRole(request, orgId) {
       "rcon_access", "scripts_view", "scripts_manage", "presets_manage",
       "status_view", "servers_manage", "tickets_view", "tickets_manage",
       "ban_configs_manage", "toxicity_manage", "predefines_manage", "bans_delete",
+      "players_view", "bans_manage", "triggers_manage", "discord_mod",
     ];
     const filteredPermissions = permissions.filter((p) =>
       validPermissions.includes(String(p).trim()),
@@ -3324,6 +3329,10 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
         "toxicity_manage",
         "predefines_manage",
         "bans_delete",
+        "players_view",
+        "bans_manage",
+        "triggers_manage",
+        "discord_mod",
       ];
       filteredPerms = body.permissions
         .map((p) => String(p).trim())
@@ -7785,9 +7794,10 @@ async function handleGetTeamEvents(request) {
 // ── Ban / Mute handlers ──────────────────────────────────────────────────────
 
 async function handleListOrgBans(request, orgId) {
-  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  const { session, error } = await requireSession(request);
   if (error) return error;
-  void session;
+  if (!orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden: bans_manage permission required" }, 403);
 
   const url = new URL(request.url);
   const actionType = url.searchParams.get("type") ?? "ban";
@@ -7835,8 +7845,10 @@ async function handleListOrgBans(request, orgId) {
 }
 
 async function handleCreateBan(request, orgId) {
-  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  const { session, error } = await requireSession(request);
   if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden: bans_manage permission required" }, 403);
 
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: "Invalid JSON" }, 400);
@@ -7963,8 +7975,10 @@ async function handleCreateBan(request, orgId) {
 }
 
 async function handleUpdateBan(request, orgId, banId) {
-  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  const { session, error } = await requireSession(request);
   if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden: bans_manage permission required" }, 403);
 
   const banCheck = await pool.query(
     `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
@@ -9245,16 +9259,6 @@ async function getPlayerCacheData(steamId) {
   };
 }
 
-async function isSessionOrgMember(session, orgId) {
-  if (session.globalAdmin) return true;
-  if (session.orgAdminOrgIds.includes(orgId)) return true;
-  const { rows } = await pool.query(
-    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
-    [orgId, session.userId],
-  );
-  return rows.length > 0;
-}
-
 // ── External API key route handlers ──────────────────────────────────────────
 
 async function handleListExternalKeys(request, orgId) {
@@ -9540,9 +9544,8 @@ async function handleGetPlayer(request, steamId) {
   const orgId = url.searchParams.get("orgId");
   if (!orgId) return json({ error: "orgId query parameter required" }, 400);
 
-  const isMember = await isSessionOrgMember(session, orgId);
-  if (!isMember)
-    return json({ error: "Forbidden: not a member of this org" }, 403);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
 
   // Redis first — avoids 6 PostgreSQL queries on the hot path
   const fromRedis = await getPlayerDataFromRedis(steamId);
@@ -9586,9 +9589,8 @@ async function handleRefreshPlayer(request, steamId) {
   const orgId = url.searchParams.get("orgId");
   if (!orgId) return json({ error: "orgId query parameter required" }, 400);
 
-  const isMember = await isSessionOrgMember(session, orgId);
-  if (!isMember)
-    return json({ error: "Forbidden: not a member of this org" }, 403);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
 
   // Clear Redis so refreshPlayerData can acquire the lock and write fresh data
   try {
@@ -9608,8 +9610,8 @@ async function handleGetOrgPlayerList(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  const isMember = await isSessionOrgMember(session, orgId);
-  if (!isMember) return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
 
   const cacheKey = `player-list:${orgId}`;
   try {
@@ -10551,8 +10553,16 @@ async function removeAllDiscordRolesForRole(guildId, discordUserId, roleId) {
 async function handleGetOrgDiscordRoles(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  // Used both by Discord moderation and by the role editor (to link Discord
+  // roles to custom roles), so either permission grants read access.
+  if (
+    !orgHasPermission(session, orgId, "discord_mod") &&
+    !orgHasPermission(session, orgId, "role_create")
+  ) {
+    return json(
+      { error: "Forbidden: discord_mod or role_create permission required" },
+      403,
+    );
   }
 
   const orgRes = await pool.query(
@@ -10654,8 +10664,8 @@ async function pruneOldDiscordMessages() {
 async function handleDiscordSync(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod")) {
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   }
 
   if (!env.discordBotToken) {
@@ -10688,8 +10698,8 @@ async function handleDiscordSync(request, orgId) {
 async function handleGetDiscordChannels(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod")) {
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   }
 
   if (!env.discordBotToken) {
@@ -10723,8 +10733,8 @@ async function handleGetDiscordChannels(request, orgId) {
 async function handleGetDiscordMessages(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod")) {
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   }
 
   await pruneOldDiscordMessages();
@@ -10779,8 +10789,8 @@ async function handleGetDiscordMessages(request, orgId) {
 async function handleDiscordModAction(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod")) {
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   }
 
   if (!env.discordBotToken) {
@@ -11020,7 +11030,8 @@ async function fetchAllDiscordBans(guildId) {
 async function handleGetDiscordBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod"))
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
   const orgRes = await pool.query(
@@ -11059,7 +11070,8 @@ async function handleGetDiscordBans(request, orgId) {
 async function handleSyncDiscordBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod"))
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
   const orgRes = await pool.query(
@@ -11109,7 +11121,8 @@ async function handleSyncDiscordBans(request, orgId) {
 async function handleSearchDiscordMembers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod"))
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
   const orgRes = await pool.query(
@@ -11147,8 +11160,8 @@ async function handleSearchDiscordMembers(request, orgId) {
 async function handleGetDiscordModLog(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "discord_mod")) {
+    return json({ error: "Forbidden: discord_mod permission required" }, 403);
   }
 
   const url = new URL(request.url);

@@ -71,6 +71,21 @@ const PERMISSION_GROUPS = [
         ],
       },
       {
+        id: "players_view",
+        label: "View Players",
+        desc: "Use player lookup and the player list",
+      },
+      {
+        id: "bans_manage",
+        label: "Issue Bans / Mutes",
+        desc: "Create and edit bans and mutes",
+      },
+      {
+        id: "bans_delete",
+        label: "Revoke Bans / Mutes",
+        desc: "Delete and revoke existing bans and mutes",
+      },
+      {
         id: "ban_configs_manage",
         label: "Manage Ban Configs",
         desc: "Configure ban and mute reason categories",
@@ -79,6 +94,16 @@ const PERMISSION_GROUPS = [
         id: "toxicity_manage",
         label: "Manage Toxicity",
         desc: "Configure toxicity word filters",
+      },
+      {
+        id: "triggers_manage",
+        label: "Manage Threat Triggers",
+        desc: "Configure automated threat trigger rules",
+      },
+      {
+        id: "discord_mod",
+        label: "Discord Moderation",
+        desc: "Use the Discord moderation tools",
       },
     ],
   },

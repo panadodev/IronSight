@@ -146,11 +146,11 @@ function ActionButtons({ discordId, username, onAction, compact = false }) {
 }
 
 function DiscordModPage() {
-  const { adminableOrgIds, orgs } = useAuth();
+  const { hasOrgPermission, orgs } = useAuth();
 
   const adminOrgs = useMemo(
-    () => orgs.filter((o) => adminableOrgIds.includes(o.id)),
-    [orgs, adminableOrgIds],
+    () => orgs.filter((o) => hasOrgPermission(o.id, "discord_mod")),
+    [orgs, hasOrgPermission],
   );
 
   const [orgId, setOrgId] = useState(() => adminOrgs[0]?.id ?? "");
@@ -440,12 +440,14 @@ function DiscordModPage() {
     );
   }, [bans, banFilter]);
 
-  if (adminableOrgIds.length === 0) {
+  if (adminOrgs.length === 0) {
     return (
       <div className="flex min-h-screen bg-background">
         <SiteNav />
         <main className="ml-56 flex-1 flex items-center justify-center">
-          <p className="text-muted-foreground text-sm">Admin access required.</p>
+          <p className="text-muted-foreground text-sm">
+            Discord Moderation permission required.
+          </p>
         </main>
       </div>
     );

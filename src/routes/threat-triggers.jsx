@@ -261,32 +261,33 @@ DEFAULTS.cheating.blocks[0].conditions = [
   { id: uid(), factId: "proxy", op: "eq", value: true },
 ];
 function ThreatTriggersPage() {
-  const { orgs, rankOf } = useAuth();
+  const { orgs, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
   const org = useMemo(
     () => (orgId ? (orgs.find((o) => o.id === orgId) ?? null) : null),
     [orgId, orgs],
   );
-  const rank = orgId ? rankOf(orgId) : 0;
+  const canManageTriggers = orgId
+    ? hasOrgPermission(orgId, "triggers_manage")
+    : false;
   const [tab, setTab] = useState("cheating");
   const [dataByOrg, setDataByOrg] = useState({});
   const [dirty, setDirty] = useState(false);
-  if (!orgId || !org || rank < 3) {
+  if (!orgId || !org || !canManageTriggers) {
     return (
       <div className="h-screen w-full flex flex-col bg-background">
         <SiteNav />
         <div className="flex-1 grid place-items-center px-6">
           <div className="max-w-md text-center space-y-3">
             <ShieldAlert className="size-10 text-warning mx-auto" />
-            <h1 className="text-lg font-semibold">
-              Senior Admin access required
-            </h1>
+            <h1 className="text-lg font-semibold">Permission required</h1>
             <p className="text-sm text-muted-foreground">
-              Threat Triggers can only be configured by{" "}
-              <span className="font-mono text-foreground">Sr. Admin</span> or{" "}
-              <span className="font-mono text-foreground">Management</span>.
-              Switch to an org you have that rank in using the selector next to{" "}
-              <span className="font-mono text-foreground">MANAGE ORG</span> in
+              Threat Triggers can only be configured with the{" "}
+              <span className="font-mono text-foreground">
+                Manage Threat Triggers
+              </span>{" "}
+              permission. Switch to an org you have it in using the selector next
+              to <span className="font-mono text-foreground">MANAGE ORG</span> in
               the sidebar.
             </p>
           </div>

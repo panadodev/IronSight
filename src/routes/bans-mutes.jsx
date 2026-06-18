@@ -81,8 +81,10 @@ function computeExpiresAt(durationValue) {
 }
 
 function BansMutesPage() {
-  const { selectedOrgIds, adminableOrgIds, maxRankAcross, orgs } = useAuth();
-  const canAccess = maxRankAcross(selectedOrgIds) >= 2;
+  const { selectedOrgIds, hasOrgPermission, orgs } = useAuth();
+  const canAccess = selectedOrgIds.some((id) =>
+    hasOrgPermission(id, "bans_manage"),
+  );
 
   const [tab, setTab] = useState("bans");
   const [bans, setBans] = useState([]);
@@ -94,8 +96,8 @@ function BansMutesPage() {
   const [showNew, setShowNew] = useState(false);
 
   const manageableOrgIds = useMemo(
-    () => selectedOrgIds.filter((id) => adminableOrgIds.includes(id)),
-    [selectedOrgIds, adminableOrgIds],
+    () => selectedOrgIds.filter((id) => hasOrgPermission(id, "bans_manage")),
+    [selectedOrgIds, hasOrgPermission],
   );
 
   const loadBans = useCallback(async () => {
@@ -183,9 +185,9 @@ function BansMutesPage() {
         <div className="flex-1 grid place-items-center px-6">
           <div className="max-w-md text-center space-y-3">
             <ShieldAlert className="size-10 text-warning mx-auto" />
-            <h1 className="text-lg font-semibold">Admin access required</h1>
+            <h1 className="text-lg font-semibold">Permission required</h1>
             <p className="text-sm text-muted-foreground">
-              Bans &amp; Mutes is restricted to Admin and above.
+              Bans &amp; Mutes requires the Issue Bans / Mutes permission.
             </p>
           </div>
         </div>
