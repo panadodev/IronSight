@@ -415,6 +415,17 @@ function canViewOrgAsOwner(session, orgId) {
   return session.orgAdminOrgIds.includes(orgId);
 }
 
+async function hasPermissionInOrg(userId, orgId, permissionId) {
+  const res = await pool.query(
+    `SELECT 1 FROM organization_members om
+     LEFT JOIN role_permissions rp ON rp.role_id = om.role_id
+     WHERE om.org_id = $1 AND om.user_id = $2 AND rp.permission_id = $3
+     LIMIT 1`,
+    [orgId, userId, permissionId],
+  );
+  return res.rows[0] ? true : false;
+}
+
 function getBaseUrl(request) {
   return env.appUrl ?? new URL(request.url).origin;
 }
@@ -4597,12 +4608,18 @@ async function handleGetTicket(request, ticketIdStr) {
   }
 
   if (ticket.created_by !== session.userId) {
-    const isMember = await pool.query(
-      "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-      [ticket.org_id, session.userId],
-    );
-    if (!isMember.rows[0] && !isGlobalAdmin(session)) {
-      return json({ error: "Forbidden" }, 403);
+    if (isGlobalAdmin(session)) {
+      // Global admin can view any ticket
+    } else {
+      // Staff must have tickets_view permission
+      const hasPermission = await hasPermissionInOrg(
+        session.userId,
+        ticket.org_id,
+        "tickets_view",
+      );
+      if (!hasPermission) {
+        return json({ error: "Forbidden" }, 403);
+      }
     }
   }
 
@@ -4636,16 +4653,22 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   if (!ticket) return json({ error: "Ticket not found" }, 404);
 
   const isCreator = ticket.created_by === session.userId;
-  const memberRes = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [ticket.org_id, session.userId],
-  );
-  const isMember = Boolean(memberRes.rows[0]) || isGlobalAdmin(session);
 
-  if (!isCreator && !isMember) return json({ error: "Forbidden" }, 403);
+  // Check staff permission
+  let isStaff = isGlobalAdmin(session);
+  if (!isStaff) {
+    isStaff = await hasPermissionInOrg(
+      session.userId,
+      ticket.org_id,
+      "tickets_view",
+    );
+  }
+
+  // Creator can add messages, staff can add messages
+  if (!isCreator && !isStaff) return json({ error: "Forbidden" }, 403);
 
   // Internal notes are staff-only; non-staff cannot post internal notes.
-  if (isInternal && !isMember) return json({ error: "Forbidden" }, 403);
+  if (isInternal && !isStaff) return json({ error: "Forbidden" }, 403);
 
   // Only block public messages on closed tickets; staff can still post internal notes.
   if (ticket.status === "closed" && !isInternal)
@@ -4686,12 +4709,18 @@ async function handleUpdateTicket(request, ticketIdStr) {
   const ticket = await loadTicketFromDb(id);
   if (!ticket) return json({ error: "Ticket not found" }, 404);
 
-  const isMember = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [ticket.org_id, session.userId],
-  );
-  if (!isMember.rows[0] && !isGlobalAdmin(session)) {
-    return json({ error: "Forbidden: org membership required" }, 403);
+  if (isGlobalAdmin(session)) {
+    // Global admin can update any ticket
+  } else {
+    // Regular user must have tickets_manage permission to update tickets
+    const hasPermission = await hasPermissionInOrg(
+      session.userId,
+      ticket.org_id,
+      "tickets_manage",
+    );
+    if (!hasPermission) {
+      return json({ error: "Forbidden: tickets_manage permission required" }, 403);
+    }
   }
 
   let body;
@@ -4772,12 +4801,17 @@ async function handleListOrgTickets(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  const isMember = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [orgId, session.userId],
-  );
-  if (!isMember.rows[0] && !isGlobalAdmin(session))
-    return json({ error: "Forbidden" }, 403);
+  if (isGlobalAdmin(session)) {
+    // Global admin can access any org's tickets
+  } else {
+    // Regular user must have tickets_view permission
+    const hasPermission = await hasPermissionInOrg(
+      session.userId,
+      orgId,
+      "tickets_view",
+    );
+    if (!hasPermission) return json({ error: "Forbidden" }, 403);
+  }
 
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status");
