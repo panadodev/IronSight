@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { Queue } from "bullmq";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import "dotenv/config";
@@ -10816,11 +10817,23 @@ async function handleDiscordModAction(request, orgId) {
       break;
     }
     case "unban": {
-      discordRes = await discordFetch(`/guilds/${guildId}/bans/${targetDiscordId}`, {
-        method: "DELETE",
-      });
-      break;
+  discordRes = await discordFetch(
+    `/guilds/${guildId}/bans/${targetDiscordId}`,
+    {
+      method: "DELETE",
     }
+  );
+
+  console.log("UNBAN STATUS:", discordRes.status);
+
+  try {
+    console.log("UNBAN BODY:", await discordRes.clone().text());
+  } catch (e) {
+    console.log("UNBAN BODY ERROR:", e);
+  }
+
+  break;
+}
   }
 
   if (discordRes && !discordRes.ok && discordRes.status !== 204) {
