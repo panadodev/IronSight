@@ -6387,7 +6387,7 @@ async function handleSetServerRcon(request, serverId) {
   let testPassed = false;
   let testError = null;
   try {
-    await executeRconCommand(rconUrl, "sysinfo");
+    await executeRconCommand(rconUrl, "version");
     testPassed = true;
   } catch (err) {
     testError = String(err?.message ?? err);
@@ -6467,7 +6467,7 @@ function executeRconCommand(rconUrl, command) {
     ws.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(String(event.data));
-        if (msg.Identifier === requestId) {
+        if (msg.Identifier === requestId || (commandSent && msg.Identifier === 0)) {
           try {
             ws.close(1000, "Done");
           } catch {

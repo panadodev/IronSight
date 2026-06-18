@@ -356,7 +356,17 @@ function RconTab({ servers, orgId }) {
     try {
       const { response, consoleLogs } = await execCommand(selected, c);
       for (const l of consoleLogs) log(`[LOG] ${l}`);
-      if (response) log(`[RCON] ${response}`);
+      if (response) {
+        let display;
+        try {
+          display = JSON.stringify(JSON.parse(response), null, 2);
+        } catch {
+          display = response;
+        }
+        for (const line of display.split("\n")) {
+          if (line) log(`[RCON] ${line}`);
+        }
+      }
     } catch (err) {
       log(`[ERR] ${String(err?.message ?? err)}`);
     } finally {
@@ -375,7 +385,17 @@ function RconTab({ servers, orgId }) {
       try {
         const { response, consoleLogs } = await execCommand(selected, c);
         for (const l of consoleLogs) log(`[LOG] ${l}`);
-        if (response) log(`[RCON] ${response}`);
+        if (response) {
+          let display;
+          try {
+            display = JSON.stringify(JSON.parse(response), null, 2);
+          } catch {
+            display = response;
+          }
+          for (const line of display.split("\n")) {
+            if (line) log(`[RCON] ${line}`);
+          }
+        }
       } catch (err) {
         log(`[ERR] ${String(err?.message ?? err)}`);
       }
