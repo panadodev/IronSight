@@ -1788,6 +1788,7 @@ async function createSessionForUser(user, options = {}) {
     orgOwnerOrgIds: access.orgOwnerOrgIds,
     globalAdmin: access.globalAdmin,
     canWrite: access.canWrite,
+    canDeleteBans: access.canDeleteBans,
   };
 
   await redis.set(

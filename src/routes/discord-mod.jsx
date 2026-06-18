@@ -176,6 +176,8 @@ function DiscordModPage() {
   const [banSyncing, setBanSyncing] = useState(false);
   const [banSyncResult, setBanSyncResult] = useState(null);
   const [banFilter, setBanFilter] = useState("");
+  const [unbanBusy, setUnbanBusy] = useState({});
+  const [unbanError, setUnbanError] = useState(null);
 
   // ── Mod Log tab ───────────────────────────────────────────────────────────
   const [modLog, setModLog] = useState([]);
@@ -282,6 +284,8 @@ function DiscordModPage() {
       setModLog([]);
       setSyncResult(null);
       setBanSyncResult(null);
+      setUnbanError(null);
+      setUnbanBusy({});
       fetchChannels();
     }
   }, [orgId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -341,6 +345,37 @@ function DiscordModPage() {
     }
   };
 
+  const doUnban = async (discordUserId, username) => {
+    setUnbanBusy((p) => ({ ...p, [discordUserId]: true }));
+    setUnbanError(null);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/discord/mod`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "unban",
+            targetDiscordId: discordUserId,
+            targetUsername: username,
+            reason: null,
+          }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUnbanError(data.error ?? "Unban failed");
+        return;
+      }
+      await fetchBans();
+    } catch {
+      setUnbanError("Network error — could not reach server");
+    } finally {
+      setUnbanBusy((p) => ({ ...p, [discordUserId]: false }));
+    }
+  };
+
   const openAction = (discordId, username, defaultAction = "timeout") => {
     setActionTarget({ discordId, username });
     setActionType(defaultAction);
@@ -351,31 +386,41 @@ function DiscordModPage() {
 
   const submitAction = async () => {
     if (!actionTarget || !orgId) return;
+    const targetId = actionTarget.discordId;
     setActionLoading(true);
     setActionError("");
     try {
       const body = {
         action: actionType,
-        targetDiscordId: actionTarget.discordId,
+        targetDiscordId: targetId,
         targetUsername: actionTarget.username,
         reason: actionReason || null,
         durationSeconds: actionType === "timeout" ? actionDuration : undefined,
       };
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/discord/mod`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      const data = await res.json();
+      let res;
+      try {
+        res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/discord/mod`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+      } catch {
+        setActionError("Network error — please try again");
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setActionError(data.error ?? "Action failed");
+        setActionError(data.error ?? `Action failed (${res.status})`);
         return;
       }
       setActionTarget(null);
+      if (actionType === "unban") {
+        setBans((prev) => prev.filter((b) => b.discordUserId !== targetId));
+      }
       if (tab === "modlog") fetchModLog();
       if (tab === "bans") fetchBans();
     } finally {
@@ -781,18 +826,21 @@ function DiscordModPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 text-[10px] text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
-                        onClick={() =>
-                          openAction(b.discordUserId, b.username, "unban")
-                        }
+                        className="h-7 text-[10px] text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60 disabled:opacity-50"
+                        onClick={() => doUnban(b.discordUserId, b.username)}
+                        disabled={!!unbanBusy[b.discordUserId]}
                       >
                         <UserCheck className="size-3 mr-1" />
-                        Unban
+                        {unbanBusy[b.discordUserId] ? "Unbanning…" : "Unban"}
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
+            )}
+
+            {unbanError && (
+              <p className="text-xs text-danger">{unbanError}</p>
             )}
 
             {!bansLoading && bans.length > 0 && (

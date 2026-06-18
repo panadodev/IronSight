@@ -979,6 +979,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
   const [loading, setLoading] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState({});
+  const [actionError, setActionError] = useState("");
 
   const loadRecords = useCallback(async () => {
     if (!orgIds.length || !steamId) {
@@ -1010,31 +1011,59 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
   useEffect(() => {
     if (open) {
       setDrafts({});
+      setActionError("");
       loadRecords();
     }
   }, [open, loadRecords]);
 
   const revoke = async (r) => {
+    setActionError("");
     setBusy((p) => ({ ...p, [r.banId]: true }));
-    await fetch(`/api/orgs/${encodeURIComponent(r.orgId)}/bans/${r.banId}`, {
-      method: "DELETE",
-      credentials: "include",
-    }).catch(() => {});
-    setBusy((p) => ({ ...p, [r.banId]: false }));
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(r.orgId)}/bans/${r.banId}`,
+        { method: "DELETE", credentials: "include" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? `Failed to ${kind === "Ban" ? "unban" : "unmute"} (${res.status})`);
+        return;
+      }
+    } catch {
+      setActionError("Network error — please try again");
+      return;
+    } finally {
+      setBusy((p) => ({ ...p, [r.banId]: false }));
+    }
     loadRecords();
   };
 
   const applyDuration = async (r) => {
     const newLength = drafts[r.banId];
     if (!newLength) return;
+    setActionError("");
     setBusy((p) => ({ ...p, [r.banId]: true }));
-    await fetch(`/api/orgs/${encodeURIComponent(r.orgId)}/bans/${r.banId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ expiresAt: lengthToExpiresAt(newLength) }),
-    }).catch(() => {});
-    setBusy((p) => ({ ...p, [r.banId]: false }));
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(r.orgId)}/bans/${r.banId}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ expiresAt: lengthToExpiresAt(newLength) }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? `Failed to update duration (${res.status})`);
+        return;
+      }
+    } catch {
+      setActionError("Network error — please try again");
+      return;
+    } finally {
+      setBusy((p) => ({ ...p, [r.banId]: false }));
+    }
     loadRecords();
   };
 
@@ -1050,6 +1079,11 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
             system for audit.
           </DialogDescription>
         </DialogHeader>
+        {actionError && (
+          <p className="text-xs text-danger bg-danger/10 ring-1 ring-danger/30 rounded px-3 py-2">
+            {actionError}
+          </p>
+        )}
         {loading ? (
           <p className="text-xs text-muted-foreground py-6 text-center">
             Loading…
