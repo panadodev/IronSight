@@ -1815,6 +1815,7 @@ async function createSessionForUser(user, options = {}) {
     groups: access.groups,
     orgAdminOrgIds: access.orgAdminOrgIds,
     orgOwnerOrgIds: access.orgOwnerOrgIds,
+    orgPermissions: access.orgPermissions,
     globalAdmin: access.globalAdmin,
     canWrite: access.canWrite,
     canDeleteBans: access.canDeleteBans,
@@ -2467,15 +2468,20 @@ async function handleAuthMe(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
+  // Re-derive access from fresh DB data so role/permission changes and older
+  // sessions (created before per-org permissions were stored) are reflected
+  // without requiring re-login.
+  const freshAccess = await loadUserAccess(session.userId);
+
   return json({
     user: {
       userId: session.userId,
       username: session.username,
       discordId: session.discordId,
       steamId: session.steamId,
-      groups: session.groups,
-      orgAdminOrgIds: session.orgAdminOrgIds,
-      orgPermissions: session.orgPermissions ?? {},
+      groups: freshAccess.groups,
+      orgAdminOrgIds: freshAccess.orgAdminOrgIds,
+      orgPermissions: freshAccess.orgPermissions ?? {},
       isSysAdmin: isConfiguredSysAdmin(session),
     },
   });
@@ -2683,36 +2689,36 @@ async function handleTodoBootstrap(request) {
 
   const todos = await getTodoRowsForOrgs(orgIds);
 
-  // Re-derive canWrite using fresh DB data so stale sessions and org owners
-  // (who have implicit write access regardless of explicit permissions) get the
-  // correct value without requiring re-login.
+  // Re-derive access using fresh DB data so stale sessions, role/permission
+  // changes, and org owners (who have implicit write access) all get the correct
+  // values without requiring re-login. This also backfills older sessions that
+  // were created before per-org permissions were stored on the session.
   const freshAccess = await loadUserAccess(session.userId);
   const freshSession = { ...session, ...freshAccess };
   const canWrite = canWriteTodos(freshSession);
 
-  if (canWrite !== session.canWrite) {
-    try {
-      const cookies = parseCookie(request.headers.get("cookie") ?? "");
-      const token = cookies[SESSION_COOKIE];
-      if (token) {
-        const decoded = jwt.verify(token, env.jwtSecret);
-        const sid = decoded?.sid;
-        if (sid && typeof sid === "string") {
-          const raw = await redis.get(`session:${sid}`);
-          if (raw) {
-            const cached = JSON.parse(raw);
-            cached.canWrite = canWrite;
-            await redis.set(
-              `session:${sid}`,
-              JSON.stringify(cached),
-              "KEEPTTL",
-            );
-          }
+  try {
+    const cookies = parseCookie(request.headers.get("cookie") ?? "");
+    const token = cookies[SESSION_COOKIE];
+    if (token) {
+      const decoded = jwt.verify(token, env.jwtSecret);
+      const sid = decoded?.sid;
+      if (sid && typeof sid === "string") {
+        const raw = await redis.get(`session:${sid}`);
+        if (raw) {
+          const cached = JSON.parse(raw);
+          cached.canWrite = canWrite;
+          cached.canDeleteBans = freshAccess.canDeleteBans;
+          cached.orgAdminOrgIds = freshAccess.orgAdminOrgIds;
+          cached.orgOwnerOrgIds = freshAccess.orgOwnerOrgIds;
+          cached.orgPermissions = freshAccess.orgPermissions;
+          cached.groups = freshAccess.groups;
+          await redis.set(`session:${sid}`, JSON.stringify(cached), "KEEPTTL");
         }
       }
-    } catch {
-      // Non-fatal: user can re-login to pick up the change if this fails.
     }
+  } catch {
+    // Non-fatal: user can re-login to pick up the change if this fails.
   }
 
   return json({
@@ -2721,10 +2727,10 @@ async function handleTodoBootstrap(request) {
       username: session.username,
       discordId: session.discordId,
       steamId: session.steamId,
-      groups: session.groups,
-      orgAdminOrgIds: session.orgAdminOrgIds,
-      orgOwnerOrgIds: session.orgOwnerOrgIds ?? [],
-      orgPermissions: freshSession.orgPermissions ?? {},
+      groups: freshAccess.groups,
+      orgAdminOrgIds: freshAccess.orgAdminOrgIds,
+      orgOwnerOrgIds: freshAccess.orgOwnerOrgIds ?? [],
+      orgPermissions: freshAccess.orgPermissions ?? {},
     },
     orgs: userOrgs,
     members,
