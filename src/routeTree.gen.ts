@@ -24,6 +24,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BansMutesRouteImport } from './routes/bans-mutes'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SysAdminRolesRouteImport } from './routes/sys-admin.roles'
 import { Route as ManageToxicityRouteImport } from './routes/manage.toxicity'
@@ -109,6 +110,11 @@ const BansMutesRoute = BansMutesRouteImport.update({
   path: '/bans-mutes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -158,6 +164,7 @@ const ManageBanConfigsRoute = ManageBanConfigsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
+  '/privacy': typeof PrivacyRoute
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
+  '/privacy': typeof PrivacyRoute
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -211,6 +219,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
+  '/privacy': typeof PrivacyRoute
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -239,6 +248,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/bans-mutes'
+    | '/privacy'
     | '/chat'
     | '/docs'
     | '/login'
@@ -265,6 +275,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/bans-mutes'
+    | '/privacy'
     | '/chat'
     | '/docs'
     | '/login'
@@ -291,6 +302,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/bans-mutes'
+    | '/privacy'
     | '/chat'
     | '/docs'
     | '/login'
@@ -318,6 +330,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BansMutesRoute: typeof BansMutesRoute
+  PrivacyRoute: typeof PrivacyRoute
   ChatRoute: typeof ChatRoute
   DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
@@ -442,6 +455,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BansMutesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -534,6 +554,7 @@ const ManageRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BansMutesRoute: BansMutesRoute,
+  PrivacyRoute: PrivacyRoute,
   ChatRoute: ChatRoute,
   DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,

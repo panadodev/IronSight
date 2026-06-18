@@ -640,6 +640,13 @@ function SiteNav() {
               </span>
             </Link>
           )}
+
+          <Link
+            to="/privacy"
+            className="w-full px-2.5 py-1 text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors text-center"
+          >
+            Privacy Policy
+          </Link>
         </div>
       </aside>
 

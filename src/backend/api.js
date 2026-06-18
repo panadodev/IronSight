@@ -3476,6 +3476,99 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   return json({ ok: true, orgId, userId });
 }
 
+async function handleGetOrgStaffStats(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const [bans30dRes, tickets30dRes, openTicketsRes, onlineRes, memberStatsRes] =
+    await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM player_bans
+         WHERE org_id = $1 AND NOT revoked AND issued_at > NOW() - INTERVAL '30 days'`,
+        [orgId],
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM tickets
+         WHERE org_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+        [orgId],
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM tickets WHERE org_id = $1 AND status != 'closed'`,
+        [orgId],
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT s.user_id) AS cnt
+         FROM sessions s
+         JOIN organization_members om ON om.user_id = s.user_id
+         WHERE om.org_id = $1 AND NOT s.revoked AND s.expires_at > NOW()
+           AND s.created_at > NOW() - INTERVAL '1 hour'`,
+        [orgId],
+      ),
+      pool.query(
+        `SELECT
+           om.user_id,
+           u.steam_id,
+           COALESCE((
+             SELECT COUNT(*) FROM tickets t
+             WHERE t.assigned_to = om.user_id AND t.org_id = $1
+               AND t.status = 'closed' AND t.closed_at > NOW() - INTERVAL '7 days'
+           ), 0) AS tickets_7d,
+           COALESCE((
+             SELECT COUNT(*) FROM tickets t
+             WHERE t.assigned_to = om.user_id AND t.org_id = $1
+               AND t.status = 'closed' AND t.closed_at > NOW() - INTERVAL '30 days'
+           ), 0) AS tickets_30d,
+           COALESCE((
+             SELECT COUNT(*) FROM tickets t
+             WHERE t.assigned_to = om.user_id AND t.org_id = $1 AND t.status = 'closed'
+           ), 0) AS tickets_all,
+           (
+             SELECT EXTRACT(EPOCH FROM MAX(s2.created_at))::BIGINT
+             FROM sessions s2 WHERE s2.user_id = om.user_id AND NOT s2.revoked
+           ) AS last_panel_login,
+           (
+             SELECT EXTRACT(EPOCH FROM MAX(ops.last_seen_at))::BIGINT
+             FROM org_player_sightings ops
+             WHERE ops.steam_id = u.steam_id AND ops.org_id = $1
+           ) AS last_ingame,
+           (
+             SELECT EXTRACT(EPOCH FROM MAX(pb.issued_at))::BIGINT
+             FROM player_bans pb WHERE pb.issued_by = om.user_id AND pb.org_id = $1
+           ) AS last_ban,
+           COALESCE((
+             SELECT SUM(pbs.hours_played)
+             FROM player_bm_sessions pbs WHERE pbs.steam_id = u.steam_id
+           ), 0) AS ingame_hours_all
+         FROM organization_members om
+         JOIN users u ON u.user_id = om.user_id
+         WHERE om.org_id = $1`,
+        [orgId],
+      ),
+    ]);
+
+  return json({
+    orgStats: {
+      bans30d: Number(bans30dRes.rows[0]?.cnt ?? 0),
+      tickets30d: Number(tickets30dRes.rows[0]?.cnt ?? 0),
+      openTickets: Number(openTicketsRes.rows[0]?.cnt ?? 0),
+      onlineNow: Number(onlineRes.rows[0]?.cnt ?? 0),
+    },
+    memberStats: memberStatsRes.rows.map((r) => ({
+      userId: String(r.user_id),
+      tickets7d: Number(r.tickets_7d),
+      tickets30d: Number(r.tickets_30d),
+      ticketsAll: Number(r.tickets_all),
+      lastPanelLogin: r.last_panel_login ? Number(r.last_panel_login) : null,
+      lastIngame: r.last_ingame ? Number(r.last_ingame) : null,
+      lastBan: r.last_ban ? Number(r.last_ban) : null,
+      ingameHoursAll: Number(r.ingame_hours_all),
+    })),
+  });
+}
+
 async function handleGetOrgMembers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -9607,6 +9700,13 @@ async function _handleApiRequest(request) {
     }
     if (orgMembersMatch && request.method === "GET") {
       return handleGetOrgMembers(request, orgMembersMatch[1]);
+    }
+
+    const orgStaffStatsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/staff-stats$/,
+    );
+    if (orgStaffStatsMatch && request.method === "GET") {
+      return handleGetOrgStaffStats(request, orgStaffStatsMatch[1]);
     }
 
     const orgAdminsMatch = pathname.match(
