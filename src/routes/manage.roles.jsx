@@ -192,7 +192,7 @@ function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc }) {
 }
 
 function RolesPage() {
-  const { sessionOrgAdminIds } = useAuth();
+  const { hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
 
   const [roles, setRoles] = useState([]);
@@ -209,7 +209,7 @@ function RolesPage() {
   const [savingId, setSavingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
-  const isAdmin = sessionOrgAdminIds.includes(orgId ?? "");
+  const isAdmin = hasOrgPermission(orgId ?? "", "role_create");
   const rank = isAdmin ? 4 : 0;
 
   async function loadRoles() {

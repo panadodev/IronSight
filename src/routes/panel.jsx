@@ -124,11 +124,23 @@ function PingBadge({ lastHealthPing, className = "" }) {
 }
 
 const PANEL_ORG_KEY = "panel.selectedOrgId";
+const TAB_PERMISSION = {
+  rcon: "rcon_access",
+  scripts: "scripts_view",
+  presets: "presets_manage",
+  status: "status_view",
+  servers: "servers_manage",
+};
+
 function PanelPage() {
-  const { orgs, manageableOrgIds, myOrgIds } = useAuth();
+  const { orgs, hasOrgPermission } = useAuth();
   const search = Route.useSearch();
   const tab = search.tab ?? "rcon";
-  const allowedOrgIds = tab === "scripts" ? myOrgIds : manageableOrgIds;
+  const tabPerm = TAB_PERMISSION[tab];
+  const allowedOrgIds = useMemo(
+    () => orgs.filter((o) => hasOrgPermission(o.id, tabPerm)).map((o) => o.id),
+    [orgs, hasOrgPermission, tabPerm],
+  );
   const allowedOrgs = useMemo(
     () => orgs.filter((o) => allowedOrgIds.includes(o.id)),
     [orgs, allowedOrgIds],

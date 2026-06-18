@@ -426,6 +426,13 @@ async function hasPermissionInOrg(userId, orgId, permissionId) {
   return res.rows[0] ? true : false;
 }
 
+function orgHasPermission(session, orgId, permissionId) {
+  return (
+    canManageOrg(session, orgId) ||
+    (session.orgPermissions?.[orgId] ?? []).includes(permissionId)
+  );
+}
+
 function getBaseUrl(request) {
   return env.appUrl ?? new URL(request.url).origin;
 }
@@ -1678,6 +1685,7 @@ async function loadUserAccess(userId) {
   const permissions = new Set();
   const orgAdminOrgIds = new Set();
   const orgOwnerOrgIds = new Set();
+  const orgPermissionsMap = {};
 
   for (const row of rows) {
     const orgId = String(row.org_id);
@@ -1685,7 +1693,11 @@ async function loadUserAccess(userId) {
     const permissionId =
       row.permission_id == null ? null : String(row.permission_id);
 
-    if (permissionId) permissions.add(permissionId);
+    if (permissionId) {
+      permissions.add(permissionId);
+      if (!orgPermissionsMap[orgId]) orgPermissionsMap[orgId] = new Set();
+      orgPermissionsMap[orgId].add(permissionId);
+    }
 
     if (
       orgId !== SYSADMIN.globalOrgId &&
@@ -1710,6 +1722,10 @@ async function loadUserAccess(userId) {
     },
   ];
 
+  const orgPermissions = Object.fromEntries(
+    Object.entries(orgPermissionsMap).map(([orgId, set]) => [orgId, Array.from(set)]),
+  );
+
   return {
     groups,
     globalAdmin: false,
@@ -1717,6 +1733,7 @@ async function loadUserAccess(userId) {
     canDeleteBans,
     orgAdminOrgIds: Array.from(orgAdminOrgIds),
     orgOwnerOrgIds: Array.from(orgOwnerOrgIds),
+    orgPermissions,
   };
 }
 
@@ -2458,6 +2475,7 @@ async function handleAuthMe(request) {
       steamId: session.steamId,
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
+      orgPermissions: session.orgPermissions ?? {},
       isSysAdmin: isConfiguredSysAdmin(session),
     },
   });
@@ -2706,6 +2724,7 @@ async function handleTodoBootstrap(request) {
       groups: session.groups,
       orgAdminOrgIds: session.orgAdminOrgIds,
       orgOwnerOrgIds: session.orgOwnerOrgIds ?? [],
+      orgPermissions: freshSession.orgPermissions ?? {},
     },
     orgs: userOrgs,
     members,
@@ -2901,8 +2920,8 @@ async function handleDeleteTodo(request, todoId) {
 async function handleAddOrgMember(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   let body;
@@ -3076,11 +3095,8 @@ async function handleGrantOrgAdmin(request, orgId) {
 async function handleCreateOrgRole(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json(
-      { error: "Forbidden: org admin/owner role required to create roles" },
-      403,
-    );
+  if (!orgHasPermission(session, orgId, "role_create")) {
+    return json({ error: "Forbidden: role_create permission required" }, 403);
   }
 
   let body;
@@ -3138,7 +3154,12 @@ async function handleCreateOrgRole(request, orgId) {
 
   // Add permissions to the role
   if (permissions.length > 0) {
-    const validPermissions = ["todo_write", "org_manage", "role_create"];
+    const validPermissions = [
+      "todo_read", "todo_write", "org_manage", "role_create",
+      "rcon_access", "scripts_view", "scripts_manage", "presets_manage",
+      "status_view", "servers_manage", "tickets_view", "tickets_manage",
+      "ban_configs_manage", "toxicity_manage", "predefines_manage", "bans_delete",
+    ];
     const filteredPermissions = permissions.filter((p) =>
       validPermissions.includes(String(p).trim()),
     );
@@ -3198,8 +3219,8 @@ async function handleCreateOrgRole(request, orgId) {
 async function handleListOrgRoles(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "role_create") && !orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: role_create or org_manage permission required" }, 403);
   }
 
   const orgRes = await pool.query(
@@ -3242,8 +3263,8 @@ async function handleListOrgRoles(request, orgId) {
 async function handleUpdateOrgRole(request, orgId, roleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "role_create")) {
+    return json({ error: "Forbidden: role_create permission required" }, 403);
   }
 
   if (!roleId.startsWith(`${orgId}_`)) {
@@ -3397,8 +3418,8 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
 async function handleDeleteOrgRole(request, orgId, roleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "role_create")) {
+    return json({ error: "Forbidden: role_create permission required" }, 403);
   }
 
   if (!roleId.startsWith(`${orgId}_`)) {
@@ -3438,8 +3459,8 @@ async function handleDeleteOrgRole(request, orgId, roleId) {
 async function handleRemoveOrgMember(request, orgId, userId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   if (!userId) {
@@ -3525,8 +3546,8 @@ async function handleRemoveOrgMember(request, orgId, userId) {
 async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   if (!userId) {
@@ -3656,8 +3677,8 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
 async function handleGetOrgStaffStats(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   const [bans30dRes, tickets30dRes, openTicketsRes, onlineRes, memberStatsRes] =
@@ -3749,8 +3770,8 @@ async function handleGetOrgStaffStats(request, orgId) {
 async function handleGetOrgMembers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   const { rows } = await pool.query(
@@ -3775,8 +3796,8 @@ async function handleGetOrgMembers(request, orgId) {
 async function handleGetStaffAuditLog(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   const url = new URL(request.url);
@@ -3918,11 +3939,9 @@ async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
 }
 
 async function handleGetOrgDetails(request, orgId) {
-  const { session, error } = await requireSession(request);
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
-  }
+  void session;
 
   const orgRes = await pool.query(
     "SELECT org_id, guild_id, name, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
@@ -3947,8 +3966,8 @@ async function handleGetOrgDetails(request, orgId) {
 async function handleUpdateOrgDetails(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
   let body;
@@ -4911,8 +4930,8 @@ async function handleListMyTickets(request) {
 async function handleSavePteroKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -5023,8 +5042,8 @@ async function handleSavePteroKey(request, orgId) {
 async function handleGetPteroKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   const res = await pool.query(
@@ -5044,8 +5063,8 @@ async function handleGetPteroKey(request, orgId) {
 async function handleDeletePteroKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   await pool.query("DELETE FROM ptero_api_keys WHERE org_id = $1", [orgId]);
@@ -5066,8 +5085,8 @@ async function handleDeletePteroKey(request, orgId) {
 async function handleListPteroServers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -5195,8 +5214,8 @@ async function handleListPteroServers(request, orgId) {
 async function handleImportPteroServer(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   let body;
@@ -5418,8 +5437,9 @@ async function fetchPteroServerResources(panelUrl, apiKey, identifier) {
 async function handleGetPteroStatus(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "status_view") &&
+      !orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: status_view or servers_manage permission required" }, 403);
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -5522,8 +5542,9 @@ async function handleGetPteroStatus(request, orgId) {
 async function handleGetPteroServerWebsocket(request, orgId, identifier) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "rcon_access") &&
+      !orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: rcon_access or servers_manage permission required" }, 403);
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -5594,8 +5615,8 @@ async function handleDeleteServer(request, serverId) {
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
 
   const { owner_org_id } = serverRes.rows[0];
-  if (!canManageOrg(session, owner_org_id)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, owner_org_id, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   await pool.query(`DELETE FROM servers WHERE server_id = $1`, [serverId]);
@@ -5613,8 +5634,8 @@ async function handleRotateServerKey(request, serverId) {
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
 
   const { owner_org_id, server_name } = serverRes.rows[0];
-  if (!canManageOrg(session, owner_org_id)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, owner_org_id, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   const plainApiKey = crypto.randomBytes(32).toString("hex");
@@ -5654,8 +5675,8 @@ async function handleRegisterServer(request) {
     return json({ error: "serverName must be 128 characters or fewer" }, 400);
   }
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   const orgRes = await pool.query(
@@ -5731,12 +5752,8 @@ async function handleListScripts(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  const memberRes = await pool.query(
-    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
-    [orgId, session.userId],
-  );
-  if (!memberRes.rows[0] && !canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "scripts_view")) {
+    return json({ error: "Forbidden: scripts_view permission required" }, 403);
   }
 
   const { rows } = await pool.query(
@@ -5762,8 +5779,8 @@ async function handleCreateScript(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "scripts_manage")) {
+    return json({ error: "Forbidden: scripts_manage permission required" }, 403);
   }
 
   let body;
@@ -5813,8 +5830,8 @@ async function handleUpdateScript(request, orgId, scriptId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "scripts_manage")) {
+    return json({ error: "Forbidden: scripts_manage permission required" }, 403);
   }
 
   let body;
@@ -5891,8 +5908,8 @@ async function handleDeleteScript(request, orgId, scriptId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "scripts_manage")) {
+    return json({ error: "Forbidden: scripts_manage permission required" }, 403);
   }
 
   const res = await pool.query(
@@ -5949,8 +5966,8 @@ function normalizeExtraKeywords(value) {
 async function handleCreateOrgPredefine(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "predefines_manage")) {
+    return json({ error: "Forbidden: predefines_manage permission required" }, 403);
   }
 
   let body;
@@ -5980,8 +5997,8 @@ async function handleCreateOrgPredefine(request, orgId) {
 async function handleUpdateOrgPredefine(request, orgId, predefineId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "predefines_manage")) {
+    return json({ error: "Forbidden: predefines_manage permission required" }, 403);
   }
 
   let body;
@@ -6035,8 +6052,8 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
 async function handleDeleteOrgPredefine(request, orgId, predefineId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "predefines_manage")) {
+    return json({ error: "Forbidden: predefines_manage permission required" }, 403);
   }
 
   const res = await pool.query(
@@ -6068,8 +6085,8 @@ async function handleGetOrgToxicity(request, orgId) {
 async function handleSetOrgToxicity(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "toxicity_manage")) {
+    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
   }
 
   let body;
@@ -6173,8 +6190,8 @@ async function handleGetOrgBanConfigs(request, orgId) {
 async function handleCreateBanReason(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
+    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
   }
 
   let body;
@@ -6209,8 +6226,8 @@ async function handleCreateBanReason(request, orgId) {
 async function handleUpdateBanReason(request, orgId, reasonId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
+    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
   }
 
   let body;
@@ -6240,8 +6257,8 @@ async function handleUpdateBanReason(request, orgId, reasonId) {
 async function handleDeleteBanReason(request, orgId, reasonId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
+    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
   }
 
   const res = await pool.query(
@@ -6255,8 +6272,8 @@ async function handleDeleteBanReason(request, orgId, reasonId) {
 async function handleSetBanNoteFormat(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
+    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
   }
 
   let body;
@@ -6287,12 +6304,8 @@ async function handleListPlugins(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  const memberRes = await pool.query(
-    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2`,
-    [orgId, session.userId],
-  );
-  if (!memberRes.rows[0] && !canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json({ error: "Forbidden: presets_manage permission required" }, 403);
   }
 
   const { rows } = await pool.query(
@@ -6323,8 +6336,8 @@ async function handleCreatePlugin(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json({ error: "Forbidden: presets_manage permission required" }, 403);
   }
 
   let body;
@@ -6385,8 +6398,8 @@ async function handleUpdatePlugin(request, orgId, pluginId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json({ error: "Forbidden: presets_manage permission required" }, 403);
   }
 
   let body;
@@ -6455,8 +6468,8 @@ async function handleDeletePlugin(request, orgId, pluginId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json({ error: "Forbidden: presets_manage permission required" }, 403);
   }
 
   const res = await pool.query(
@@ -6486,8 +6499,8 @@ async function handlePluginPush(request, orgId, pluginId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json({ error: "Forbidden: presets_manage permission required" }, 403);
   }
 
   const pluginRes = await pool.query(
@@ -6538,8 +6551,8 @@ async function handleUnloadRisk(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json({ error: "Forbidden: presets_manage permission required" }, 403);
   }
 
   let body;
@@ -6617,8 +6630,8 @@ async function handleSetServerRcon(request, serverId) {
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
 
   const { owner_org_id } = serverRes.rows[0];
-  if (!canManageOrg(session, owner_org_id)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, owner_org_id, "servers_manage")) {
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
   }
 
   const encKey = getPterodactylEncryptionKey();
@@ -6708,8 +6721,9 @@ async function handleGetServerRconStatus(request, serverId) {
     game_port,
     tags,
   } = serverRes.rows[0];
-  if (!canManageOrg(session, owner_org_id)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, owner_org_id, "rcon_access") &&
+      !orgHasPermission(session, owner_org_id, "status_view")) {
+    return json({ error: "Forbidden: rcon_access or status_view permission required" }, 403);
   }
 
   return json({
@@ -6804,8 +6818,8 @@ async function handleExecRconCommand(request, serverId) {
   const { owner_org_id, rcon_host, rcon_port, rcon_password_enc } =
     serverRes.rows[0];
 
-  if (!canManageOrg(session, owner_org_id)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, owner_org_id, "rcon_access")) {
+    return json({ error: "Forbidden: rcon_access permission required" }, 403);
   }
 
   if (!rcon_host || !rcon_port || !rcon_password_enc) {
@@ -7765,11 +7779,9 @@ async function handleGetTeamEvents(request) {
 // ── Ban / Mute handlers ──────────────────────────────────────────────────────
 
 async function handleListOrgBans(request, orgId) {
-  const { session, error } = await requireSession(request);
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
-  }
+  void session;
 
   const url = new URL(request.url);
   const actionType = url.searchParams.get("type") ?? "ban";
@@ -7817,11 +7829,8 @@ async function handleListOrgBans(request, orgId) {
 }
 
 async function handleCreateBan(request, orgId) {
-  const { session, error } = await requireSession(request);
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) {
-    return json({ error: "Forbidden: org admin role required" }, 403);
-  }
 
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: "Invalid JSON" }, 400);
@@ -7948,9 +7957,8 @@ async function handleCreateBan(request, orgId) {
 }
 
 async function handleUpdateBan(request, orgId, banId) {
-  const { session, error } = await requireSession(request);
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
   if (error) return error;
-  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
     `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
@@ -7994,7 +8002,7 @@ async function handleUpdateBan(request, orgId, banId) {
 async function handleRevokeBan(request, orgId, banId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId) && !session.canDeleteBans)
+  if (!orgHasPermission(session, orgId, "bans_delete"))
     return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
@@ -9246,8 +9254,8 @@ async function isSessionOrgMember(session, orgId) {
 async function handleListExternalKeys(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
 
   const { rows } = await pool.query(
     `SELECT key_id, org_id, service, label, priority, enabled,
@@ -9275,8 +9283,8 @@ async function handleListExternalKeys(request, orgId) {
 async function handleAddExternalKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
 
   if (!getPterodactylEncryptionKey())
     return json(
@@ -9344,8 +9352,8 @@ async function handleAddExternalKey(request, orgId) {
 async function handleUpdateExternalKey(request, orgId, keyId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
 
   let body;
   try {
@@ -9389,8 +9397,8 @@ async function handleUpdateExternalKey(request, orgId, keyId) {
 async function handleDeleteExternalKey(request, orgId, keyId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden: org admin role required" }, 403);
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
 
   const { rowCount } = await pool.query(
     `DELETE FROM org_external_api_keys WHERE key_id = $1 AND org_id = $2`,

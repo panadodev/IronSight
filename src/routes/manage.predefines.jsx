@@ -10,12 +10,12 @@ const Route = createFileRoute("/manage/predefines")({
 });
 
 function PredefinesPage() {
-  const { sessionOrgAdminIds, sessionUser } = useAuth();
+  const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
   const [items, setItems] = useState([]);
 
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
+    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "predefines_manage");
 
   const load = useCallback(async () => {
     if (!orgId) return;

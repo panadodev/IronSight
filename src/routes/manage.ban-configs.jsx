@@ -10,7 +10,7 @@ const Route = createFileRoute("/manage/ban-configs")({
 });
 
 function BanConfigsPage() {
-  const { sessionOrgAdminIds, sessionUser } = useAuth();
+  const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
   const [data, setData] = useState({
     configs: {},
@@ -18,7 +18,7 @@ function BanConfigsPage() {
   });
 
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
+    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "ban_configs_manage");
 
   const load = useCallback(async () => {
     if (!orgId) return;

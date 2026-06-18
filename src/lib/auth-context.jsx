@@ -37,6 +37,7 @@ function AuthProvider({ children }) {
   const [orgsLoaded, setOrgsLoaded] = useState(false);
   const [sessionOrgAdminIds, setSessionOrgAdminIds] = useState([]);
   const [sessionOrgOwnerIds, setSessionOrgOwnerIds] = useState([]);
+  const [sessionOrgPermissions, setSessionOrgPermissions] = useState({});
   const [sessionUser, setSessionUser] = useState(null);
 
   useEffect(() => {
@@ -64,6 +65,13 @@ function AuthProvider({ children }) {
           ? body.user.orgOwnerOrgIds.map(String)
           : [];
         if (!cancelled) setSessionOrgOwnerIds(ownerIds);
+
+        const orgPerms =
+          body?.user?.orgPermissions != null &&
+          typeof body.user.orgPermissions === "object"
+            ? body.user.orgPermissions
+            : {};
+        if (!cancelled) setSessionOrgPermissions(orgPerms);
 
         if (body?.user && !cancelled) {
           setSessionUser({
@@ -465,6 +473,9 @@ function AuthProvider({ children }) {
   }, [orgMembers, activeStaffId, isOwner, orgs, sessionOrgAdminIds]);
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
+  const hasOrgPermission = (orgId, permissionId) =>
+    sessionOrgAdminIds.includes(orgId) ||
+    (sessionOrgPermissions[orgId] ?? []).includes(permissionId);
   const isImpersonating = false; // No longer using activeStaffId swapping
 
   const impersonate = async (orgId, memberId) => {
@@ -620,6 +631,8 @@ function AuthProvider({ children }) {
       sessionUser,
       sessionOrgAdminIds,
       sessionOrgOwnerIds,
+      sessionOrgPermissions,
+      hasOrgPermission,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -651,6 +664,7 @@ function AuthProvider({ children }) {
       activeRank,
       sessionOrgAdminIds,
       sessionOrgOwnerIds,
+      sessionOrgPermissions,
       sessionUser,
     ],
   );

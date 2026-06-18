@@ -10,12 +10,12 @@ const Route = createFileRoute("/manage/toxicity")({
 });
 
 function ToxicityPage() {
-  const { sessionOrgAdminIds, sessionUser } = useAuth();
+  const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
   const [config, setConfig] = useState({ yellow: [], red: [] });
 
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
+    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "toxicity_manage");
 
   const load = useCallback(async () => {
     if (!orgId) return;

@@ -171,7 +171,7 @@ function SortTh({
 }
 
 function StaffPage() {
-  const { sessionOrgAdminIds, sessionOrgOwnerIds, sessionUser } = useAuth();
+  const { sessionOrgOwnerIds, sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
 
   const [members, setMembers] = useState([]);
@@ -194,7 +194,8 @@ function StaffPage() {
 
   if (!orgId) return null;
 
-  const isAdmin = sessionOrgAdminIds.includes(orgId);
+  const isAdmin =
+    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "org_manage");
   const isOwner = sessionOrgOwnerIds.includes(orgId);
 
   async function loadMembers() {

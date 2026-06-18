@@ -12,13 +12,13 @@ function TicketsPage() {
   const {
     orgTicketTypes,
     setOrgTicketTypeEnabled,
-    sessionOrgAdminIds,
     sessionUser,
+    hasOrgPermission,
   } = useAuth();
   const orgId = useManageOrgId();
   if (!orgId) return null;
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
+    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "org_manage");
   const enabled =
     orgTicketTypes[orgId] ??
     TICKET_TYPE_KEYS.reduce((acc, k) => ({ ...acc, [k]: true }), {});

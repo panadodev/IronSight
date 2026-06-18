@@ -12,6 +12,11 @@ import { useEffect, useMemo, useState } from "react";
 const Route = createFileRoute("/manage")({
   component: ManageLayout,
 });
+
+const MANAGE_PERMS = [
+  "org_manage", "role_create", "ban_configs_manage",
+  "toxicity_manage", "predefines_manage",
+];
 function ManageLayout() {
   const { adminableOrgIds, orgs } = useAuth();
   const orgId = useManageOrgId();
@@ -49,9 +54,12 @@ function ManageLayout() {
     const sessionOrgAdminIds = Array.isArray(sessionUser?.orgAdminOrgIds)
       ? sessionUser.orgAdminOrgIds
       : [];
+    const orgPerms = sessionUser?.orgPermissions ?? {};
+    const permOrgIds = orgs
+      .filter((o) => MANAGE_PERMS.some((p) => (orgPerms[o.id] ?? []).includes(p)))
+      .map((o) => o.id);
 
-    if (sessionOrgAdminIds.length > 0) return sessionOrgAdminIds;
-    return adminableOrgIds;
+    return Array.from(new Set([...sessionOrgAdminIds, ...permOrgIds, ...adminableOrgIds]));
   }, [sessionUser, orgs, adminableOrgIds]);
 
   const manageable = useMemo(
