@@ -1262,6 +1262,19 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS idx_player_bm_bans_cache_steam_id
      ON player_bm_bans_cache(steam_id)`,
   );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_player_sightings (
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      steam_id TEXT NOT NULL,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (org_id, steam_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_player_sightings_org_id
+     ON org_player_sightings(org_id)`,
+  );
 }
 
 async function migratePterodactylApiKeys() {
@@ -9252,7 +9265,7 @@ async function handleRefreshPlayer(request, steamId) {
   return json(fresh);
 }
 
-// ── Org player list (live, RCON-sourced) ─────────────────────────────────────
+// ── Org player list (cached players + live RCON online status) ────────────────
 
 async function handleGetOrgPlayerList(request, orgId) {
   const { session, error } = await requireSession(request);
@@ -9277,127 +9290,147 @@ async function handleGetOrgPlayerList(request, orgId) {
     [orgId],
   );
 
-  if (!serversRes.rows.length) {
-    return json({ players: [], servers: [] });
-  }
+  const servers = [];
+  const onlineMap = new Map(); // steamId -> { serverId, serverName, ping }
 
-  const serverResults = await Promise.allSettled(
-    serversRes.rows.map(async (srv) => {
-      let password;
-      try {
-        password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
-      } catch {
-        return {
-          serverId: String(srv.server_id),
-          serverName: String(srv.server_name),
-          rconError: "Credentials corrupted",
-          players: [],
-        };
-      }
-      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
-      try {
-        const { response } = await executeRconCommand(rconUrl, "global.playerlist");
-        let rawPlayers;
+  if (serversRes.rows.length > 0) {
+    const serverResults = await Promise.allSettled(
+      serversRes.rows.map(async (srv) => {
+        let password;
         try {
-          rawPlayers = JSON.parse(response);
+          password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
         } catch {
           return {
             serverId: String(srv.server_id),
             serverName: String(srv.server_name),
-            rconError: "Failed to parse playerlist",
+            rconError: "Credentials corrupted",
             players: [],
           };
         }
-        if (!Array.isArray(rawPlayers)) {
+        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+        try {
+          const { response } = await executeRconCommand(rconUrl, "global.playerlist");
+          let rawPlayers;
+          try {
+            rawPlayers = JSON.parse(response);
+          } catch {
+            return {
+              serverId: String(srv.server_id),
+              serverName: String(srv.server_name),
+              rconError: "Failed to parse playerlist",
+              players: [],
+            };
+          }
+          if (!Array.isArray(rawPlayers)) {
+            return {
+              serverId: String(srv.server_id),
+              serverName: String(srv.server_name),
+              rconError: "Unexpected response format",
+              players: [],
+            };
+          }
           return {
             serverId: String(srv.server_id),
             serverName: String(srv.server_name),
-            rconError: "Unexpected response format",
+            rconError: null,
+            players: rawPlayers
+              .map((p) => ({
+                steamId: String(p.SteamID ?? ""),
+                name: String(p.DisplayName ?? ""),
+                ping: Number(p.Ping ?? 0),
+              }))
+              .filter((p) => /^\d{17}$/.test(p.steamId)),
+          };
+        } catch (err) {
+          return {
+            serverId: String(srv.server_id),
+            serverName: String(srv.server_name),
+            rconError: String(err.message),
             players: [],
           };
         }
-        return {
-          serverId: String(srv.server_id),
-          serverName: String(srv.server_name),
-          rconError: null,
-          players: rawPlayers
-            .map((p) => ({
-              steamId: String(p.SteamID ?? ""),
-              name: String(p.DisplayName ?? ""),
-              ping: Number(p.Ping ?? 0),
-            }))
-            .filter((p) => /^\d{17}$/.test(p.steamId)),
-        };
-      } catch (err) {
-        return {
-          serverId: String(srv.server_id),
-          serverName: String(srv.server_name),
-          rconError: String(err.message),
-          players: [],
-        };
-      }
-    }),
-  );
+      }),
+    );
 
-  const servers = [];
-  const allPlayers = [];
-  for (const result of serverResults) {
-    const val =
-      result.status === "fulfilled"
-        ? result.value
-        : {
-            serverId: "?",
-            serverName: "?",
-            rconError: String(result.reason?.message ?? result.reason),
-            players: [],
-          };
-    servers.push({
-      serverId: val.serverId,
-      serverName: val.serverName,
-      rconError: val.rconError,
-      playerCount: val.players.length,
-    });
-    for (const p of val.players) {
-      allPlayers.push({ ...p, serverId: val.serverId, serverName: val.serverName });
+    for (const result of serverResults) {
+      const val =
+        result.status === "fulfilled"
+          ? result.value
+          : {
+              serverId: "?",
+              serverName: "?",
+              rconError: String(result.reason?.message ?? result.reason),
+              players: [],
+            };
+      servers.push({
+        serverId: val.serverId,
+        serverName: val.serverName,
+        rconError: val.rconError,
+        playerCount: val.players.length,
+      });
+      for (const p of val.players) {
+        onlineMap.set(p.steamId, {
+          serverId: val.serverId,
+          serverName: val.serverName,
+          ping: p.ping,
+        });
+      }
+    }
+
+    const onlineSteamIds = [...onlineMap.keys()];
+    if (onlineSteamIds.length > 0) {
+      try {
+        await pool.query(
+          `INSERT INTO org_player_sightings (org_id, steam_id, last_seen_at)
+           SELECT $1, unnest($2::text[]), NOW()
+           ON CONFLICT (org_id, steam_id) DO UPDATE SET last_seen_at = NOW()`,
+          [orgId, onlineSteamIds],
+        );
+      } catch {}
     }
   }
 
-  const steamIds = [...new Set(allPlayers.map((p) => p.steamId))];
+  // All sighted players for this org with cache data, excluding active org bans
+  const sightingsRes = await pool.query(
+    `SELECT pc.steam_id, pc.display_name, pc.avatar_url,
+            pc.steam_rust_hours, pc.steam_profile_created_at,
+            pc.bm_rust_hours, pc.bm_kills, pc.bm_deaths,
+            pc.bm_cheating_reports, pc.bm_teaming_reports, pc.bm_other_reports,
+            pc.bm_rust_bans_count
+     FROM org_player_sightings ops
+     JOIN player_cache pc ON pc.steam_id = ops.steam_id
+     WHERE ops.org_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM player_bans pb
+         WHERE pb.identifier = pc.steam_id
+           AND pb.identifier_type = 'steam_id'
+           AND pb.org_id = $1
+           AND pb.revoked = FALSE
+           AND pb.action_type = 'ban'
+           AND (pb.expires_at IS NULL OR pb.expires_at > NOW())
+       )
+     ORDER BY ops.last_seen_at DESC`,
+    [orgId],
+  );
 
-  let cacheMap = {};
+  const allSteamIds = sightingsRes.rows.map((r) => r.steam_id);
   let ipMap = {};
-
-  if (steamIds.length > 0) {
-    const [cacheRes, ipRes] = await Promise.all([
-      pool.query(
-        `SELECT steam_id, display_name, avatar_url,
-                steam_rust_hours, steam_profile_created_at,
-                bm_rust_hours, bm_kills, bm_deaths,
-                bm_cheating_reports, bm_teaming_reports, bm_other_reports,
-                bm_rust_bans_count
-         FROM player_cache
-         WHERE steam_id = ANY($1)`,
-        [steamIds],
-      ),
-      pool.query(
-        `SELECT DISTINCT ON (pih.steam_id)
-                pih.steam_id, im.is_proxy, im.country
-         FROM player_ip_history pih
-         LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
-         WHERE pih.steam_id = ANY($1)
-         ORDER BY pih.steam_id, pih.last_seen DESC`,
-        [steamIds],
-      ),
-    ]);
-    cacheMap = Object.fromEntries(cacheRes.rows.map((r) => [r.steam_id, r]));
+  if (allSteamIds.length > 0) {
+    const ipRes = await pool.query(
+      `SELECT DISTINCT ON (pih.steam_id)
+              pih.steam_id, im.is_proxy, im.country
+       FROM player_ip_history pih
+       LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
+       WHERE pih.steam_id = ANY($1)
+       ORDER BY pih.steam_id, pih.last_seen DESC`,
+      [allSteamIds],
+    );
     ipMap = Object.fromEntries(ipRes.rows.map((r) => [r.steam_id, r]));
   }
 
-  const enriched = allPlayers.flatMap((p) => {
-    const cache = cacheMap[p.steamId];
-    if (!cache) return [];
-
-    const ip = ipMap[p.steamId] ?? null;
+  const enriched = sightingsRes.rows.map((cache) => {
+    const online = onlineMap.get(cache.steam_id);
+    const ip = ipMap[cache.steam_id] ?? null;
 
     const totalHours =
       cache.steam_rust_hours != null
@@ -9423,12 +9456,13 @@ async function handleGetOrgPlayerList(request, orgId) {
     const susScore =
       Math.round(((1 / h) * Math.pow(kd, reportCount) * 10) * 10) / 10;
 
-    return [{
-      steamId: p.steamId,
-      name: cache.display_name ?? p.name,
-      serverId: p.serverId,
-      serverName: p.serverName,
-      ping: p.ping,
+    return {
+      steamId: cache.steam_id,
+      name: cache.display_name ?? "",
+      isOnline: !!online,
+      serverId: online?.serverId ?? null,
+      serverName: online?.serverName ?? null,
+      ping: online?.ping ?? null,
       susScore,
       rustHours: totalHours,
       bmHours: cache.bm_rust_hours != null ? Number(cache.bm_rust_hours) : 0,
@@ -9441,7 +9475,7 @@ async function handleGetOrgPlayerList(request, orgId) {
       avatarUrl: cache.avatar_url ?? null,
       bmBans: Number(cache.bm_rust_bans_count ?? 0),
       accountAgeDays,
-    }];
+    };
   });
 
   const result = { players: enriched, servers };

@@ -127,7 +127,7 @@ function PlayerListPage() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = players.filter((p) => effectiveServerIds.has(p.serverId));
+    let list = players.filter((p) => !p.isOnline || effectiveServerIds.has(p.serverId));
     if (q) {
       list = list.filter(
         (p) =>
@@ -137,9 +137,14 @@ function PlayerListPage() {
     list = [...list].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      if (typeof av === "string") {
-        return sortDir === "desc" ? bv.localeCompare(av) : av.localeCompare(bv);
+      if (typeof av === "string" || typeof bv === "string") {
+        return sortDir === "desc"
+          ? String(bv ?? "").localeCompare(String(av ?? ""))
+          : String(av ?? "").localeCompare(String(bv ?? ""));
       }
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return list;
@@ -235,14 +240,14 @@ function PlayerListPage() {
               <div>
                 <h1 className="text-xl font-bold tracking-tight">Player List</h1>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Every player currently connected to your servers. Sus score
-                  is based on Steam hours, K/D ratio, and report count.
+                  All players seen on your servers. Sus score is based on
+                  Steam hours, K/D ratio, and report count.
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 {lastRefresh && (
                   <span className="text-[10px] font-mono text-muted-foreground">
-                    {rows.length} online
+                    {players.length} players · {players.filter((p) => p.isOnline).length} online
                   </span>
                 )}
                 <button
@@ -295,7 +300,7 @@ function PlayerListPage() {
             {/* Loading skeleton */}
             {loading && players.length === 0 && (
               <div className="rounded-md ring-1 ring-border bg-surface/40 px-4 py-10 text-center text-xs text-muted-foreground animate-pulse">
-                Connecting to servers via RCON…
+                Loading player list…
               </div>
             )}
 
@@ -459,7 +464,7 @@ function PlayerListPage() {
                     const avatarColor = steamIdAvatarColor(p.steamId);
                     return (
                       <div
-                        key={`${p.steamId}-${p.serverId}`}
+                        key={p.steamId}
                         className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -502,10 +507,17 @@ function PlayerListPage() {
                           </div>
                         </div>
                         <div
-                          className="text-[10px] font-mono text-muted-foreground truncate"
-                          title={p.serverName}
+                          className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1"
+                          title={p.serverName ?? ""}
                         >
-                          {p.serverName.replace(/^\[[^\]]+\]\s*/, "")}
+                          {p.isOnline ? (
+                            <>
+                              <span className="size-1.5 rounded-full bg-success shrink-0" />
+                              {p.serverName.replace(/^\[[^\]]+\]\s*/, "")}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground/40">—</span>
+                          )}
                         </div>
                         <div className="text-right">
                           <span
@@ -543,14 +555,16 @@ function PlayerListPage() {
                         <div
                           className={
                             "text-right font-mono " +
-                            (p.ping > 150
-                              ? "text-danger"
-                              : p.ping > 80
-                                ? "text-warning"
-                                : "text-foreground")
+                            (p.ping == null
+                              ? "text-muted-foreground/40"
+                              : p.ping > 150
+                                ? "text-danger"
+                                : p.ping > 80
+                                  ? "text-warning"
+                                  : "text-foreground")
                           }
                         >
-                          {p.ping}
+                          {p.ping != null ? p.ping : "—"}
                         </div>
                       </div>
                     );
@@ -559,12 +573,8 @@ function PlayerListPage() {
                     <div className="px-4 py-10 text-center text-xs text-muted-foreground">
                       {selectedOrgIds.length === 0
                         ? "No organization selected."
-                        : visibleServers.every((s) =>
-                            serverStatuses.find(
-                              (st) => st.serverId === s.serverId && st.rconError,
-                            ),
-                          ) && visibleServers.length > 0
-                          ? "No servers could be reached via RCON."
+                        : players.length === 0
+                          ? "No players have been seen on your servers yet."
                           : "No players match your filters."}
                     </div>
                   )}
