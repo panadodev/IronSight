@@ -415,17 +415,6 @@ function canViewOrgAsOwner(session, orgId) {
   return session.orgAdminOrgIds.includes(orgId);
 }
 
-async function hasPermissionInOrg(userId, orgId, permissionId) {
-  const res = await pool.query(
-    `SELECT 1 FROM organization_members om
-     LEFT JOIN role_permissions rp ON rp.role_id = om.role_id
-     WHERE om.org_id = $1 AND om.user_id = $2 AND rp.permission_id = $3
-     LIMIT 1`,
-    [orgId, userId, permissionId],
-  );
-  return res.rows[0] ? true : false;
-}
-
 function orgHasPermission(session, orgId, permissionId) {
   return (
     canManageOrg(session, orgId) ||
@@ -4645,9 +4634,9 @@ async function handleGetTicket(request, ticketIdStr) {
     if (isGlobalAdmin(session)) {
       // Global admin can view any ticket
     } else {
-      // Staff must have tickets_view permission
-      const hasPermission = await hasPermissionInOrg(
-        session.userId,
+      // Staff must have tickets_view permission (or be an org admin/owner)
+      const hasPermission = orgHasPermission(
+        session,
         ticket.org_id,
         "tickets_view",
       );
@@ -4689,14 +4678,9 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   const isCreator = ticket.created_by === session.userId;
 
   // Check staff permission
-  let isStaff = isGlobalAdmin(session);
-  if (!isStaff) {
-    isStaff = await hasPermissionInOrg(
-      session.userId,
-      ticket.org_id,
-      "tickets_view",
-    );
-  }
+  const isStaff =
+    isGlobalAdmin(session) ||
+    orgHasPermission(session, ticket.org_id, "tickets_view");
 
   // Creator can add messages, staff can add messages
   if (!isCreator && !isStaff) return json({ error: "Forbidden" }, 403);
@@ -4747,8 +4731,8 @@ async function handleUpdateTicket(request, ticketIdStr) {
     // Global admin can update any ticket
   } else {
     // Regular user must have tickets_manage permission to update tickets
-    const hasPermission = await hasPermissionInOrg(
-      session.userId,
+    const hasPermission = orgHasPermission(
+      session,
       ticket.org_id,
       "tickets_manage",
     );
@@ -4838,12 +4822,8 @@ async function handleListOrgTickets(request, orgId) {
   if (isGlobalAdmin(session)) {
     // Global admin can access any org's tickets
   } else {
-    // Regular user must have tickets_view permission
-    const hasPermission = await hasPermissionInOrg(
-      session.userId,
-      orgId,
-      "tickets_view",
-    );
+    // Regular user must have tickets_view permission (or be an org admin/owner)
+    const hasPermission = orgHasPermission(session, orgId, "tickets_view");
     if (!hasPermission) return json({ error: "Forbidden" }, 403);
   }
 
