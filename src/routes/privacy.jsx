@@ -40,7 +40,7 @@ function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-sm text-muted-foreground">
-            Last updated: June 2025
+            Last updated: June 2026
           </p>
         </header>
 
@@ -150,20 +150,7 @@ function PrivacyPage() {
               rank. Access is enforced server-side on every request — it cannot
               be bypassed by the client.
             </p>
-            <div className="rounded-md ring-1 ring-border bg-surface/40 p-4 space-y-2 text-[12px]">
-              <div className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-1.5 text-xs">
-                <span className="font-semibold text-foreground">Support</span>
-                <span>Can view and respond to general support tickets assigned to their team.</span>
-                <span className="font-semibold text-foreground">Admin</span>
-                <span>Can access player reports, player history, and issue bans within their organization.</span>
-                <span className="font-semibold text-foreground">Senior Admin</span>
-                <span>Can access ban appeals and restrict ticket visibility to senior staff.</span>
-                <span className="font-semibold text-foreground">Management</span>
-                <span>Full moderation access within the organization, including sensitive cases.</span>
-                <span className="font-semibold text-foreground">Owner</span>
-                <span>Full access to all data within their organization. Can manage staff roles and configurations.</span>
-              </div>
-            </div>
+          
             <p>
               Internal staff notes, restricted tickets, and certain moderation
               records are hidden from lower-ranked staff members. Visibility
@@ -211,10 +198,7 @@ function PrivacyPage() {
 
           <Section title="Data retention">
             <p>
-              Player lookup data (fetched from external sources) is cached for
-              up to 30 days to reduce redundant requests and improve performance.
-              After 30 days, stale cache entries are automatically cleared and
-              re-fetched on the next lookup.
+              Player data is stored permanently.
             </p>
             <p>
               Tickets, moderation records, and ban history are retained
@@ -226,24 +210,29 @@ function PrivacyPage() {
               a period of inactivity. IP addresses captured for rate limiting
               are not stored beyond the request cycle.
             </p>
-            <p>
-              If an organization is removed from the platform, all associated
-              data is scheduled for deletion.
-            </p>
           </Section>
 
-          <Section title="Your rights as a player">
+          <Section title="Evidence confidentiality">
             <p>
-              If you are a player who submitted a ticket or was subject to a
-              moderation action on a server using IronSight, you may contact
-              the server organization directly through their player portal to
-              request information about data held about you, or to appeal a
-              moderation decision.
+              Evidence collected during moderation investigations — including
+              video clips, screenshots, chat logs, and other materials submitted
+              by reporters or gathered by staff — is treated as confidential
+              moderation data.
             </p>
             <p>
-              IronSight acts as a data processor on behalf of each organization.
-              The organization (server community) is the data controller
-              responsible for moderation decisions made using the platform.
+              We do not disclose evidence or any associated player information to
+              external parties. This includes the subject of the investigation,
+              third-party services, or other players. Evidence is accessible only
+              to staff members with the appropriate rank within the organization
+              that collected it.
+            </p>
+            <p>
+              Players who are the subject of a moderation action do not have an
+              automatic right to inspect the evidence held against them. Staff
+              teams are not obligated to reveal the source, nature, or contents
+              of evidence as part of a ban or appeal process. This policy exists
+              to protect reporters from retaliation and to preserve the integrity
+              of the moderation process.
             </p>
           </Section>
 
@@ -255,7 +244,7 @@ function PrivacyPage() {
             </p>
             <p>
               Sensitive credentials (such as third-party API keys configured by
-              organizations) are stored encrypted at rest using AES-256-GCM.
+              organizations) are stored encrypted.
             </p>
             <p>
               Staff authentication requires both a Discord account and a Steam
@@ -264,14 +253,6 @@ function PrivacyPage() {
             </p>
           </Section>
 
-          <Section title="Contact">
-            <p>
-              For questions about this policy or data held about you, contact
-              the organization that operates the server you interacted with, or
-              reach out to the IronSight platform team through the support
-              channels listed on our website.
-            </p>
-          </Section>
         </div>
       </main>
     </div>

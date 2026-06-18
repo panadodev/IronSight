@@ -15,6 +15,7 @@ import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as SubmitRouteImport } from './routes/submit'
 import { Route as StaffAuditRouteImport } from './routes/staff-audit'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as PlayerLookupRouteImport } from './routes/player-lookup'
 import { Route as PlayerListRouteImport } from './routes/player-list'
 import { Route as PanelRouteImport } from './routes/panel'
@@ -24,7 +25,6 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BansMutesRouteImport } from './routes/bans-mutes'
-import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SysAdminRolesRouteImport } from './routes/sys-admin.roles'
 import { Route as ManageToxicityRouteImport } from './routes/manage.toxicity'
@@ -63,6 +63,11 @@ const SubmitRoute = SubmitRouteImport.update({
 const StaffAuditRoute = StaffAuditRouteImport.update({
   id: '/staff-audit',
   path: '/staff-audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PlayerLookupRoute = PlayerLookupRouteImport.update({
@@ -108,11 +113,6 @@ const ChatRoute = ChatRouteImport.update({
 const BansMutesRoute = BansMutesRouteImport.update({
   id: '/bans-mutes',
   path: '/bans-mutes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacyRoute = PrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -164,7 +164,6 @@ const ManageBanConfigsRoute = ManageBanConfigsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
-  '/privacy': typeof PrivacyRoute
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -173,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/panel': typeof PanelRoute
   '/player-list': typeof PlayerListRoute
   '/player-lookup': typeof PlayerLookupRoute
+  '/privacy': typeof PrivacyRoute
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
@@ -191,7 +191,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
-  '/privacy': typeof PrivacyRoute
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -200,6 +199,7 @@ export interface FileRoutesByTo {
   '/panel': typeof PanelRoute
   '/player-list': typeof PlayerListRoute
   '/player-lookup': typeof PlayerLookupRoute
+  '/privacy': typeof PrivacyRoute
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
@@ -219,7 +219,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
-  '/privacy': typeof PrivacyRoute
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -228,6 +227,7 @@ export interface FileRoutesById {
   '/panel': typeof PanelRoute
   '/player-list': typeof PlayerListRoute
   '/player-lookup': typeof PlayerLookupRoute
+  '/privacy': typeof PrivacyRoute
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
@@ -248,7 +248,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/bans-mutes'
-    | '/privacy'
     | '/chat'
     | '/docs'
     | '/login'
@@ -257,6 +256,7 @@ export interface FileRouteTypes {
     | '/panel'
     | '/player-list'
     | '/player-lookup'
+    | '/privacy'
     | '/staff-audit'
     | '/submit'
     | '/support'
@@ -275,7 +275,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/bans-mutes'
-    | '/privacy'
     | '/chat'
     | '/docs'
     | '/login'
@@ -284,6 +283,7 @@ export interface FileRouteTypes {
     | '/panel'
     | '/player-list'
     | '/player-lookup'
+    | '/privacy'
     | '/staff-audit'
     | '/submit'
     | '/support'
@@ -302,7 +302,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/bans-mutes'
-    | '/privacy'
     | '/chat'
     | '/docs'
     | '/login'
@@ -311,6 +310,7 @@ export interface FileRouteTypes {
     | '/panel'
     | '/player-list'
     | '/player-lookup'
+    | '/privacy'
     | '/staff-audit'
     | '/submit'
     | '/support'
@@ -330,7 +330,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BansMutesRoute: typeof BansMutesRoute
-  PrivacyRoute: typeof PrivacyRoute
   ChatRoute: typeof ChatRoute
   DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
@@ -339,6 +338,7 @@ export interface RootRouteChildren {
   PanelRoute: typeof PanelRoute
   PlayerListRoute: typeof PlayerListRoute
   PlayerLookupRoute: typeof PlayerLookupRoute
+  PrivacyRoute: typeof PrivacyRoute
   StaffAuditRoute: typeof StaffAuditRoute
   SubmitRoute: typeof SubmitRoute
   SupportRoute: typeof SupportRoute
@@ -390,6 +390,13 @@ declare module '@tanstack/react-router' {
       path: '/staff-audit'
       fullPath: '/staff-audit'
       preLoaderRoute: typeof StaffAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/player-lookup': {
@@ -453,13 +460,6 @@ declare module '@tanstack/react-router' {
       path: '/bans-mutes'
       fullPath: '/bans-mutes'
       preLoaderRoute: typeof BansMutesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy': {
-      id: '/privacy'
-      path: '/privacy'
-      fullPath: '/privacy'
-      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -554,7 +554,6 @@ const ManageRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BansMutesRoute: BansMutesRoute,
-  PrivacyRoute: PrivacyRoute,
   ChatRoute: ChatRoute,
   DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,
@@ -563,6 +562,7 @@ const rootRouteChildren: RootRouteChildren = {
   PanelRoute: PanelRoute,
   PlayerListRoute: PlayerListRoute,
   PlayerLookupRoute: PlayerLookupRoute,
+  PrivacyRoute: PrivacyRoute,
   StaffAuditRoute: StaffAuditRoute,
   SubmitRoute: SubmitRoute,
   SupportRoute: SupportRoute,
