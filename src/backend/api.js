@@ -10399,17 +10399,25 @@ async function _handleApiRequest(request) {
 
 const DISCORD_API = "https://discord.com/api/v10";
 
-function discordBotHeaders() {
-  return {
+function discordBotHeaders(hasBody = false) {
+  const headers = {
     Authorization: `Bot ${env.discordBotToken}`,
-    "Content-Type": "application/json",
   };
+
+  if (hasBody) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
 }
 
 async function discordFetch(path, opts = {}) {
   return fetch(`${DISCORD_API}${path}`, {
     ...opts,
-    headers: { ...discordBotHeaders(), ...(opts.headers ?? {}) },
+    headers: {
+      ...discordBotHeaders(!!opts.body),
+      ...(opts.headers ?? {}),
+    },
   });
 }
 
