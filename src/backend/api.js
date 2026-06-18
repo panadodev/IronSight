@@ -10780,6 +10780,12 @@ async function handleDiscordModAction(request, orgId) {
         method: "PUT",
         body: JSON.stringify({ delete_message_seconds: 0 }),
       });
+      if (discordRes.ok || discordRes.status === 204) {
+        // Delete messages from Discord (visible to others) but keep them in our DB
+        deleteUserDiscordMessagesFromGuild(guildId, orgId, targetDiscordId).catch(
+          () => {},
+        );
+      }
       break;
     }
     case "unban": {
@@ -10836,6 +10842,61 @@ async function handleDiscordModAction(request, orgId) {
   });
 
   return json({ ok: true, action, targetDiscordId });
+}
+
+async function deleteUserDiscordMessagesFromGuild(guildId, orgId, discordUserId) {
+  if (!env.discordBotToken || !guildId || !discordUserId) return;
+
+  const { rows } = await pool.query(
+    `SELECT message_id, channel_id, discord_created_at
+     FROM discord_messages
+     WHERE org_id = $1 AND guild_id = $2 AND author_discord_id = $3
+     ORDER BY channel_id, discord_created_at ASC`,
+    [orgId, guildId, discordUserId],
+  );
+
+  if (rows.length === 0) return;
+
+  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+
+  // Group by channel
+  const byChannel = new Map();
+  for (const row of rows) {
+    if (!byChannel.has(row.channel_id)) byChannel.set(row.channel_id, []);
+    byChannel.get(row.channel_id).push(row);
+  }
+
+  for (const [channelId, messages] of byChannel) {
+    const recent = messages
+      .filter((m) => new Date(m.discord_created_at).getTime() >= cutoff)
+      .map((m) => m.message_id);
+    const old = messages
+      .filter((m) => new Date(m.discord_created_at).getTime() < cutoff)
+      .map((m) => m.message_id);
+
+    // Bulk delete in batches of 100 (Discord minimum is 2)
+    for (let i = 0; i < recent.length; i += 100) {
+      const batch = recent.slice(i, i + 100);
+      if (batch.length === 1) {
+        // Bulk-delete requires >= 2; fall back to single delete
+        await discordFetch(`/channels/${channelId}/messages/${batch[0]}`, {
+          method: "DELETE",
+        }).catch(() => {});
+      } else {
+        await discordFetch(`/channels/${channelId}/messages/bulk-delete`, {
+          method: "POST",
+          body: JSON.stringify({ messages: batch }),
+        }).catch(() => {});
+      }
+    }
+
+    // Older messages must be deleted individually (Discord restriction)
+    for (const messageId of old) {
+      await discordFetch(`/channels/${channelId}/messages/${messageId}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
+  }
 }
 
 async function handleGetDiscordModLog(request, orgId) {
