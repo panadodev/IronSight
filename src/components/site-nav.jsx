@@ -406,11 +406,41 @@ function SiteNav() {
     <>
       <aside className="fixed inset-y-0 left-0 z-30 w-56 border-r border-border bg-background flex flex-col">
         {/* Brand */}
-        <div className="h-14 px-4 flex items-center border-b border-border shrink-0">
+        <div className="h-14 px-4 flex items-center gap-2 border-b border-border shrink-0">
+          <svg viewBox="80 80 260 260" width="28" height="28" aria-hidden="true" className="shrink-0">
+            <circle cx="210" cy="210" r="130" strokeDasharray="4 6" fill="none" stroke="#3d3d3a" strokeWidth="0.8" opacity="0.35"/>
+            <polyline points="110,120 110,100 130,100" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <polyline points="290,100 310,100 310,120" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <polyline points="110,300 110,320 130,320" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <polyline points="290,320 310,320 310,300" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <circle cx="210" cy="210" r="72" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <circle cx="210" cy="210" r="38" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="210" y1="100" x2="210" y2="168" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="210" y1="252" x2="210" y2="320" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="100" y1="210" x2="168" y2="210" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="252" y1="210" x2="320" y2="210" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="210" y1="134" x2="210" y2="143" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="210" y1="277" x2="210" y2="286" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="124" y1="210" x2="133" y2="210" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="287" y1="210" x2="296" y2="210" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="159" y1="159" x2="165" y2="165" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="261" y1="159" x2="255" y2="165" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="159" y1="261" x2="165" y2="255" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="261" y1="261" x2="255" y2="255" stroke="#60a5fa" strokeWidth="2"/>
+            <polygon points="210,192 224,201 224,219 210,228 196,219 196,201" fill="#60a5fa" fillOpacity="0.15"/>
+            <polygon points="210,192 224,201 224,219 210,228 196,219 196,201" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <circle cx="210" cy="210" r="4" fill="#60a5fa"/>
+            <circle cx="210" cy="192" r="2" fill="#60a5fa"/>
+            <circle cx="224" cy="201" r="2" fill="#60a5fa"/>
+            <circle cx="224" cy="219" r="2" fill="#60a5fa"/>
+            <circle cx="210" cy="228" r="2" fill="#60a5fa"/>
+            <circle cx="196" cy="219" r="2" fill="#60a5fa"/>
+            <circle cx="196" cy="201" r="2" fill="#60a5fa"/>
+          </svg>
           <span className="text-sm font-bold tracking-tight text-foreground">
-            IronSight
+            IRONSIGHT
           </span>
-          <span className="ml-2 text-[9px] font-mono uppercase tracking-widest text-brand">
+          <span className="ml-auto text-[9px] font-mono uppercase tracking-widest text-brand">
             {effectiveView}
           </span>
         </div>

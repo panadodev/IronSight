@@ -109,9 +109,36 @@ function LoginPage() {
     <div className="min-h-screen bg-background text-foreground px-4 py-10">
       <div className="mx-auto max-w-4xl grid gap-6 lg:grid-cols-[1.15fr_0.85fr] items-start">
         <section className="space-y-4">
-          <p className="text-[11px] uppercase tracking-[0.28em] text-brand">
-            IronSight Panel
-          </p>
+          <svg viewBox="80 80 260 260" width="48" height="48" aria-label="IronSight">
+            <circle cx="210" cy="210" r="130" strokeDasharray="4 6" fill="none" stroke="#3d3d3a" strokeWidth="0.8" opacity="0.35"/>
+            <polyline points="110,120 110,100 130,100" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <polyline points="290,100 310,100 310,120" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <polyline points="110,300 110,320 130,320" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <polyline points="290,320 310,320 310,300" fill="none" stroke="#60a5fa" strokeWidth="2"/>
+            <circle cx="210" cy="210" r="72" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <circle cx="210" cy="210" r="38" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="210" y1="100" x2="210" y2="168" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="210" y1="252" x2="210" y2="320" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="100" y1="210" x2="168" y2="210" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="252" y1="210" x2="320" y2="210" stroke="#60a5fa" strokeWidth="1.5"/>
+            <line x1="210" y1="134" x2="210" y2="143" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="210" y1="277" x2="210" y2="286" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="124" y1="210" x2="133" y2="210" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="287" y1="210" x2="296" y2="210" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="159" y1="159" x2="165" y2="165" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="261" y1="159" x2="255" y2="165" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="159" y1="261" x2="165" y2="255" stroke="#60a5fa" strokeWidth="2"/>
+            <line x1="261" y1="261" x2="255" y2="255" stroke="#60a5fa" strokeWidth="2"/>
+            <polygon points="210,192 224,201 224,219 210,228 196,219 196,201" fill="#60a5fa" fillOpacity="0.15"/>
+            <polygon points="210,192 224,201 224,219 210,228 196,219 196,201" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <circle cx="210" cy="210" r="4" fill="#60a5fa"/>
+            <circle cx="210" cy="192" r="2" fill="#60a5fa"/>
+            <circle cx="224" cy="201" r="2" fill="#60a5fa"/>
+            <circle cx="224" cy="219" r="2" fill="#60a5fa"/>
+            <circle cx="210" cy="228" r="2" fill="#60a5fa"/>
+            <circle cx="196" cy="219" r="2" fill="#60a5fa"/>
+            <circle cx="196" cy="201" r="2" fill="#60a5fa"/>
+          </svg>
           <h1 className="text-4xl font-semibold leading-tight">
             Sign in with verified Discord and Steam identity.
           </h1>
