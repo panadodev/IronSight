@@ -54,14 +54,16 @@ function PrivacyPage() {
             </p>
             <p>
               IronSight operates as a multi-tenant platform. Each community (an
-              "organization") manages its own staff and player data independently.
-              Data belonging to one organization is never shared with or visible
-              to another.
+              "organization") manages its own staff and player data
+              independently. Data belonging to one organization is never shared
+              with or visible to another.
             </p>
           </Section>
 
           <Section title="Information we collect">
-            <p className="font-medium text-foreground text-[13px]">Account &amp; identity</p>
+            <p className="font-medium text-foreground text-[13px]">
+              Account &amp; identity
+            </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
                 Steam ID and public Steam profile information (display name) —
@@ -77,7 +79,9 @@ function PrivacyPage() {
               </li>
             </ul>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">Support &amp; moderation data</p>
+            <p className="font-medium text-foreground text-[13px] pt-2">
+              Support &amp; moderation data
+            </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
                 Ticket content — descriptions, evidence links, and messages
@@ -97,19 +101,25 @@ function PrivacyPage() {
               </li>
             </ul>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">Discord data</p>
+            <p className="font-medium text-foreground text-[13px] pt-2">
+              Discord data
+            </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
                 Discord user ID and username — collected at login via OAuth and
-                stored as part of your staff account.
+                stored as part of your staff account indefinitely.
               </li>
               <li>
                 Discord messages — organizations may configure IronSight to
                 monitor designated channels in their Discord server. When this
-                integration is active, messages sent in those channels (including
-                message content, author ID, username, timestamp, and any
-                attachments) may be recorded and stored as moderation data. Only
-                channels explicitly configured by an organization owner are
+                integration is active, messages sent in those channels
+                (including message content, author ID, username, timestamp, and
+                any attachments) are recorded and stored as moderation data.{" "}
+                <span className="font-medium text-foreground">
+                  Message content is automatically and permanently deleted after
+                  30 days.
+                </span>{" "}
+                Only channels explicitly configured by an organization owner are
                 monitored. Direct messages and channels outside the configured
                 scope are never read or stored.
               </li>
@@ -118,15 +128,26 @@ function PrivacyPage() {
                 linked Discord server may be checked to verify staff eligibility
                 or access level within an organization.
               </li>
+              <li>
+                Discord moderation actions — timeouts, voice mutes, kicks, and
+                bans issued through the panel are logged in the organization's
+                audit trail alongside the responsible staff member and reason.
+                These records are retained indefinitely as part of the
+                moderation history.
+              </li>
             </ul>
             <p>
-              By participating in a Discord server that has enabled IronSight
-              integration, you acknowledge that messages sent in monitored
-              channels may be recorded and used for moderation purposes by that
-              server's staff team.
+              When you join a Discord server that has IronSight integration
+              enabled, the IronSight bot will send you a direct message
+              notifying you of this policy. By remaining in a server with the
+              integration active, you acknowledge that messages sent in
+              monitored channels may be recorded and used for moderation
+              purposes by that server's staff team.
             </p>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">Technical &amp; session data</p>
+            <p className="font-medium text-foreground text-[13px] pt-2">
+              Technical &amp; session data
+            </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
                 IP address — collected at login and on certain API requests for
@@ -174,12 +195,12 @@ function PrivacyPage() {
 
           <Section title="Data access controls">
             <p>
-              Access to player and moderation data is strictly role-based.
-              Every staff account belongs to an organization and is assigned a
-              rank. Access is enforced server-side on every request — it cannot
-              be bypassed by the client.
+              Access to player and moderation data is strictly role-based. Every
+              staff account belongs to an organization and is assigned a rank.
+              Access is enforced server-side on every request — it cannot be
+              bypassed by the client.
             </p>
-          
+
             <p>
               Internal staff notes, restricted tickets, and certain moderation
               records are hidden from lower-ranked staff members. Visibility
@@ -204,8 +225,10 @@ function PrivacyPage() {
                 Web API using a player's Steam ID.
               </li>
               <li>
-                <span className="font-medium text-foreground">Player data providers</span> —
-                Organizations may enable integrations with third-party game
+                <span className="font-medium text-foreground">
+                  Player data providers
+                </span>{" "}
+                — Organizations may enable integrations with third-party game
                 server data services (configured per-organization) to enrich
                 player lookups with game history and prior ban data. API keys
                 are stored encrypted and are never shared between organizations.
@@ -213,14 +236,14 @@ function PrivacyPage() {
               <li>
                 <span className="font-medium text-foreground">Discord</span> —
                 Used for staff authentication via OAuth and, where enabled by an
-                organization, for message monitoring and server integration. When
-                a Discord integration is active, IronSight reads messages from
-                configured channels using a bot operating under Discord's API
-                terms. Data received from Discord is processed and stored within
-                IronSight's infrastructure; it is not re-shared with other
-                third parties. IronSight does not send messages or take actions
-                in Discord on behalf of users without explicit configuration by
-                an organization owner.
+                organization, for message monitoring and server integration.
+                When a Discord integration is active, IronSight reads messages
+                from configured channels using a bot operating under Discord's
+                API terms. Data received from Discord is processed and stored
+                within IronSight's infrastructure; it is not re-shared with
+                other third parties. IronSight does not send messages or take
+                actions in Discord on behalf of users without explicit
+                configuration by an organization owner.
               </li>
             </ul>
             <p>
@@ -231,13 +254,24 @@ function PrivacyPage() {
           </Section>
 
           <Section title="Data retention">
+            <p>Player data is stored permanently.</p>
             <p>
-              Player data is stored permanently.
+              Tickets, moderation records, ban history, and Discord moderation
+              actions (timeouts, kicks, bans) are retained indefinitely while
+              the organization's account is active, as they form a continuous
+              audit trail necessary for fair moderation.
             </p>
             <p>
-              Tickets, moderation records, and ban history are retained
-              indefinitely while the organization's account is active, as they
-              form a continuous audit trail necessary for fair moderation.
+              Discord message content is retained for a maximum of{" "}
+              <span className="font-medium text-foreground">30 days</span> and
+              is then permanently and automatically deleted. This applies to all
+              message content, author information, and attachments captured
+              through the Discord channel monitoring integration.
+            </p>
+            <p>
+              Discord account identifiers (user ID, username) linked to a staff
+              account are retained for as long as the staff account exists
+              within an organization.
             </p>
             <p>
               Session data is cleared on logout and automatically expires after
@@ -254,19 +288,19 @@ function PrivacyPage() {
               moderation data.
             </p>
             <p>
-              We do not disclose evidence or any associated player information to
-              external parties. This includes the subject of the investigation,
-              third-party services, or other players. Evidence is accessible only
-              to staff members with the appropriate rank within the organization
-              that collected it.
+              We do not disclose evidence or any associated player information
+              to external parties. This includes the subject of the
+              investigation, third-party services, or other players. Evidence is
+              accessible only to staff members with the appropriate rank within
+              the organization that collected it.
             </p>
             <p>
               Players who are the subject of a moderation action do not have an
               automatic right to inspect the evidence held against them. Staff
               teams are not obligated to reveal the source, nature, or contents
               of evidence as part of a ban or appeal process. This policy exists
-              to protect reporters from retaliation and to preserve the integrity
-              of the moderation process.
+              to protect reporters from retaliation and to preserve the
+              integrity of the moderation process.
             </p>
           </Section>
 
@@ -282,11 +316,10 @@ function PrivacyPage() {
             </p>
             <p>
               Staff authentication requires both a Discord account and a Steam
-              account to be linked. This two-factor identity requirement prevents
-              a single compromised account from gaining panel access.
+              account to be linked. This two-factor identity requirement
+              prevents a single compromised account from gaining panel access.
             </p>
           </Section>
-
         </div>
       </main>
     </div>

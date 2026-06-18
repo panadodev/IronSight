@@ -47,14 +47,15 @@ function TosPage() {
         <div className="space-y-8">
           <Section title="Acceptance of terms">
             <p>
-              By accessing or using IronSight — whether as a staff member through
-              the panel or as a player through the public portal — you agree to
-              be bound by these Terms of Service. If you do not agree, do not use
-              the platform.
+              By accessing or using IronSight — whether as a staff member
+              through the panel or as a player through the public portal — you
+              agree to be bound by these Terms of Service. If you do not agree,
+              do not use the platform.
             </p>
             <p>
-              These terms apply to all users of IronSight, including organization
-              owners, staff members, and players who submit support tickets.
+              These terms apply to all users of IronSight, including
+              organization owners, staff members, and players who submit support
+              tickets.
             </p>
           </Section>
 
@@ -80,12 +81,10 @@ function TosPage() {
             <p>
               Access to the staff panel requires authentication via both a
               Discord account and a Steam account. You are responsible for
-              maintaining the security of your linked accounts and must not share
-              access with any other person.
+              maintaining the security of your linked accounts and must not
+              share access with any other person.
             </p>
-            <p>
-              As a staff member, you agree to:
-            </p>
+            <p>As a staff member, you agree to:</p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
                 Use your access only for legitimate moderation and support
@@ -140,8 +139,8 @@ function TosPage() {
             <p>The following are prohibited for all users:</p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
-                Attempting to gain unauthorized access to the staff panel or
-                to data belonging to any organization.
+                Attempting to gain unauthorized access to the staff panel or to
+                data belonging to any organization.
               </li>
               <li>
                 Probing, scanning, or testing the security of the platform
@@ -170,9 +169,9 @@ function TosPage() {
               intervene in or reverse any moderation action.
             </p>
             <p>
-              If you believe a moderation action was unfair, your recourse is
-              to contact the organization directly through their player portal
-              or designated appeal process.
+              If you believe a moderation action was unfair, your recourse is to
+              contact the organization directly through their player portal or
+              designated appeal process.
             </p>
           </Section>
 
@@ -198,8 +197,8 @@ function TosPage() {
               harm resulting from platform downtime or errors.
             </p>
             <p>
-              IronSight is not liable for the conduct of any organization or
-              its staff members, or for any moderation decision made using the
+              IronSight is not liable for the conduct of any organization or its
+              staff members, or for any moderation decision made using the
               platform. Each organization is solely responsible for the actions
               of its staff team.
             </p>

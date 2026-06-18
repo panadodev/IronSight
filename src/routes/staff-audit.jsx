@@ -15,15 +15,24 @@ const Route = createFileRoute("/staff-audit")({
 });
 
 const ACTION_META = {
-  ORG_MEMBER_ADDED:          { label: "Member added",      color: "hsl(160 70% 55%)" },
-  ORG_MEMBER_REMOVED:        { label: "Member removed",    color: "hsl(0 75% 60%)"   },
-  ORG_ADMIN_GRANTED:         { label: "Admin granted",     color: "hsl(45 90% 60%)"  },
-  ORG_MEMBER_TEAM_CHANGED:   { label: "Team changed",      color: "hsl(30 80% 60%)"  },
-  ORG_MEMBER_VIEW_ACCESSED:  { label: "Member viewed",     color: "hsl(280 70% 65%)" },
-  ROLE_CREATED:              { label: "Role created",      color: "hsl(210 80% 60%)" },
-  ROLE_DELETED:              { label: "Role deleted",      color: "hsl(0 60% 55%)"   },
-  PTERODACTYL_API_KEY_SET:   { label: "Ptero key set",     color: "hsl(170 60% 50%)" },
-  PTERODACTYL_API_KEY_REMOVED: { label: "Ptero key removed", color: "hsl(30 60% 50%)" },
+  ORG_MEMBER_ADDED: { label: "Member added", color: "hsl(160 70% 55%)" },
+  ORG_MEMBER_REMOVED: { label: "Member removed", color: "hsl(0 75% 60%)" },
+  ORG_ADMIN_GRANTED: { label: "Admin granted", color: "hsl(45 90% 60%)" },
+  ORG_MEMBER_TEAM_CHANGED: { label: "Team changed", color: "hsl(30 80% 60%)" },
+  ORG_MEMBER_VIEW_ACCESSED: {
+    label: "Member viewed",
+    color: "hsl(280 70% 65%)",
+  },
+  ROLE_CREATED: { label: "Role created", color: "hsl(210 80% 60%)" },
+  ROLE_DELETED: { label: "Role deleted", color: "hsl(0 60% 55%)" },
+  PTERODACTYL_API_KEY_SET: {
+    label: "Ptero key set",
+    color: "hsl(170 60% 50%)",
+  },
+  PTERODACTYL_API_KEY_REMOVED: {
+    label: "Ptero key removed",
+    color: "hsl(30 60% 50%)",
+  },
 };
 
 function actionMeta(type) {
@@ -116,12 +125,7 @@ function ActivityChart({ days }) {
           </text>
         ) : null,
       )}
-      <path
-        d={pathD}
-        fill="none"
-        stroke="hsl(210 80% 60%)"
-        strokeWidth={1.5}
-      />
+      <path d={pathD} fill="none" stroke="hsl(210 80% 60%)" strokeWidth={1.5} />
       {days.map((v, i) => {
         const x = padL + stepX * i;
         const y = padT + innerH - (v / max) * innerH;
@@ -226,7 +230,8 @@ function StaffAuditPage() {
 
   const actionTypes = useMemo(() => {
     const counts = {};
-    for (const l of logs) counts[l.actionType] = (counts[l.actionType] ?? 0) + 1;
+    for (const l of logs)
+      counts[l.actionType] = (counts[l.actionType] ?? 0) + 1;
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .map(([t]) => t);
@@ -234,7 +239,9 @@ function StaffAuditPage() {
 
   const filteredLogs = useMemo(
     () =>
-      typeFilter === "all" ? logs : logs.filter((l) => l.actionType === typeFilter),
+      typeFilter === "all"
+        ? logs
+        : logs.filter((l) => l.actionType === typeFilter),
     [logs, typeFilter],
   );
 
@@ -313,20 +320,21 @@ function StaffAuditPage() {
                   </h2>
 
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {[["all", "All"], ...actionTypes.map((t) => [t, actionMeta(t).label])].map(
-                      ([k, label]) => (
-                        <button
-                          key={k}
-                          onClick={() => {
-                            setTypeFilter(k);
-                            setVisibleCount(PAGE_SIZE);
-                          }}
-                          className={`px-2 py-1 rounded text-[10px] font-mono uppercase ring-1 transition-colors ${typeFilter === k ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
-                        >
-                          {label}
-                        </button>
-                      ),
-                    )}
+                    {[
+                      ["all", "All"],
+                      ...actionTypes.map((t) => [t, actionMeta(t).label]),
+                    ].map(([k, label]) => (
+                      <button
+                        key={k}
+                        onClick={() => {
+                          setTypeFilter(k);
+                          setVisibleCount(PAGE_SIZE);
+                        }}
+                        className={`px-2 py-1 rounded text-[10px] font-mono uppercase ring-1 transition-colors ${typeFilter === k ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
 
                   {fetchError && (
@@ -399,14 +407,12 @@ function StaffAuditPage() {
 
                       {visibleCount < filteredLogs.length && (
                         <button
-                          onClick={() =>
-                            setVisibleCount((n) => n + PAGE_SIZE)
-                          }
+                          onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
                           className="mt-3 flex items-center gap-1 text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
                         >
                           <ChevronDown className="size-3" />
-                          Load more (
-                          {filteredLogs.length - visibleCount} remaining)
+                          Load more ({filteredLogs.length - visibleCount}{" "}
+                          remaining)
                         </button>
                       )}
 

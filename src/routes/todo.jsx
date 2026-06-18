@@ -245,9 +245,7 @@ function TodoPage() {
 
   function toggleBoardOrg(orgId) {
     setBoardOrgIds((cur) =>
-      cur.includes(orgId)
-        ? cur.filter((id) => id !== orgId)
-        : [...cur, orgId],
+      cur.includes(orgId) ? cur.filter((id) => id !== orgId) : [...cur, orgId],
     );
   }
 
@@ -533,8 +531,7 @@ function TodoPage() {
                   setReassignPending({
                     todo: draggedTodo,
                     newAssigneeDiscordId: staffDiscordId,
-                    newAssigneeName:
-                      newAssignee?.username ?? staffDiscordId,
+                    newAssigneeName: newAssignee?.username ?? staffDiscordId,
                   });
                 }
                 setDraggedTodo(null);
@@ -852,7 +849,9 @@ function BoardView({
             key={staff.discordId}
             className={
               "w-[280px] shrink-0 rounded-md ring-1 flex flex-col max-h-[calc(100vh-200px)] transition-colors " +
-              (isOver ? "ring-brand/50 bg-brand/5" : "ring-border bg-surface/40")
+              (isOver
+                ? "ring-brand/50 bg-brand/5"
+                : "ring-border bg-surface/40")
             }
             onDragOver={(e) => onDragOver(e, staff.discordId)}
             onDragLeave={onDragLeave}
@@ -929,7 +928,14 @@ function BoardView({
   );
 }
 
-function TaskCard({ todo, orgName, canWrite, onDragStart, onClick, onQuickComplete }) {
+function TaskCard({
+  todo,
+  orgName,
+  canWrite,
+  onDragStart,
+  onClick,
+  onQuickComplete,
+}) {
   const meta = metaFor(todo.status);
   return (
     <button
@@ -939,7 +945,9 @@ function TaskCard({ todo, orgName, canWrite, onDragStart, onClick, onQuickComple
       className={`group w-full text-left rounded-md ring-1 p-2.5 space-y-1.5 transition-colors ${meta.card}`}
     >
       <div className="flex items-start gap-1.5">
-        <span className="text-xs font-medium leading-snug flex-1">{todo.title}</span>
+        <span className="text-xs font-medium leading-snug flex-1">
+          {todo.title}
+        </span>
         {canWrite && (
           <button
             onClick={onQuickComplete}

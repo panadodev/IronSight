@@ -89,7 +89,8 @@ function teamForType(type) {
 
 function mapDbTicketToUi(row) {
   const type = inferType(row.ticket_type_name);
-  const reporterId = row.created_by_steam_id || row.created_by || `u_${row.ticket_id}`;
+  const reporterId =
+    row.created_by_steam_id || row.created_by || `u_${row.ticket_id}`;
   return {
     id: `db-${row.ticket_id}`,
     dbTicketId: Number(row.ticket_id),
@@ -163,7 +164,9 @@ function StaffDashboard() {
   const ticketOrgShort = (ticket) => {
     const orgId = ticketOrgId(ticket);
     const fromAuth = orgs.find((o) => o.id === orgId)?.short;
-    return fromAuth || ORG_SHORT[orgId] || String(orgId).slice(0, 3).toUpperCase();
+    return (
+      fromAuth || ORG_SHORT[orgId] || String(orgId).slice(0, 3).toUpperCase()
+    );
   };
 
   useEffect(() => {
@@ -174,9 +177,12 @@ function StaffDashboard() {
       try {
         const batches = await Promise.all(
           selectedOrgIds.map(async (orgId) => {
-            const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=100`, {
-              credentials: "include",
-            });
+            const res = await fetch(
+              `/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=100`,
+              {
+                credentials: "include",
+              },
+            );
             if (!res.ok) return [];
             const body = await res.json();
             return Array.isArray(body?.tickets) ? body.tickets : [];
@@ -299,10 +305,13 @@ function StaffDashboard() {
             selected.createdByUserId && m.userId === selected.createdByUserId
               ? "reporter"
               : "staff",
-          timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString(
+            [],
+            {
+              hour: "2-digit",
+              minute: "2-digit",
+            },
+          ),
           body: m.message,
         }));
         setTickets((all) =>
@@ -546,12 +555,15 @@ function StaffDashboard() {
     if (selected.dbTicketId) {
       try {
         const message = draft.trim();
-        const sendRes = await fetch(`/api/tickets/${selected.dbTicketId}/messages`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message }),
-        });
+        const sendRes = await fetch(
+          `/api/tickets/${selected.dbTicketId}/messages`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ message }),
+          },
+        );
         if (!sendRes.ok) return;
 
         if (waitForResponse) {
@@ -575,10 +587,13 @@ function StaffDashboard() {
               selected.createdByUserId && m.userId === selected.createdByUserId
                 ? "reporter"
                 : "staff",
-            timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+            timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString(
+              [],
+              {
+                hour: "2-digit",
+                minute: "2-digit",
+              },
+            ),
             body: m.message,
           }));
           setTickets((all) =>
@@ -586,7 +601,9 @@ function StaffDashboard() {
               ticket.id === selected.id
                 ? {
                     ...ticket,
-                    status: waitForResponse ? "waiting_response" : ticket.status,
+                    status: waitForResponse
+                      ? "waiting_response"
+                      : ticket.status,
                     messages,
                   }
                 : ticket,
@@ -659,7 +676,9 @@ function StaffDashboard() {
             <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
               IronSight Panel
             </p>
-            <h1 className="text-2xl font-semibold mb-2">No organization access</h1>
+            <h1 className="text-2xl font-semibold mb-2">
+              No organization access
+            </h1>
             <p className="text-sm text-muted-foreground mb-2">
               Your account is not a member of any organization. Contact an
               organization admin to be added to their server's staff panel.

@@ -3090,17 +3090,17 @@ function ServersTab({ orgId }) {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setRotateKeyConfirm(null)}
-              >
+              <Button variant="ghost" onClick={() => setRotateKeyConfirm(null)}>
                 Cancel
               </Button>
               <Button
                 variant="destructive"
                 disabled={rotatingKey === rotateKeyConfirm.serverId}
                 onClick={() => {
-                  rotateKey(rotateKeyConfirm.serverId, rotateKeyConfirm.serverName);
+                  rotateKey(
+                    rotateKeyConfirm.serverId,
+                    rotateKeyConfirm.serverName,
+                  );
                   setRotateKeyConfirm(null);
                 }}
               >

@@ -85,6 +85,7 @@ const env = {
   ),
   pterodactylEncryptionSecret:
     process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
+  discordBotToken: process.env.DISCORD_BOT_TOKEN,
 };
 
 if (!env.databaseUrl) {
@@ -149,7 +150,10 @@ function getPterodactylEncryptionKey() {
   const secret = String(env.pterodactylEncryptionSecret ?? "").trim();
   if (!secret) return null;
   // Legacy SHA-256 key — used only for decrypting v1-prefixed ciphertexts.
-  pterodactylEncryptionKey = crypto.createHash("sha256").update(secret).digest();
+  pterodactylEncryptionKey = crypto
+    .createHash("sha256")
+    .update(secret)
+    .digest();
   return pterodactylEncryptionKey;
 }
 
@@ -1275,6 +1279,82 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS idx_org_player_sightings_org_id
      ON org_player_sightings(org_id)`,
   );
+
+  // ── Discord Moderation ────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discord_messages (
+      message_id TEXT NOT NULL,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      guild_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      channel_name TEXT NOT NULL DEFAULT '',
+      author_discord_id TEXT NOT NULL,
+      author_username TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      attachments JSONB NOT NULL DEFAULT '[]',
+      discord_created_at TIMESTAMPTZ NOT NULL,
+      indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (org_id, message_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_discord_messages_org_channel
+     ON discord_messages(org_id, channel_id, discord_created_at DESC)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_discord_messages_author
+     ON discord_messages(org_id, author_discord_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_discord_messages_indexed_at
+     ON discord_messages(indexed_at)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discord_mod_log (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      guild_id TEXT NOT NULL,
+      target_discord_id TEXT NOT NULL,
+      target_username TEXT NOT NULL DEFAULT '',
+      action_type TEXT NOT NULL,
+      reason TEXT,
+      duration_seconds INTEGER,
+      expires_at TIMESTAMPTZ,
+      actor_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_discord_mod_log_org_id
+     ON discord_mod_log(org_id, created_at DESC)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_discord_mod_log_target
+     ON discord_mod_log(org_id, target_discord_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discord_channel_sync (
+      channel_id TEXT NOT NULL,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      guild_id TEXT NOT NULL,
+      channel_name TEXT NOT NULL DEFAULT '',
+      last_message_id TEXT,
+      synced_at TIMESTAMPTZ,
+      PRIMARY KEY (org_id, channel_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discord_member_notify_cursor (
+      org_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      last_checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (org_id, guild_id)
+    )
+  `);
 }
 
 async function migratePterodactylApiKeys() {
@@ -1868,6 +1948,22 @@ async function getUserByDiscordId(discordId) {
     discordId: String(row.discord_id),
     steamId: row.steam_id == null ? null : String(row.steam_id),
   };
+}
+
+async function fetchDiscordGuildMember(guildId, discordId) {
+  if (!env.discordBotToken || !guildId) return null;
+  try {
+    const res = await fetch(
+      `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
+      { headers: { Authorization: `Bot ${env.discordBotToken}` } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    // Prefer server nickname, then global_name, then username
+    return data.nick || data.user?.global_name || data.user?.username || null;
+  } catch {
+    return null;
+  }
 }
 
 async function getTodoRowsForOrgs(orgIds) {
@@ -2797,7 +2893,7 @@ async function handleAddOrgMember(request, orgId) {
   }
 
   const orgRes = await pool.query(
-    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -2809,15 +2905,16 @@ async function handleAddOrgMember(request, orgId) {
   let wasNewUser = false;
   if (!member) {
     const userId = crypto.randomUUID();
-    const fallbackName = username || `user_${discordId.slice(-6)}`;
+    const guildUsername = await fetchDiscordGuildMember(org.guild_id, discordId);
+    const resolvedName = username || guildUsername || `user_${discordId.slice(-6)}`;
     await pool.query(
       `INSERT INTO users (user_id, username, discord_id)
        VALUES ($1, $2, $3)`,
-      [userId, fallbackName, discordId],
+      [userId, resolvedName, discordId],
     );
     member = {
       userId,
-      username: fallbackName,
+      username: resolvedName,
       discordId,
       steamId: null,
     };
@@ -6560,7 +6657,10 @@ function executeRconCommand(rconUrl, command) {
     ws.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(String(event.data));
-        if (msg.Identifier === requestId || (commandSent && msg.Identifier === 0)) {
+        if (
+          msg.Identifier === requestId ||
+          (commandSent && msg.Identifier === 0)
+        ) {
           try {
             ws.close(1000, "Done");
           } catch {
@@ -7647,7 +7747,10 @@ async function handleCreateBan(request, orgId) {
     identifierType === "ip" &&
     !/^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/.test(identifier.trim())
   ) {
-    return json({ error: "identifier must be a valid IPv4 or IPv6 address" }, 400);
+    return json(
+      { error: "identifier must be a valid IPv4 or IPv6 address" },
+      400,
+    );
   }
   if (!["ban", "mute"].includes(actionType)) {
     return json({ error: "actionType must be 'ban' or 'mute'" }, 400);
@@ -7922,8 +8025,12 @@ async function handleMuteCheck(request) {
   }
 
   const row = rows[0];
-  const expiresAt = row.expires_at ? new Date(row.expires_at).toISOString() : null;
-  const expiresUnix = row.expires_at ? Math.floor(new Date(row.expires_at).getTime() / 1000) : null;
+  const expiresAt = row.expires_at
+    ? new Date(row.expires_at).toISOString()
+    : null;
+  const expiresUnix = row.expires_at
+    ? Math.floor(new Date(row.expires_at).getTime() / 1000)
+    : null;
 
   return json({
     muted: true,
@@ -8067,23 +8174,38 @@ async function findBMIdBySteamId(steamId, orgId) {
   }
 
   const payload = JSON.stringify({
-    data: [{ type: "identifier", attributes: { type: "steamID", identifier: String(steamId) } }],
+    data: [
+      {
+        type: "identifier",
+        attributes: { type: "steamID", identifier: String(steamId) },
+      },
+    ],
   });
 
-  const resp = await bmFetch(orgId, "https://api.battlemetrics.com/players/match", {
-    method: "POST",
-    body: payload,
-    headers: { "Content-Type": "application/json" },
-  });
+  const resp = await bmFetch(
+    orgId,
+    "https://api.battlemetrics.com/players/match",
+    {
+      method: "POST",
+      body: payload,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 
   if (!resp) {
-    console.warn(`[player:bm] all BM keys for org=${orgId} are rate-limited or failed`);
+    console.warn(
+      `[player:bm] all BM keys for org=${orgId} are rate-limited or failed`,
+    );
     return null;
   }
   if (!resp.ok) {
     let body = "";
-    try { body = await resp.text(); } catch {}
-    console.warn(`[player:bm] BM API returned ${resp.status} for steamId=${steamId}: ${body.slice(0, 200)}`);
+    try {
+      body = await resp.text();
+    } catch {}
+    console.warn(
+      `[player:bm] BM API returned ${resp.status} for steamId=${steamId}: ${body.slice(0, 200)}`,
+    );
     return null;
   }
 
@@ -9219,7 +9341,8 @@ async function handleIngestPlayerConnect(request) {
   const playerName = body?.player_name ? String(body.player_name).trim() : null;
 
   if (!steamId) return json({ error: "steam_id is required" }, 400);
-  if (!/^765611\d{11}$/.test(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+  if (!/^765611\d{11}$/.test(steamId))
+    return json({ error: "Invalid Steam ID" }, 400);
 
   // Record the IP immediately with server context
   if (ip) {
@@ -9351,9 +9474,13 @@ async function handleRefreshPlayer(request, steamId) {
     return json({ error: "Forbidden: not a member of this org" }, 403);
 
   // Clear Redis so refreshPlayerData can acquire the lock and write fresh data
-  try { await redis.del(playerRedisKey(steamId)); } catch {}
+  try {
+    await redis.del(playerRedisKey(steamId));
+  } catch {}
   await refreshPlayerData(steamId, orgId);
-  const fresh = await getPlayerDataFromRedis(steamId) ?? await getPlayerCacheData(steamId);
+  const fresh =
+    (await getPlayerDataFromRedis(steamId)) ??
+    (await getPlayerCacheData(steamId));
   if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
   return json(fresh);
 }
@@ -9402,7 +9529,10 @@ async function handleGetOrgPlayerList(request, orgId) {
         }
         const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
         try {
-          const { response } = await executeRconCommand(rconUrl, "global.playerlist");
+          const { response } = await executeRconCommand(
+            rconUrl,
+            "global.playerlist",
+          );
           let rawPlayers;
           try {
             rawPlayers = JSON.parse(response);
@@ -9547,7 +9677,7 @@ async function handleGetOrgPlayerList(request, orgId) {
 
     const h = totalHours === 0 ? 1 : totalHours;
     const susScore =
-      Math.round(((1 / h) * Math.pow(kd, reportCount) * 10) * 10) / 10;
+      Math.round((1 / h) * Math.pow(kd, reportCount) * 10 * 10) / 10;
 
     return {
       steamId: cache.steam_id,
@@ -9778,6 +9908,42 @@ async function _handleApiRequest(request) {
     );
     if (orgAuditLogsMatch && request.method === "GET") {
       return handleGetStaffAuditLog(request, orgAuditLogsMatch[1]);
+    }
+
+    // Discord moderation routes
+    const discordSyncMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/sync$/,
+    );
+    if (discordSyncMatch && request.method === "POST") {
+      return handleDiscordSync(request, discordSyncMatch[1]);
+    }
+
+    const discordChannelsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/channels$/,
+    );
+    if (discordChannelsMatch && request.method === "GET") {
+      return handleGetDiscordChannels(request, discordChannelsMatch[1]);
+    }
+
+    const discordMessagesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/messages$/,
+    );
+    if (discordMessagesMatch && request.method === "GET") {
+      return handleGetDiscordMessages(request, discordMessagesMatch[1]);
+    }
+
+    const discordModMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/mod$/,
+    );
+    if (discordModMatch && request.method === "POST") {
+      return handleDiscordModAction(request, discordModMatch[1]);
+    }
+
+    const discordModLogMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/mod-log$/,
+    );
+    if (discordModLogMatch && request.method === "GET") {
+      return handleGetDiscordModLog(request, discordModLogMatch[1]);
     }
 
     const orgTicketTypesMatch = pathname.match(
@@ -10129,6 +10295,491 @@ async function _handleApiRequest(request) {
       return handleRefreshPlayer(request, playerRefreshMatch[1]);
 
     return json({ error: "Not found" }, 404);
+  });
+}
+
+// ── Discord moderation helpers ────────────────────────────────────────────────
+
+const DISCORD_API = "https://discord.com/api/v10";
+
+function discordBotHeaders() {
+  return {
+    Authorization: `Bot ${env.discordBotToken}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function discordFetch(path, opts = {}) {
+  return fetch(`${DISCORD_API}${path}`, {
+    ...opts,
+    headers: { ...discordBotHeaders(), ...(opts.headers ?? {}) },
+  });
+}
+
+async function getGuildTextChannels(guildId) {
+  if (!env.discordBotToken || !guildId) return [];
+  try {
+    const res = await discordFetch(`/guilds/${guildId}/channels`);
+    if (!res.ok) return [];
+    const channels = await res.json();
+    // type 0 = GUILD_TEXT, type 5 = GUILD_ANNOUNCEMENT
+    return channels.filter((c) => c.type === 0 || c.type === 5);
+  } catch {
+    return [];
+  }
+}
+
+async function syncChannelMessages(orgId, guildId, channelId, channelName) {
+  const syncRes = await pool.query(
+    `SELECT last_message_id FROM discord_channel_sync WHERE org_id = $1 AND channel_id = $2`,
+    [orgId, channelId],
+  );
+  const lastMessageId = syncRes.rows[0]?.last_message_id ?? null;
+
+  const params = new URLSearchParams({ limit: "100" });
+  if (lastMessageId) params.set("after", lastMessageId);
+
+  const res = await discordFetch(`/channels/${channelId}/messages?${params}`);
+  if (!res.ok) return 0;
+
+  const messages = await res.json();
+  if (!Array.isArray(messages) || messages.length === 0) return 0;
+
+  for (const msg of messages) {
+    if (!msg.author || msg.author.bot) continue;
+    await pool.query(
+      `INSERT INTO discord_messages
+         (message_id, org_id, guild_id, channel_id, channel_name,
+          author_discord_id, author_username, content, attachments, discord_created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (org_id, message_id) DO NOTHING`,
+      [
+        msg.id,
+        orgId,
+        guildId,
+        channelId,
+        channelName,
+        msg.author.id,
+        msg.author.global_name ?? msg.author.username,
+        msg.content ?? "",
+        JSON.stringify(msg.attachments ?? []),
+        msg.timestamp,
+      ],
+    );
+  }
+
+  // Keep the highest snowflake as last_message_id
+  const newestId = messages.reduce(
+    (max, m) => (BigInt(m.id) > BigInt(max) ? m.id : max),
+    lastMessageId ?? "0",
+  );
+
+  await pool.query(
+    `INSERT INTO discord_channel_sync
+       (org_id, channel_id, guild_id, channel_name, last_message_id, synced_at)
+     VALUES ($1,$2,$3,$4,$5,NOW())
+     ON CONFLICT (org_id, channel_id) DO UPDATE SET
+       last_message_id = EXCLUDED.last_message_id,
+       channel_name = EXCLUDED.channel_name,
+       synced_at = NOW()`,
+    [orgId, channelId, guildId, channelName, newestId],
+  );
+
+  return messages.length;
+}
+
+async function pruneOldDiscordMessages() {
+  await pool.query(
+    `DELETE FROM discord_messages WHERE indexed_at < NOW() - INTERVAL '30 days'`,
+  );
+}
+
+async function sendPrivacyPolicyDM(discordId) {
+  // Open (or retrieve) the DM channel with the user
+  const dmChannelRes = await discordFetch(`/users/@me/channels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient_id: discordId }),
+  });
+  if (!dmChannelRes.ok) return false;
+  const dmChannel = await dmChannelRes.json();
+
+  const message =
+    "👋 **IronSight Notice**\n\n" +
+    "This server uses **IronSight**, a staff moderation panel for Rust game servers. " +
+    "To keep the community safe, staff members may review Discord messages and take moderation actions " +
+    "(timeouts, kicks, bans) through the panel.\n\n" +
+    "**What we collect:** Messages sent in this server are stored for up to 30 days for moderation review, " +
+    "then permanently deleted. Your Discord ID and username are stored as long as you remain a member.\n\n" +
+    "**Your privacy rights:** You can read our full Privacy Policy at https://ironsight.panado.dev/privacy — " +
+    "it explains exactly what data is kept, how it is protected, and how to request deletion.\n\n" +
+    "_If you have questions, contact a server administrator._";
+
+  const msgRes = await discordFetch(`/channels/${dmChannel.id}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: message }),
+  });
+  return msgRes.ok;
+}
+
+async function notifyNewGuildMembers(orgId, guildId) {
+  if (!env.discordBotToken) return;
+
+  const cursorRes = await pool.query(
+    `SELECT last_checked_at FROM discord_member_notify_cursor WHERE org_id = $1 AND guild_id = $2`,
+    [orgId, guildId],
+  );
+
+  const now = new Date();
+
+  if (cursorRes.rows.length === 0) {
+    // First run — record cursor without DMing existing members
+    await pool.query(
+      `INSERT INTO discord_member_notify_cursor (org_id, guild_id, last_checked_at) VALUES ($1, $2, $3)`,
+      [orgId, guildId, now],
+    );
+    return;
+  }
+
+  const lastCheckedAt = new Date(cursorRes.rows[0].last_checked_at);
+
+  const res = await discordFetch(`/guilds/${guildId}/members?limit=1000`);
+  if (!res.ok) return;
+  const members = await res.json();
+  if (!Array.isArray(members)) return;
+
+  for (const m of members) {
+    if (!m.user || m.user.bot) continue;
+    if (new Date(m.joined_at) <= lastCheckedAt) continue;
+    await sendPrivacyPolicyDM(m.user.id);
+  }
+
+  await pool.query(
+    `UPDATE discord_member_notify_cursor SET last_checked_at = $1 WHERE org_id = $2 AND guild_id = $3`,
+    [now, orgId, guildId],
+  );
+}
+
+// ── Discord API route handlers ────────────────────────────────────────────────
+
+async function handleDiscordSync(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  if (!env.discordBotToken) {
+    return json({ error: "DISCORD_BOT_TOKEN is not configured" }, 503);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.guild_id) {
+    return json({ error: "Organization has no guild_id configured" }, 400);
+  }
+
+  await pruneOldDiscordMessages();
+  await notifyNewGuildMembers(orgId, org.guild_id);
+
+  const channels = await getGuildTextChannels(org.guild_id);
+  let totalSynced = 0;
+  const results = [];
+  for (const ch of channels) {
+    const count = await syncChannelMessages(orgId, org.guild_id, ch.id, ch.name);
+    totalSynced += count;
+    results.push({ channelId: ch.id, channelName: ch.name, synced: count });
+  }
+
+  return json({ ok: true, totalSynced, channels: results });
+}
+
+async function handleGetDiscordChannels(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  if (!env.discordBotToken) {
+    return json({ error: "DISCORD_BOT_TOKEN is not configured" }, 503);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.guild_id) return json({ channels: [] });
+
+  const channels = await getGuildTextChannels(org.guild_id);
+
+  const syncRes = await pool.query(
+    `SELECT channel_id, channel_name, synced_at FROM discord_channel_sync WHERE org_id = $1`,
+    [orgId],
+  );
+  const syncMap = Object.fromEntries(syncRes.rows.map((r) => [r.channel_id, r]));
+
+  return json({
+    channels: channels.map((c) => ({
+      id: c.id,
+      name: c.name,
+      syncedAt: syncMap[c.id]?.synced_at ?? null,
+    })),
+  });
+}
+
+async function handleGetDiscordMessages(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  await pruneOldDiscordMessages();
+
+  const url = new URL(request.url);
+  const channelId = url.searchParams.get("channel_id") ?? null;
+  const authorId = url.searchParams.get("author_id") ?? null;
+  const before = url.searchParams.get("before") ?? null;
+  const limit = Math.min(100, parseInt(url.searchParams.get("limit") ?? "50", 10));
+
+  const conditions = ["org_id = $1"];
+  const params = [orgId];
+  let idx = 2;
+
+  if (channelId) {
+    conditions.push(`channel_id = $${idx++}`);
+    params.push(channelId);
+  }
+  if (authorId) {
+    conditions.push(`author_discord_id = $${idx++}`);
+    params.push(authorId);
+  }
+  if (before) {
+    conditions.push(`discord_created_at < $${idx++}`);
+    params.push(before);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT message_id, channel_id, channel_name, author_discord_id, author_username,
+            content, attachments, discord_created_at
+     FROM discord_messages
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY discord_created_at DESC
+     LIMIT $${idx}`,
+    [...params, limit],
+  );
+
+  return json({
+    messages: rows.map((r) => ({
+      id: r.message_id,
+      channelId: r.channel_id,
+      channelName: r.channel_name,
+      authorDiscordId: r.author_discord_id,
+      authorUsername: r.author_username,
+      content: r.content,
+      attachments: r.attachments,
+      createdAt: r.discord_created_at,
+    })),
+  });
+}
+
+async function handleDiscordModAction(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  if (!env.discordBotToken) {
+    return json({ error: "DISCORD_BOT_TOKEN is not configured" }, 503);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const action = String(body?.action ?? "").trim().toLowerCase();
+  const targetDiscordId = String(body?.targetDiscordId ?? "").trim();
+  const targetUsername = String(body?.targetUsername ?? "").trim();
+  const reason = body?.reason ? String(body.reason).trim() : null;
+  const durationSeconds = body?.durationSeconds ? parseInt(body.durationSeconds, 10) : null;
+
+  const VALID_ACTIONS = ["timeout", "untimeout", "mute", "unmute", "kick", "ban", "unban"];
+  if (!VALID_ACTIONS.includes(action)) {
+    return json({ error: `action must be one of: ${VALID_ACTIONS.join(", ")}` }, 400);
+  }
+  if (!targetDiscordId) {
+    return json({ error: "targetDiscordId is required" }, 400);
+  }
+  if (action === "timeout" && (!durationSeconds || durationSeconds <= 0)) {
+    return json({ error: "durationSeconds required for timeout" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.guild_id) {
+    return json({ error: "Organization has no guild_id configured" }, 400);
+  }
+
+  const guildId = org.guild_id;
+  let discordRes;
+
+  switch (action) {
+    case "timeout": {
+      const until = new Date(Date.now() + durationSeconds * 1000).toISOString();
+      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ communication_disabled_until: until }),
+      });
+      break;
+    }
+    case "untimeout": {
+      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ communication_disabled_until: null }),
+      });
+      break;
+    }
+    case "mute": {
+      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ mute: true }),
+      });
+      break;
+    }
+    case "unmute": {
+      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ mute: false }),
+      });
+      break;
+    }
+    case "kick": {
+      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
+        method: "DELETE",
+      });
+      break;
+    }
+    case "ban": {
+      discordRes = await discordFetch(`/guilds/${guildId}/bans/${targetDiscordId}`, {
+        method: "PUT",
+        body: JSON.stringify({ delete_message_seconds: 0 }),
+      });
+      break;
+    }
+    case "unban": {
+      discordRes = await discordFetch(`/guilds/${guildId}/bans/${targetDiscordId}`, {
+        method: "DELETE",
+      });
+      break;
+    }
+  }
+
+  if (discordRes && !discordRes.ok && discordRes.status !== 204) {
+    let discordError = null;
+    try {
+      discordError = await discordRes.json();
+    } catch { /* empty */ }
+    return json(
+      { error: "Discord API error", details: discordError, status: discordRes.status },
+      502,
+    );
+  }
+
+  const expiresAt =
+    action === "timeout" && durationSeconds
+      ? new Date(Date.now() + durationSeconds * 1000).toISOString()
+      : null;
+
+  await pool.query(
+    `INSERT INTO discord_mod_log
+       (org_id, guild_id, target_discord_id, target_username,
+        action_type, reason, duration_seconds, expires_at, actor_user_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [
+      orgId,
+      guildId,
+      targetDiscordId,
+      targetUsername,
+      action.toUpperCase(),
+      reason,
+      durationSeconds,
+      expiresAt,
+      session.userId,
+    ],
+  );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "discord_member",
+    resourceId: targetDiscordId,
+    actionType: `DISCORD_${action.toUpperCase()}`,
+    actionCategory: "discord_moderation",
+    severity: action === "ban" || action === "kick" ? 3 : 2,
+    metadata: { targetDiscordId, targetUsername, reason, durationSeconds },
+  });
+
+  return json({ ok: true, action, targetDiscordId });
+}
+
+async function handleGetDiscordModLog(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const url = new URL(request.url);
+  const limit = Math.min(100, parseInt(url.searchParams.get("limit") ?? "50", 10));
+  const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+  const targetId = url.searchParams.get("target_discord_id") ?? null;
+
+  const conditions = ["ml.org_id = $1"];
+  const params = [orgId];
+  let idx = 2;
+
+  if (targetId) {
+    conditions.push(`ml.target_discord_id = $${idx++}`);
+    params.push(targetId);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT ml.id, ml.target_discord_id, ml.target_username, ml.action_type,
+            ml.reason, ml.duration_seconds, ml.expires_at, ml.created_at,
+            u.username AS actor_username
+     FROM discord_mod_log ml
+     LEFT JOIN users u ON u.user_id = ml.actor_user_id
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY ml.created_at DESC
+     LIMIT $${idx} OFFSET $${idx + 1}`,
+    [...params, limit, offset],
+  );
+
+  return json({
+    entries: rows.map((r) => ({
+      id: r.id,
+      targetDiscordId: r.target_discord_id,
+      targetUsername: r.target_username,
+      actionType: r.action_type,
+      reason: r.reason,
+      durationSeconds: r.duration_seconds,
+      expiresAt: r.expires_at,
+      actorUsername: r.actor_username,
+      createdAt: r.created_at,
+    })),
   });
 }
 

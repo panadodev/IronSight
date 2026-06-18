@@ -9,10 +9,16 @@ const Route = createFileRoute("/manage/tickets")({
 });
 
 function TicketsPage() {
-  const { orgTicketTypes, setOrgTicketTypeEnabled, sessionOrgAdminIds, sessionUser } = useAuth();
+  const {
+    orgTicketTypes,
+    setOrgTicketTypeEnabled,
+    sessionOrgAdminIds,
+    sessionUser,
+  } = useAuth();
   const orgId = useManageOrgId();
   if (!orgId) return null;
-  const isAdmin = Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
+  const isAdmin =
+    Boolean(sessionUser?.isSysAdmin) || sessionOrgAdminIds.includes(orgId);
   const enabled =
     orgTicketTypes[orgId] ??
     TICKET_TYPE_KEYS.reduce((acc, k) => ({ ...acc, [k]: true }), {});

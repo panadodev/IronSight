@@ -76,7 +76,9 @@ function ApiKeysSection({ orgId }) {
     setLoadingKeys(true);
     setKeysError("");
     try {
-      const res = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/external-keys`);
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/external-keys`,
+      );
       if (!res.ok) {
         const body = await safeJson(res);
         setKeysError(body?.error ?? "Failed to load API keys.");
@@ -85,7 +87,8 @@ function ApiKeysSection({ orgId }) {
       const body = await res.json();
       setKeys(body.keys ?? []);
     } catch (err) {
-      if (err?.code !== "AUTH_EXPIRED") setKeysError("Failed to load API keys.");
+      if (err?.code !== "AUTH_EXPIRED")
+        setKeysError("Failed to load API keys.");
     } finally {
       setLoadingKeys(false);
     }
@@ -100,15 +103,18 @@ function ApiKeysSection({ orgId }) {
     setAdding(true);
     setAddError("");
     try {
-      const res = await authFetch(`/api/orgs/${encodeURIComponent(orgId)}/external-keys`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          service: addService,
-          key: addKey.trim(),
-          label: addLabel.trim() || addService,
-        }),
-      });
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/external-keys`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            service: addService,
+            key: addKey.trim(),
+            label: addLabel.trim() || addService,
+          }),
+        },
+      );
       if (!res.ok) {
         const body = await safeJson(res);
         setAddError(body?.error ?? "Failed to add key.");
@@ -299,7 +305,9 @@ function ApiKeysSection({ orgId }) {
         <div className="space-y-1">
           <Label htmlFor="add-label">
             Label{" "}
-            <span className="text-muted-foreground font-normal">(optional)</span>
+            <span className="text-muted-foreground font-normal">
+              (optional)
+            </span>
           </Label>
           <Input
             id="add-label"

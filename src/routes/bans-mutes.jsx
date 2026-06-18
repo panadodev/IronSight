@@ -129,14 +129,10 @@ function BansMutesPage() {
         ),
       ]);
       setBans(
-        banGroups
-          .flat()
-          .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
+        banGroups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
       );
       setMutes(
-        muteGroups
-          .flat()
-          .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
+        muteGroups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
       );
     } finally {
       setLoading(false);
@@ -209,8 +205,8 @@ function BansMutesPage() {
                   Bans / Mutes
                 </h1>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Every active and historical{" "}
-                  {tab === "bans" ? "ban" : "mute"} for your selected orgs.
+                  Every active and historical {tab === "bans" ? "ban" : "mute"}{" "}
+                  for your selected orgs.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -522,7 +518,7 @@ function NewBanDialog({
                 >
                   <span className="font-medium truncate">{r.serverName}</span>
                   <span className="text-[10px] font-mono ml-2 text-right shrink-0">
-                    {r.ok ? (r.response || "OK") : r.error}
+                    {r.ok ? r.response || "OK" : r.error}
                   </span>
                 </div>
               ))}
@@ -671,9 +667,7 @@ function NewBanDialog({
                   <div className="flex gap-3">
                     <button
                       onClick={() =>
-                        setSelectedServerIds(
-                          orgServers.map((s) => s.serverId),
-                        )
+                        setSelectedServerIds(orgServers.map((s) => s.serverId))
                       }
                       className="text-[10px] font-semibold text-brand hover:underline"
                     >
@@ -850,10 +844,7 @@ function EditDialog({ record, onClose, onSaved }) {
             <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
               Reason
             </Label>
-            <Input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">

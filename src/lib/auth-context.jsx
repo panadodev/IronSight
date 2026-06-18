@@ -449,9 +449,9 @@ function AuthProvider({ children }) {
       )
       .map((o) => o.id);
   }, [orgMembers, realStaffId, realIsOwner, orgs]);
-  
+
   const [viewingAs, setViewingAs] = useState(null);
-  
+
   const adminableOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
     const fromMembers = orgs
@@ -466,13 +466,16 @@ function AuthProvider({ children }) {
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
   const isImpersonating = false; // No longer using activeStaffId swapping
-  
+
   const impersonate = async (orgId, memberId) => {
     try {
-      const res = await fetch(`/api/orgs/${orgId}/members/${memberId}/impersonate`, {
-        method: "POST",
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/orgs/${orgId}/members/${memberId}/impersonate`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
       if (!res.ok) {
         console.error("Failed to impersonate member:", res.statusText);
         return { ok: false, error: "Failed to load member data" };
@@ -488,7 +491,7 @@ function AuthProvider({ children }) {
       return { ok: false, error: String(err.message) };
     }
   };
-  
+
   const stopImpersonating = () => setViewingAs(null);
   const addOrgMember = (orgId, input) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
@@ -666,6 +669,5 @@ export {
   BAN_CATEGORY_LABEL,
   TICKET_TYPE_KEYS,
   TICKET_TYPE_LABELS,
-  useAuth
+  useAuth,
 };
-

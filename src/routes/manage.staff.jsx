@@ -38,8 +38,16 @@ const ROLE_PALETTE = [
   { bg: "bg-amber-500/15", text: "text-amber-300", ring: "ring-amber-500/30" },
   { bg: "bg-brand/15", text: "text-brand", ring: "ring-brand/30" },
   { bg: "bg-sky-500/15", text: "text-sky-300", ring: "ring-sky-500/30" },
-  { bg: "bg-emerald-500/15", text: "text-emerald-300", ring: "ring-emerald-500/30" },
-  { bg: "bg-violet-500/15", text: "text-violet-300", ring: "ring-violet-500/30" },
+  {
+    bg: "bg-emerald-500/15",
+    text: "text-emerald-300",
+    ring: "ring-emerald-500/30",
+  },
+  {
+    bg: "bg-violet-500/15",
+    text: "text-violet-300",
+    ring: "ring-violet-500/30",
+  },
   { bg: "bg-rose-500/15", text: "text-rose-300", ring: "ring-rose-500/30" },
 ];
 
@@ -81,8 +89,12 @@ function relativeColor(unixSec) {
 
 function StatCard({ label, value, icon: Icon, colorClass, bgClass }) {
   return (
-    <div className={`relative overflow-hidden rounded-lg ring-1 bg-surface/40 px-4 py-3.5 ${colorClass}`}>
-      <div className={`absolute inset-0 bg-gradient-to-br pointer-events-none ${bgClass}`} />
+    <div
+      className={`relative overflow-hidden rounded-lg ring-1 bg-surface/40 px-4 py-3.5 ${colorClass}`}
+    >
+      <div
+        className={`absolute inset-0 bg-gradient-to-br pointer-events-none ${bgClass}`}
+      />
       <div className="relative flex items-start justify-between">
         <div>
           <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
@@ -97,21 +109,48 @@ function StatCard({ label, value, icon: Icon, colorClass, bgClass }) {
 }
 
 const SORT_COLS = [
-  { key: "name",        label: "Member",      title: "Staff member name" },
-  { key: "role",        label: "Role",        title: "Rank within this org" },
-  { key: "tickets_7d",  label: "7d",          title: "Tickets closed in the last 7 days" },
-  { key: "tickets_30d", label: "30d",         title: "Tickets closed in the last 30 days" },
-  { key: "tickets_all", label: "All",         title: "Tickets closed all-time" },
-  { key: "last_panel",  label: "Panel",       title: "Most recent panel login" },
-  { key: "last_ingame", label: "In-game",     title: "Most recent time seen connected to a server" },
-  { key: "last_ban",    label: "Ban",         title: "Most recent ban this staff member handed out" },
-  { key: "ingame_h",    label: "All",         title: "Total in-game hours all-time" },
+  { key: "name", label: "Member", title: "Staff member name" },
+  { key: "role", label: "Role", title: "Rank within this org" },
+  {
+    key: "tickets_7d",
+    label: "7d",
+    title: "Tickets closed in the last 7 days",
+  },
+  {
+    key: "tickets_30d",
+    label: "30d",
+    title: "Tickets closed in the last 30 days",
+  },
+  { key: "tickets_all", label: "All", title: "Tickets closed all-time" },
+  { key: "last_panel", label: "Panel", title: "Most recent panel login" },
+  {
+    key: "last_ingame",
+    label: "In-game",
+    title: "Most recent time seen connected to a server",
+  },
+  {
+    key: "last_ban",
+    label: "Ban",
+    title: "Most recent ban this staff member handed out",
+  },
+  { key: "ingame_h", label: "All", title: "Total in-game hours all-time" },
 ];
 
-function SortTh({ colKey, label, title, sortCol, sortDir, onSort, className = "", right = false }) {
+function SortTh({
+  colKey,
+  label,
+  title,
+  sortCol,
+  sortDir,
+  onSort,
+  className = "",
+  right = false,
+}) {
   const active = sortCol === colKey;
   return (
-    <th className={`bg-surface/60 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest sticky top-0 ${className}`}>
+    <th
+      className={`bg-surface/60 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest sticky top-0 ${className}`}
+    >
       <button
         title={title}
         onClick={() => onSort(colKey)}
@@ -119,7 +158,10 @@ function SortTh({ colKey, label, title, sortCol, sortDir, onSort, className = ""
       >
         <span className="truncate">{label}</span>
         {active ? (
-          <ArrowDown className={`size-3 shrink-0 opacity-100 ${sortDir === "asc" ? "rotate-180" : ""}`} aria-hidden />
+          <ArrowDown
+            className={`size-3 shrink-0 opacity-100 ${sortDir === "asc" ? "rotate-180" : ""}`}
+            aria-hidden
+          />
         ) : (
           <ArrowUpDown className="size-3 shrink-0 opacity-40" aria-hidden />
         )}
@@ -158,9 +200,12 @@ function StaffPage() {
   async function loadMembers() {
     setMembersLoading(true);
     try {
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/members`, {
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/members`,
+        {
+          credentials: "include",
+        },
+      );
       if (res.ok) {
         const body = await res.json();
         setMembers(body.members ?? []);
@@ -211,12 +256,15 @@ function StaffPage() {
     setAdding(true);
     setAddErr(null);
     try {
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/members`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ discordId: id }),
-      });
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/members`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ discordId: id }),
+        },
+      );
       const body = await res.json();
       if (!res.ok) {
         setAddErr(body?.error ?? "Failed to add member.");
@@ -305,19 +353,30 @@ function StaffPage() {
       .sort((a, b) => {
         const get = (x) => {
           switch (sortCol) {
-            case "name": return (x.username ?? "").toLowerCase();
-            case "role": return roleLabel(x.roleId, customRoles).toLowerCase();
-            case "tickets_7d": return x.tickets7d ?? 0;
-            case "tickets_30d": return x.tickets30d ?? 0;
-            case "tickets_all": return x.ticketsAll ?? 0;
-            case "last_panel": return x.lastPanelLogin ?? 0;
-            case "last_ingame": return x.lastIngame ?? 0;
-            case "last_ban": return x.lastBan ?? 0;
-            case "ingame_h": return x.ingameHoursAll ?? 0;
-            default: return 0;
+            case "name":
+              return (x.username ?? "").toLowerCase();
+            case "role":
+              return roleLabel(x.roleId, customRoles).toLowerCase();
+            case "tickets_7d":
+              return x.tickets7d ?? 0;
+            case "tickets_30d":
+              return x.tickets30d ?? 0;
+            case "tickets_all":
+              return x.ticketsAll ?? 0;
+            case "last_panel":
+              return x.lastPanelLogin ?? 0;
+            case "last_ingame":
+              return x.lastIngame ?? 0;
+            case "last_ban":
+              return x.lastBan ?? 0;
+            case "ingame_h":
+              return x.ingameHoursAll ?? 0;
+            default:
+              return 0;
           }
         };
-        const av = get(a), bv = get(b);
+        const av = get(a),
+          bv = get(b);
         if (av < bv) return sortDir === "desc" ? 1 : -1;
         if (av > bv) return sortDir === "desc" ? -1 : 1;
         return 0;
@@ -358,16 +417,16 @@ function StaffPage() {
         {addErr && <p className="text-[11px] text-danger">{addErr}</p>}
       </div>
 
-      {removeErr && (
-        <p className="text-[11px] text-danger px-1">{removeErr}</p>
-      )}
+      {removeErr && <p className="text-[11px] text-danger px-1">{removeErr}</p>}
 
       {/* Roster */}
       <div className="space-y-1.5">
         {membersLoading ? (
           <p className="text-sm text-muted-foreground">Loading members…</p>
         ) : members.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">No members yet.</p>
+          <p className="text-xs text-muted-foreground italic">
+            No members yet.
+          </p>
         ) : (
           members.map((m) => {
             const isOwnerRow = m.roleId === "org_owner";
@@ -390,7 +449,10 @@ function StaffPage() {
                     <p className="text-sm font-medium truncate flex items-center gap-1.5">
                       {m.username ?? "Unknown"}
                       {isOwnerRow && (
-                        <Crown className="size-3 text-brand shrink-0" title="Owner — cannot be removed" />
+                        <Crown
+                          className="size-3 text-brand shrink-0"
+                          title="Owner — cannot be removed"
+                        />
                       )}
                       {isMe && (
                         <span className="text-[9px] font-mono uppercase tracking-widest text-brand bg-brand/10 px-1 py-0.5 rounded">
@@ -399,8 +461,8 @@ function StaffPage() {
                       )}
                     </p>
                     <p className="text-[10px] font-mono text-muted-foreground truncate">
-                      {m.steamId ? `steam:${m.steamId}` : "no steam"}{" "}
-                      · {m.discordId ? `discord:${m.discordId}` : "no discord"}
+                      {m.steamId ? `steam:${m.steamId}` : "no steam"} ·{" "}
+                      {m.discordId ? `discord:${m.discordId}` : "no discord"}
                     </p>
                   </div>
                 </div>
@@ -415,7 +477,11 @@ function StaffPage() {
                   >
                     <Link
                       to="/staff-audit"
-                      search={{ staff: m.userId, org: orgId, name: m.username ?? undefined }}
+                      search={{
+                        staff: m.userId,
+                        org: orgId,
+                        name: m.username ?? undefined,
+                      }}
                     >
                       <Activity className="size-3" />
                       Audit
@@ -488,11 +554,7 @@ function StaffPage() {
         />
         <StatCard
           label="Online Now"
-          value={
-            orgStats
-              ? `${orgStats.onlineNow} / ${members.length}`
-              : "—"
-          }
+          value={orgStats ? `${orgStats.onlineNow} / ${members.length}` : "—"}
           icon={Users}
           colorClass="ring-emerald-500/30"
           bgClass="from-emerald-500/20 to-emerald-500/0"
@@ -502,7 +564,10 @@ function StaffPage() {
       {/* Search + role filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-md">
-          <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Search
+            className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
           <input
             placeholder="Search by name, role, or Steam ID…"
             value={search}
@@ -555,34 +620,130 @@ function StaffPage() {
           <table className="w-full text-xs border-separate border-spacing-0 min-w-[900px]">
             <thead>
               <tr className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">
-                <th className="bg-surface/60 px-3 py-1.5 text-left border-b border-border" colSpan={2} />
-                <th className="bg-surface/60 px-3 py-1.5 text-center border-b border-l border-border" colSpan={3}>
+                <th
+                  className="bg-surface/60 px-3 py-1.5 text-left border-b border-border"
+                  colSpan={2}
+                />
+                <th
+                  className="bg-surface/60 px-3 py-1.5 text-center border-b border-l border-border"
+                  colSpan={3}
+                >
                   Tickets Closed
                 </th>
-                <th className="bg-surface/60 px-3 py-1.5 text-center border-b border-l border-border" colSpan={3}>
+                <th
+                  className="bg-surface/60 px-3 py-1.5 text-center border-b border-l border-border"
+                  colSpan={3}
+                >
                   Last Seen
                 </th>
-                <th className="bg-surface/60 px-3 py-1.5 text-center border-b border-l border-border" colSpan={1}>
+                <th
+                  className="bg-surface/60 px-3 py-1.5 text-center border-b border-l border-border"
+                  colSpan={1}
+                >
                   In-game Hours
                 </th>
               </tr>
               <tr>
-                <SortTh colKey="name" label="Member" title="Staff member name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="pl-4 w-[220px]" />
-                <SortTh colKey="role" label="Role" title="Rank within this org" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="w-[110px]" />
-                <SortTh colKey="tickets_7d" label="7d" title="Tickets closed in the last 7 days" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="border-l border-border w-[70px]" right />
-                <SortTh colKey="tickets_30d" label="30d" title="Tickets closed in the last 30 days" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="w-[70px]" right />
-                <SortTh colKey="tickets_all" label="All" title="Tickets closed all-time" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="w-[80px]" right />
-                <SortTh colKey="last_panel" label="Panel" title="Most recent panel login" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="border-l border-border w-[80px]" right />
-                <SortTh colKey="last_ingame" label="In-game" title="Most recent time seen on a server" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="w-[80px]" right />
-                <SortTh colKey="last_ban" label="Ban" title="Most recent ban issued" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="w-[80px]" right />
-                <SortTh colKey="ingame_h" label="Total" title="Total in-game hours all-time" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="border-l border-border w-[80px] pr-4" right />
+                <SortTh
+                  colKey="name"
+                  label="Member"
+                  title="Staff member name"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="pl-4 w-[220px]"
+                />
+                <SortTh
+                  colKey="role"
+                  label="Role"
+                  title="Rank within this org"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="w-[110px]"
+                />
+                <SortTh
+                  colKey="tickets_7d"
+                  label="7d"
+                  title="Tickets closed in the last 7 days"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="border-l border-border w-[70px]"
+                  right
+                />
+                <SortTh
+                  colKey="tickets_30d"
+                  label="30d"
+                  title="Tickets closed in the last 30 days"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="w-[70px]"
+                  right
+                />
+                <SortTh
+                  colKey="tickets_all"
+                  label="All"
+                  title="Tickets closed all-time"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="w-[80px]"
+                  right
+                />
+                <SortTh
+                  colKey="last_panel"
+                  label="Panel"
+                  title="Most recent panel login"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="border-l border-border w-[80px]"
+                  right
+                />
+                <SortTh
+                  colKey="last_ingame"
+                  label="In-game"
+                  title="Most recent time seen on a server"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="w-[80px]"
+                  right
+                />
+                <SortTh
+                  colKey="last_ban"
+                  label="Ban"
+                  title="Most recent ban issued"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="w-[80px]"
+                  right
+                />
+                <SortTh
+                  colKey="ingame_h"
+                  label="Total"
+                  title="Total in-game hours all-time"
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  className="border-l border-border w-[80px] pr-4"
+                  right
+                />
               </tr>
             </thead>
             <tbody>
               {performanceRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-[11px] text-muted-foreground border-t border-border/40">
-                    {membersLoading ? "Loading…" : "No staff members match your search."}
+                  <td
+                    colSpan={9}
+                    className="px-4 py-6 text-center text-[11px] text-muted-foreground border-t border-border/40"
+                  >
+                    {membersLoading
+                      ? "Loading…"
+                      : "No staff members match your search."}
                   </td>
                 </tr>
               ) : (
@@ -598,19 +759,27 @@ function StaffPage() {
                     >
                       <td className="px-3 py-2.5 pl-4 border-t border-border/40">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className={`size-8 rounded-md grid place-items-center font-bold text-[11px] ring-1 ${c.bg} ${c.text} ${c.ring}`}>
+                          <div
+                            className={`size-8 rounded-md grid place-items-center font-bold text-[11px] ring-1 ${c.bg} ${c.text} ${c.ring}`}
+                          >
                             {(m.username ?? "?")[0].toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <div className="font-semibold truncate text-[13px]">{m.username ?? "Unknown"}</div>
+                            <div className="font-semibold truncate text-[13px]">
+                              {m.username ?? "Unknown"}
+                            </div>
                             {m.steamId && (
-                              <div className="text-[10px] font-mono text-muted-foreground truncate">{m.steamId}</div>
+                              <div className="text-[10px] font-mono text-muted-foreground truncate">
+                                {m.steamId}
+                              </div>
                             )}
                           </div>
                         </div>
                       </td>
                       <td className="px-3 py-2.5 border-t border-border/40">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-widest ring-1 ${c.bg} ${c.text} ${c.ring}`}>
+                        <span
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-widest ring-1 ${c.bg} ${c.text} ${c.ring}`}
+                        >
                           {roleShort(m.roleId, customRoles)}
                         </span>
                       </td>
@@ -621,15 +790,23 @@ function StaffPage() {
                         {m.tickets30d ?? "—"}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 text-muted-foreground">
-                        {m.ticketsAll != null ? m.ticketsAll.toLocaleString() : "—"}
+                        {m.ticketsAll != null
+                          ? m.ticketsAll.toLocaleString()
+                          : "—"}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 border-l border-l-border ${relativeColor(m.lastPanelLogin)}`}>
+                      <td
+                        className={`px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 border-l border-l-border ${relativeColor(m.lastPanelLogin)}`}
+                      >
                         {panelStr ?? "—"}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 ${relativeColor(m.lastIngame)}`}>
+                      <td
+                        className={`px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 ${relativeColor(m.lastIngame)}`}
+                      >
                         {ingameStr ?? "—"}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 ${relativeColor(m.lastBan)}`}>
+                      <td
+                        className={`px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 ${relativeColor(m.lastBan)}`}
+                      >
                         {banStr ?? "—"}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono tabular-nums border-t border-border/40 border-l border-l-border text-muted-foreground pr-4">

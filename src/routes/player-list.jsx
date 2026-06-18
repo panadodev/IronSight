@@ -127,11 +127,12 @@ function PlayerListPage() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = players.filter((p) => !p.isOnline || effectiveServerIds.has(p.serverId));
+    let list = players.filter(
+      (p) => !p.isOnline || effectiveServerIds.has(p.serverId),
+    );
     if (q) {
       list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) || p.steamId.includes(q),
+        (p) => p.name.toLowerCase().includes(q) || p.steamId.includes(q),
       );
     }
     list = [...list].sort((a, b) => {
@@ -192,11 +193,10 @@ function PlayerListPage() {
       : effectiveArr.length === 0
         ? "No servers"
         : effectiveArr
-            .map(
-              (id) =>
-                visibleServers
-                  .find((s) => s.serverId === id)
-                  ?.serverName.replace(/^\[[^\]]+\]\s*/, ""),
+            .map((id) =>
+              visibleServers
+                .find((s) => s.serverId === id)
+                ?.serverName.replace(/^\[[^\]]+\]\s*/, ""),
             )
             .filter(Boolean)
             .join(" \xB7 ");
@@ -214,8 +214,8 @@ function PlayerListPage() {
             <p className="text-sm text-muted-foreground">
               The player list is restricted to{" "}
               <span className="font-mono text-foreground">Admin</span> and
-              above. You don&apos;t have that rank in any of the currently selected
-              orgs (
+              above. You don&apos;t have that rank in any of the currently
+              selected orgs (
               {selectedOrgIds
                 .map((id) => orgs.find((o) => o.id === id)?.short)
                 .filter(Boolean)
@@ -238,16 +238,19 @@ function PlayerListPage() {
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-xl font-bold tracking-tight">Player List</h1>
+                <h1 className="text-xl font-bold tracking-tight">
+                  Player List
+                </h1>
                 <p className="text-xs text-muted-foreground mt-1">
-                  All players seen on your servers. Sus score is based on
-                  Steam hours, K/D ratio, and report count.
+                  All players seen on your servers. Sus score is based on Steam
+                  hours, K/D ratio, and report count.
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 {lastRefresh && (
                   <span className="text-[10px] font-mono text-muted-foreground">
-                    {players.length} players · {players.filter((p) => p.isOnline).length} online
+                    {players.length} players ·{" "}
+                    {players.filter((p) => p.isOnline).length} online
                   </span>
                 )}
                 <button
@@ -256,7 +259,9 @@ function PlayerListPage() {
                   className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface text-xs disabled:opacity-50"
                   title="Refresh player list"
                 >
-                  <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
+                  <RefreshCw
+                    className={`size-3 ${loading ? "animate-spin" : ""}`}
+                  />
                   Refresh
                 </button>
               </div>
@@ -291,9 +296,8 @@ function PlayerListPage() {
                 className="h-9 max-w-xs"
               />
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
-                Sorted by {SORT_LABEL[sortKey]}{" "}
-                {sortDir === "desc" ? "↓" : "↑"} \xB7 click a column
-                to change
+                Sorted by {SORT_LABEL[sortKey]} {sortDir === "desc" ? "↓" : "↑"}{" "}
+                \xB7 click a column to change
               </div>
             </div>
 
@@ -601,9 +605,7 @@ function PlayerListPage() {
                     {safePage} / {totalPages}
                   </span>
                   <button
-                    onClick={() =>
-                      setPage((p) => Math.min(totalPages, p + 1))
-                    }
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={safePage === totalPages}
                     className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
                   >

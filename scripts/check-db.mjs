@@ -11,10 +11,7 @@ function chooseUrl(primary, secondary) {
   return first || second;
 }
 
-const pgUrl = chooseUrl(
-  process.env.DATABASE_URL,
-  process.env.POSTGRESQL_URI,
-);
+const pgUrl = chooseUrl(process.env.DATABASE_URL, process.env.POSTGRESQL_URI);
 const redisUrl = chooseUrl(process.env.REDIS_URL, process.env.REDIS_URI);
 
 if (!pgUrl) {
@@ -28,7 +25,10 @@ if (!redisUrl) {
   process.exit(1);
 }
 
-const pg = new Client({ connectionString: pgUrl, connectionTimeoutMillis: 5000 });
+const pg = new Client({
+  connectionString: pgUrl,
+  connectionTimeoutMillis: 5000,
+});
 try {
   await pg.connect();
   await pg.query("SELECT 1");

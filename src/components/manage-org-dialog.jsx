@@ -2,7 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { BAN_CATEGORIES, TICKET_TYPE_KEYS, TICKET_TYPE_LABELS } from "@/lib/auth-context";
+import {
+  BAN_CATEGORIES,
+  TICKET_TYPE_KEYS,
+  TICKET_TYPE_LABELS,
+} from "@/lib/auth-context";
 import { Switch } from "@/components/ui/switch";
 import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";

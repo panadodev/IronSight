@@ -24,8 +24,16 @@ const Route = createFileRoute("/submit")({
 
 const REPORT_CATEGORIES = [
   { id: "cheating", label: "Cheating", blurb: "Aimbot, ESP, scripts, macros." },
-  { id: "teaming", label: "Teaming", blurb: "Group size violation / cross-team play." },
-  { id: "toxicity", label: "Toxicity", blurb: "Slurs, harassment, hate speech." },
+  {
+    id: "teaming",
+    label: "Teaming",
+    blurb: "Group size violation / cross-team play.",
+  },
+  {
+    id: "toxicity",
+    label: "Toxicity",
+    blurb: "Slurs, harassment, hate speech.",
+  },
   { id: "other", label: "Other", blurb: "Rule break not covered above." },
 ];
 
@@ -51,10 +59,17 @@ function SubmitPage() {
     fetch("/api/auth/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled) { setSession(data?.user ?? null); setSessionChecked(true); }
+        if (!cancelled) {
+          setSession(data?.user ?? null);
+          setSessionChecked(true);
+        }
       })
-      .catch(() => { if (!cancelled) setSessionChecked(true); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setSessionChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -73,11 +88,16 @@ function SubmitPage() {
         setTicketTypes(typesBody.ticketTypes ?? []);
         setOrgLoading(false);
       })
-      .catch(() => { if (!cancelled) setOrgLoading(false); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setOrgLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [orgId]);
 
-  const selectedType = ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
+  const selectedType =
+    ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
   const isPlayerReport = selectedType?.name?.toLowerCase().includes("report");
 
   async function handleSubmit() {
@@ -101,10 +121,18 @@ function SubmitPage() {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ orgId, ticketTypeId: selectedTypeId, title: ticketTitle, message }),
+        body: JSON.stringify({
+          orgId,
+          ticketTypeId: selectedTypeId,
+          title: ticketTitle,
+          message,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) { setSubmitError(data?.error ?? "Failed to submit ticket."); return; }
+      if (!res.ok) {
+        setSubmitError(data?.error ?? "Failed to submit ticket.");
+        return;
+      }
       setSubmitted({ ticketId: data.ticketId });
     } catch {
       setSubmitError("Network error. Please try again.");
@@ -114,8 +142,14 @@ function SubmitPage() {
   }
 
   function resetForm() {
-    setSubmitted(null); setSelectedTypeId(null); setTitle(""); setBody("");
-    setTargetSteamId(""); setReportCategory("cheating"); setEvidence(""); setSubmitError("");
+    setSubmitted(null);
+    setSelectedTypeId(null);
+    setTitle("");
+    setBody("");
+    setTargetSteamId("");
+    setReportCategory("cheating");
+    setEvidence("");
+    setSubmitError("");
   }
 
   if (!sessionChecked || orgLoading) {
@@ -140,7 +174,10 @@ function SubmitPage() {
               <p className="text-sm text-muted-foreground">
                 The organization "{orgId}" does not exist or is unavailable.
               </p>
-              <Link to="/support" className="text-sm font-semibold text-brand hover:underline">
+              <Link
+                to="/support"
+                className="text-sm font-semibold text-brand hover:underline"
+              >
                 Back to organization selection
               </Link>
             </div>
@@ -161,7 +198,8 @@ function SubmitPage() {
             </div>
             <h1 className="text-xl font-semibold mb-2">Verify your identity</h1>
             <p className="text-sm text-muted-foreground mb-1">
-              Filing for <span className="text-foreground font-semibold">{org.name}</span>.
+              Filing for{" "}
+              <span className="text-foreground font-semibold">{org.name}</span>.
             </p>
             <p className="text-sm text-muted-foreground mb-6">
               Link your Discord and Steam accounts to submit a ticket.
@@ -190,11 +228,18 @@ function SubmitPage() {
             <h1 className="text-xl font-semibold mb-1">Ticket submitted</h1>
             <p className="text-sm text-muted-foreground mb-2">
               Your ticket reference is{" "}
-              <span className="font-mono text-brand">#{submitted.ticketId}</span>.
+              <span className="font-mono text-brand">
+                #{submitted.ticketId}
+              </span>
+              .
             </p>
             <p className="text-xs text-muted-foreground mb-6">
               Staff will review your ticket shortly. Track it in{" "}
-              <Link to="/my-reports" search={{ org: orgId }} className="text-brand underline">
+              <Link
+                to="/my-reports"
+                search={{ org: orgId }}
+                className="text-brand underline"
+              >
                 My Tickets
               </Link>
               .
@@ -222,7 +267,8 @@ function SubmitPage() {
 
   const canSubmit = (() => {
     if (!selectedTypeId) return false;
-    if (isPlayerReport) return targetSteamId.trim().length > 0 && body.trim().length > 0;
+    if (isPlayerReport)
+      return targetSteamId.trim().length > 0 && body.trim().length > 0;
     return title.trim().length > 0 && body.trim().length > 0;
   })();
 
@@ -235,12 +281,15 @@ function SubmitPage() {
             <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
               {org.name} \u00b7 Player Portal
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight">Submit a ticket</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              Submit a ticket
+            </h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-prose">
               Pick a ticket type and provide as much detail as possible.
             </p>
             <p className="text-[10px] font-mono text-muted-foreground mt-1">
-              Signed in as <span className="text-foreground">{session.username}</span>
+              Signed in as{" "}
+              <span className="text-foreground">{session.username}</span>
               {session.steamId && <> \u00b7 Steam {session.steamId}</>}
             </p>
           </header>
@@ -250,7 +299,9 @@ function SubmitPage() {
               Ticket type
             </label>
             {ticketTypes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No ticket types available.</p>
+              <p className="text-sm text-muted-foreground">
+                No ticket types available.
+              </p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 {ticketTypes.map((t) => {
@@ -261,14 +312,23 @@ function SubmitPage() {
                       onClick={() => setSelectedTypeId(t.ticketTypeId)}
                       className={
                         "text-left p-4 rounded-lg ring-1 transition-colors " +
-                        (active ? "bg-brand/10 ring-brand/30" : "bg-surface/40 ring-border hover:bg-surface/70")
+                        (active
+                          ? "bg-brand/10 ring-brand/30"
+                          : "bg-surface/40 ring-border hover:bg-surface/70")
                       }
                     >
                       <div className="flex items-center justify-between mb-1">
-                        <p className={"text-sm font-semibold " + (active ? "text-brand" : "text-foreground")}>
+                        <p
+                          className={
+                            "text-sm font-semibold " +
+                            (active ? "text-brand" : "text-foreground")
+                          }
+                        >
                           {t.name}
                         </p>
-                        {active && <span className="size-1.5 rounded-full bg-brand" />}
+                        {active && (
+                          <span className="size-1.5 rounded-full bg-brand" />
+                        )}
                       </div>
                       <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
                         {t.description}
@@ -310,13 +370,22 @@ function SubmitPage() {
                         onClick={() => setReportCategory(c.id)}
                         className={
                           "text-left p-3 rounded-lg ring-1 transition-colors " +
-                          (active ? "bg-brand/10 ring-brand/30" : "bg-surface/40 ring-border hover:bg-surface/70")
+                          (active
+                            ? "bg-brand/10 ring-brand/30"
+                            : "bg-surface/40 ring-border hover:bg-surface/70")
                         }
                       >
-                        <p className={"text-sm font-semibold " + (active ? "text-brand" : "text-foreground")}>
+                        <p
+                          className={
+                            "text-sm font-semibold " +
+                            (active ? "text-brand" : "text-foreground")
+                          }
+                        >
                           {c.label}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">{c.blurb}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {c.blurb}
+                        </p>
                       </button>
                     );
                   })}
@@ -336,7 +405,9 @@ function SubmitPage() {
               <section className="space-y-3">
                 <label className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
                   <span>Step 4 \u00b7 Evidence links</span>
-                  <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">optional</span>
+                  <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">
+                    optional
+                  </span>
                 </label>
                 <textarea
                   value={evidence}
@@ -381,7 +452,9 @@ function SubmitPage() {
 
           {selectedType && (
             <div className="flex flex-col items-center gap-3 pt-2">
-              {submitError && <p className="text-sm text-danger">{submitError}</p>}
+              {submitError && (
+                <p className="text-sm text-danger">{submitError}</p>
+              )}
               <button
                 onClick={handleSubmit}
                 disabled={!canSubmit || submitting}

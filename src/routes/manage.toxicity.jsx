@@ -38,15 +38,12 @@ function ToxicityPage() {
   }, [load]);
 
   const onSave = async (kind, phrases) => {
-    const res = await fetch(
-      `/api/orgs/${encodeURIComponent(orgId)}/toxicity`,
-      {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, phrases }),
-      },
-    );
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/toxicity`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, phrases }),
+    });
     const body = await res.json().catch(() => null);
     if (!res.ok) return { ok: false, error: body?.error ?? "Failed to save." };
     setConfig({ yellow: body.yellow ?? [], red: body.red ?? [] });

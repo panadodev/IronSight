@@ -64,10 +64,17 @@ function MyTicketsPage() {
     fetch("/api/auth/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled) { setSession(data?.user ?? null); setSessionChecked(true); }
+        if (!cancelled) {
+          setSession(data?.user ?? null);
+          setSessionChecked(true);
+        }
       })
-      .catch(() => { if (!cancelled) setSessionChecked(true); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setSessionChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Load ticket list
@@ -77,25 +84,42 @@ function MyTicketsPage() {
     fetch("/api/tickets/mine", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { tickets: [] }))
       .then((data) => {
-        if (!cancelled) { setTickets(data.tickets ?? []); setTicketsLoaded(true); }
+        if (!cancelled) {
+          setTickets(data.tickets ?? []);
+          setTicketsLoaded(true);
+        }
       })
-      .catch(() => { if (!cancelled) setTicketsLoaded(true); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setTicketsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [sessionChecked, session]);
 
   // Load ticket detail when selectedTicket changes
   useEffect(() => {
-    if (!selectedTicket) { setTicketDetail(null); return; }
+    if (!selectedTicket) {
+      setTicketDetail(null);
+      return;
+    }
     let cancelled = false;
     setDetailLoading(true);
     setTicketDetail(null);
     fetch(`/api/tickets/${selectedTicket}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled) { setTicketDetail(data); setDetailLoading(false); }
+        if (!cancelled) {
+          setTicketDetail(data);
+          setDetailLoading(false);
+        }
       })
-      .catch(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedTicket]);
 
   async function sendReply() {
@@ -110,14 +134,22 @@ function MyTicketsPage() {
         body: JSON.stringify({ message: draft.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) { setSendError(data?.error ?? "Failed to send."); return; }
+      if (!res.ok) {
+        setSendError(data?.error ?? "Failed to send.");
+        return;
+      }
       setDraft("");
       // Reload detail
-      const detail = await fetch(`/api/tickets/${selectedTicket}`, { credentials: "include" });
+      const detail = await fetch(`/api/tickets/${selectedTicket}`, {
+        credentials: "include",
+      });
       if (detail.ok) setTicketDetail(await detail.json());
       // Refresh list
       const list = await fetch("/api/tickets/mine", { credentials: "include" });
-      if (list.ok) { const body = await list.json(); setTickets(body.tickets ?? []); }
+      if (list.ok) {
+        const body = await list.json();
+        setTickets(body.tickets ?? []);
+      }
     } catch {
       setSendError("Network error.");
     } finally {
@@ -142,11 +174,16 @@ function MyTicketsPage() {
         <SiteNav />
         <div className="flex-1 grid place-items-center p-6">
           <div className="text-center max-w-sm">
-            <h1 className="text-xl font-semibold mb-2">Sign in to view your tickets</h1>
+            <h1 className="text-xl font-semibold mb-2">
+              Sign in to view your tickets
+            </h1>
             <p className="text-sm text-muted-foreground mb-6">
               You need to be signed in to see your tickets.
             </p>
-            <Link to="/support" className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold">
+            <Link
+              to="/support"
+              className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-sm font-semibold"
+            >
               Go to Support
             </Link>
           </div>
@@ -179,7 +216,9 @@ function MyTicketsPage() {
               </div>
             ) : tickets.length === 0 ? (
               <div className="p-6 text-center space-y-4">
-                <p className="text-sm text-muted-foreground">You have no tickets yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  You have no tickets yet.
+                </p>
                 <Link
                   to="/support"
                   className="inline-flex px-4 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider"
@@ -201,11 +240,14 @@ function MyTicketsPage() {
                         }
                       >
                         <div className="flex items-start justify-between gap-2 mb-1">
-                          <p className="text-sm font-medium truncate flex-1">{t.title}</p>
+                          <p className="text-sm font-medium truncate flex-1">
+                            {t.title}
+                          </p>
                           <span
                             className={
                               "shrink-0 text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
-                              (STATUS_TONE[t.status] ?? "text-muted-foreground ring-border bg-surface")
+                              (STATUS_TONE[t.status] ??
+                                "text-muted-foreground ring-border bg-surface")
                             }
                           >
                             {STATUS_LABEL[t.status] ?? t.status}
@@ -213,7 +255,8 @@ function MyTicketsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <p className="text-[10px] font-mono text-muted-foreground truncate">
-                            {t.ticket_type_name ?? "Ticket"} \u00b7 {t.org_name ?? t.org_id}
+                            {t.ticket_type_name ?? "Ticket"} \u00b7{" "}
+                            {t.org_name ?? t.org_id}
                           </p>
                           <p className="text-[10px] font-mono text-muted-foreground ml-auto shrink-0">
                             {timeAgo(t.updated_at)}
@@ -241,7 +284,9 @@ function MyTicketsPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {!selectedTicket ? (
             <div className="flex-1 grid place-items-center">
-              <p className="text-sm text-muted-foreground">Select a ticket to view it.</p>
+              <p className="text-sm text-muted-foreground">
+                Select a ticket to view it.
+              </p>
             </div>
           ) : detailLoading ? (
             <div className="flex-1 grid place-items-center">
@@ -249,7 +294,9 @@ function MyTicketsPage() {
             </div>
           ) : !ticketDetail ? (
             <div className="flex-1 grid place-items-center">
-              <p className="text-sm text-muted-foreground">Failed to load ticket.</p>
+              <p className="text-sm text-muted-foreground">
+                Failed to load ticket.
+              </p>
             </div>
           ) : (
             <>
@@ -258,23 +305,30 @@ function MyTicketsPage() {
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-[10px] font-mono text-muted-foreground mb-0.5">
-                      #{ticketDetail.ticket.ticket_id} \u00b7 {ticketDetail.ticket.ticket_type_name ?? "Ticket"} \u00b7 {ticketDetail.ticket.org_id}
+                      #{ticketDetail.ticket.ticket_id} \u00b7{" "}
+                      {ticketDetail.ticket.ticket_type_name ?? "Ticket"} \u00b7{" "}
+                      {ticketDetail.ticket.org_id}
                     </p>
-                    <h2 className="text-base font-semibold truncate">{ticketDetail.ticket.title}</h2>
+                    <h2 className="text-base font-semibold truncate">
+                      {ticketDetail.ticket.title}
+                    </h2>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span
                       className={
                         "text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
-                        (STATUS_TONE[ticketDetail.ticket.status] ?? "text-muted-foreground ring-border bg-surface")
+                        (STATUS_TONE[ticketDetail.ticket.status] ??
+                          "text-muted-foreground ring-border bg-surface")
                       }
                     >
-                      {STATUS_LABEL[ticketDetail.ticket.status] ?? ticketDetail.ticket.status}
+                      {STATUS_LABEL[ticketDetail.ticket.status] ??
+                        ticketDetail.ticket.status}
                     </span>
                     <span
                       className={
                         "text-[9px] font-mono uppercase tracking-widest " +
-                        (PRIORITY_TONE[ticketDetail.ticket.priority] ?? "text-muted-foreground")
+                        (PRIORITY_TONE[ticketDetail.ticket.priority] ??
+                          "text-muted-foreground")
                       }
                     >
                       {ticketDetail.ticket.priority}
@@ -293,7 +347,12 @@ function MyTicketsPage() {
                 {ticketDetail.messages.map((msg) => {
                   const isMe = msg.userId === session.userId;
                   return (
-                    <div key={msg.messageId} className={isMe ? "flex justify-end" : "flex justify-start"}>
+                    <div
+                      key={msg.messageId}
+                      className={
+                        isMe ? "flex justify-end" : "flex justify-start"
+                      }
+                    >
                       <div
                         className={
                           "max-w-xl rounded-lg px-4 py-3 " +
@@ -310,7 +369,9 @@ function MyTicketsPage() {
                             {timeAgo(msg.createdAt)}
                           </span>
                         </div>
-                        <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
+                        <p className="text-sm whitespace-pre-wrap break-words">
+                          {msg.message}
+                        </p>
                       </div>
                     </div>
                   );
@@ -320,7 +381,9 @@ function MyTicketsPage() {
               {/* Reply box */}
               {ticketDetail.ticket.status !== "closed" && (
                 <div className="p-4 border-t border-border shrink-0 space-y-2">
-                  {sendError && <p className="text-xs text-danger">{sendError}</p>}
+                  {sendError && (
+                    <p className="text-xs text-danger">{sendError}</p>
+                  )}
                   <div className="flex gap-2">
                     <textarea
                       value={draft}
@@ -342,7 +405,8 @@ function MyTicketsPage() {
               {ticketDetail.ticket.status === "closed" && (
                 <div className="p-4 border-t border-border shrink-0">
                   <p className="text-xs text-muted-foreground text-center">
-                    This ticket is closed. To continue, please open a new ticket.
+                    This ticket is closed. To continue, please open a new
+                    ticket.
                   </p>
                 </div>
               )}

@@ -10,9 +10,9 @@ export const Route = createFileRoute("/tickets")({
 });
 
 const TYPE_META = {
-  player_report:   { label: "Report",  color: "text-rose-400" },
-  ban_appeal:      { label: "Appeal",  color: "text-yellow-400" },
-  vip_issue:       { label: "VIP",     color: "text-cyan-400" },
+  player_report: { label: "Report", color: "text-rose-400" },
+  ban_appeal: { label: "Appeal", color: "text-yellow-400" },
+  vip_issue: { label: "VIP", color: "text-cyan-400" },
   general_support: { label: "Support", color: "text-green-400" },
 };
 
@@ -20,7 +20,8 @@ function typeFromName(name) {
   const n = (name ?? "").toLowerCase();
   if (n.includes("ban appeal") || n.includes("appeal")) return "ban_appeal";
   if (n.includes("vip")) return "vip_issue";
-  if (n.includes("player report") || n.includes("report")) return "player_report";
+  if (n.includes("player report") || n.includes("report"))
+    return "player_report";
   return "general_support";
 }
 
@@ -93,15 +94,18 @@ function parseTeamInfoResponse(raw) {
 const NON_CLOSED = new Set(["open", "waiting_response"]);
 
 const TAB_STATUSES = {
-  active:  new Set(["open"]),
+  active: new Set(["open"]),
   waiting: new Set(["waiting_response"]),
-  closed:  new Set(["closed"]),
+  closed: new Set(["closed"]),
 };
 
 const TYPE_FILTERS = ["ALL", "REPORT", "APPEAL", "VIP", "SUPPORT"];
 const TYPE_FILTER_MAP = {
-  ALL: null, REPORT: "player_report", APPEAL: "ban_appeal",
-  VIP: "vip_issue", SUPPORT: "general_support",
+  ALL: null,
+  REPORT: "player_report",
+  APPEAL: "ban_appeal",
+  VIP: "vip_issue",
+  SUPPORT: "general_support",
 };
 
 function TicketsPage() {
@@ -155,7 +159,9 @@ function TicketsPage() {
       setLoading(false);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [orgsLoaded, adminableOrgIds]);
 
   useEffect(() => {
@@ -172,13 +178,18 @@ function TicketsPage() {
           setDetailLoading(false);
         }
       })
-      .catch(() => { if (!cancelled) setDetailLoading(false); });
+      .catch(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedId]);
 
   // Fetch RCON-configured servers for the selected ticket's org
-  const selectedOrgId = tickets.find((t) => t.ticket_id === selectedId)?.org_id ?? null;
+  const selectedOrgId =
+    tickets.find((t) => t.ticket_id === selectedId)?.org_id ?? null;
   useEffect(() => {
     if (!selectedOrgId) return;
     setTeamResult(null);
@@ -225,7 +236,8 @@ function TicketsPage() {
     });
   }, [tab, typeFilter, search, tickets]);
 
-  const selectedTicket = tickets.find((t) => t.ticket_id === selectedId) ?? null;
+  const selectedTicket =
+    tickets.find((t) => t.ticket_id === selectedId) ?? null;
 
   const handlePostNote = useCallback(async () => {
     if (!noteText.trim() || !selectedId || submitting) return;
@@ -237,7 +249,9 @@ function TicketsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: noteText.trim(), isInternal: true }),
       });
-      const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        credentials: "include",
+      });
       if (res.ok) {
         const data = await res.json();
         setSelectedMessages(data.messages ?? []);
@@ -258,7 +272,9 @@ function TicketsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: replyText.trim(), isInternal: false }),
       });
-      const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        credentials: "include",
+      });
       if (res.ok) {
         const data = await res.json();
         setSelectedMessages(data.messages ?? []);
@@ -281,27 +297,34 @@ function TicketsPage() {
       setTickets((prev) =>
         prev.map((t) =>
           t.ticket_id === selectedId
-            ? { ...t, assigned_to: sessionUser.userId, assigned_to_username: sessionUser.username }
+            ? {
+                ...t,
+                assigned_to: sessionUser.userId,
+                assigned_to_username: sessionUser.username,
+              }
             : t,
         ),
       );
     }
   }, [selectedId, sessionUser]);
 
-  const handleUpdateStatus = useCallback(async (status) => {
-    if (!selectedId) return;
-    const res = await fetch(`/api/tickets/${selectedId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) {
-      setTickets((prev) =>
-        prev.map((t) => (t.ticket_id === selectedId ? { ...t, status } : t)),
-      );
-    }
-  }, [selectedId]);
+  const handleUpdateStatus = useCallback(
+    async (status) => {
+      if (!selectedId) return;
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        setTickets((prev) =>
+          prev.map((t) => (t.ticket_id === selectedId ? { ...t, status } : t)),
+        );
+      }
+    },
+    [selectedId],
+  );
 
   const handleTeamLookup = useCallback(async () => {
     const sid = teamSteamId.trim();
@@ -363,7 +386,11 @@ function TicketsPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {t === "active" ? "Active" : t === "waiting" ? "Waiting" : "Closed"}
+                  {t === "active"
+                    ? "Active"
+                    : t === "waiting"
+                      ? "Waiting"
+                      : "Closed"}
                 </button>
               ))}
             </div>
@@ -489,7 +516,9 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 min-w-0">
-          <span className={`text-[10px] font-mono font-bold shrink-0 ${meta.color}`}>
+          <span
+            className={`text-[10px] font-mono font-bold shrink-0 ${meta.color}`}
+          >
             {meta.label}
           </span>
           <span className="text-[9px] text-muted-foreground shrink-0">·</span>
@@ -727,7 +756,9 @@ function MessageBubble({ msg, internal }) {
       }`}
     >
       <div className="flex items-center gap-2 mb-0.5">
-        <span className="font-semibold text-[10px]">{msg.username ?? "Unknown"}</span>
+        <span className="font-semibold text-[10px]">
+          {msg.username ?? "Unknown"}
+        </span>
         <span className="font-mono text-[9px] text-muted-foreground">
           {formatRelativeTime(msg.createdAt)}
         </span>
@@ -800,7 +831,9 @@ function TeamInfoPanel({
 
         <button
           onClick={onLookup}
-          disabled={!steamId.trim() || !serverId || loading || servers.length === 0}
+          disabled={
+            !steamId.trim() || !serverId || loading || servers.length === 0
+          }
           className="w-full text-[10px] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
         >
           {loading ? "Looking up..." : "Lookup"}
@@ -808,7 +841,9 @@ function TeamInfoPanel({
 
         {/* Error */}
         {error && (
-          <p className="text-[10px] font-mono text-danger leading-snug">{error}</p>
+          <p className="text-[10px] font-mono text-danger leading-snug">
+            {error}
+          </p>
         )}
 
         {/* Results */}
@@ -826,7 +861,9 @@ function TeamInfoPanel({
                 >
                   <div className="flex items-center gap-1 min-w-0">
                     {member.online && (
-                      <span className="text-[8px] text-green-400 shrink-0">●</span>
+                      <span className="text-[8px] text-green-400 shrink-0">
+                        ●
+                      </span>
                     )}
                     {member.leader && (
                       <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">

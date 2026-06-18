@@ -31,9 +31,20 @@ import { ExternalBansSection } from "@/components/external-bans";
 import { LinkedAccountIntelSection } from "@/components/linked-accounts";
 
 const LENGTH_MINUTES = {
-  "1h": 60, "3h": 180, "6h": 360, "12h": 720, "24h": 1440,
-  "2d": 2880, "3d": 4320, "4d": 5760, "5d": 7200, "6d": 8640,
-  "next_wipe": 10080, "7d": 10080, "14d": 20160, "30d": 43200,
+  "1h": 60,
+  "3h": 180,
+  "6h": 360,
+  "12h": 720,
+  "24h": 1440,
+  "2d": 2880,
+  "3d": 4320,
+  "4d": 5760,
+  "5d": 7200,
+  "6d": 8640,
+  next_wipe: 10080,
+  "7d": 10080,
+  "14d": 20160,
+  "30d": 43200,
 };
 
 function lengthToExpiresAt(length) {
@@ -57,7 +68,8 @@ function relativeTime(isoString) {
 
 function steamIdColor(steamId) {
   let h = 0;
-  for (let i = 0; i < steamId.length; i++) h = (h * 31 + steamId.charCodeAt(i)) | 0;
+  for (let i = 0; i < steamId.length; i++)
+    h = (h * 31 + steamId.charCodeAt(i)) | 0;
   return `oklch(0.5 0.14 ${Math.abs(h) % 360})`;
 }
 
@@ -68,7 +80,10 @@ function banRecordStatus(r) {
   if (ms <= 0) return { label: "Expired", tone: "muted" };
   const days = Math.floor(ms / 864e5);
   const hours = Math.floor((ms % 864e5) / 36e5);
-  return { label: days > 0 ? `${days}d left` : `${hours}h left`, tone: "warning" };
+  return {
+    label: days > 0 ? `${days}d left` : `${hours}h left`,
+    tone: "warning",
+  };
 }
 
 const BAN_STATUS_TONE = {
@@ -87,7 +102,8 @@ const REPORT_CATEGORIES = [
 
 function hashId(steamId) {
   let h = 0;
-  for (let i = 0; i < steamId.length; i++) h = (h * 31 + steamId.charCodeAt(i)) | 0;
+  for (let i = 0; i < steamId.length; i++)
+    h = (h * 31 + steamId.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
 
@@ -120,17 +136,25 @@ function AlertsSectionLookup({ steamId }) {
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span className="flex items-center gap-3">
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full" style={{ background: "#f59e0b" }} />
+            <span
+              className="size-2 rounded-full"
+              style={{ background: "#f59e0b" }}
+            />
             <span style={{ color: "#f59e0b" }}>F7</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full" style={{ background: "#ec4899" }} />
+            <span
+              className="size-2 rounded-full"
+              style={{ background: "#ec4899" }}
+            />
             <span style={{ color: "#ec4899" }}>Thorium</span>
           </span>
         </span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {f7Count + thoriumCount} alerts
-          <span className="ml-2 text-muted-foreground">· last {windowDays}d</span>
+          <span className="ml-2 text-muted-foreground">
+            · last {windowDays}d
+          </span>
         </span>
       </h3>
       <div className="flex items-center gap-3 mb-2 px-1">
@@ -163,7 +187,9 @@ function AlertsSectionLookup({ steamId }) {
               >
                 <span
                   className="size-1.5 rounded-full shrink-0"
-                  style={{ background: a.kind === "f7" ? "#f59e0b" : "#ec4899" }}
+                  style={{
+                    background: a.kind === "f7" ? "#f59e0b" : "#ec4899",
+                  }}
                 />
                 <span
                   className="font-semibold uppercase"
@@ -172,7 +198,9 @@ function AlertsSectionLookup({ steamId }) {
                   {a.kind === "f7" ? "F7" : "Thorium"}
                 </span>
                 <span className="text-foreground">{a.title}</span>
-                <span className="ml-auto text-muted-foreground">{a.daysAgo}d ago</span>
+                <span className="ml-auto text-muted-foreground">
+                  {a.daysAgo}d ago
+                </span>
               </li>
             ))}
           </ul>
@@ -216,7 +244,10 @@ function Avatar({ steamId, displayName, avatarUrl, size = 64 }) {
         fontSize: size / 2.6,
       }}
     >
-      {(displayName ?? steamId).replace(/[\[\]]/g, "").slice(0, 2).toUpperCase()}
+      {(displayName ?? steamId)
+        .replace(/[\[\]]/g, "")
+        .slice(0, 2)
+        .toUpperCase()}
     </div>
   );
 }
@@ -237,10 +268,7 @@ function CacheStamp({ playerData, refreshing }) {
   const bmAt = playerData?.bm?.cachedAt;
   const stale = playerData?.isStale;
 
-  const newest = [steamAt, bmAt]
-    .filter(Boolean)
-    .sort()
-    .at(-1);
+  const newest = [steamAt, bmAt].filter(Boolean).sort().at(-1);
 
   if (refreshing) {
     return (
@@ -252,9 +280,7 @@ function CacheStamp({ playerData, refreshing }) {
 
   if (!newest) {
     return (
-      <span className="text-[10px] text-warning/80 font-mono">
-        not cached
-      </span>
+      <span className="text-[10px] text-warning/80 font-mono">not cached</span>
     );
   }
 
@@ -263,13 +289,15 @@ function CacheStamp({ playerData, refreshing }) {
       className={`text-[10px] font-mono ${stale ? "text-warning/80" : "text-muted-foreground/60"}`}
       title={`Steam: ${steamAt ? new Date(steamAt).toLocaleString() : "—"}\nBM: ${bmAt ? new Date(bmAt).toLocaleString() : "—"}`}
     >
-      cached {cacheAge(newest)}{stale ? " · stale" : ""}
+      cached {cacheAge(newest)}
+      {stale ? " · stale" : ""}
     </span>
   );
 }
 
 function PlayerLookupPage() {
-  const { selectedOrgIds, orgs, maxRankAcross, adminableOrgIds, orgsLoaded } = useAuth();
+  const { selectedOrgIds, orgs, maxRankAcross, adminableOrgIds, orgsLoaded } =
+    useAuth();
   const isSupportOnly = maxRankAcross(selectedOrgIds) < 2;
   const search = Route.useSearch();
 
@@ -318,7 +346,10 @@ function PlayerLookupPage() {
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
-      if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
       if (!steamId || !fetchOrgId) return;
       setPlayerLoading(true);
       setPlayerError(null);
@@ -361,7 +392,10 @@ function PlayerLookupPage() {
     setPlayerData(null);
     setFirstFetch(false);
     setOffenses([]);
-    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
     fetchPlayer(false);
   }, [steamId, fetchOrgId, orgsLoaded]);
 
@@ -463,14 +497,12 @@ function PlayerLookupPage() {
   const displayName = playerData?.displayName ?? steamId ?? "";
 
   const kd =
-    playerData?.bm &&
-    (playerData.bm.deaths > 0 || playerData.bm.kills > 0)
+    playerData?.bm && (playerData.bm.deaths > 0 || playerData.bm.kills > 0)
       ? (playerData.bm.kills / Math.max(1, playerData.bm.deaths)).toFixed(2)
       : null;
 
-  const isProxy = playerData?.ipHistory?.some(
-    (ip) => ip.isProxy || ip.isVpn,
-  ) ?? false;
+  const isProxy =
+    playerData?.ipHistory?.some((ip) => ip.isProxy || ip.isVpn) ?? false;
 
   const country = playerData?.ipHistory?.[0]?.country ?? null;
 
@@ -553,7 +585,9 @@ function PlayerLookupPage() {
             </div>
           ) : firstFetch ? (
             <div className="flex-1 grid place-items-center text-center space-y-1.5">
-              <p className="text-sm text-muted-foreground">Fetching player data for the first time…</p>
+              <p className="text-sm text-muted-foreground">
+                Fetching player data for the first time…
+              </p>
               <p className="text-xs text-muted-foreground/60">
                 No cached data found for this player. This may take a moment.
               </p>
@@ -594,21 +628,29 @@ function PlayerLookupPage() {
                                 BM Banned
                               </span>
                             )}
-                            {(playerData.bm?.rustBansCount ?? 0) > 0 && !playerData.bm?.rustBansBanned && (
-                              <span className="text-[9px] font-mono uppercase tracking-widest text-warning bg-warning/10 ring-1 ring-warning/30 px-1.5 py-0.5 rounded shrink-0">
-                                {playerData.bm.rustBansCount} prior BM ban{playerData.bm.rustBansCount !== 1 ? "s" : ""}
-                              </span>
-                            )}
+                            {(playerData.bm?.rustBansCount ?? 0) > 0 &&
+                              !playerData.bm?.rustBansBanned && (
+                                <span className="text-[9px] font-mono uppercase tracking-widest text-warning bg-warning/10 ring-1 ring-warning/30 px-1.5 py-0.5 rounded shrink-0">
+                                  {playerData.bm.rustBansCount} prior BM ban
+                                  {playerData.bm.rustBansCount !== 1 ? "s" : ""}
+                                </span>
+                              )}
                           </div>
                           <p className="text-[11px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1.5">
                             {playerData.steamId}
-                            <PlayerLinks steamId={playerData.steamId} size="sm" />
+                            <PlayerLinks
+                              steamId={playerData.steamId}
+                              size="sm"
+                            />
                           </p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <CacheStamp playerData={playerData} refreshing={refreshing} />
+                        <CacheStamp
+                          playerData={playerData}
+                          refreshing={refreshing}
+                        />
                         <button
                           type="button"
                           onClick={handleRefresh}
@@ -616,7 +658,9 @@ function PlayerLookupPage() {
                           className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-muted-foreground text-xs rounded-md ring-1 ring-border hover:bg-surface-bright disabled:opacity-50"
                           title="Refresh data from BattleMetrics / Steam"
                         >
-                          <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                          <RefreshCw
+                            className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+                          />
                         </button>
 
                         {!isSupportOnly && (
@@ -728,7 +772,8 @@ function PlayerLookupPage() {
                           <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
                             {country ?? "??"}
                             {(() => {
-                              const ms = 18 + (hashId(playerData.steamId) % 220);
+                              const ms =
+                                18 + (hashId(playerData.steamId) % 220);
                               const t = pingTone(ms);
                               return (
                                 <>
@@ -744,17 +789,17 @@ function PlayerLookupPage() {
                             })()}
                           </p>
                         </div>
-                        <Field
-                          label="Last Seen"
-                          value={lastSeen ?? "Never"}
-                        />
+                        <Field label="Last Seen" value={lastSeen ?? "Never"} />
                       </div>
                     )}
                   </div>
                 </section>
 
                 {/* Notes */}
-                <PlayerNotesSection subjectId={playerData.steamId} orgId={fetchOrgId} />
+                <PlayerNotesSection
+                  subjectId={playerData.steamId}
+                  orgId={fetchOrgId}
+                />
 
                 {/* Tickets */}
                 <section>
@@ -778,7 +823,9 @@ function PlayerLookupPage() {
                     </span>
                   </h3>
                   {offensesLoading ? (
-                    <p className="text-xs text-muted-foreground italic">Loading…</p>
+                    <p className="text-xs text-muted-foreground italic">
+                      Loading…
+                    </p>
                   ) : visibleOffenseRows.length === 0 ? (
                     <p className="text-xs text-muted-foreground italic">
                       No prior offenses.
@@ -837,7 +884,9 @@ function PlayerLookupPage() {
                     subjectId={playerData.steamId}
                     isOnline={
                       playerData.bmSessions?.[0]?.lastSeen
-                        ? Date.now() - Date.parse(playerData.bmSessions[0].lastSeen) < 5 * 60 * 1000
+                        ? Date.now() -
+                            Date.parse(playerData.bmSessions[0].lastSeen) <
+                          5 * 60 * 1000
                         : false
                     }
                   />
@@ -910,7 +959,10 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
   const [busy, setBusy] = useState({});
 
   const loadRecords = useCallback(async () => {
-    if (!orgIds.length || !steamId) { setRecords([]); return; }
+    if (!orgIds.length || !steamId) {
+      setRecords([]);
+      return;
+    }
     setLoading(true);
     try {
       const type = kind === "Ban" ? "ban" : "mute";
@@ -925,14 +977,19 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
             .catch(() => []),
         ),
       );
-      setRecords(groups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)));
+      setRecords(
+        groups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
+      );
     } finally {
       setLoading(false);
     }
   }, [steamId, kind, orgIds]);
 
   useEffect(() => {
-    if (open) { setDrafts({}); loadRecords(); }
+    if (open) {
+      setDrafts({});
+      loadRecords();
+    }
   }, [open, loadRecords]);
 
   const revoke = async (r) => {
@@ -963,13 +1020,18 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{kind === "Ban" ? "Manage Bans" : "Manage Mutes"}</DialogTitle>
+          <DialogTitle>
+            {kind === "Ban" ? "Manage Bans" : "Manage Mutes"}
+          </DialogTitle>
           <DialogDescription>
-            Adjust duration or lift {kind.toLowerCase()}s. Records remain in the system for audit.
+            Adjust duration or lift {kind.toLowerCase()}s. Records remain in the
+            system for audit.
           </DialogDescription>
         </DialogHeader>
         {loading ? (
-          <p className="text-xs text-muted-foreground py-6 text-center">Loading…</p>
+          <p className="text-xs text-muted-foreground py-6 text-center">
+            Loading…
+          </p>
         ) : records.length === 0 ? (
           <p className="text-xs text-muted-foreground italic py-6 text-center">
             No {kind.toLowerCase()}s on record.
@@ -978,18 +1040,26 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
           <ul className="space-y-2 max-h-[60vh] overflow-y-auto">
             {records.map((r) => {
               const st = banRecordStatus(r);
-              const isActive = !r.revoked && (!r.expiresAt || Date.parse(r.expiresAt) > Date.now());
+              const isActive =
+                !r.revoked &&
+                (!r.expiresAt || Date.parse(r.expiresAt) > Date.now());
               return (
-                <li key={r.banId} className="bg-surface/40 ring-1 ring-border rounded p-3 space-y-2">
+                <li
+                  key={r.banId}
+                  className="bg-surface/40 ring-1 ring-border rounded p-3 space-y-2"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{r.reason}</p>
                       <p className="text-[10px] font-mono text-muted-foreground">
-                        {new Date(r.issuedAt).toLocaleDateString()} · by {r.issuedByName ?? "unknown"}
+                        {new Date(r.issuedAt).toLocaleDateString()} · by{" "}
+                        {r.issuedByName ?? "unknown"}
                         {r.category ? ` · ${r.category}` : ""}
                       </p>
                     </div>
-                    <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${BAN_STATUS_TONE[st.tone]}`}>
+                    <span
+                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${BAN_STATUS_TONE[st.tone]}`}
+                    >
                       {st.label}
                     </span>
                   </div>
@@ -997,13 +1067,20 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
                     <div className="flex items-center gap-2">
                       <select
                         value={drafts[r.banId] ?? ""}
-                        onChange={(e) => setDrafts((p) => ({ ...p, [r.banId]: e.target.value }))}
+                        onChange={(e) =>
+                          setDrafts((p) => ({
+                            ...p,
+                            [r.banId]: e.target.value,
+                          }))
+                        }
                         className="flex-1 h-8 text-xs bg-surface border border-border rounded px-2"
                         disabled={busy[r.banId]}
                       >
                         <option value="">New duration…</option>
                         {LENGTH_OPTIONS.map((o) => (
-                          <option key={o.id} value={o.id}>{o.label}</option>
+                          <option key={o.id} value={o.id}>
+                            {o.label}
+                          </option>
                         ))}
                       </select>
                       <Button

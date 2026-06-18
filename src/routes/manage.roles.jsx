@@ -214,10 +214,9 @@ function RolesPage() {
     if (!orgId) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/roles`,
-        { credentials: "include" },
-      );
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/roles`, {
+        credentials: "include",
+      });
       if (res.ok) {
         const body = await res.json();
         setRoles(body.roles ?? []);
@@ -252,15 +251,12 @@ function RolesPage() {
     setCreating(true);
     setCreateErr(null);
     try {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/roles`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ roleName: name, permissions: [] }),
-        },
-      );
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/roles`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roleName: name, permissions: [] }),
+      });
       const body = await res.json();
       if (!res.ok) {
         setCreateErr(body?.error ?? "Failed to create role.");
@@ -391,9 +387,7 @@ function RolesPage() {
             {creating ? "Creating…" : "Create"}
           </Button>
         </div>
-        {createErr && (
-          <p className="text-[11px] text-danger">{createErr}</p>
-        )}
+        {createErr && <p className="text-[11px] text-danger">{createErr}</p>}
       </div>
 
       <div className="space-y-2">
@@ -523,32 +517,31 @@ function RolesPage() {
                                       />
                                     ))}
                                   </div>
-                                  {ticketsActive &&
-                                    ticketTypes.length > 0 && (
-                                      <div className="ml-6 border-l border-border/40 pl-2 mt-2">
-                                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1 px-2">
-                                          Ticket Types
-                                        </p>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                                          {ticketTypes.map((tt) => (
-                                            <PermCheckbox
-                                              key={tt.ticketTypeId}
-                                              checked={draftTT.includes(
+                                  {ticketsActive && ticketTypes.length > 0 && (
+                                    <div className="ml-6 border-l border-border/40 pl-2 mt-2">
+                                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1 px-2">
+                                        Ticket Types
+                                      </p>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                        {ticketTypes.map((tt) => (
+                                          <PermCheckbox
+                                            key={tt.ticketTypeId}
+                                            checked={draftTT.includes(
+                                              tt.ticketTypeId,
+                                            )}
+                                            onClick={() =>
+                                              toggleTicketType(
+                                                role.roleId,
                                                 tt.ticketTypeId,
-                                              )}
-                                              onClick={() =>
-                                                toggleTicketType(
-                                                  role.roleId,
-                                                  tt.ticketTypeId,
-                                                )
-                                              }
-                                              label={tt.name}
-                                              desc={tt.description}
-                                            />
-                                          ))}
-                                        </div>
+                                              )
+                                            }
+                                            label={tt.name}
+                                            desc={tt.description}
+                                          />
+                                        ))}
                                       </div>
-                                    )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             }
@@ -557,9 +550,7 @@ function RolesPage() {
                               <PermCheckbox
                                 key={perm.id}
                                 checked={draft.includes(perm.id)}
-                                onClick={() =>
-                                  togglePerm(role.roleId, perm.id)
-                                }
+                                onClick={() => togglePerm(role.roleId, perm.id)}
                                 label={perm.label}
                                 desc={perm.desc}
                               />
