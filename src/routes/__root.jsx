@@ -72,7 +72,7 @@ function ErrorComponent({ error, reset }) {
 }
 const Route = createRootRouteWithContext()({
   beforeLoad: async ({ location }) => {
-    const publicPaths = new Set(["/login", "/submit", "/support", "/my-reports", "/privacy"]);
+    const publicPaths = new Set(["/login", "/submit", "/support", "/my-reports", "/privacy", "/tos"]);
     if (publicPaths.has(location.pathname)) return;
 
     // Only run this guard in the browser. API routes still enforce auth server-side.

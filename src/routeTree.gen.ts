@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TosRouteImport } from './routes/tos'
 import { Route as TodoRouteImport } from './routes/todo'
 import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
@@ -35,6 +36,11 @@ import { Route as ManagePredefinesRouteImport } from './routes/manage.predefines
 import { Route as ManageDetailsRouteImport } from './routes/manage.details'
 import { Route as ManageBanConfigsRouteImport } from './routes/manage.ban-configs'
 
+const TosRoute = TosRouteImport.update({
+  id: '/tos',
+  path: '/tos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TodoRoute = TodoRouteImport.update({
   id: '/todo',
   path: '/todo',
@@ -179,6 +185,7 @@ export interface FileRoutesByFullPath {
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
+  '/tos': typeof TosRoute
   '/manage/ban-configs': typeof ManageBanConfigsRoute
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
@@ -206,6 +213,7 @@ export interface FileRoutesByTo {
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
+  '/tos': typeof TosRoute
   '/manage/ban-configs': typeof ManageBanConfigsRoute
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
@@ -234,6 +242,7 @@ export interface FileRoutesById {
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
+  '/tos': typeof TosRoute
   '/manage/ban-configs': typeof ManageBanConfigsRoute
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
@@ -263,6 +272,7 @@ export interface FileRouteTypes {
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
+    | '/tos'
     | '/manage/ban-configs'
     | '/manage/details'
     | '/manage/predefines'
@@ -290,6 +300,7 @@ export interface FileRouteTypes {
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
+    | '/tos'
     | '/manage/ban-configs'
     | '/manage/details'
     | '/manage/predefines'
@@ -317,6 +328,7 @@ export interface FileRouteTypes {
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
+    | '/tos'
     | '/manage/ban-configs'
     | '/manage/details'
     | '/manage/predefines'
@@ -345,11 +357,19 @@ export interface RootRouteChildren {
   ThreatTriggersRoute: typeof ThreatTriggersRoute
   TicketsRoute: typeof TicketsRoute
   TodoRoute: typeof TodoRoute
+  TosRoute: typeof TosRoute
   SysAdminRolesRoute: typeof SysAdminRolesRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/tos': {
+      id: '/tos'
+      path: '/tos'
+      fullPath: '/tos'
+      preLoaderRoute: typeof TosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/todo': {
       id: '/todo'
       path: '/todo'
@@ -569,6 +589,7 @@ const rootRouteChildren: RootRouteChildren = {
   ThreatTriggersRoute: ThreatTriggersRoute,
   TicketsRoute: TicketsRoute,
   TodoRoute: TodoRoute,
+  TosRoute: TosRoute,
   SysAdminRolesRoute: SysAdminRolesRoute,
 }
 export const routeTree = rootRouteImport

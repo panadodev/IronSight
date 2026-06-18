@@ -641,12 +641,21 @@ function SiteNav() {
             </Link>
           )}
 
-          <Link
-            to="/privacy"
-            className="w-full px-2.5 py-1 text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors text-center"
-          >
-            Privacy Policy
-          </Link>
+          <div className="flex gap-3 justify-center px-2.5 py-1">
+            <Link
+              to="/privacy"
+              className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            >
+              Privacy
+            </Link>
+            <span className="text-[9px] text-muted-foreground/30">·</span>
+            <Link
+              to="/tos"
+              className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            >
+              Terms
+            </Link>
+          </div>
         </div>
       </aside>
 
