@@ -34,6 +34,7 @@ function send(data) {
 
 function reconnect(resume = false) {
   clearInterval(heartbeatTimer);
+  console.log(`[IronSight Bot] Reconnecting in 5s (resume=${resume})`);
   try {
     ws.close();
   } catch {}
@@ -42,6 +43,7 @@ function reconnect(resume = false) {
 
 function heartbeat() {
   if (!acked) {
+    console.warn("[IronSight Bot] Heartbeat not acknowledged — zombie connection, reconnecting");
     reconnect(true);
     return;
   }
@@ -73,10 +75,12 @@ async function dmUser(userId) {
 
 function connect(resume = false) {
   const url = resume && resumeGatewayUrl ? resumeGatewayUrl : GATEWAY_URL;
+  console.log(`[IronSight Bot] Connecting to gateway (resume=${resume})`);
   ws = new WebSocket(url);
 
   ws.addEventListener("open", () => {
     if (resume && sessionId) {
+      console.log("[IronSight Bot] Sending RESUME");
       send({ op: 6, d: { token: TOKEN, session_id: sessionId, seq } });
     }
   });
@@ -91,6 +95,7 @@ function connect(resume = false) {
         acked = true;
         heartbeatTimer = setInterval(heartbeat, d.heartbeat_interval);
         if (!resume || !sessionId) {
+          console.log("[IronSight Bot] Sending IDENTIFY");
           send({
             op: 2, // IDENTIFY
             d: {

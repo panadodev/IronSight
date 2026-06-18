@@ -565,6 +565,14 @@ async function ensureSchema() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS role_discord_roles (
+      role_id TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+      discord_role_id TEXT NOT NULL,
+      PRIMARY KEY (role_id, discord_role_id)
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS organization_members (
       org_id TEXT NOT NULL,
       user_id UUID NOT NULL,
@@ -3066,6 +3074,9 @@ async function handleCreateOrgRole(request, orgId) {
 
   const roleName = String(body?.roleName ?? "").trim();
   const permissions = Array.isArray(body?.permissions) ? body.permissions : [];
+  const discordRoleIds = Array.isArray(body?.discordRoleIds)
+    ? body.discordRoleIds.map((id) => String(id).trim()).filter(Boolean)
+    : [];
 
   if (!roleName) {
     return json({ error: "roleName is required" }, 400);
@@ -3126,6 +3137,14 @@ async function handleCreateOrgRole(request, orgId) {
     }
   }
 
+  // Link Discord roles
+  for (const discordRoleId of discordRoleIds) {
+    await pool.query(
+      `INSERT INTO role_discord_roles (role_id, discord_role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [roleId, discordRoleId],
+    );
+  }
+
   // Audit log
   await auditLog({
     orgId,
@@ -3139,6 +3158,7 @@ async function handleCreateOrgRole(request, orgId) {
       roleName,
       roleId,
       permissions,
+      discordRoleIds,
     },
   });
 
@@ -3150,6 +3170,7 @@ async function handleCreateOrgRole(request, orgId) {
         roleName,
         orgId,
         permissions,
+        discordRoleIds,
       },
     },
     201,
@@ -3172,10 +3193,12 @@ async function handleListOrgRoles(request, orgId) {
   const { rows } = await pool.query(
     `SELECT r.role_id, r.role_name,
             COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
-            COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids
+            COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids,
+            COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids
      FROM roles r
      LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
      LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
+     LEFT JOIN role_discord_roles rdr ON rdr.role_id = r.role_id
      WHERE r.role_id LIKE ($1 || '_%')
        AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner')
      GROUP BY r.role_id, r.role_name
@@ -3190,6 +3213,9 @@ async function handleListOrgRoles(request, orgId) {
       permissions: Array.isArray(row.permissions) ? row.permissions : [],
       ticketTypeIds: Array.isArray(row.ticket_type_ids)
         ? row.ticket_type_ids.map(Number)
+        : [],
+      discordRoleIds: Array.isArray(row.discord_role_ids)
+        ? row.discord_role_ids
         : [],
     })),
   });
@@ -3231,8 +3257,9 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
 
   const hasPermissions = Array.isArray(body?.permissions);
   const hasTicketTypes = Array.isArray(body?.ticketTypeIds);
+  const hasDiscordRoles = Array.isArray(body?.discordRoleIds);
 
-  if (hasPermissions || hasTicketTypes) {
+  if (hasPermissions || hasTicketTypes || hasDiscordRoles) {
     let filteredPerms = [];
     if (hasPermissions) {
       const VALID_PERMISSIONS = [
@@ -3272,6 +3299,10 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
       }
     }
 
+    const filteredDiscordRoleIds = hasDiscordRoles
+      ? body.discordRoleIds.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+
     await pool.query(`BEGIN`);
     try {
       if (hasPermissions) {
@@ -3296,6 +3327,17 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
           );
         }
       }
+      if (hasDiscordRoles) {
+        await pool.query(`DELETE FROM role_discord_roles WHERE role_id = $1`, [
+          roleId,
+        ]);
+        for (const discordRoleId of filteredDiscordRoleIds) {
+          await pool.query(
+            `INSERT INTO role_discord_roles (role_id, discord_role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [roleId, discordRoleId],
+          );
+        }
+      }
       await pool.query(`COMMIT`);
     } catch (err) {
       await pool.query(`ROLLBACK`);
@@ -3306,10 +3348,12 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
   const { rows } = await pool.query(
     `SELECT r.role_id, r.role_name,
             COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
-            COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids
+            COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids,
+            COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids
      FROM roles r
      LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
      LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
+     LEFT JOIN role_discord_roles rdr ON rdr.role_id = r.role_id
      WHERE r.role_id = $1
      GROUP BY r.role_id, r.role_name`,
     [roleId],
@@ -3324,6 +3368,9 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
       permissions: Array.isArray(role.permissions) ? role.permissions : [],
       ticketTypeIds: Array.isArray(role.ticket_type_ids)
         ? role.ticket_type_ids.map(Number)
+        : [],
+      discordRoleIds: Array.isArray(role.discord_role_ids)
+        ? role.discord_role_ids
         : [],
     },
   });
@@ -3382,7 +3429,7 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   }
 
   const orgRes = await pool.query(
-    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   if (!orgRes.rows[0]) {
@@ -3423,6 +3470,13 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   await pool.query(
     `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`,
     [orgId, userId],
+  );
+
+  // Remove Discord roles associated with their staff role (best-effort)
+  await removeAllDiscordRolesForRole(
+    orgRes.rows[0].guild_id,
+    beforeState.discord_id,
+    beforeState.role_id,
   );
 
   await scanDel("cache:members:*");
@@ -3509,7 +3563,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   }
 
   const orgRes = await pool.query(
-    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   if (!orgRes.rows[0]) {
@@ -3517,7 +3571,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   }
 
   const memberRes = await pool.query(
-    `SELECT om.role_id, u.username FROM organization_members om
+    `SELECT om.role_id, u.username, u.discord_id FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1 AND om.user_id = $2`,
     [orgId, userId],
@@ -3540,6 +3594,14 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   await pool.query(
     `UPDATE organization_members SET role_id = $1 WHERE org_id = $2 AND user_id = $3`,
     [resolvedTeam, orgId, userId],
+  );
+
+  // Sync Discord roles: remove old role's Discord roles, add new role's (best-effort)
+  await syncDiscordRolesOnRoleChange(
+    orgRes.rows[0].guild_id,
+    beforeState.discord_id,
+    beforeState.role_id,
+    resolvedTeam,
   );
 
   await scanDel("cache:members:*");
@@ -9846,6 +9908,13 @@ async function _handleApiRequest(request) {
       return handleGrantOrgAdmin(request, orgAdminsMatch[1]);
     }
 
+    const orgDiscordRolesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord-roles$/,
+    );
+    if (orgDiscordRolesMatch && request.method === "GET") {
+      return handleGetOrgDiscordRoles(request, orgDiscordRolesMatch[1]);
+    }
+
     const orgRolesMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/roles$/,
     );
@@ -10313,6 +10382,108 @@ async function discordFetch(path, opts = {}) {
   return fetch(`${DISCORD_API}${path}`, {
     ...opts,
     headers: { ...discordBotHeaders(), ...(opts.headers ?? {}) },
+  });
+}
+
+async function getGuildRoles(guildId) {
+  if (!env.discordBotToken || !guildId) return [];
+  try {
+    const res = await discordFetch(`/guilds/${guildId}/roles`);
+    if (!res.ok) return [];
+    const roles = await res.json();
+    return Array.isArray(roles) ? roles : [];
+  } catch {
+    return [];
+  }
+}
+
+async function addDiscordRoleToMember(guildId, discordUserId, discordRoleId) {
+  if (!env.discordBotToken || !guildId || !discordUserId || !discordRoleId)
+    return;
+  try {
+    await discordFetch(
+      `/guilds/${guildId}/members/${discordUserId}/roles/${discordRoleId}`,
+      { method: "PUT" },
+    );
+  } catch {
+    // Best-effort — don't fail the operation if Discord is unreachable
+  }
+}
+
+async function removeDiscordRoleFromMember(
+  guildId,
+  discordUserId,
+  discordRoleId,
+) {
+  if (!env.discordBotToken || !guildId || !discordUserId || !discordRoleId)
+    return;
+  try {
+    await discordFetch(
+      `/guilds/${guildId}/members/${discordUserId}/roles/${discordRoleId}`,
+      { method: "DELETE" },
+    );
+  } catch {
+    // Best-effort
+  }
+}
+
+async function getDiscordRoleIdsForRole(roleId) {
+  const { rows } = await pool.query(
+    `SELECT discord_role_id FROM role_discord_roles WHERE role_id = $1`,
+    [roleId],
+  );
+  return rows.map((r) => r.discord_role_id);
+}
+
+async function syncDiscordRolesOnRoleChange(
+  guildId,
+  discordUserId,
+  oldRoleId,
+  newRoleId,
+) {
+  if (!guildId || !discordUserId) return;
+  const [oldIds, newIds] = await Promise.all([
+    getDiscordRoleIdsForRole(oldRoleId),
+    getDiscordRoleIdsForRole(newRoleId),
+  ]);
+  const toRemove = oldIds.filter((id) => !newIds.includes(id));
+  const toAdd = newIds.filter((id) => !oldIds.includes(id));
+  await Promise.all([
+    ...toRemove.map((id) =>
+      removeDiscordRoleFromMember(guildId, discordUserId, id),
+    ),
+    ...toAdd.map((id) => addDiscordRoleToMember(guildId, discordUserId, id)),
+  ]);
+}
+
+async function removeAllDiscordRolesForRole(guildId, discordUserId, roleId) {
+  if (!guildId || !discordUserId) return;
+  const ids = await getDiscordRoleIdsForRole(roleId);
+  await Promise.all(
+    ids.map((id) => removeDiscordRoleFromMember(guildId, discordUserId, id)),
+  );
+}
+
+async function handleGetOrgDiscordRoles(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Forbidden: org admin role required" }, 403);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org) return json({ error: "Organization not found" }, 404);
+
+  const roles = await getGuildRoles(org.guild_id);
+  return json({
+    discordRoles: roles
+      .filter((r) => !r.managed && r.name !== "@everyone")
+      .map((r) => ({ id: r.id, name: r.name, color: r.color }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
   });
 }
 

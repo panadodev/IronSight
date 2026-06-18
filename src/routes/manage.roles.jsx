@@ -198,12 +198,14 @@ function RolesPage() {
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [ticketTypes, setTicketTypes] = useState([]);
+  const [guildRoles, setGuildRoles] = useState([]);
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [draftPerms, setDraftPerms] = useState({});
   const [draftTicketTypes, setDraftTicketTypes] = useState({});
+  const [draftDiscordRoleIds, setDraftDiscordRoleIds] = useState({});
   const [savingId, setSavingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -240,6 +242,16 @@ function RolesPage() {
       .catch(() => {});
   }, [orgId]);
 
+  useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/discord-roles`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => body && setGuildRoles(body.discordRoles ?? []))
+      .catch(() => {});
+  }, [orgId]);
+
   if (!orgId) return null;
 
   async function handleCreate() {
@@ -269,6 +281,7 @@ function RolesPage() {
         setExpandedId(newRoleId);
         setDraftPerms((prev) => ({ ...prev, [newRoleId]: [] }));
         setDraftTicketTypes((prev) => ({ ...prev, [newRoleId]: [] }));
+        setDraftDiscordRoleIds((prev) => ({ ...prev, [newRoleId]: [] }));
       }
     } catch {
       setCreateErr("Network error.");
@@ -282,13 +295,14 @@ function RolesPage() {
     try {
       const permissions = draftPerms[roleId] ?? [];
       const ticketTypeIds = draftTicketTypes[roleId] ?? [];
+      const discordRoleIds = draftDiscordRoleIds[roleId] ?? [];
       await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`,
         {
           method: "PATCH",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ permissions, ticketTypeIds }),
+          body: JSON.stringify({ permissions, ticketTypeIds, discordRoleIds }),
         },
       );
       await loadRoles();
@@ -311,7 +325,7 @@ function RolesPage() {
     }
   }
 
-  function toggleExpand(roleId, currentPerms, currentTicketTypeIds) {
+  function toggleExpand(roleId, currentPerms, currentTicketTypeIds, currentDiscordRoleIds) {
     if (expandedId === roleId) {
       setExpandedId(null);
     } else {
@@ -320,6 +334,10 @@ function RolesPage() {
       setDraftTicketTypes((prev) => ({
         ...prev,
         [roleId]: [...currentTicketTypeIds],
+      }));
+      setDraftDiscordRoleIds((prev) => ({
+        ...prev,
+        [roleId]: [...currentDiscordRoleIds],
       }));
     }
   }
@@ -356,6 +374,18 @@ function RolesPage() {
         [roleId]: cur.includes(typeId)
           ? cur.filter((t) => t !== typeId)
           : [...cur, typeId],
+      };
+    });
+  }
+
+  function toggleDiscordRole(roleId, discordRoleId) {
+    setDraftDiscordRoleIds((prev) => {
+      const cur = prev[roleId] ?? [];
+      return {
+        ...prev,
+        [roleId]: cur.includes(discordRoleId)
+          ? cur.filter((id) => id !== discordRoleId)
+          : [...cur, discordRoleId],
       };
     });
   }
@@ -403,6 +433,8 @@ function RolesPage() {
             const draft = draftPerms[role.roleId] ?? role.permissions;
             const draftTT =
               draftTicketTypes[role.roleId] ?? role.ticketTypeIds ?? [];
+            const draftDR =
+              draftDiscordRoleIds[role.roleId] ?? role.discordRoleIds ?? [];
             const isDirty =
               isExpanded &&
               (JSON.stringify([...draft].sort()) !==
@@ -410,7 +442,9 @@ function RolesPage() {
                 JSON.stringify([...draftTT].sort((a, b) => a - b)) !==
                   JSON.stringify(
                     [...(role.ticketTypeIds ?? [])].sort((a, b) => a - b),
-                  ));
+                  ) ||
+                JSON.stringify([...draftDR].sort()) !==
+                  JSON.stringify([...(role.discordRoleIds ?? [])].sort()));
 
             return (
               <div
@@ -425,6 +459,7 @@ function RolesPage() {
                         role.roleId,
                         role.permissions,
                         role.ticketTypeIds ?? [],
+                        role.discordRoleIds ?? [],
                       )
                     }
                   >
@@ -440,6 +475,12 @@ function RolesPage() {
                       {role.permissions.length}{" "}
                       {role.permissions.length === 1 ? "perm" : "perms"}
                     </span>
+                    {(role.discordRoleIds ?? []).length > 0 && (
+                      <span className="text-[10px] font-mono text-[#5865F2] shrink-0">
+                        {role.discordRoleIds.length} Discord{" "}
+                        {role.discordRoleIds.length === 1 ? "role" : "roles"}
+                      </span>
+                    )}
                   </button>
 
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -560,6 +601,37 @@ function RolesPage() {
                       </div>
                     ))}
 
+                    <div>
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                        Discord Roles
+                      </p>
+                      {guildRoles.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground italic px-2">
+                          No Discord roles found. Make sure the bot is in your
+                          server and the guild ID is set.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                          {guildRoles.map((gr) => (
+                            <DiscordRoleCheckbox
+                              key={gr.id}
+                              checked={draftDR.includes(gr.id)}
+                              onClick={() =>
+                                toggleDiscordRole(role.roleId, gr.id)
+                              }
+                              name={gr.name}
+                              color={gr.color}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-1.5 px-2">
+                        Members assigned this role will receive these Discord
+                        roles. They are removed automatically when staff is
+                        removed or reassigned.
+                      </p>
+                    </div>
+
                     {isDirty && (
                       <div className="flex justify-end pt-1 border-t border-border">
                         <Button
@@ -581,5 +653,46 @@ function RolesPage() {
         )}
       </div>
     </GateRank>
+  );
+}
+
+function DiscordRoleCheckbox({ checked, onClick, name, color }) {
+  const hex =
+    color && color !== 0
+      ? `#${color.toString(16).padStart(6, "0")}`
+      : undefined;
+
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-surface/60 text-left w-full group"
+    >
+      <span
+        className={
+          "size-4 rounded grid place-items-center ring-1 shrink-0 transition-colors " +
+          (checked
+            ? "bg-[#5865F2] ring-[#5865F2] text-white"
+            : "ring-border text-transparent group-hover:ring-[#5865F2]/50")
+        }
+      >
+        {checked && (
+          <svg viewBox="0 0 10 8" className="size-2.5 fill-none stroke-current">
+            <path
+              d="M1 4L3.5 6.5L9 1"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
+      {hex && (
+        <span
+          className="size-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: hex }}
+        />
+      )}
+      <span className="text-xs font-medium truncate">{name}</span>
+    </button>
   );
 }
