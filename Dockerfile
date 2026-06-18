@@ -26,6 +26,7 @@ ENV PG_IDLE_TIMEOUT_MS=30000
 #   - DISCORD_CLIENT_SECRET (Discord OAuth app secret)
 #   - APP_URL (public base URL for OAuth callbacks)
 # Optional at runtime:
+#   - DISCORD_BOT_TOKEN (Discord bot token; enables Discord moderation + member join DMs)
 #   - DISCORD_REDIRECT_URI (override callback URL derivation)
 #   - STEAM_RETURN_URL (override Steam OpenID return URL derivation)
 #   - STEAM_REALM (override Steam OpenID realm derivation)
@@ -43,4 +44,6 @@ ARG REDIS_URI
 RUN node scripts/check-db.mjs
 
 EXPOSE 7123
-CMD ["npm", "run", "start"]
+# Start the bot in the background, then run the web server in the foreground.
+# If DISCORD_BOT_TOKEN is unset the bot exits immediately and the server continues normally.
+CMD ["sh", "-c", "node bot.js & npm run start"]
