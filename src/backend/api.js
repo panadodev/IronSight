@@ -10394,73 +10394,6 @@ async function pruneOldDiscordMessages() {
   );
 }
 
-async function sendPrivacyPolicyDM(discordId) {
-  // Open (or retrieve) the DM channel with the user
-  const dmChannelRes = await discordFetch(`/users/@me/channels`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient_id: discordId }),
-  });
-  if (!dmChannelRes.ok) return false;
-  const dmChannel = await dmChannelRes.json();
-
-  const message =
-    "👋 **IronSight Notice**\n\n" +
-    "This server uses **IronSight**, a staff moderation panel for Rust game servers. " +
-    "To keep the community safe, staff members may review Discord messages and take moderation actions " +
-    "(timeouts, kicks, bans) through the panel.\n\n" +
-    "**What we collect:** Messages sent in this server are stored for up to 30 days for moderation review, " +
-    "then permanently deleted. Your Discord ID and username are stored as long as you remain a member.\n\n" +
-    "**Your privacy rights:** You can read our full Privacy Policy at https://ironsight.panado.dev/privacy — " +
-    "it explains exactly what data is kept, how it is protected, and how to request deletion.\n\n" +
-    "_If you have questions, contact a server administrator._";
-
-  const msgRes = await discordFetch(`/channels/${dmChannel.id}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: message }),
-  });
-  return msgRes.ok;
-}
-
-async function notifyNewGuildMembers(orgId, guildId) {
-  if (!env.discordBotToken) return;
-
-  const cursorRes = await pool.query(
-    `SELECT last_checked_at FROM discord_member_notify_cursor WHERE org_id = $1 AND guild_id = $2`,
-    [orgId, guildId],
-  );
-
-  const now = new Date();
-
-  if (cursorRes.rows.length === 0) {
-    // First run — record cursor without DMing existing members
-    await pool.query(
-      `INSERT INTO discord_member_notify_cursor (org_id, guild_id, last_checked_at) VALUES ($1, $2, $3)`,
-      [orgId, guildId, now],
-    );
-    return;
-  }
-
-  const lastCheckedAt = new Date(cursorRes.rows[0].last_checked_at);
-
-  const res = await discordFetch(`/guilds/${guildId}/members?limit=1000`);
-  if (!res.ok) return;
-  const members = await res.json();
-  if (!Array.isArray(members)) return;
-
-  for (const m of members) {
-    if (!m.user || m.user.bot) continue;
-    if (new Date(m.joined_at) <= lastCheckedAt) continue;
-    await sendPrivacyPolicyDM(m.user.id);
-  }
-
-  await pool.query(
-    `UPDATE discord_member_notify_cursor SET last_checked_at = $1 WHERE org_id = $2 AND guild_id = $3`,
-    [now, orgId, guildId],
-  );
-}
-
 // ── Discord API route handlers ────────────────────────────────────────────────
 
 async function handleDiscordSync(request, orgId) {
@@ -10484,7 +10417,6 @@ async function handleDiscordSync(request, orgId) {
   }
 
   await pruneOldDiscordMessages();
-  await notifyNewGuildMembers(orgId, org.guild_id);
 
   const channels = await getGuildTextChannels(org.guild_id);
   let totalSynced = 0;
