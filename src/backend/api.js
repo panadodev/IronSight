@@ -724,6 +724,11 @@ async function ensureSchema() {
     `ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`,
   );
 
+  // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
+  await pool.query(
+    `ALTER TABLE discord_mod_log ALTER COLUMN actor_user_id DROP NOT NULL`,
+  );
+
   // ── Public identity links (Discord + Steam for portal ticket submitters) ──
 
   await pool.query(`
@@ -10015,6 +10020,27 @@ async function _handleApiRequest(request) {
       return handleGetDiscordModLog(request, discordModLogMatch[1]);
     }
 
+    const discordBansSyncMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/bans\/sync$/,
+    );
+    if (discordBansSyncMatch && request.method === "POST") {
+      return handleSyncDiscordBans(request, discordBansSyncMatch[1]);
+    }
+
+    const discordBansMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/bans$/,
+    );
+    if (discordBansMatch && request.method === "GET") {
+      return handleGetDiscordBans(request, discordBansMatch[1]);
+    }
+
+    const discordMembersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/members$/,
+    );
+    if (discordMembersMatch && request.method === "GET") {
+      return handleSearchDiscordMembers(request, discordMembersMatch[1]);
+    }
+
     const orgTicketTypesMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types$/,
     );
@@ -10897,6 +10923,150 @@ async function deleteUserDiscordMessagesFromGuild(guildId, orgId, discordUserId)
       }).catch(() => {});
     }
   }
+}
+
+async function fetchAllDiscordBans(guildId) {
+  const allBans = [];
+  let after = undefined;
+  while (true) {
+    const params = new URLSearchParams({ limit: "1000" });
+    if (after) params.set("after", after);
+    const res = await discordFetch(`/guilds/${guildId}/bans?${params}`);
+    if (!res.ok) break;
+    const bans = await res.json();
+    if (!Array.isArray(bans) || bans.length === 0) break;
+    allBans.push(...bans);
+    if (bans.length < 1000) break;
+    after = bans[bans.length - 1].user.id;
+  }
+  return allBans;
+}
+
+async function handleGetDiscordBans(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.guild_id) return json({ error: "Organization has no guild_id configured" }, 400);
+
+  const allBans = await fetchAllDiscordBans(org.guild_id);
+
+  // Determine which bans are already in our log and whether they were panel-issued or external
+  const { rows: logged } = await pool.query(
+    `SELECT DISTINCT ON (target_discord_id)
+            target_discord_id, actor_user_id
+     FROM discord_mod_log
+     WHERE org_id = $1 AND action_type = 'BAN'
+     ORDER BY target_discord_id, created_at DESC`,
+    [orgId],
+  );
+  const logMap = new Map(logged.map((r) => [r.target_discord_id, r]));
+
+  return json({
+    bans: allBans.map((b) => {
+      const log = logMap.get(b.user.id);
+      return {
+        discordUserId: b.user.id,
+        username: b.user.global_name ?? b.user.username,
+        reason: b.reason ?? null,
+        source: log ? (log.actor_user_id ? "panel" : "external") : "external",
+      };
+    }),
+  });
+}
+
+async function handleSyncDiscordBans(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.guild_id) return json({ error: "Organization has no guild_id configured" }, 400);
+
+  const allBans = await fetchAllDiscordBans(org.guild_id);
+
+  // Latest known action per discord user (to detect unbanned-then-rebanned externally)
+  const { rows: latest } = await pool.query(
+    `SELECT DISTINCT ON (target_discord_id)
+            target_discord_id, action_type
+     FROM discord_mod_log
+     WHERE org_id = $1
+     ORDER BY target_discord_id, created_at DESC`,
+    [orgId],
+  );
+  const latestAction = new Map(latest.map((r) => [r.target_discord_id, r.action_type]));
+
+  let synced = 0;
+  for (const ban of allBans) {
+    const discordId = ban.user.id;
+    const last = latestAction.get(discordId);
+    if (!last || last !== "BAN") {
+      await pool.query(
+        `INSERT INTO discord_mod_log
+           (org_id, guild_id, target_discord_id, target_username, action_type, reason, actor_user_id)
+         VALUES ($1, $2, $3, $4, 'BAN', $5, NULL)`,
+        [
+          orgId,
+          org.guild_id,
+          discordId,
+          ban.user.global_name ?? ban.user.username,
+          ban.reason ?? null,
+        ],
+      );
+      synced++;
+    }
+  }
+
+  return json({ ok: true, synced });
+}
+
+async function handleSearchDiscordMembers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
+  if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.guild_id) return json({ error: "Organization has no guild_id configured" }, 400);
+
+  const url = new URL(request.url);
+  const query = (url.searchParams.get("query") ?? "").trim();
+  if (!query) return json({ members: [] });
+
+  const params = new URLSearchParams({ query, limit: "25" });
+  const res = await discordFetch(
+    `/guilds/${org.guild_id}/members/search?${params}`,
+  );
+  if (!res.ok) return json({ members: [] });
+
+  const members = await res.json();
+  return json({
+    members: Array.isArray(members)
+      ? members.map((m) => ({
+          discordId: m.user.id,
+          username: m.user.global_name ?? m.user.username,
+          nickname: m.nick ?? null,
+          avatar: m.user.avatar
+            ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png?size=64`
+            : null,
+        }))
+      : [],
+  });
 }
 
 async function handleGetDiscordModLog(request, orgId) {

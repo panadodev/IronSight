@@ -756,6 +756,23 @@ function PlayerLookupPage() {
                           }
                         />
                         <Field label="K.D" value={kd ?? "—"} />
+                        {playerData.bm && (
+                          <Field
+                            label="BM Reports"
+                            value={fmtNum(
+                              (playerData.bm.cheatingReports ?? 0) +
+                              (playerData.bm.teamingReports ?? 0) +
+                              (playerData.bm.otherReports ?? 0)
+                            )}
+                            tone={
+                              ((playerData.bm.cheatingReports ?? 0) + (playerData.bm.teamingReports ?? 0) + (playerData.bm.otherReports ?? 0)) > 10
+                                ? "danger"
+                                : ((playerData.bm.cheatingReports ?? 0) + (playerData.bm.teamingReports ?? 0) + (playerData.bm.otherReports ?? 0)) > 0
+                                  ? "warning"
+                                  : undefined
+                            }
+                          />
+                        )}
                         <Field
                           label="Hit %"
                           value={`${(hashId(playerData.steamId) % 55) + 8}%`}
@@ -837,7 +854,10 @@ function PlayerLookupPage() {
 
                 {/* Bans on Other Orgs */}
                 {!isSupportOnly && (
-                  <ExternalBansSection subjectId={playerData.steamId} />
+                  <ExternalBansSection
+                    subjectId={playerData.steamId}
+                    bans={playerData.bmBans}
+                  />
                 )}
 
                 {/* F7 / Thorium alerts */}
@@ -850,6 +870,7 @@ function PlayerLookupPage() {
                   <LinkedAccountIntelSection
                     subjectId={playerData.steamId}
                     subjectName={playerData.displayName ?? playerData.steamId}
+                    relatedAccounts={playerData.relatedAccounts}
                   />
                 )}
 
@@ -889,6 +910,7 @@ function PlayerLookupPage() {
                           5 * 60 * 1000
                         : false
                     }
+                    bmSessions={playerData.bmSessions}
                   />
                 )}
 

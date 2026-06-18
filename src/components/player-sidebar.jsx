@@ -826,7 +826,51 @@ function buildServerSessions(subjectId, isOnline, windowDays = 7) {
     };
   });
 }
-function ServerHistorySection({ subjectId, isOnline, recipients }) {
+function bmSessionLastSeen(iso) {
+  if (!iso) return "—";
+  const ms = Date.now() - Date.parse(iso);
+  const min = Math.floor(ms / 60000);
+  if (min < 2) return "now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
+  if (bmSessions) {
+    return (
+      <section>
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+          <span>Server History (BM)</span>
+          <span className="font-mono normal-case tracking-normal text-muted-foreground">
+            {bmSessions.length}
+          </span>
+        </h2>
+        {bmSessions.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">No server sessions on record.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {bmSessions.map((s) => {
+              const hrs = Number(s.hoursPlayed ?? 0);
+              const played = hrs >= 1
+                ? `${Math.floor(hrs)}h`
+                : `${Math.round(hrs * 60)}m`;
+              return (
+                <li
+                  key={s.bmServerId}
+                  className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1"
+                >
+                  <span className="text-[10px] font-medium truncate min-w-0 flex-1">{s.serverName}</span>
+                  <span className="text-[9px] font-mono text-muted-foreground shrink-0">{played}</span>
+                  <span className="text-[9px] font-mono text-muted-foreground shrink-0">{bmSessionLastSeen(s.lastSeen)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    );
+  }
   const sessions = buildServerSessions(subjectId, !!isOnline);
   const recipientSessions = (recipients ?? []).map((r) => ({
     ...r,

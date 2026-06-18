@@ -423,11 +423,19 @@ function formatBanAge(ms) {
   if (days < 365) return `${Math.round(days / 30)}mo ago`;
   return `${Math.round(days / 365)}y ago`;
 }
-function LinkedAccountIntelSection({ subjectId, subjectName }) {
-  const summary = useMemo(
-    () => getLinkedAccountsSummary(subjectId, subjectName),
-    [subjectId, subjectName],
-  );
+function LinkedAccountIntelSection({ subjectId, subjectName, relatedAccounts }) {
+  const summary = useMemo(() => {
+    if (Array.isArray(relatedAccounts)) {
+      let gameBanned = 0, serverBanned = 0, anyBan = 0;
+      for (const a of relatedAccounts) {
+        if (a.hasEacBans) gameBanned++;
+        if (a.hasBmBans) serverBanned++;
+        if (a.hasEacBans || a.hasBmBans) anyBan++;
+      }
+      return { total: relatedAccounts.length, gameBanned, serverBanned, anyBan, residentialWithBan: 0 };
+    }
+    return getLinkedAccountsSummary(subjectId, subjectName);
+  }, [subjectId, subjectName, relatedAccounts]);
   const hasResRisk = summary.residentialWithBan > 0;
   return (
     <section>

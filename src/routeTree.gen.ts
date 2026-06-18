@@ -8,574 +8,574 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as TosRouteImport } from "./routes/tos";
-import { Route as TodoRouteImport } from "./routes/todo";
-import { Route as TicketsRouteImport } from "./routes/tickets";
-import { Route as ThreatTriggersRouteImport } from "./routes/threat-triggers";
-import { Route as SupportRouteImport } from "./routes/support";
-import { Route as SubmitRouteImport } from "./routes/submit";
-import { Route as StaffAuditRouteImport } from "./routes/staff-audit";
-import { Route as PrivacyRouteImport } from "./routes/privacy";
-import { Route as PlayerLookupRouteImport } from "./routes/player-lookup";
-import { Route as PlayerListRouteImport } from "./routes/player-list";
-import { Route as PanelRouteImport } from "./routes/panel";
-import { Route as MyReportsRouteImport } from "./routes/my-reports";
-import { Route as ManageRouteImport } from "./routes/manage";
-import { Route as LoginRouteImport } from "./routes/login";
-import { Route as DocsRouteImport } from "./routes/docs";
-import { Route as DiscordModRouteImport } from "./routes/discord-mod";
-import { Route as ChatRouteImport } from "./routes/chat";
-import { Route as BansMutesRouteImport } from "./routes/bans-mutes";
-import { Route as IndexRouteImport } from "./routes/index";
-import { Route as SysAdminRolesRouteImport } from "./routes/sys-admin.roles";
-import { Route as ManageToxicityRouteImport } from "./routes/manage.toxicity";
-import { Route as ManageTicketsRouteImport } from "./routes/manage.tickets";
-import { Route as ManageStaffRouteImport } from "./routes/manage.staff";
-import { Route as ManageRolesRouteImport } from "./routes/manage.roles";
-import { Route as ManagePredefinesRouteImport } from "./routes/manage.predefines";
-import { Route as ManageDetailsRouteImport } from "./routes/manage.details";
-import { Route as ManageBanConfigsRouteImport } from "./routes/manage.ban-configs";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as TosRouteImport } from './routes/tos'
+import { Route as TodoRouteImport } from './routes/todo'
+import { Route as TicketsRouteImport } from './routes/tickets'
+import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
+import { Route as SupportRouteImport } from './routes/support'
+import { Route as SubmitRouteImport } from './routes/submit'
+import { Route as StaffAuditRouteImport } from './routes/staff-audit'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PlayerLookupRouteImport } from './routes/player-lookup'
+import { Route as PlayerListRouteImport } from './routes/player-list'
+import { Route as PanelRouteImport } from './routes/panel'
+import { Route as MyReportsRouteImport } from './routes/my-reports'
+import { Route as ManageRouteImport } from './routes/manage'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as DocsRouteImport } from './routes/docs'
+import { Route as DiscordModRouteImport } from './routes/discord-mod'
+import { Route as ChatRouteImport } from './routes/chat'
+import { Route as BansMutesRouteImport } from './routes/bans-mutes'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as SysAdminRolesRouteImport } from './routes/sys-admin.roles'
+import { Route as ManageToxicityRouteImport } from './routes/manage.toxicity'
+import { Route as ManageTicketsRouteImport } from './routes/manage.tickets'
+import { Route as ManageStaffRouteImport } from './routes/manage.staff'
+import { Route as ManageRolesRouteImport } from './routes/manage.roles'
+import { Route as ManagePredefinesRouteImport } from './routes/manage.predefines'
+import { Route as ManageDetailsRouteImport } from './routes/manage.details'
+import { Route as ManageBanConfigsRouteImport } from './routes/manage.ban-configs'
 
 const TosRoute = TosRouteImport.update({
-  id: "/tos",
-  path: "/tos",
+  id: '/tos',
+  path: '/tos',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const TodoRoute = TodoRouteImport.update({
-  id: "/todo",
-  path: "/todo",
+  id: '/todo',
+  path: '/todo',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const TicketsRoute = TicketsRouteImport.update({
-  id: "/tickets",
-  path: "/tickets",
+  id: '/tickets',
+  path: '/tickets',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ThreatTriggersRoute = ThreatTriggersRouteImport.update({
-  id: "/threat-triggers",
-  path: "/threat-triggers",
+  id: '/threat-triggers',
+  path: '/threat-triggers',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SupportRoute = SupportRouteImport.update({
-  id: "/support",
-  path: "/support",
+  id: '/support',
+  path: '/support',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SubmitRoute = SubmitRouteImport.update({
-  id: "/submit",
-  path: "/submit",
+  id: '/submit',
+  path: '/submit',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const StaffAuditRoute = StaffAuditRouteImport.update({
-  id: "/staff-audit",
-  path: "/staff-audit",
+  id: '/staff-audit',
+  path: '/staff-audit',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const PrivacyRoute = PrivacyRouteImport.update({
-  id: "/privacy",
-  path: "/privacy",
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const PlayerLookupRoute = PlayerLookupRouteImport.update({
-  id: "/player-lookup",
-  path: "/player-lookup",
+  id: '/player-lookup',
+  path: '/player-lookup',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const PlayerListRoute = PlayerListRouteImport.update({
-  id: "/player-list",
-  path: "/player-list",
+  id: '/player-list',
+  path: '/player-list',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const PanelRoute = PanelRouteImport.update({
-  id: "/panel",
-  path: "/panel",
+  id: '/panel',
+  path: '/panel',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const MyReportsRoute = MyReportsRouteImport.update({
-  id: "/my-reports",
-  path: "/my-reports",
+  id: '/my-reports',
+  path: '/my-reports',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ManageRoute = ManageRouteImport.update({
-  id: "/manage",
-  path: "/manage",
+  id: '/manage',
+  path: '/manage',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const LoginRoute = LoginRouteImport.update({
-  id: "/login",
-  path: "/login",
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const DocsRoute = DocsRouteImport.update({
-  id: "/docs",
-  path: "/docs",
+  id: '/docs',
+  path: '/docs',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const DiscordModRoute = DiscordModRouteImport.update({
-  id: "/discord-mod",
-  path: "/discord-mod",
+  id: '/discord-mod',
+  path: '/discord-mod',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ChatRoute = ChatRouteImport.update({
-  id: "/chat",
-  path: "/chat",
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const BansMutesRoute = BansMutesRouteImport.update({
-  id: "/bans-mutes",
-  path: "/bans-mutes",
+  id: '/bans-mutes',
+  path: '/bans-mutes',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SysAdminRolesRoute = SysAdminRolesRouteImport.update({
-  id: "/sys-admin/roles",
-  path: "/sys-admin/roles",
+  id: '/sys-admin/roles',
+  path: '/sys-admin/roles',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ManageToxicityRoute = ManageToxicityRouteImport.update({
-  id: "/toxicity",
-  path: "/toxicity",
+  id: '/toxicity',
+  path: '/toxicity',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 const ManageTicketsRoute = ManageTicketsRouteImport.update({
-  id: "/tickets",
-  path: "/tickets",
+  id: '/tickets',
+  path: '/tickets',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 const ManageStaffRoute = ManageStaffRouteImport.update({
-  id: "/staff",
-  path: "/staff",
+  id: '/staff',
+  path: '/staff',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 const ManageRolesRoute = ManageRolesRouteImport.update({
-  id: "/roles",
-  path: "/roles",
+  id: '/roles',
+  path: '/roles',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 const ManagePredefinesRoute = ManagePredefinesRouteImport.update({
-  id: "/predefines",
-  path: "/predefines",
+  id: '/predefines',
+  path: '/predefines',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 const ManageDetailsRoute = ManageDetailsRouteImport.update({
-  id: "/details",
-  path: "/details",
+  id: '/details',
+  path: '/details',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 const ManageBanConfigsRoute = ManageBanConfigsRouteImport.update({
-  id: "/ban-configs",
-  path: "/ban-configs",
+  id: '/ban-configs',
+  path: '/ban-configs',
   getParentRoute: () => ManageRoute,
-} as any);
+} as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute;
-  "/bans-mutes": typeof BansMutesRoute;
-  "/chat": typeof ChatRoute;
-  "/discord-mod": typeof DiscordModRoute;
-  "/docs": typeof DocsRoute;
-  "/login": typeof LoginRoute;
-  "/manage": typeof ManageRouteWithChildren;
-  "/my-reports": typeof MyReportsRoute;
-  "/panel": typeof PanelRoute;
-  "/player-list": typeof PlayerListRoute;
-  "/player-lookup": typeof PlayerLookupRoute;
-  "/privacy": typeof PrivacyRoute;
-  "/staff-audit": typeof StaffAuditRoute;
-  "/submit": typeof SubmitRoute;
-  "/support": typeof SupportRoute;
-  "/threat-triggers": typeof ThreatTriggersRoute;
-  "/tickets": typeof TicketsRoute;
-  "/todo": typeof TodoRoute;
-  "/tos": typeof TosRoute;
-  "/manage/ban-configs": typeof ManageBanConfigsRoute;
-  "/manage/details": typeof ManageDetailsRoute;
-  "/manage/predefines": typeof ManagePredefinesRoute;
-  "/manage/roles": typeof ManageRolesRoute;
-  "/manage/staff": typeof ManageStaffRoute;
-  "/manage/tickets": typeof ManageTicketsRoute;
-  "/manage/toxicity": typeof ManageToxicityRoute;
-  "/sys-admin/roles": typeof SysAdminRolesRoute;
+  '/': typeof IndexRoute
+  '/bans-mutes': typeof BansMutesRoute
+  '/chat': typeof ChatRoute
+  '/discord-mod': typeof DiscordModRoute
+  '/docs': typeof DocsRoute
+  '/login': typeof LoginRoute
+  '/manage': typeof ManageRouteWithChildren
+  '/my-reports': typeof MyReportsRoute
+  '/panel': typeof PanelRoute
+  '/player-list': typeof PlayerListRoute
+  '/player-lookup': typeof PlayerLookupRoute
+  '/privacy': typeof PrivacyRoute
+  '/staff-audit': typeof StaffAuditRoute
+  '/submit': typeof SubmitRoute
+  '/support': typeof SupportRoute
+  '/threat-triggers': typeof ThreatTriggersRoute
+  '/tickets': typeof TicketsRoute
+  '/todo': typeof TodoRoute
+  '/tos': typeof TosRoute
+  '/manage/ban-configs': typeof ManageBanConfigsRoute
+  '/manage/details': typeof ManageDetailsRoute
+  '/manage/predefines': typeof ManagePredefinesRoute
+  '/manage/roles': typeof ManageRolesRoute
+  '/manage/staff': typeof ManageStaffRoute
+  '/manage/tickets': typeof ManageTicketsRoute
+  '/manage/toxicity': typeof ManageToxicityRoute
+  '/sys-admin/roles': typeof SysAdminRolesRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute;
-  "/bans-mutes": typeof BansMutesRoute;
-  "/chat": typeof ChatRoute;
-  "/discord-mod": typeof DiscordModRoute;
-  "/docs": typeof DocsRoute;
-  "/login": typeof LoginRoute;
-  "/manage": typeof ManageRouteWithChildren;
-  "/my-reports": typeof MyReportsRoute;
-  "/panel": typeof PanelRoute;
-  "/player-list": typeof PlayerListRoute;
-  "/player-lookup": typeof PlayerLookupRoute;
-  "/privacy": typeof PrivacyRoute;
-  "/staff-audit": typeof StaffAuditRoute;
-  "/submit": typeof SubmitRoute;
-  "/support": typeof SupportRoute;
-  "/threat-triggers": typeof ThreatTriggersRoute;
-  "/tickets": typeof TicketsRoute;
-  "/todo": typeof TodoRoute;
-  "/tos": typeof TosRoute;
-  "/manage/ban-configs": typeof ManageBanConfigsRoute;
-  "/manage/details": typeof ManageDetailsRoute;
-  "/manage/predefines": typeof ManagePredefinesRoute;
-  "/manage/roles": typeof ManageRolesRoute;
-  "/manage/staff": typeof ManageStaffRoute;
-  "/manage/tickets": typeof ManageTicketsRoute;
-  "/manage/toxicity": typeof ManageToxicityRoute;
-  "/sys-admin/roles": typeof SysAdminRolesRoute;
+  '/': typeof IndexRoute
+  '/bans-mutes': typeof BansMutesRoute
+  '/chat': typeof ChatRoute
+  '/discord-mod': typeof DiscordModRoute
+  '/docs': typeof DocsRoute
+  '/login': typeof LoginRoute
+  '/manage': typeof ManageRouteWithChildren
+  '/my-reports': typeof MyReportsRoute
+  '/panel': typeof PanelRoute
+  '/player-list': typeof PlayerListRoute
+  '/player-lookup': typeof PlayerLookupRoute
+  '/privacy': typeof PrivacyRoute
+  '/staff-audit': typeof StaffAuditRoute
+  '/submit': typeof SubmitRoute
+  '/support': typeof SupportRoute
+  '/threat-triggers': typeof ThreatTriggersRoute
+  '/tickets': typeof TicketsRoute
+  '/todo': typeof TodoRoute
+  '/tos': typeof TosRoute
+  '/manage/ban-configs': typeof ManageBanConfigsRoute
+  '/manage/details': typeof ManageDetailsRoute
+  '/manage/predefines': typeof ManagePredefinesRoute
+  '/manage/roles': typeof ManageRolesRoute
+  '/manage/staff': typeof ManageStaffRoute
+  '/manage/tickets': typeof ManageTicketsRoute
+  '/manage/toxicity': typeof ManageToxicityRoute
+  '/sys-admin/roles': typeof SysAdminRolesRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  "/": typeof IndexRoute;
-  "/bans-mutes": typeof BansMutesRoute;
-  "/chat": typeof ChatRoute;
-  "/discord-mod": typeof DiscordModRoute;
-  "/docs": typeof DocsRoute;
-  "/login": typeof LoginRoute;
-  "/manage": typeof ManageRouteWithChildren;
-  "/my-reports": typeof MyReportsRoute;
-  "/panel": typeof PanelRoute;
-  "/player-list": typeof PlayerListRoute;
-  "/player-lookup": typeof PlayerLookupRoute;
-  "/privacy": typeof PrivacyRoute;
-  "/staff-audit": typeof StaffAuditRoute;
-  "/submit": typeof SubmitRoute;
-  "/support": typeof SupportRoute;
-  "/threat-triggers": typeof ThreatTriggersRoute;
-  "/tickets": typeof TicketsRoute;
-  "/todo": typeof TodoRoute;
-  "/tos": typeof TosRoute;
-  "/manage/ban-configs": typeof ManageBanConfigsRoute;
-  "/manage/details": typeof ManageDetailsRoute;
-  "/manage/predefines": typeof ManagePredefinesRoute;
-  "/manage/roles": typeof ManageRolesRoute;
-  "/manage/staff": typeof ManageStaffRoute;
-  "/manage/tickets": typeof ManageTicketsRoute;
-  "/manage/toxicity": typeof ManageToxicityRoute;
-  "/sys-admin/roles": typeof SysAdminRolesRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/bans-mutes': typeof BansMutesRoute
+  '/chat': typeof ChatRoute
+  '/discord-mod': typeof DiscordModRoute
+  '/docs': typeof DocsRoute
+  '/login': typeof LoginRoute
+  '/manage': typeof ManageRouteWithChildren
+  '/my-reports': typeof MyReportsRoute
+  '/panel': typeof PanelRoute
+  '/player-list': typeof PlayerListRoute
+  '/player-lookup': typeof PlayerLookupRoute
+  '/privacy': typeof PrivacyRoute
+  '/staff-audit': typeof StaffAuditRoute
+  '/submit': typeof SubmitRoute
+  '/support': typeof SupportRoute
+  '/threat-triggers': typeof ThreatTriggersRoute
+  '/tickets': typeof TicketsRoute
+  '/todo': typeof TodoRoute
+  '/tos': typeof TosRoute
+  '/manage/ban-configs': typeof ManageBanConfigsRoute
+  '/manage/details': typeof ManageDetailsRoute
+  '/manage/predefines': typeof ManagePredefinesRoute
+  '/manage/roles': typeof ManageRolesRoute
+  '/manage/staff': typeof ManageStaffRoute
+  '/manage/tickets': typeof ManageTicketsRoute
+  '/manage/toxicity': typeof ManageToxicityRoute
+  '/sys-admin/roles': typeof SysAdminRolesRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
+  fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | "/"
-    | "/bans-mutes"
-    | "/chat"
-    | "/discord-mod"
-    | "/docs"
-    | "/login"
-    | "/manage"
-    | "/my-reports"
-    | "/panel"
-    | "/player-list"
-    | "/player-lookup"
-    | "/privacy"
-    | "/staff-audit"
-    | "/submit"
-    | "/support"
-    | "/threat-triggers"
-    | "/tickets"
-    | "/todo"
-    | "/tos"
-    | "/manage/ban-configs"
-    | "/manage/details"
-    | "/manage/predefines"
-    | "/manage/roles"
-    | "/manage/staff"
-    | "/manage/tickets"
-    | "/manage/toxicity"
-    | "/sys-admin/roles";
-  fileRoutesByTo: FileRoutesByTo;
+    | '/'
+    | '/bans-mutes'
+    | '/chat'
+    | '/discord-mod'
+    | '/docs'
+    | '/login'
+    | '/manage'
+    | '/my-reports'
+    | '/panel'
+    | '/player-list'
+    | '/player-lookup'
+    | '/privacy'
+    | '/staff-audit'
+    | '/submit'
+    | '/support'
+    | '/threat-triggers'
+    | '/tickets'
+    | '/todo'
+    | '/tos'
+    | '/manage/ban-configs'
+    | '/manage/details'
+    | '/manage/predefines'
+    | '/manage/roles'
+    | '/manage/staff'
+    | '/manage/tickets'
+    | '/manage/toxicity'
+    | '/sys-admin/roles'
+  fileRoutesByTo: FileRoutesByTo
   to:
-    | "/"
-    | "/bans-mutes"
-    | "/chat"
-    | "/discord-mod"
-    | "/docs"
-    | "/login"
-    | "/manage"
-    | "/my-reports"
-    | "/panel"
-    | "/player-list"
-    | "/player-lookup"
-    | "/privacy"
-    | "/staff-audit"
-    | "/submit"
-    | "/support"
-    | "/threat-triggers"
-    | "/tickets"
-    | "/todo"
-    | "/tos"
-    | "/manage/ban-configs"
-    | "/manage/details"
-    | "/manage/predefines"
-    | "/manage/roles"
-    | "/manage/staff"
-    | "/manage/tickets"
-    | "/manage/toxicity"
-    | "/sys-admin/roles";
+    | '/'
+    | '/bans-mutes'
+    | '/chat'
+    | '/discord-mod'
+    | '/docs'
+    | '/login'
+    | '/manage'
+    | '/my-reports'
+    | '/panel'
+    | '/player-list'
+    | '/player-lookup'
+    | '/privacy'
+    | '/staff-audit'
+    | '/submit'
+    | '/support'
+    | '/threat-triggers'
+    | '/tickets'
+    | '/todo'
+    | '/tos'
+    | '/manage/ban-configs'
+    | '/manage/details'
+    | '/manage/predefines'
+    | '/manage/roles'
+    | '/manage/staff'
+    | '/manage/tickets'
+    | '/manage/toxicity'
+    | '/sys-admin/roles'
   id:
-    | "__root__"
-    | "/"
-    | "/bans-mutes"
-    | "/chat"
-    | "/discord-mod"
-    | "/docs"
-    | "/login"
-    | "/manage"
-    | "/my-reports"
-    | "/panel"
-    | "/player-list"
-    | "/player-lookup"
-    | "/privacy"
-    | "/staff-audit"
-    | "/submit"
-    | "/support"
-    | "/threat-triggers"
-    | "/tickets"
-    | "/todo"
-    | "/tos"
-    | "/manage/ban-configs"
-    | "/manage/details"
-    | "/manage/predefines"
-    | "/manage/roles"
-    | "/manage/staff"
-    | "/manage/tickets"
-    | "/manage/toxicity"
-    | "/sys-admin/roles";
-  fileRoutesById: FileRoutesById;
+    | '__root__'
+    | '/'
+    | '/bans-mutes'
+    | '/chat'
+    | '/discord-mod'
+    | '/docs'
+    | '/login'
+    | '/manage'
+    | '/my-reports'
+    | '/panel'
+    | '/player-list'
+    | '/player-lookup'
+    | '/privacy'
+    | '/staff-audit'
+    | '/submit'
+    | '/support'
+    | '/threat-triggers'
+    | '/tickets'
+    | '/todo'
+    | '/tos'
+    | '/manage/ban-configs'
+    | '/manage/details'
+    | '/manage/predefines'
+    | '/manage/roles'
+    | '/manage/staff'
+    | '/manage/tickets'
+    | '/manage/toxicity'
+    | '/sys-admin/roles'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
-  BansMutesRoute: typeof BansMutesRoute;
-  ChatRoute: typeof ChatRoute;
-  DiscordModRoute: typeof DiscordModRoute;
-  DocsRoute: typeof DocsRoute;
-  LoginRoute: typeof LoginRoute;
-  ManageRoute: typeof ManageRouteWithChildren;
-  MyReportsRoute: typeof MyReportsRoute;
-  PanelRoute: typeof PanelRoute;
-  PlayerListRoute: typeof PlayerListRoute;
-  PlayerLookupRoute: typeof PlayerLookupRoute;
-  PrivacyRoute: typeof PrivacyRoute;
-  StaffAuditRoute: typeof StaffAuditRoute;
-  SubmitRoute: typeof SubmitRoute;
-  SupportRoute: typeof SupportRoute;
-  ThreatTriggersRoute: typeof ThreatTriggersRoute;
-  TicketsRoute: typeof TicketsRoute;
-  TodoRoute: typeof TodoRoute;
-  TosRoute: typeof TosRoute;
-  SysAdminRolesRoute: typeof SysAdminRolesRoute;
+  IndexRoute: typeof IndexRoute
+  BansMutesRoute: typeof BansMutesRoute
+  ChatRoute: typeof ChatRoute
+  DiscordModRoute: typeof DiscordModRoute
+  DocsRoute: typeof DocsRoute
+  LoginRoute: typeof LoginRoute
+  ManageRoute: typeof ManageRouteWithChildren
+  MyReportsRoute: typeof MyReportsRoute
+  PanelRoute: typeof PanelRoute
+  PlayerListRoute: typeof PlayerListRoute
+  PlayerLookupRoute: typeof PlayerLookupRoute
+  PrivacyRoute: typeof PrivacyRoute
+  StaffAuditRoute: typeof StaffAuditRoute
+  SubmitRoute: typeof SubmitRoute
+  SupportRoute: typeof SupportRoute
+  ThreatTriggersRoute: typeof ThreatTriggersRoute
+  TicketsRoute: typeof TicketsRoute
+  TodoRoute: typeof TodoRoute
+  TosRoute: typeof TosRoute
+  SysAdminRolesRoute: typeof SysAdminRolesRoute
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/discord-mod": {
-      id: "/discord-mod";
-      path: "/discord-mod";
-      fullPath: "/discord-mod";
-      preLoaderRoute: typeof DiscordModRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/tos": {
-      id: "/tos";
-      path: "/tos";
-      fullPath: "/tos";
-      preLoaderRoute: typeof TosRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/todo": {
-      id: "/todo";
-      path: "/todo";
-      fullPath: "/todo";
-      preLoaderRoute: typeof TodoRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/tickets": {
-      id: "/tickets";
-      path: "/tickets";
-      fullPath: "/tickets";
-      preLoaderRoute: typeof TicketsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/threat-triggers": {
-      id: "/threat-triggers";
-      path: "/threat-triggers";
-      fullPath: "/threat-triggers";
-      preLoaderRoute: typeof ThreatTriggersRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/support": {
-      id: "/support";
-      path: "/support";
-      fullPath: "/support";
-      preLoaderRoute: typeof SupportRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/submit": {
-      id: "/submit";
-      path: "/submit";
-      fullPath: "/submit";
-      preLoaderRoute: typeof SubmitRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/staff-audit": {
-      id: "/staff-audit";
-      path: "/staff-audit";
-      fullPath: "/staff-audit";
-      preLoaderRoute: typeof StaffAuditRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/privacy": {
-      id: "/privacy";
-      path: "/privacy";
-      fullPath: "/privacy";
-      preLoaderRoute: typeof PrivacyRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/player-lookup": {
-      id: "/player-lookup";
-      path: "/player-lookup";
-      fullPath: "/player-lookup";
-      preLoaderRoute: typeof PlayerLookupRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/player-list": {
-      id: "/player-list";
-      path: "/player-list";
-      fullPath: "/player-list";
-      preLoaderRoute: typeof PlayerListRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/panel": {
-      id: "/panel";
-      path: "/panel";
-      fullPath: "/panel";
-      preLoaderRoute: typeof PanelRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/my-reports": {
-      id: "/my-reports";
-      path: "/my-reports";
-      fullPath: "/my-reports";
-      preLoaderRoute: typeof MyReportsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/manage": {
-      id: "/manage";
-      path: "/manage";
-      fullPath: "/manage";
-      preLoaderRoute: typeof ManageRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/login": {
-      id: "/login";
-      path: "/login";
-      fullPath: "/login";
-      preLoaderRoute: typeof LoginRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/docs": {
-      id: "/docs";
-      path: "/docs";
-      fullPath: "/docs";
-      preLoaderRoute: typeof DocsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/chat": {
-      id: "/chat";
-      path: "/chat";
-      fullPath: "/chat";
-      preLoaderRoute: typeof ChatRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/bans-mutes": {
-      id: "/bans-mutes";
-      path: "/bans-mutes";
-      fullPath: "/bans-mutes";
-      preLoaderRoute: typeof BansMutesRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/": {
-      id: "/";
-      path: "/";
-      fullPath: "/";
-      preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/sys-admin/roles": {
-      id: "/sys-admin/roles";
-      path: "/sys-admin/roles";
-      fullPath: "/sys-admin/roles";
-      preLoaderRoute: typeof SysAdminRolesRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/manage/toxicity": {
-      id: "/manage/toxicity";
-      path: "/toxicity";
-      fullPath: "/manage/toxicity";
-      preLoaderRoute: typeof ManageToxicityRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
-    "/manage/tickets": {
-      id: "/manage/tickets";
-      path: "/tickets";
-      fullPath: "/manage/tickets";
-      preLoaderRoute: typeof ManageTicketsRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
-    "/manage/staff": {
-      id: "/manage/staff";
-      path: "/staff";
-      fullPath: "/manage/staff";
-      preLoaderRoute: typeof ManageStaffRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
-    "/manage/roles": {
-      id: "/manage/roles";
-      path: "/roles";
-      fullPath: "/manage/roles";
-      preLoaderRoute: typeof ManageRolesRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
-    "/manage/predefines": {
-      id: "/manage/predefines";
-      path: "/predefines";
-      fullPath: "/manage/predefines";
-      preLoaderRoute: typeof ManagePredefinesRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
-    "/manage/details": {
-      id: "/manage/details";
-      path: "/details";
-      fullPath: "/manage/details";
-      preLoaderRoute: typeof ManageDetailsRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
-    "/manage/ban-configs": {
-      id: "/manage/ban-configs";
-      path: "/ban-configs";
-      fullPath: "/manage/ban-configs";
-      preLoaderRoute: typeof ManageBanConfigsRouteImport;
-      parentRoute: typeof ManageRoute;
-    };
+    '/tos': {
+      id: '/tos'
+      path: '/tos'
+      fullPath: '/tos'
+      preLoaderRoute: typeof TosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/todo': {
+      id: '/todo'
+      path: '/todo'
+      fullPath: '/todo'
+      preLoaderRoute: typeof TodoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tickets': {
+      id: '/tickets'
+      path: '/tickets'
+      fullPath: '/tickets'
+      preLoaderRoute: typeof TicketsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/threat-triggers': {
+      id: '/threat-triggers'
+      path: '/threat-triggers'
+      fullPath: '/threat-triggers'
+      preLoaderRoute: typeof ThreatTriggersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/submit': {
+      id: '/submit'
+      path: '/submit'
+      fullPath: '/submit'
+      preLoaderRoute: typeof SubmitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/staff-audit': {
+      id: '/staff-audit'
+      path: '/staff-audit'
+      fullPath: '/staff-audit'
+      preLoaderRoute: typeof StaffAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/player-lookup': {
+      id: '/player-lookup'
+      path: '/player-lookup'
+      fullPath: '/player-lookup'
+      preLoaderRoute: typeof PlayerLookupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/player-list': {
+      id: '/player-list'
+      path: '/player-list'
+      fullPath: '/player-list'
+      preLoaderRoute: typeof PlayerListRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/panel': {
+      id: '/panel'
+      path: '/panel'
+      fullPath: '/panel'
+      preLoaderRoute: typeof PanelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-reports': {
+      id: '/my-reports'
+      path: '/my-reports'
+      fullPath: '/my-reports'
+      preLoaderRoute: typeof MyReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/manage': {
+      id: '/manage'
+      path: '/manage'
+      fullPath: '/manage'
+      preLoaderRoute: typeof ManageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/discord-mod': {
+      id: '/discord-mod'
+      path: '/discord-mod'
+      fullPath: '/discord-mod'
+      preLoaderRoute: typeof DiscordModRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bans-mutes': {
+      id: '/bans-mutes'
+      path: '/bans-mutes'
+      fullPath: '/bans-mutes'
+      preLoaderRoute: typeof BansMutesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sys-admin/roles': {
+      id: '/sys-admin/roles'
+      path: '/sys-admin/roles'
+      fullPath: '/sys-admin/roles'
+      preLoaderRoute: typeof SysAdminRolesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/manage/toxicity': {
+      id: '/manage/toxicity'
+      path: '/toxicity'
+      fullPath: '/manage/toxicity'
+      preLoaderRoute: typeof ManageToxicityRouteImport
+      parentRoute: typeof ManageRoute
+    }
+    '/manage/tickets': {
+      id: '/manage/tickets'
+      path: '/tickets'
+      fullPath: '/manage/tickets'
+      preLoaderRoute: typeof ManageTicketsRouteImport
+      parentRoute: typeof ManageRoute
+    }
+    '/manage/staff': {
+      id: '/manage/staff'
+      path: '/staff'
+      fullPath: '/manage/staff'
+      preLoaderRoute: typeof ManageStaffRouteImport
+      parentRoute: typeof ManageRoute
+    }
+    '/manage/roles': {
+      id: '/manage/roles'
+      path: '/roles'
+      fullPath: '/manage/roles'
+      preLoaderRoute: typeof ManageRolesRouteImport
+      parentRoute: typeof ManageRoute
+    }
+    '/manage/predefines': {
+      id: '/manage/predefines'
+      path: '/predefines'
+      fullPath: '/manage/predefines'
+      preLoaderRoute: typeof ManagePredefinesRouteImport
+      parentRoute: typeof ManageRoute
+    }
+    '/manage/details': {
+      id: '/manage/details'
+      path: '/details'
+      fullPath: '/manage/details'
+      preLoaderRoute: typeof ManageDetailsRouteImport
+      parentRoute: typeof ManageRoute
+    }
+    '/manage/ban-configs': {
+      id: '/manage/ban-configs'
+      path: '/ban-configs'
+      fullPath: '/manage/ban-configs'
+      preLoaderRoute: typeof ManageBanConfigsRouteImport
+      parentRoute: typeof ManageRoute
+    }
   }
 }
 
 interface ManageRouteChildren {
-  ManageBanConfigsRoute: typeof ManageBanConfigsRoute;
-  ManageDetailsRoute: typeof ManageDetailsRoute;
-  ManagePredefinesRoute: typeof ManagePredefinesRoute;
-  ManageRolesRoute: typeof ManageRolesRoute;
-  ManageStaffRoute: typeof ManageStaffRoute;
-  ManageTicketsRoute: typeof ManageTicketsRoute;
-  ManageToxicityRoute: typeof ManageToxicityRoute;
+  ManageBanConfigsRoute: typeof ManageBanConfigsRoute
+  ManageDetailsRoute: typeof ManageDetailsRoute
+  ManagePredefinesRoute: typeof ManagePredefinesRoute
+  ManageRolesRoute: typeof ManageRolesRoute
+  ManageStaffRoute: typeof ManageStaffRoute
+  ManageTicketsRoute: typeof ManageTicketsRoute
+  ManageToxicityRoute: typeof ManageToxicityRoute
 }
 
 const ManageRouteChildren: ManageRouteChildren = {
@@ -586,10 +586,10 @@ const ManageRouteChildren: ManageRouteChildren = {
   ManageStaffRoute: ManageStaffRoute,
   ManageTicketsRoute: ManageTicketsRoute,
   ManageToxicityRoute: ManageToxicityRoute,
-};
+}
 
 const ManageRouteWithChildren =
-  ManageRoute._addFileChildren(ManageRouteChildren);
+  ManageRoute._addFileChildren(ManageRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -612,17 +612,17 @@ const rootRouteChildren: RootRouteChildren = {
   TodoRoute: TodoRoute,
   TosRoute: TosRoute,
   SysAdminRolesRoute: SysAdminRolesRoute,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from "./router.jsx";
-import type { startInstance } from "./start.js";
-declare module "@tanstack/react-start" {
+import type { getRouter } from './router.jsx'
+import type { startInstance } from './start.js'
+declare module '@tanstack/react-start' {
   interface Register {
-    ssr: true;
-    router: Awaited<ReturnType<typeof getRouter>>;
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>;
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

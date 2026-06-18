@@ -114,8 +114,42 @@ function buildExternalBans(subjectId) {
   }
   return bans;
 }
-function ExternalBansSection({ subjectId }) {
-  const bans = useMemo(() => buildExternalBans(subjectId), [subjectId]);
+function bmBanStatusLabel(ban) {
+  if (ban.permanent || !ban.expiresAt) return { label: "Permanent", tone: "danger" };
+  const ms = Date.parse(ban.expiresAt) - Date.now();
+  if (ms <= 0) return { label: "Expired", tone: "muted" };
+  const days = Math.floor(ms / 864e5);
+  const hours = Math.floor((ms % 864e5) / 36e5);
+  return { label: days > 0 ? `Expires in ${days}d` : `Expires in ${hours}h`, tone: "warning" };
+}
+function bmBanWhen(bannedAt) {
+  if (!bannedAt) return "—";
+  const days = Math.floor((Date.now() - Date.parse(bannedAt)) / 864e5);
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${(days / 365).toFixed(1)}y ago`;
+}
+function transformBmBans(rawBans) {
+  return rawBans.map((b) => {
+    const st = bmBanStatusLabel(b);
+    return {
+      id: b.bmBanId,
+      orgName: b.bmOrgName ?? "Unknown Org",
+      reason: b.reason ?? "—",
+      by: "—",
+      when: bmBanWhen(b.bannedAt),
+      status: st.label,
+      statusTone: st.tone,
+      note: b.note ?? "No additional notes.",
+    };
+  });
+}
+function ExternalBansSection({ subjectId, bans: rawBans }) {
+  const bans = useMemo(
+    () => (Array.isArray(rawBans) ? transformBmBans(rawBans) : buildExternalBans(subjectId)),
+    [subjectId, rawBans],
+  );
   const [openId, setOpenId] = useState(null);
   const open = bans.find((b) => b.id === openId) ?? null;
   return (
