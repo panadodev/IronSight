@@ -97,6 +97,35 @@ function PrivacyPage() {
               </li>
             </ul>
 
+            <p className="font-medium text-foreground text-[13px] pt-2">Discord data</p>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li>
+                Discord user ID and username — collected at login via OAuth and
+                stored as part of your staff account.
+              </li>
+              <li>
+                Discord messages — organizations may configure IronSight to
+                monitor designated channels in their Discord server. When this
+                integration is active, messages sent in those channels (including
+                message content, author ID, username, timestamp, and any
+                attachments) may be recorded and stored as moderation data. Only
+                channels explicitly configured by an organization owner are
+                monitored. Direct messages and channels outside the configured
+                scope are never read or stored.
+              </li>
+              <li>
+                Discord server membership — whether a user is a member of a
+                linked Discord server may be checked to verify staff eligibility
+                or access level within an organization.
+              </li>
+            </ul>
+            <p>
+              By participating in a Discord server that has enabled IronSight
+              integration, you acknowledge that messages sent in monitored
+              channels may be recorded and used for moderation purposes by that
+              server's staff team.
+            </p>
+
             <p className="font-medium text-foreground text-[13px] pt-2">Technical &amp; session data</p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
@@ -183,10 +212,15 @@ function PrivacyPage() {
               </li>
               <li>
                 <span className="font-medium text-foreground">Discord</span> —
-                Used for staff authentication via OAuth. We receive your Discord
-                user ID and username. IronSight does not post to Discord on
-                behalf of users without explicit configuration by an organization
-                admin.
+                Used for staff authentication via OAuth and, where enabled by an
+                organization, for message monitoring and server integration. When
+                a Discord integration is active, IronSight reads messages from
+                configured channels using a bot operating under Discord's API
+                terms. Data received from Discord is processed and stored within
+                IronSight's infrastructure; it is not re-shared with other
+                third parties. IronSight does not send messages or take actions
+                in Discord on behalf of users without explicit configuration by
+                an organization owner.
               </li>
             </ul>
             <p>
