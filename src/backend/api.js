@@ -10824,14 +10824,19 @@ async function handleDiscordModAction(request, orgId) {
   }
 
   if (discordRes && !discordRes.ok && discordRes.status !== 204) {
-    let discordError = null;
-    try {
-      discordError = await discordRes.json();
-    } catch { /* empty */ }
-    return json(
-      { error: "Discord API error", details: discordError, status: discordRes.status },
-      502,
-    );
+    // Unbanning someone not currently banned is a no-op success
+    if (action === "unban" && discordRes.status === 404) {
+      // fall through to log and return ok
+    } else {
+      let discordError = null;
+      try {
+        discordError = await discordRes.json();
+      } catch { /* empty */ }
+      return json(
+        { error: "Discord API error", details: discordError, status: discordRes.status },
+        502,
+      );
+    }
   }
 
   const expiresAt =
