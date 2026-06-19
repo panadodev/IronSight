@@ -109,7 +109,15 @@ const TYPE_FILTER_MAP = {
 };
 
 function TicketsPage() {
-  const { adminableOrgIds, orgs, sessionUser, orgsLoaded } = useAuth();
+  const { adminableOrgIds, orgs, sessionUser, orgsLoaded, sessionOrgPermissions } = useAuth();
+
+  const ticketOrgIds = useMemo(() => {
+    const ids = new Set(adminableOrgIds);
+    for (const org of orgs) {
+      if ((sessionOrgPermissions[org.id] ?? []).includes("tickets_view")) ids.add(org.id);
+    }
+    return Array.from(ids);
+  }, [adminableOrgIds, orgs, sessionOrgPermissions]);
 
   const [tab, setTab] = useState("active");
   const [typeFilter, setTypeFilter] = useState("ALL");
@@ -133,12 +141,12 @@ function TicketsPage() {
   const [teamError, setTeamError] = useState("");
 
   useEffect(() => {
-    if (!orgsLoaded || !adminableOrgIds.length) return;
+    if (!orgsLoaded || !ticketOrgIds.length) return;
     let cancelled = false;
     setLoading(true);
 
     Promise.all(
-      adminableOrgIds.map((orgId) =>
+      ticketOrgIds.map((orgId) =>
         fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=200`, {
           credentials: "include",
         })
@@ -162,7 +170,7 @@ function TicketsPage() {
     return () => {
       cancelled = true;
     };
-  }, [orgsLoaded, adminableOrgIds]);
+  }, [orgsLoaded, ticketOrgIds]);
 
   useEffect(() => {
     if (!selectedId) return;
