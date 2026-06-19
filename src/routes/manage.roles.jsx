@@ -585,10 +585,24 @@ function RolesPage() {
                                   </div>
                                   {ticketsActive && ticketTypes.length > 0 && (
                                     <div className="ml-6 border-l border-border/40 pl-2 mt-2">
-                                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1 px-2">
-                                        Ticket Types
+                                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5 px-2">
+                                        Ticket type access
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground mb-1 px-2">
+                                        Restrict to specific types, or keep "All types" for no restriction.
                                       </p>
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                        <PermCheckbox
+                                          checked={draftTT.length === 0}
+                                          onClick={() =>
+                                            setDraftTicketTypes((prev) => ({
+                                              ...prev,
+                                              [role.roleId]: [],
+                                            }))
+                                          }
+                                          label="All types"
+                                          desc="No restriction — can see every ticket type"
+                                        />
                                         {ticketTypes.map((tt) => (
                                           <PermCheckbox
                                             key={tt.ticketTypeId}
