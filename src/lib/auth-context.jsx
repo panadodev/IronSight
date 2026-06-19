@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { TEAM_META } from "./mock-data";
 import { manageOrgStore } from "./manage-org-store";
+import { TEAM_META } from "./mock-data";
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
 const BAN_CATEGORY_LABEL = {
   cheating: "Cheating",
@@ -11,7 +11,6 @@ const TICKET_TYPE_KEYS = [
   "cheating",
   "teaming",
   "toxicity",
-  "other",
   "support",
   "vip",
   "appeal",
@@ -20,7 +19,6 @@ const TICKET_TYPE_LABELS = {
   cheating: "Cheating",
   teaming: "Teaming",
   toxicity: "Toxicity",
-  other: "Other",
   support: "Support",
   vip: "VIP",
   appeal: "Appeal",
@@ -650,5 +648,6 @@ export {
   BAN_CATEGORY_LABEL,
   TICKET_TYPE_KEYS,
   TICKET_TYPE_LABELS,
-  useAuth,
+  useAuth
 };
+

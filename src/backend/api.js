@@ -772,6 +772,18 @@ async function ensureSchema() {
     END $$
   `);
 
+  // Add is_enabled column to track which ticket types are active for an org
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'ticket_types' AND column_name = 'is_enabled'
+      ) THEN
+        ALTER TABLE ticket_types ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT true;
+      END IF;
+    END $$
+  `);
+
   // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
   // Guard: table may not exist yet on first migration pass
   await pool.query(`
@@ -4692,6 +4704,8 @@ async function handleListOrgs() {
 // ── Ticket type endpoints ─────────────────────────────────────────────────────
 
 async function handleListOrgTicketTypes(request, orgId) {
+  const { session } = await requireSession(request);
+
   const orgRes = await pool.query(
     `SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1`,
     [orgId],
@@ -4700,19 +4714,58 @@ async function handleListOrgTicketTypes(request, orgId) {
     return json({ error: "Organization not found" }, 404);
   }
 
-  const { rows } = await pool.query(
-    `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category
-     FROM ticket_types WHERE org_id = $1 ORDER BY ticket_type_id ASC`,
-    [orgId],
-  );
+  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled
+     FROM ticket_types WHERE org_id = $1`;
+
+  // Public users only see enabled ticket types
+  if (!session) {
+    query += ` AND is_enabled = true`;
+  }
+
+  query += ` ORDER BY ticket_type_id ASC`;
+
+  const { rows } = await pool.query(query, [orgId]);
   return json({
     ticketTypes: rows.map((row) => ({
       ticketTypeId: Number(row.ticket_type_id),
       name: String(row.ticket_type_name),
       description: String(row.ticket_type_description),
       category: String(row.ticket_type_category),
+      isEnabled: Boolean(row.is_enabled),
     })),
   });
+}
+
+async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageOrg(session, orgId)) {
+    return json({ error: "Not authorized to manage this org" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const { isEnabled } = body;
+  if (typeof isEnabled !== "boolean") {
+    return json({ error: "isEnabled must be a boolean" }, 400);
+  }
+
+  const res = await pool.query(
+    `UPDATE ticket_types SET is_enabled = $1 WHERE ticket_type_id = $2 AND org_id = $3`,
+    [isEnabled, ticketTypeId, orgId],
+  );
+
+  if (res.rowCount === 0) {
+    return json({ error: "Ticket type not found" }, 404);
+  }
+
+  return json({ ok: true });
 }
 
 // ── Ticket CRUD ───────────────────────────────────────────────────────────────
@@ -10464,6 +10517,17 @@ async function _handleApiRequest(request) {
     );
     if (orgTicketTypesMatch && request.method === "GET") {
       return handleListOrgTicketTypes(request, orgTicketTypesMatch[1]);
+    }
+
+    const orgTicketTypeMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)$/,
+    );
+    if (orgTicketTypeMatch && request.method === "PATCH") {
+      return handleUpdateOrgTicketType(
+        request,
+        orgTicketTypeMatch[1],
+        parseInt(orgTicketTypeMatch[2]),
+      );
     }
 
     const orgTicketsMatch = pathname.match(
