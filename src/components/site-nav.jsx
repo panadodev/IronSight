@@ -24,7 +24,7 @@ import {
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
 import { timezoneStore } from "@/lib/timezone-store";
-import { lastVisitStore, useLastVisits } from "@/lib/last-visit";
+import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META } from "@/lib/mock-data";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
@@ -429,7 +429,6 @@ function SiteNav() {
     .filter((g) => g.links.length > 0);
   const effectiveView = sessionUser ? view : "public";
   const groups = effectiveView === "public" ? publicGroups : staffGroups;
-  const lastVisits = useLastVisits();
   const hasNewTodo = false;
   useEffect(() => {
     if (effectiveView !== "staff") return;

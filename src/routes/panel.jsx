@@ -2651,7 +2651,15 @@ function ServersTab({ orgId, onServerUpdate }) {
       onServerUpdate?.((prev) =>
         prev.map((s) =>
           s.id === serverId
-            ? { ...s, rconConfigured: true, rconWorking: testPassed }
+            ? {
+                ...s,
+                ip: form.rconHost ?? s.ip,
+                rconPort: form.rconPort ?? s.rconPort,
+                port: form.gamePort ?? s.port,
+                tags: form.tags ?? s.tags,
+                rconConfigured: true,
+                rconWorking: testPassed,
+              }
             : s,
         ),
       );
@@ -2720,12 +2728,21 @@ function ServersTab({ orgId, onServerUpdate }) {
   };
 
   const disconnectPtero = async () => {
-    await fetch(`/api/orgs/${orgId}/ptero`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    setPteroStatus({ connected: false });
-    setPteroServers(null);
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/ptero`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPteroError(data?.error ?? "Failed to disconnect");
+        return;
+      }
+      setPteroStatus({ connected: false });
+      setPteroServers(null);
+    } catch {
+      setPteroError("Network error");
+    }
   };
 
   const fetchPteroServers = async () => {
@@ -2770,6 +2787,26 @@ function ServersTab({ orgId, onServerUpdate }) {
         serverName: pteroServer.name,
         apiKey: data.apiKey,
       });
+      // Keep the parent's shared server list in sync so sibling tabs (RCON,
+      // presets, status) see the newly imported server immediately.
+      onServerUpdate?.((prev) =>
+        prev.some((s) => s.id === data.server.serverId)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: data.server.serverId,
+                name: pteroServer.name,
+                ownerOrgId: orgId,
+                ip: "",
+                port: 28015,
+                rconPort: 28016,
+                tags: [],
+                rconConfigured: false,
+                rconWorking: null,
+              },
+            ],
+      );
       loadRegistered();
     } catch {
       alert("Network error during import");
@@ -2789,8 +2826,16 @@ function ServersTab({ orgId, onServerUpdate }) {
         setRegisteredServers((prev) =>
           prev.filter((s) => s.serverId !== serverId),
         );
+        // Remove from the parent's shared list so it doesn't linger as a ghost
+        // server in sibling tabs.
+        onServerUpdate?.((prev) => prev.filter((s) => s.id !== serverId));
         setDeleteConfirm(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data?.error ?? "Failed to delete server");
       }
+    } catch {
+      alert("Network error while deleting server");
     } finally {
       setDeleting(null);
     }
@@ -2803,8 +2848,14 @@ function ServersTab({ orgId, onServerUpdate }) {
         method: "POST",
         credentials: "include",
       });
-      const data = await res.json();
-      if (res.ok) setRotatedKeyReveal({ apiKey: data.apiKey, serverName });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setRotatedKeyReveal({ apiKey: data.apiKey, serverName });
+      } else {
+        alert(data?.error ?? "Failed to rotate API key");
+      }
+    } catch {
+      alert("Network error while rotating key");
     } finally {
       setRotatingKey(null);
     }

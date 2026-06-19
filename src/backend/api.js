@@ -288,6 +288,15 @@ function json(data, status = 200) {
   });
 }
 
+// Parse a user-supplied pagination limit safely: a missing, non-numeric, or
+// non-positive value falls back to `fallback` rather than producing NaN, which
+// would otherwise blow up the Redis/SQL query with `LIMIT NaN`.
+function parseLimit(raw, fallback, max) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(max, Math.floor(n));
+}
+
 async function auditLog({
   orgId,
   actorUserId,
@@ -3936,7 +3945,7 @@ async function handleGetStaffAuditLog(request, orgId) {
 
   const url = new URL(request.url);
   const staffId = url.searchParams.get("staffId");
-  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 50));
+  const limit = parseLimit(url.searchParams.get("limit"), 50, 500);
   const offset = Number(url.searchParams.get("offset") ?? 0);
 
   if (!staffId) {
@@ -5018,7 +5027,7 @@ async function handleListOrgTickets(request, orgId) {
 
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status");
-  const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+  const limit = parseLimit(url.searchParams.get("limit"), 50, 200);
   const offset = Number(url.searchParams.get("offset") ?? 0);
 
   const conditions = ["t.org_id = $1"];
@@ -7228,7 +7237,7 @@ async function handleGetChatLogs(request) {
   const serverId = (url.searchParams.get("serverId") ?? "").trim();
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
-  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
 
   if (!serverId) return json({ error: "serverId is required" }, 400);
 
@@ -7429,7 +7438,7 @@ async function handleGetPvpLogs(request) {
   const serverId = (url.searchParams.get("serverId") ?? "").trim();
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
-  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
 
   if (!serverId) return json({ error: "serverId is required" }, 400);
 
@@ -7668,7 +7677,7 @@ async function handleGetReports(request) {
   const serverId = (url.searchParams.get("serverId") ?? "").trim();
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
-  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
 
   if (!serverId) return json({ error: "serverId is required" }, 400);
 
@@ -7896,7 +7905,7 @@ async function handleGetTeamEvents(request) {
   const serverId = (url.searchParams.get("serverId") ?? "").trim();
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
-  const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
 
   if (!serverId) return json({ error: "serverId is required" }, 400);
 
@@ -11422,7 +11431,16 @@ export async function handleApiRequest(request) {
   const t0 = Date.now();
   const { method } = request;
   const { pathname } = new URL(request.url);
-  const response = await _handleApiRequest(request);
+  let response;
+  try {
+    response = await _handleApiRequest(request);
+  } catch (error) {
+    // Safety net: any uncaught handler error returns JSON (not the SSR HTML
+    // error page) so API clients — the frontend's `res.json()` and game-server
+    // plugins — always receive a parseable body.
+    console.error(`[api] ${method} ${pathname} — unhandled error:`, error);
+    response = json({ error: "Internal server error" }, 500);
+  }
   console.log(
     `[api] ${method} ${pathname} → ${response.status} (${Date.now() - t0}ms)`,
   );

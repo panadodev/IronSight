@@ -394,93 +394,57 @@ function AuthProvider({ children }) {
     [staff, activeStaffId],
   );
   const activeRank = activeStaff ? TEAM_META[activeStaff.team].rank : 0;
-  const rankOf = (orgId) => {
-    if (isOwner) return 4;
-    const m = (orgMembers[orgId] ?? []).find(
-      (x) => x.staffId === activeStaffId,
-    );
-    return m ? TEAM_META[m.team].rank : 0;
+  // The legacy `orgMembers`/team taxonomy is never populated from the API, so
+  // rank and org-access are derived from authoritative session role data.
+  // owner/admin map to the management tier (full access); members holding any
+  // org permission get a working staff rank; plain members of an org they
+  // belong to get the support baseline. Server-side checks remain the real gate.
+  const rankFromSession = (orgId) => {
+    if (sessionOrgOwnerIds.includes(orgId)) return 4;
+    if (sessionOrgAdminIds.includes(orgId)) return 4;
+    if ((sessionOrgPermissions[orgId] ?? []).length > 0) return 3;
+    if (orgs.some((o) => o.id === orgId)) return 1;
+    return 0;
   };
+  const rankOf = (orgId) => (isOwner ? 4 : rankFromSession(orgId));
   const maxRankAcross = (orgIds) => {
     if (isOwner) return 4;
     let max = 0;
     for (const id of orgIds) {
-      let r = rankOf(id);
-      if (sessionOrgOwnerIds.includes(id)) r = Math.max(r, 4);
-      else if (sessionOrgAdminIds.includes(id)) r = Math.max(r, 3);
+      const r = rankFromSession(id);
       if (r > max) max = r;
     }
     return max;
   };
   const isOwner =
     sessionUser != null && sessionOrgOwnerIds.length > 0
-      ? sessionOrgOwnerIds.some((id) =>
-          orgs.some((o) => o.id === id),
-        )
+      ? sessionOrgOwnerIds.some((id) => orgs.some((o) => o.id === id))
       : false;
-  const myOrgIds = useMemo(() => {
-    if (isOwner) return orgs.map((o) => o.id);
-    return orgs
-      .filter((o) =>
-        (orgMembers[o.id] ?? []).some((m) => m.staffId === activeStaffId),
-      )
-      .map((o) => o.id);
-  }, [orgMembers, activeStaffId, isOwner, orgs]);
-  const manageableOrgIds = useMemo(() => {
-    if (isOwner) return orgs.map((o) => o.id);
-    const fromMembers = orgs
-      .filter((o) =>
-        (orgMembers[o.id] ?? []).some(
-          (m) => m.staffId === activeStaffId && m.team === "management",
-        ),
-      )
-      .map((o) => o.id);
-    return Array.from(new Set([...fromMembers, ...sessionOrgAdminIds]));
-  }, [orgMembers, activeStaffId, isOwner, orgs, sessionOrgAdminIds]);
+  // The bootstrap only returns orgs the user is a member of, so every loaded
+  // org is one of "my" orgs.
+  const myOrgIds = useMemo(() => orgs.map((o) => o.id), [orgs]);
+  const manageableOrgIds = useMemo(
+    () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
+    [sessionOrgOwnerIds, sessionOrgAdminIds],
+  );
   const realStaff = useMemo(
     () => staff.find((s) => s.id === realStaffId) ?? null,
     [staff, realStaffId],
   );
   const realIsOwner = sessionOrgOwnerIds.length > 0;
-  const realManageableOrgIds = useMemo(() => {
-    if (realIsOwner) return orgs.map((o) => o.id);
-    return orgs
-      .filter((o) =>
-        (orgMembers[o.id] ?? []).some(
-          (m) => m.staffId === realStaffId && m.team === "management",
-        ),
-      )
-      .map((o) => o.id);
-  }, [orgMembers, realStaffId, realIsOwner, orgs]);
-  const realRankOf = (orgId) => {
-    if (realIsOwner) return 4;
-    const m = (orgMembers[orgId] ?? []).find((x) => x.staffId === realStaffId);
-    return m ? TEAM_META[m.team].rank : 0;
-  };
-  const realAdminableOrgIds = useMemo(() => {
-    if (realIsOwner) return orgs.map((o) => o.id);
-    return orgs
-      .filter((o) =>
-        (orgMembers[o.id] ?? []).some(
-          (m) => m.staffId === realStaffId && TEAM_META[m.team].rank >= 3,
-        ),
-      )
-      .map((o) => o.id);
-  }, [orgMembers, realStaffId, realIsOwner, orgs]);
+  const realManageableOrgIds = manageableOrgIds;
+  const realRankOf = (orgId) => (realIsOwner ? 4 : rankFromSession(orgId));
+  const realAdminableOrgIds = useMemo(
+    () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
+    [sessionOrgOwnerIds, sessionOrgAdminIds],
+  );
 
   const [viewingAs, setViewingAs] = useState(null);
 
-  const adminableOrgIds = useMemo(() => {
-    if (isOwner) return orgs.map((o) => o.id);
-    const fromMembers = orgs
-      .filter((o) =>
-        (orgMembers[o.id] ?? []).some(
-          (m) => m.staffId === activeStaffId && TEAM_META[m.team].rank >= 3,
-        ),
-      )
-      .map((o) => o.id);
-    return Array.from(new Set([...fromMembers, ...sessionOrgAdminIds]));
-  }, [orgMembers, activeStaffId, isOwner, orgs, sessionOrgAdminIds]);
+  const adminableOrgIds = useMemo(
+    () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
+    [sessionOrgOwnerIds, sessionOrgAdminIds],
+  );
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
   const hasOrgPermission = (orgId, permissionId) =>
