@@ -245,7 +245,9 @@ function RolesPage() {
   const [draftTicketTypes, setDraftTicketTypes] = useState({});
   const [draftDiscordRoleIds, setDraftDiscordRoleIds] = useState({});
   const [savingId, setSavingId] = useState(null);
+  const [saveErr, setSaveErr] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [deleteErr, setDeleteErr] = useState(null);
 
   const isAdmin = hasOrgPermission(orgId ?? "", "role_create");
   const rank = isAdmin ? 4 : 0;
@@ -334,6 +336,7 @@ function RolesPage() {
 
   async function handleSave(roleId) {
     setSavingId(roleId);
+    setSaveErr(null);
     try {
       const role = roles.find((r) => r.roleId === roleId);
       const lockedPerms = (role?.permissions ?? []).filter((p) => !canGrant(p));
@@ -341,7 +344,7 @@ function RolesPage() {
       const permissions = [...editablePerms, ...lockedPerms];
       const ticketTypeIds = draftTicketTypes[roleId] ?? [];
       const discordRoleIds = draftDiscordRoleIds[roleId] ?? [];
-      await fetch(
+      const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`,
         {
           method: "PATCH",
@@ -350,7 +353,14 @@ function RolesPage() {
           body: JSON.stringify({ permissions, ticketTypeIds, discordRoleIds }),
         },
       );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setSaveErr(body?.error ?? "Failed to save role.");
+        return;
+      }
       await loadRoles();
+    } catch {
+      setSaveErr("Network error.");
     } finally {
       setSavingId(null);
     }
@@ -358,13 +368,21 @@ function RolesPage() {
 
   async function handleDelete(roleId) {
     setDeletingId(roleId);
+    setDeleteErr(null);
     try {
-      await fetch(
+      const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`,
         { method: "DELETE", credentials: "include" },
       );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setDeleteErr(body?.error ?? "Failed to delete role.");
+        return;
+      }
       if (expandedId === roleId) setExpandedId(null);
       await loadRoles();
+    } catch {
+      setDeleteErr("Network error.");
     } finally {
       setDeletingId(null);
     }
@@ -588,6 +606,9 @@ function RolesPage() {
                         {savingId === role.roleId ? "Saving…" : "Save"}
                       </Button>
                     )}
+                    {deleteErr && expandedId === role.roleId && (
+                      <p className="text-[11px] text-danger">{deleteErr}</p>
+                    )}
                     <Button
                       size="icon"
                       variant="ghost"
@@ -752,16 +773,21 @@ function RolesPage() {
                     </div>
 
                     {isDirty && (
-                      <div className="flex justify-end pt-1 border-t border-border">
-                        <Button
-                          size="sm"
-                          onClick={() => handleSave(role.roleId)}
-                          disabled={savingId === role.roleId}
-                        >
-                          {savingId === role.roleId
-                            ? "Saving…"
-                            : "Save changes"}
-                        </Button>
+                      <div className="flex flex-col gap-1 pt-1 border-t border-border">
+                        {saveErr && expandedId === role.roleId && (
+                          <p className="text-[11px] text-danger">{saveErr}</p>
+                        )}
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            onClick={() => handleSave(role.roleId)}
+                            disabled={savingId === role.roleId}
+                          >
+                            {savingId === role.roleId
+                              ? "Saving…"
+                              : "Save changes"}
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>

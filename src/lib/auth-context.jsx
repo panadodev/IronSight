@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { OWNER_STEAM_ID, TEAM_META } from "./mock-data";
+import { TEAM_META } from "./mock-data";
+import { manageOrgStore } from "./manage-org-store";
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
 const BAN_CATEGORY_LABEL = {
   cheating: "Cheating",
@@ -74,12 +75,16 @@ function AuthProvider({ children }) {
         if (!cancelled) setSessionOrgPermissions(orgPerms);
 
         if (body?.user && !cancelled) {
+          const userId = String(body.user.userId ?? "");
           setSessionUser({
-            userId: String(body.user.userId ?? ""),
+            userId,
             username: String(body.user.username ?? ""),
             discordId: body.user.discordId ? String(body.user.discordId) : null,
             steamId: body.user.steamId ? String(body.user.steamId) : null,
+            isSysAdmin: body.user.isSysAdmin === true,
+            globalAdmin: body.user.globalAdmin === true,
           });
+          if (userId) manageOrgStore.init(userId);
         }
 
         const nextOrgs = (body?.orgs ?? []).map((org) => {
@@ -407,7 +412,12 @@ function AuthProvider({ children }) {
     }
     return max;
   };
-  const isOwner = activeStaff?.steamId === OWNER_STEAM_ID;
+  const isOwner =
+    sessionUser != null && sessionOrgOwnerIds.length > 0
+      ? sessionOrgOwnerIds.some((id) =>
+          orgs.some((o) => o.id === id),
+        )
+      : false;
   const myOrgIds = useMemo(() => {
     if (isOwner) return orgs.map((o) => o.id);
     return orgs
@@ -431,7 +441,7 @@ function AuthProvider({ children }) {
     () => staff.find((s) => s.id === realStaffId) ?? null,
     [staff, realStaffId],
   );
-  const realIsOwner = realStaff?.steamId === OWNER_STEAM_ID;
+  const realIsOwner = sessionOrgOwnerIds.length > 0;
   const realManageableOrgIds = useMemo(() => {
     if (realIsOwner) return orgs.map((o) => o.id);
     return orgs
@@ -474,6 +484,7 @@ function AuthProvider({ children }) {
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
   const hasOrgPermission = (orgId, permissionId) =>
+    sessionOrgOwnerIds.includes(orgId) ||
     sessionOrgAdminIds.includes(orgId) ||
     (sessionOrgPermissions[orgId] ?? []).includes(permissionId);
   const isImpersonating = false; // No longer using activeStaffId swapping
@@ -544,10 +555,6 @@ function AuthProvider({ children }) {
   };
   const removeOrgMember = (orgId, staffId) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
-    const target = staff.find((s) => s.id === staffId);
-    if (target?.steamId === OWNER_STEAM_ID) {
-      return { ok: false, error: "The owner cannot be removed." };
-    }
     setOrgMembers((all) => ({
       ...all,
       [orgId]: (all[orgId] ?? []).filter((m) => m.staffId !== staffId),
@@ -556,10 +563,6 @@ function AuthProvider({ children }) {
   };
   const setOrgMemberTeam = (orgId, staffId, team) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
-    const target = staff.find((s) => s.id === staffId);
-    if (target?.steamId === OWNER_STEAM_ID && team !== "management") {
-      return { ok: false, error: "The owner is always Management." };
-    }
     setOrgMembers((all) => ({
       ...all,
       [orgId]: (all[orgId] ?? []).map((m) =>

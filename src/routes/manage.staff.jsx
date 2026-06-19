@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { invalidateAuthMe } from "@/lib/auth-cache";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -307,7 +308,7 @@ function StaffPage() {
   async function handleRoleChange(userId, newRole) {
     setChangingRoleId(userId);
     try {
-      await fetch(
+      const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
         {
           method: "PATCH",
@@ -316,6 +317,8 @@ function StaffPage() {
           body: JSON.stringify({ team: newRole }),
         },
       );
+      if (!res.ok) return;
+      invalidateAuthMe();
       await loadMembers();
     } finally {
       setChangingRoleId(null);

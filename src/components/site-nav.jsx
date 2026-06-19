@@ -26,8 +26,7 @@ import { useAuth } from "@/lib/auth-context";
 import { timezoneStore } from "@/lib/timezone-store";
 import { lastVisitStore, useLastVisits } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
-import { TEAM_META, TICKETS } from "@/lib/mock-data";
-import { useTodos } from "@/lib/todo-store";
+import { TEAM_META } from "@/lib/mock-data";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Building2, Check, ChevronDown, Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -430,18 +429,8 @@ function SiteNav() {
     .filter((g) => g.links.length > 0);
   const effectiveView = sessionUser ? view : "public";
   const groups = effectiveView === "public" ? publicGroups : staffGroups;
-  const todos = useTodos();
   const lastVisits = useLastVisits();
-  const meId = activeStaff?.id;
-  const todoLastVisit = lastVisits["/todo"] ?? 0;
-  const hasNewTodo =
-    !!meId &&
-    todos.some(
-      (c) =>
-        c.assigneeId === meId &&
-        c.status !== "completed" &&
-        c.createdAt * 1000 > todoLastVisit,
-    );
+  const hasNewTodo = false;
   useEffect(() => {
     if (effectiveView !== "staff") return;
     if (path === "/") lastVisitStore.mark("/");

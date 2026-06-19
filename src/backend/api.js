@@ -2808,6 +2808,8 @@ async function handleTodoBootstrap(request) {
       orgAdminOrgIds: freshAccess.orgAdminOrgIds,
       orgOwnerOrgIds: freshAccess.orgOwnerOrgIds ?? [],
       orgPermissions: freshAccess.orgPermissions ?? {},
+      isSysAdmin: isConfiguredSysAdmin(session),
+      globalAdmin: isConfiguredSysAdmin(session),
     },
     orgs: userOrgs,
     members,
@@ -3139,6 +3141,17 @@ async function handleGrantOrgAdmin(request, orgId) {
   }
 
   const beforeState = membershipRes.rows[0];
+
+  if (
+    beforeState.role_id === "org_owner" &&
+    !session.orgOwnerOrgIds?.includes(orgId)
+  ) {
+    return json(
+      { error: "Forbidden: only owners can modify an owner account" },
+      403,
+    );
+  }
+
   await pool.query(
     `UPDATE organization_members
      SET role_id = 'org_admin'
@@ -7115,6 +7128,23 @@ async function handleIngestChatMessage(request) {
   }
   const server = serverRes.rows[0];
 
+  const rlKey = `rl:chat:${server.server_id}`;
+  try {
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1,
+      rlKey,
+      "60",
+    );
+    if (attempts > CHAT_INGEST_RATE_LIMIT_PER_MINUTE) {
+      return json({ error: "Rate limit exceeded" }, 429);
+    }
+  } catch {
+    // fail-open
+  }
+
   let body;
   try {
     body = await request.json();
@@ -7353,6 +7383,8 @@ async function handleIngestPvp(request) {
     return json({ error: "victim_name must be 128 characters or fewer" }, 400);
   if (typeof combatlogCache !== "object" || Array.isArray(combatlogCache))
     return json({ error: "combatlog_cache must be a JSON object" }, 400);
+  if (JSON.stringify(combatlogCache).length > 65536)
+    return json({ error: "combatlog_cache must be 64 KB or less" }, 400);
 
   const insertRes = await pool.query(
     `INSERT INTO pvp_log (server_id, server_name, killer_steam_id, victim_name, combatlog_cache)
@@ -7408,12 +7440,11 @@ async function handleGetPvpLogs(request) {
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
   const server = serverRes.rows[0];
 
-  const memberRes = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [server.owner_org_id, session.userId],
-  );
-  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden" }, 403);
+  if (
+    !orgHasPermission(session, server.owner_org_id, "players_view") &&
+    !isConfiguredSysAdmin(session)
+  ) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
   }
 
   const nowUnixTs = Math.floor(Date.now() / 1000);
