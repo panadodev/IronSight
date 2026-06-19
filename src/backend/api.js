@@ -4040,7 +4040,7 @@ async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
       roleId: String(targetMember.role_id),
     },
     access: {
-      orgAdminOrgIds: targetAccess.orgAdminOrgIds,
+      orgAdminOrgIds: targetAccess.orgAdminOrgIds.filter((id) => id === orgId),
       canWrite: targetAccess.canWrite,
       groups: targetAccess.groups,
       permissions: Array.from(
@@ -4099,10 +4099,16 @@ async function handleUpdateOrgDetails(request, orgId) {
   }
 
   const name = body?.name == null ? null : String(body.name).trim();
-  const guildId = body?.guildId == null ? null : String(body.guildId).trim();
+  // guildId omitted (undefined) → don't touch it; explicit null → unlink; string → set/change
+  const guildIdRaw = body?.guildId;
+  const guildId =
+    guildIdRaw === undefined ? undefined : guildIdRaw === null ? null : String(guildIdRaw).trim() || null;
 
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
+  }
+  if (guildId !== undefined && guildId !== null && !/^\d{17,20}$/.test(guildId)) {
+    return json({ error: "guildId must be a valid Discord snowflake" }, 400);
   }
 
   if (guildId) {
@@ -4121,10 +4127,10 @@ async function handleUpdateOrgDetails(request, orgId) {
   const result = await pool.query(
     `UPDATE organizations
      SET name = COALESCE($2, name),
-         guild_id = $3
+         guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END
      WHERE org_id = $1
      RETURNING org_id, guild_id, name, created_at`,
-    [orgId, name, guildId || null],
+    [orgId, name, guildId !== undefined, guildId ?? null],
   );
 
   const updated = result.rows[0];
@@ -4618,14 +4624,18 @@ async function handleListOrgs() {
 // ── Ticket type endpoints ─────────────────────────────────────────────────────
 
 async function handleListOrgTicketTypes(request, orgId) {
-  const orgRes = await pool.query(
-    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
-    [orgId],
-  );
-  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+  const { session, error } = await requireSession(request);
+  if (error) return error;
 
-  // Seed defaults on-demand for this org instead of blocking startup for all orgs.
-  await ensureDefaultTicketTypes(orgId);
+  const orgRes = await pool.query(
+    `SELECT org_id FROM organizations
+     JOIN organization_members om ON om.org_id = organizations.org_id AND om.user_id = $2
+     WHERE organizations.org_id = $1 LIMIT 1`,
+    [orgId, session.userId],
+  );
+  if (!orgRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Organization not found or access denied" }, 404);
+  }
 
   const { rows } = await pool.query(
     `SELECT ticket_type_id, ticket_type_name, ticket_type_description
@@ -5710,6 +5720,18 @@ async function handleGetPteroServerWebsocket(request, orgId, identifier) {
   if (!orgHasPermission(session, orgId, "rcon_access") &&
       !orgHasPermission(session, orgId, "servers_manage")) {
     return json({ error: "Forbidden: rcon_access or servers_manage permission required" }, 403);
+  }
+
+  // Verify the requested identifier belongs to a server registered under this org.
+  // Without this check a user could pass any arbitrary Pterodactyl identifier and
+  // obtain websocket credentials for a server owned by a different organization if
+  // both orgs share the same Pterodactyl panel.
+  const ownershipRes = await pool.query(
+    `SELECT server_id FROM servers WHERE ptero_identifier = $1 AND owner_org_id = $2 LIMIT 1`,
+    [identifier, orgId],
+  );
+  if (!ownershipRes.rows[0]) {
+    return json({ error: "Server not found in this organization" }, 404);
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -7187,13 +7209,8 @@ async function handleGetChatLogs(request) {
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
   const server = serverRes.rows[0];
 
-  // Verify user is a member of the org that owns this server
-  const memberRes = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [server.owner_org_id, session.userId],
-  );
-  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden" }, 403);
+  if (!orgHasPermission(session, server.owner_org_id, "players_view") && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
   }
 
   const nowUnixTs = Math.floor(Date.now() / 1000);
@@ -9928,8 +9945,12 @@ async function handleGetOrgPlayerList(request, orgId) {
        FROM player_ip_history pih
        LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
        WHERE pih.steam_id = ANY($1)
+         AND (
+           pih.server_id IS NULL
+           OR pih.server_id IN (SELECT server_id FROM servers WHERE owner_org_id = $2)
+         )
        ORDER BY pih.steam_id, pih.last_seen DESC`,
-      [allSteamIds],
+      [allSteamIds, orgId],
     );
     ipMap = Object.fromEntries(ipRes.rows.map((r) => [r.steam_id, r]));
   }
