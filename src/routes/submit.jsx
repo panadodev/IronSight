@@ -146,8 +146,8 @@ function SubmitPage() {
     if (!selectedTypeId || !orgId) return;
     let ticketTitle = title.trim();
     let message = body.trim();
+    const players = isMultiPlayerReport ? selectedPlayers : (selectedPlayer ? [selectedPlayer] : []);
     if (isPlayerReport) {
-      const players = isMultiPlayerReport ? selectedPlayers : (selectedPlayer ? [selectedPlayer] : []);
       if (players.length === 0 || !message) return;
       const steamIds = players.map((p) => p.steamId).join(", ");
       ticketTitle = ticketTitle || `${reportCategory} \u2014 ${steamIds}`;
@@ -173,6 +173,7 @@ function SubmitPage() {
           ticketTypeId: selectedTypeId,
           title: ticketTitle,
           message,
+          reportedPlayers: isPlayerReport ? players.map((p) => p.steamId) : [],
         }),
       });
       const data = await res.json();

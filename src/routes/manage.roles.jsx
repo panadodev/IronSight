@@ -68,6 +68,11 @@ const PERMISSION_GROUPS = [
             label: "Manage Tickets",
             desc: "Respond to and close support tickets",
           },
+          {
+            id: "tickets_player_intel",
+            label: "Player Intel Panel",
+            desc: "View the player intelligence sidebar in tickets",
+          },
         ],
       },
       {

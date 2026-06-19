@@ -784,6 +784,18 @@ async function ensureSchema() {
     END $$
   `);
 
+  // Add reported_players column to tickets for structured player Steam ID references
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'tickets' AND column_name = 'reported_players'
+      ) THEN
+        ALTER TABLE tickets ADD COLUMN reported_players TEXT[] NOT NULL DEFAULT '{}';
+      END IF;
+    END $$
+  `);
+
   // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
   // Guard: table may not exist yet on first migration pass
   await pool.query(`
@@ -1579,6 +1591,7 @@ async function ensureRolePermissionSeed() {
       ('servers_manage',      'Manage server connections'),
       ('tickets_view',        'View support tickets'),
       ('tickets_manage',      'Manage and respond to tickets'),
+      ('tickets_player_intel','View player intelligence panel in tickets'),
       ('ban_configs_manage',  'Manage ban and mute configurations'),
       ('toxicity_manage',     'Manage toxicity filters'),
       ('predefines_manage',   'Manage ticket pre-defines'),
@@ -3305,6 +3318,7 @@ async function handleCreateOrgRole(request, orgId) {
       "todo_read", "todo_write", "org_manage", "role_create",
       "rcon_access", "scripts_view", "scripts_manage", "presets_manage",
       "status_view", "servers_manage", "tickets_view", "tickets_manage",
+      "tickets_player_intel",
       "ban_configs_manage", "toxicity_manage", "predefines_manage", "bans_delete",
       "players_view", "bans_manage", "triggers_manage", "discord_mod",
     ];
@@ -4460,6 +4474,7 @@ async function loadTicketFromDb(ticketId) {
             t.created_at,
             t.updated_at,
             t.closed_at,
+            t.reported_players,
             tt.ticket_type_name,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
             assignee.username AS assigned_to_username
@@ -4489,6 +4504,7 @@ async function loadTicketFromDb(ticketId) {
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     closed_at: row.closed_at ? Number(row.closed_at) : null,
+    reported_players: Array.isArray(row.reported_players) ? row.reported_players.map(String) : [],
   };
 }
 
@@ -4796,6 +4812,10 @@ async function handleCreateTicket(request) {
     body?.ticketTypeId != null ? Number(body.ticketTypeId) : null;
   const title = String(body?.title ?? "").trim();
   const message = String(body?.message ?? "").trim();
+  const reportedPlayers = (Array.isArray(body?.reportedPlayers) ? body.reportedPlayers : [])
+    .map((s) => String(s).trim())
+    .filter((s) => /^7656119\d{10}$/.test(s))
+    .slice(0, 10);
 
   if (!orgId || !title || !message) {
     return json({ error: "orgId, title, and message are required" }, 400);
@@ -4828,10 +4848,10 @@ async function handleCreateTicket(request) {
   try {
     await txClient.query(`BEGIN`);
     const result = await txClient.query(
-      `INSERT INTO tickets (org_id, ticket_type_id, created_by, title)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO tickets (org_id, ticket_type_id, created_by, title, reported_players)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING ticket_id`,
-      [orgId, ticketTypeId, session.userId, title],
+      [orgId, ticketTypeId, session.userId, title, reportedPlayers],
     );
     ticketId = Number(result.rows[0].ticket_id);
     await txClient.query(
@@ -4924,6 +4944,83 @@ async function handleGetTicket(request, ticketIdStr) {
         );
 
   return json({ ticket, messages: returnedMessages });
+}
+
+async function handleGetTicketPlayerIntel(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+
+  let ticket = await getCachedTicket(id);
+  if (!ticket) {
+    ticket = await loadTicketFromDb(id);
+    if (!ticket) return json({ error: "Ticket not found" }, 404);
+  }
+
+  const hasIntelPerm = orgHasPermission(session, ticket.org_id, "tickets_player_intel");
+  if (!isGlobalAdmin(session) && !canManageOrg(session, ticket.org_id) && !hasIntelPerm) {
+    return json({ error: "Forbidden: tickets_player_intel permission required" }, 403);
+  }
+
+  const steamIds = ticket.reported_players ?? [];
+  if (steamIds.length === 0) return json({ players: [] });
+
+  const players = await Promise.all(
+    steamIds.map(async (steamId) => {
+      const [playerData, orgBansRes] = await Promise.all([
+        (async () => {
+          const fromRedis = await getPlayerDataFromRedis(steamId);
+          if (fromRedis) {
+            if (fromRedis.isStale) {
+              refreshPlayerData(steamId, ticket.org_id).catch(() => {});
+            }
+            return fromRedis;
+          }
+          const cached = await getPlayerCacheData(steamId);
+          if (!cached) {
+            refreshPlayerData(steamId, ticket.org_id).catch(() => {});
+            return null;
+          }
+          if (cached.isStale) {
+            refreshPlayerData(steamId, ticket.org_id).catch(() => {});
+          }
+          return cached;
+        })(),
+        pool.query(
+          `SELECT pb.ban_id, pb.action_type, pb.category, pb.reason, pb.note,
+                  pb.expires_at, pb.issued_at, pb.revoked, pb.revoked_at,
+                  u.username AS issued_by_username
+           FROM player_bans pb
+           LEFT JOIN users u ON u.user_id = pb.issued_by
+           WHERE pb.org_id = $1 AND pb.identifier = $2 AND pb.identifier_type = 'steam_id'
+           ORDER BY pb.issued_at DESC`,
+          [ticket.org_id, steamId],
+        ),
+      ]);
+
+      const orgBans = orgBansRes.rows.map((r) => ({
+        banId: String(r.ban_id),
+        actionType: String(r.action_type),
+        category: r.category ?? null,
+        reason: String(r.reason),
+        note: String(r.note),
+        expiresAt: r.expires_at ? Number(r.expires_at) : null,
+        issuedAt: Number(r.issued_at),
+        revoked: Boolean(r.revoked),
+        revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
+        issuedByUsername: r.issued_by_username ?? null,
+      }));
+
+      if (!playerData) {
+        return { steamId, fetching: true, orgBans };
+      }
+      return { ...playerData, orgBans };
+    }),
+  );
+
+  return json({ players });
 }
 
 async function handleAddTicketMessage(request, ticketIdStr) {
@@ -10351,6 +10448,13 @@ async function _handleApiRequest(request) {
     }
     if (ticketMatch && request.method === "PATCH") {
       return handleUpdateTicket(request, ticketMatch[1]);
+    }
+
+    const ticketPlayerIntelMatch = pathname.match(
+      /^\/api\/tickets\/(\d+)\/player-intel$/,
+    );
+    if (ticketPlayerIntelMatch && request.method === "GET") {
+      return handleGetTicketPlayerIntel(request, ticketPlayerIntelMatch[1]);
     }
 
     const ticketMessagesMatch = pathname.match(
