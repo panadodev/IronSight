@@ -944,14 +944,16 @@ function SiteNav() {
             <div className="space-y-1.5">
               <Label htmlFor="timezone">Timezone</Label>
               <Select
-                value={draft.timezone ?? ""}
-                onValueChange={(v) => setDraft({ ...draft, timezone: v })}
+                value={draft.timezone || "__browser_default__"}
+                onValueChange={(v) =>
+                  setDraft({ ...draft, timezone: v === "__browser_default__" ? null : v })
+                }
               >
                 <SelectTrigger id="timezone">
                   <SelectValue placeholder="Browser default" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Browser default</SelectItem>
+                  <SelectItem value="__browser_default__">Browser default</SelectItem>
                   <SelectItem value="UTC">UTC</SelectItem>
                   <SelectItem value="America/Los_Angeles">America/Los_Angeles (PT)</SelectItem>
                   <SelectItem value="America/Denver">America/Denver (MT)</SelectItem>
