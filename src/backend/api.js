@@ -3164,6 +3164,16 @@ async function handleCreateOrgRole(request, orgId) {
       validPermissions.includes(String(p).trim()),
     );
 
+    // Prevent privilege escalation: custom role_create users cannot grant
+    // permissions they don't hold themselves.
+    if (!isGlobalAdmin(session) && !canManageOrg(session, orgId)) {
+      const userPerms = new Set(session.orgPermissions?.[orgId] ?? []);
+      const escalated = filteredPermissions.filter((p) => !userPerms.has(p));
+      if (escalated.length > 0) {
+        return json({ error: "Cannot grant permissions you do not hold" }, 403);
+      }
+    }
+
     if (filteredPermissions.length > 0) {
       for (const permission of filteredPermissions) {
         await pool.query(
@@ -3326,6 +3336,16 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
       filteredPerms = body.permissions
         .map((p) => String(p).trim())
         .filter((p) => VALID_PERMISSIONS.includes(p));
+
+      // Prevent privilege escalation: custom role_create users cannot grant
+      // permissions they don't hold themselves.
+      if (!isGlobalAdmin(session) && !canManageOrg(session, orgId)) {
+        const userPerms = new Set(session.orgPermissions?.[orgId] ?? []);
+        const escalated = filteredPerms.filter((p) => !userPerms.has(p));
+        if (escalated.length > 0) {
+          return json({ error: "Cannot grant permissions you do not hold" }, 403);
+        }
+      }
     }
 
     let validTypeIds = [];
