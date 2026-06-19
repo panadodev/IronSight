@@ -1402,6 +1402,14 @@ async function migrateTimestampsToUnix() {
         WHERE c.table_schema = 'public'
           AND c.data_type = 'timestamp with time zone'
       LOOP
+        -- Drop the default first so PostgreSQL can change the type without
+        -- trying to cast a TIMESTAMPTZ expression (e.g. NOW()) to BIGINT.
+        IF r.column_default IS NOT NULL THEN
+          EXECUTE format(
+            'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
+            r.table_name, r.column_name
+          );
+        END IF;
         EXECUTE format(
           'ALTER TABLE %I ALTER COLUMN %I TYPE BIGINT USING EXTRACT(EPOCH FROM %I)::BIGINT',
           r.table_name, r.column_name, r.column_name
