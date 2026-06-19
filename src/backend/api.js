@@ -4633,15 +4633,32 @@ async function handleGetTicket(request, ticketIdStr) {
   if (ticket.created_by !== session.userId) {
     if (isGlobalAdmin(session)) {
       // Global admin can view any ticket
+    } else if (canManageOrg(session, ticket.org_id)) {
+      // Org admin/owner can view all tickets
     } else {
-      // Staff must have tickets_view permission (or be an org admin/owner)
-      const hasPermission = orgHasPermission(
-        session,
-        ticket.org_id,
-        "tickets_view",
-      );
-      if (!hasPermission) {
-        return json({ error: "Forbidden" }, 403);
+      const hasPermission = (session.orgPermissions?.[ticket.org_id] ?? []).includes("tickets_view");
+      if (!hasPermission) return json({ error: "Forbidden" }, 403);
+
+      // Enforce ticket type restriction if the role has specific types assigned
+      if (ticket.ticket_type_id !== null) {
+        const typeRes = await pool.query(
+          `SELECT 1 FROM organization_members om
+           JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+           WHERE om.org_id = $1 AND om.user_id = $2
+           LIMIT 1`,
+          [ticket.org_id, session.userId],
+        );
+        if (typeRes.rows.length > 0) {
+          // Role has type restrictions — check if this ticket's type is allowed
+          const allowed = await pool.query(
+            `SELECT 1 FROM organization_members om
+             JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+             WHERE om.org_id = $1 AND om.user_id = $2 AND ttr.ticket_type_id = $3
+             LIMIT 1`,
+            [ticket.org_id, session.userId, ticket.ticket_type_id],
+          );
+          if (!allowed.rows[0]) return json({ error: "Forbidden" }, 403);
+        }
       }
     }
   }
@@ -4819,12 +4836,27 @@ async function handleListOrgTickets(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
+  let allowedTypeIds = null; // null = no restriction
+
   if (isGlobalAdmin(session)) {
-    // Global admin can access any org's tickets
+    // Global admin sees all tickets
+  } else if (canManageOrg(session, orgId)) {
+    // Org admin/owner sees all tickets
   } else {
-    // Regular user must have tickets_view permission (or be an org admin/owner)
-    const hasPermission = orgHasPermission(session, orgId, "tickets_view");
+    const hasPermission = (session.orgPermissions?.[orgId] ?? []).includes("tickets_view");
     if (!hasPermission) return json({ error: "Forbidden" }, 403);
+
+    // Restrict to ticket types the role is explicitly assigned to (empty = no restriction)
+    const typeRes = await pool.query(
+      `SELECT ttr.ticket_type_id
+       FROM organization_members om
+       JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+       WHERE om.org_id = $1 AND om.user_id = $2`,
+      [orgId, session.userId],
+    );
+    if (typeRes.rows.length > 0) {
+      allowedTypeIds = typeRes.rows.map((r) => Number(r.ticket_type_id));
+    }
   }
 
   const url = new URL(request.url);
@@ -4839,6 +4871,10 @@ async function handleListOrgTickets(request, orgId) {
   if (statusFilter) {
     conditions.push(`t.status = $${idx++}`);
     values.push(statusFilter);
+  }
+  if (allowedTypeIds !== null) {
+    conditions.push(`t.ticket_type_id = ANY($${idx++})`);
+    values.push(allowedTypeIds);
   }
   values.push(limit, offset);
 
