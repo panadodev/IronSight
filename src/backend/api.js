@@ -4663,17 +4663,12 @@ async function handleListOrgs() {
 // ── Ticket type endpoints ─────────────────────────────────────────────────────
 
 async function handleListOrgTicketTypes(request, orgId) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-
   const orgRes = await pool.query(
-    `SELECT org_id FROM organizations
-     JOIN organization_members om ON om.org_id = organizations.org_id AND om.user_id = $2
-     WHERE organizations.org_id = $1 LIMIT 1`,
-    [orgId, session.userId],
+    `SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
   );
-  if (!orgRes.rows[0] && !isConfiguredSysAdmin(session)) {
-    return json({ error: "Organization not found or access denied" }, 404);
+  if (!orgRes.rows[0]) {
+    return json({ error: "Organization not found" }, 404);
   }
 
   const { rows } = await pool.query(
