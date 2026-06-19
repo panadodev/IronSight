@@ -740,9 +740,14 @@ async function ensureSchema() {
   );
 
   // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
-  await pool.query(
-    `ALTER TABLE discord_mod_log ALTER COLUMN actor_user_id DROP NOT NULL`,
-  );
+  // Guard: table may not exist yet on first migration pass
+  await pool.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'discord_mod_log') THEN
+        ALTER TABLE discord_mod_log ALTER COLUMN actor_user_id DROP NOT NULL;
+      END IF;
+    END $$
+  `);
 
   // ── Public identity links (Discord + Steam for portal ticket submitters) ──
 
@@ -1350,7 +1355,7 @@ async function ensureSchema() {
       reason TEXT,
       duration_seconds INTEGER,
       expires_at BIGINT,
-      actor_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
+      actor_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
       created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
