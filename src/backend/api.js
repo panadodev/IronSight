@@ -3338,10 +3338,20 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
         .filter((p) => VALID_PERMISSIONS.includes(p));
 
       // Prevent privilege escalation: custom role_create users cannot grant
-      // permissions they don't hold themselves.
+      // permissions they don't hold themselves, but may preserve ones already
+      // on the role that were set by someone with higher access.
       if (!isGlobalAdmin(session) && !canManageOrg(session, orgId)) {
         const userPerms = new Set(session.orgPermissions?.[orgId] ?? []);
-        const escalated = filteredPerms.filter((p) => !userPerms.has(p));
+        const currentPermsRes = await pool.query(
+          `SELECT permission_id FROM role_permissions WHERE role_id = $1`,
+          [roleId],
+        );
+        const currentPerms = new Set(
+          currentPermsRes.rows.map((r) => String(r.permission_id)),
+        );
+        const escalated = filteredPerms.filter(
+          (p) => !userPerms.has(p) && !currentPerms.has(p),
+        );
         if (escalated.length > 0) {
           return json({ error: "Cannot grant permissions you do not hold" }, 403);
         }

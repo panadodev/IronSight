@@ -139,18 +139,22 @@ const PERMISSION_GROUPS = [
   },
 ];
 
-function PermCheckbox({ checked, onClick, label, desc }) {
+function PermCheckbox({ checked, onClick, label, desc, disabled }) {
   return (
     <button
-      onClick={onClick}
-      className="flex items-start gap-2.5 px-2 py-1.5 rounded hover:bg-surface/60 text-left w-full group"
+      onClick={disabled ? undefined : onClick}
+      className={
+        "flex items-start gap-2.5 px-2 py-1.5 rounded text-left w-full group " +
+        (disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-surface/60")
+      }
     >
       <span
         className={
           "mt-0.5 size-4 rounded grid place-items-center ring-1 shrink-0 transition-colors " +
           (checked
             ? "bg-brand ring-brand text-brand-foreground"
-            : "ring-border text-transparent group-hover:ring-brand/40")
+            : "ring-border text-transparent" +
+              (disabled ? "" : " group-hover:ring-brand/40"))
         }
       >
         {checked && (
@@ -174,11 +178,14 @@ function PermCheckbox({ checked, onClick, label, desc }) {
   );
 }
 
-function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc }) {
+function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc, disabled }) {
   return (
     <button
-      onClick={onClick}
-      className="flex items-start gap-2.5 px-2 py-1.5 rounded hover:bg-surface/60 text-left w-full group"
+      onClick={disabled ? undefined : onClick}
+      className={
+        "flex items-start gap-2.5 px-2 py-1.5 rounded text-left w-full group " +
+        (disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-surface/60")
+      }
     >
       <span
         className={
@@ -187,7 +194,8 @@ function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc }) {
             ? "bg-brand ring-brand text-brand-foreground"
             : someChecked
               ? "bg-brand/20 ring-brand/50 text-brand"
-              : "ring-border text-transparent group-hover:ring-brand/40")
+              : "ring-border text-transparent" +
+                (disabled ? "" : " group-hover:ring-brand/40"))
         }
       >
         {allChecked && (
@@ -217,7 +225,7 @@ function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc }) {
 }
 
 function RolesPage() {
-  const { hasOrgPermission } = useAuth();
+  const { hasOrgPermission, sessionOrgAdminIds, sessionOrgPermissions } = useAuth();
   const orgId = useManageOrgId();
 
   const [roles, setRoles] = useState([]);
@@ -236,6 +244,10 @@ function RolesPage() {
 
   const isAdmin = hasOrgPermission(orgId ?? "", "role_create");
   const rank = isAdmin ? 4 : 0;
+
+  const canGrant = sessionOrgAdminIds.includes(orgId ?? "")
+    ? () => true
+    : (permId) => (sessionOrgPermissions[orgId ?? ""] ?? []).includes(permId);
 
   async function loadRoles() {
     if (!orgId) return;
@@ -318,7 +330,10 @@ function RolesPage() {
   async function handleSave(roleId) {
     setSavingId(roleId);
     try {
-      const permissions = draftPerms[roleId] ?? [];
+      const role = roles.find((r) => r.roleId === roleId);
+      const lockedPerms = (role?.permissions ?? []).filter((p) => !canGrant(p));
+      const editablePerms = (draftPerms[roleId] ?? []).filter((p) => canGrant(p));
+      const permissions = [...editablePerms, ...lockedPerms];
       const ticketTypeIds = draftTicketTypes[roleId] ?? [];
       const discordRoleIds = draftDiscordRoleIds[roleId] ?? [];
       await fetch(
@@ -379,14 +394,14 @@ function RolesPage() {
     });
   }
 
-  function toggleParentPerm(roleId, childIds, allChecked) {
+  function toggleParentPerm(roleId, grantableChildIds, allGrantableChecked) {
     setDraftPerms((prev) => {
       const cur = prev[roleId] ?? [];
       return {
         ...prev,
-        [roleId]: allChecked
-          ? cur.filter((p) => !childIds.includes(p))
-          : [...new Set([...cur, ...childIds])],
+        [roleId]: allGrantableChecked
+          ? cur.filter((p) => !grantableChildIds.includes(p))
+          : [...new Set([...cur, ...grantableChildIds])],
       };
     });
   }
@@ -543,6 +558,7 @@ function RolesPage() {
                           {group.perms.map((perm) => {
                             if (perm.isParent) {
                               const childIds = perm.children.map((c) => c.id);
+                              const grantableChildIds = childIds.filter((id) => canGrant(id));
                               const checkedCount = childIds.filter((id) =>
                                 draft.includes(id),
                               ).length;
@@ -551,6 +567,13 @@ function RolesPage() {
                                 childIds.length > 0;
                               const someChecked =
                                 checkedCount > 0 && !allChecked;
+                              const grantableCheckedCount = grantableChildIds.filter((id) =>
+                                draft.includes(id),
+                              ).length;
+                              const allGrantableChecked =
+                                grantableChildIds.length > 0 &&
+                                grantableCheckedCount === grantableChildIds.length;
+                              const parentDisabled = grantableChildIds.length === 0;
                               const ticketsActive =
                                 perm.showTicketTypes &&
                                 childIds.some((id) => draft.includes(id));
@@ -562,11 +585,12 @@ function RolesPage() {
                                     someChecked={someChecked}
                                     label={perm.label}
                                     desc={perm.desc}
+                                    disabled={parentDisabled}
                                     onClick={() =>
                                       toggleParentPerm(
                                         role.roleId,
-                                        childIds,
-                                        allChecked,
+                                        grantableChildIds,
+                                        allGrantableChecked,
                                       )
                                     }
                                   />
@@ -575,6 +599,7 @@ function RolesPage() {
                                       <PermCheckbox
                                         key={child.id}
                                         checked={draft.includes(child.id)}
+                                        disabled={!canGrant(child.id)}
                                         onClick={() =>
                                           togglePerm(role.roleId, child.id)
                                         }
@@ -630,6 +655,7 @@ function RolesPage() {
                               <PermCheckbox
                                 key={perm.id}
                                 checked={draft.includes(perm.id)}
+                                disabled={!canGrant(perm.id)}
                                 onClick={() => togglePerm(role.roleId, perm.id)}
                                 label={perm.label}
                                 desc={perm.desc}
