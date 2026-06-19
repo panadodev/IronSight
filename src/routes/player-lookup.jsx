@@ -1,18 +1,12 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, RefreshCw } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import {
   Field,
   OffensesTable,
-  ChatLogSection,
-  KillFeedSection,
-  HitDistanceSection,
   ServerHistorySection,
-  TeammatesSection,
-  FriendlyRecipientsSection,
-  pingTone,
 } from "@/components/player-sidebar";
 import { BanDialog, LENGTH_OPTIONS } from "@/components/ban-dialog";
 import { useAuth } from "@/lib/auth-context";
@@ -99,116 +93,6 @@ const REPORT_CATEGORIES = [
   { id: "toxicity", label: "Toxicity" },
   { id: "other", label: "Other" },
 ];
-
-function hashId(steamId) {
-  let h = 0;
-  for (let i = 0; i < steamId.length; i++)
-    h = (h * 31 + steamId.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
-function AlertsSectionLookup({ steamId }) {
-  const [windowDays, setWindowDays] = useState(90);
-
-  const allAlerts = useMemo(() => {
-    const h = hashId(steamId);
-    const count = h % 5;
-    if (count === 0) return [];
-    return Array.from({ length: count }).map((_, i) => {
-      const k = Math.abs(((h + i * 1103) * 2654435761) | 0);
-      return {
-        kind: k % 2 === 0 ? "f7" : "thorium",
-        title:
-          k % 2 === 0
-            ? `Reporter: Player${k % 100}`
-            : `Aim · ${30 + (k % 50)}%`,
-        daysAgo: 1 + (k % 89),
-      };
-    });
-  }, [steamId]);
-
-  const visible = allAlerts.filter((a) => a.daysAgo <= windowDays);
-  const f7Count = visible.filter((a) => a.kind === "f7").length;
-  const thoriumCount = visible.filter((a) => a.kind === "thorium").length;
-
-  return (
-    <section>
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
-        <span className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5">
-            <span
-              className="size-2 rounded-full"
-              style={{ background: "#f59e0b" }}
-            />
-            <span style={{ color: "#f59e0b" }}>F7</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span
-              className="size-2 rounded-full"
-              style={{ background: "#ec4899" }}
-            />
-            <span style={{ color: "#ec4899" }}>Thorium</span>
-          </span>
-        </span>
-        <span className="font-mono normal-case tracking-normal text-muted-foreground">
-          {f7Count + thoriumCount} alerts
-          <span className="ml-2 text-muted-foreground">
-            · last {windowDays}d
-          </span>
-        </span>
-      </h3>
-      <div className="flex items-center gap-3 mb-2 px-1">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground shrink-0">
-          Window
-        </span>
-        <input
-          type="range"
-          min={1}
-          max={90}
-          value={windowDays}
-          onChange={(e) => setWindowDays(Number(e.target.value))}
-          className="flex-1"
-        />
-        <span className="text-[10px] font-mono tabular-nums text-foreground w-12 text-right">
-          {windowDays}d
-        </span>
-      </div>
-      <div className="relative rounded-lg ring-1 ring-border/50 bg-surface/30 p-2">
-        {f7Count + thoriumCount === 0 ? (
-          <div className="px-1 py-6 text-xs text-muted-foreground italic text-center">
-            No F7 reports or Thorium alerts in the last {windowDays} days.
-          </div>
-        ) : (
-          <ul className="space-y-1">
-            {visible.map((a, i) => (
-              <li
-                key={i}
-                className="text-[10px] font-mono flex items-center gap-2 px-2 py-1.5 rounded"
-              >
-                <span
-                  className="size-1.5 rounded-full shrink-0"
-                  style={{
-                    background: a.kind === "f7" ? "#f59e0b" : "#ec4899",
-                  }}
-                />
-                <span
-                  className="font-semibold uppercase"
-                  style={{ color: a.kind === "f7" ? "#f59e0b" : "#ec4899" }}
-                >
-                  {a.kind === "f7" ? "F7" : "Thorium"}
-                </span>
-                <span className="text-foreground">{a.title}</span>
-                <span className="ml-auto text-muted-foreground">
-                  {a.daysAgo}d ago
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
-  );
-}
 
 const Route = createFileRoute("/player-lookup")({
   head: () => ({
@@ -775,38 +659,14 @@ function PlayerLookupPage() {
                           />
                         )}
                         <Field
-                          label="Hit %"
-                          value={`${(hashId(playerData.steamId) % 55) + 8}%`}
-                        />
-                        <Field
                           label="Proxy"
                           value={isProxy ? "True" : "False"}
                           tone={isProxy ? "danger" : "success"}
                         />
-                        <div>
-                          <p className="text-[10px] text-muted-foreground uppercase">
-                            Location
-                          </p>
-                          <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
-                            {country ?? "??"}
-                            {(() => {
-                              const ms =
-                                18 + (hashId(playerData.steamId) % 220);
-                              const t = pingTone(ms);
-                              return (
-                                <>
-                                  <span
-                                    className={`inline-block size-1.5 rounded-full ${t.color}`}
-                                    title={`${ms}ms ping`}
-                                  />
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {ms}ms
-                                  </span>
-                                </>
-                              );
-                            })()}
-                          </p>
-                        </div>
+                        <Field
+                          label="Location"
+                          value={country ?? "—"}
+                        />
                         <Field label="Last Seen" value={lastSeen ?? "Never"} />
                       </div>
                     )}
@@ -818,19 +678,6 @@ function PlayerLookupPage() {
                   subjectId={playerData.steamId}
                   orgId={fetchOrgId}
                 />
-
-                {/* Tickets */}
-                <section>
-                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
-                    <span>Tickets</span>
-                    <span className="font-mono normal-case tracking-normal text-muted-foreground">
-                      0
-                    </span>
-                  </h3>
-                  <p className="text-xs text-muted-foreground italic">
-                    No tickets involving this player.
-                  </p>
-                </section>
 
                 {/* Previous Offenses (real bans / mutes from our orgs) */}
                 <section>
@@ -861,11 +708,6 @@ function PlayerLookupPage() {
                   />
                 )}
 
-                {/* F7 / Thorium alerts */}
-                {!isSupportOnly && (
-                  <AlertsSectionLookup steamId={playerData.steamId} />
-                )}
-
                 {/* Linked Accounts */}
                 {!isSupportOnly && (
                   <LinkedAccountIntelSection
@@ -873,31 +715,6 @@ function PlayerLookupPage() {
                     subjectName={playerData.displayName ?? playerData.steamId}
                     relatedAccounts={playerData.relatedAccounts}
                   />
-                )}
-
-                {/* Hit % by Distance */}
-                {!isSupportOnly && (
-                  <HitDistanceSection subjectId={playerData.steamId} />
-                )}
-
-                {/* Current Team / Previous Team / Associated Players */}
-                {!isSupportOnly && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <TeammatesSection
-                      subjectId={playerData.steamId}
-                      category="teaming"
-                      only="current"
-                    />
-                    <TeammatesSection
-                      subjectId={playerData.steamId}
-                      category="teaming"
-                      only="previous"
-                    />
-                    <FriendlyRecipientsSection
-                      subjectId={playerData.steamId}
-                      serverId={null}
-                    />
-                  </div>
                 )}
 
                 {/* Server History */}
@@ -915,13 +732,6 @@ function PlayerLookupPage() {
                   />
                 )}
 
-                {/* Chat Log + Kill/Death Feed */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <ChatLogSection subjectId={playerData.steamId} />
-                  {!isSupportOnly && (
-                    <KillFeedSection subjectId={playerData.steamId} />
-                  )}
-                </div>
               </div>
             </div>
           )}
