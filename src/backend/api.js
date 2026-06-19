@@ -1166,6 +1166,23 @@ async function ensureSchema() {
      ON org_external_api_keys(org_id, service)`,
   );
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_external_api_key_stats (
+      key_id                   UUID   NOT NULL REFERENCES org_external_api_keys(key_id) ON DELETE CASCADE,
+      bucket_hour              BIGINT NOT NULL,
+      org_id                   TEXT   NOT NULL,
+      service                  TEXT   NOT NULL,
+      rate_limit_max           INT,
+      rate_limit_min_remaining INT,
+      sample_count             INT    NOT NULL DEFAULT 1,
+      PRIMARY KEY (key_id, bucket_hour)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ext_api_key_stats_org_bucket
+     ON org_external_api_key_stats(org_id, bucket_hour DESC)`,
+  );
+
   // ── Player data cache tables ───────────────────────────────────────────────
 
   await pool.query(`
@@ -8432,6 +8449,29 @@ async function markExternalKeyUsed(keyId) {
   );
 }
 
+async function recordRateLimitStats(keyId, orgId, service, resp) {
+  const limitHdr = resp.headers.get("X-Rate-Limit-Limit");
+  const remainingHdr = resp.headers.get("X-Rate-Limit-Remaining");
+  if (!limitHdr || !remainingHdr) return;
+  const rateMax = parseInt(limitHdr, 10);
+  const remaining = parseInt(remainingHdr, 10);
+  if (isNaN(rateMax) || isNaN(remaining) || rateMax <= 0) return;
+  const bucketHour = Math.floor(Date.now() / 1000 / 3600) * 3600;
+  await pool.query(
+    `INSERT INTO org_external_api_key_stats
+       (key_id, bucket_hour, org_id, service, rate_limit_max, rate_limit_min_remaining)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (key_id, bucket_hour) DO UPDATE SET
+       rate_limit_max = EXCLUDED.rate_limit_max,
+       rate_limit_min_remaining = LEAST(
+         org_external_api_key_stats.rate_limit_min_remaining,
+         EXCLUDED.rate_limit_min_remaining
+       ),
+       sample_count = org_external_api_key_stats.sample_count + 1`,
+    [keyId, bucketHour, orgId, service, rateMax, remaining],
+  );
+}
+
 // Tries each available key in priority order; returns Response or null if all fail
 async function externalFetchWithRotation(orgId, service, buildRequest) {
   const keys = await getAvailableExternalKeys(orgId, service);
@@ -8459,6 +8499,9 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
     }
 
     await markExternalKeyUsed(keyId);
+    recordRateLimitStats(keyId, orgId, service, resp).catch((e) =>
+      console.warn(`[ext-api:${service}] stats write failed: ${e.message}`),
+    );
     return resp;
   }
 
@@ -9636,6 +9679,37 @@ async function handleDeleteExternalKey(request, orgId, keyId) {
   return json({ ok: true });
 }
 
+async function handleGetExternalKeyStats(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+
+  const sinceHour = Math.floor(Date.now() / 1000 / 3600) * 3600 - 47 * 3600;
+
+  const { rows } = await pool.query(
+    `SELECT key_id::text AS key_id, bucket_hour, rate_limit_max,
+            rate_limit_min_remaining, sample_count
+     FROM org_external_api_key_stats
+     WHERE org_id = $1 AND bucket_hour >= $2
+     ORDER BY key_id, bucket_hour`,
+    [orgId, sinceHour],
+  );
+
+  const stats = {};
+  for (const r of rows) {
+    if (!stats[r.key_id]) stats[r.key_id] = [];
+    stats[r.key_id].push({
+      bucket: Number(r.bucket_hour),
+      rateMax: r.rate_limit_max != null ? Number(r.rate_limit_max) : null,
+      minRemaining: r.rate_limit_min_remaining != null ? Number(r.rate_limit_min_remaining) : null,
+      sampleCount: Number(r.sample_count),
+    });
+  }
+
+  return json({ stats });
+}
+
 // ── Player connect ingest ─────────────────────────────────────────────────────
 
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
@@ -10619,6 +10693,13 @@ async function _handleApiRequest(request) {
 
     if (pathname === "/api/mute-check" && request.method === "GET")
       return handleMuteCheck(request);
+
+    // External API key rate limit stats
+    const orgExternalKeyStatsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/external-keys\/stats$/,
+    );
+    if (orgExternalKeyStatsMatch && request.method === "GET")
+      return handleGetExternalKeyStats(request, orgExternalKeyStatsMatch[1]);
 
     // External API keys (BM / Steam / Proxycheck) per org
     const orgExternalKeysMatch = pathname.match(

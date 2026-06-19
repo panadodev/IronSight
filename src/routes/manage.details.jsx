@@ -13,6 +13,15 @@ import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import {
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 export const Route = createFileRoute("/manage/details")({
   component: ManageDetailsPage,
@@ -58,10 +67,117 @@ const SERVICE_HINTS = {
     "Used to flag VPN / proxy connections on new player joins and during lookups.",
 };
 
+const KEY_COLORS = ["#60a5fa", "#34d399", "#a78bfa", "#fbbf24", "#f87171"];
+
+function RateLimitGraph({ serviceKeys, stats }) {
+  const keysWithData = serviceKeys.filter((k) => stats[k.keyId]?.length > 0);
+  if (!keysWithData.length) return null;
+
+  const bucketSet = new Set();
+  for (const k of keysWithData) {
+    for (const pt of stats[k.keyId]) bucketSet.add(pt.bucket);
+  }
+  const buckets = [...bucketSet].sort((a, b) => a - b);
+
+  const data = buckets.map((bucket) => {
+    const entry = { bucket };
+    for (const k of keysWithData) {
+      const pt = stats[k.keyId]?.find((p) => p.bucket === bucket);
+      if (pt?.rateMax && pt.minRemaining != null) {
+        entry[k.keyId] = Math.round(
+          ((pt.rateMax - pt.minRemaining) / pt.rateMax) * 100,
+        );
+      }
+    }
+    return entry;
+  });
+
+  const formatHour = (ts) =>
+    new Date(ts * 1000).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  const formatTooltipLabel = (ts) =>
+    new Date(ts * 1000).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  return (
+    <div className="mt-3 space-y-1">
+      <p className="text-[10px] text-muted-foreground">
+        Rate limit usage — peak per hour, last 48h (
+        <span className="text-amber-500">amber line = 80%</span>)
+      </p>
+      <ResponsiveContainer width="100%" height={80}>
+        <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+          <XAxis
+            dataKey="bucket"
+            tickFormatter={formatHour}
+            tick={{ fontSize: 9, fill: "var(--color-muted-foreground, #888)" }}
+            interval="preserveStartEnd"
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis
+            domain={[0, 100]}
+            tick={{ fontSize: 9, fill: "var(--color-muted-foreground, #888)" }}
+            tickFormatter={(v) => `${v}%`}
+            tickLine={false}
+            axisLine={false}
+            width={32}
+          />
+          <ReferenceLine
+            y={80}
+            stroke="#f59e0b"
+            strokeDasharray="3 2"
+            strokeWidth={1}
+          />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null;
+              return (
+                <div className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs shadow-lg space-y-0.5">
+                  <p className="text-muted-foreground font-medium">
+                    {formatTooltipLabel(label)}
+                  </p>
+                  {payload.map((p) => {
+                    const k = keysWithData.find((k) => k.keyId === p.dataKey);
+                    return (
+                      <p key={p.dataKey} style={{ color: p.color }}>
+                        {k?.label || k?.service}: {p.value}%
+                      </p>
+                    );
+                  })}
+                </div>
+              );
+            }}
+          />
+          {keysWithData.map((k, i) => (
+            <Line
+              key={k.keyId}
+              type="monotone"
+              dataKey={k.keyId}
+              stroke={KEY_COLORS[i % KEY_COLORS.length]}
+              dot={false}
+              strokeWidth={1.5}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function ApiKeysSection({ orgId }) {
   const [keys, setKeys] = useState([]);
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [keysError, setKeysError] = useState("");
+  const [stats, setStats] = useState({});
 
   const [addService, setAddService] = useState("battlemetrics");
   const [addKey, setAddKey] = useState("");
@@ -71,6 +187,20 @@ function ApiKeysSection({ orgId }) {
 
   const [deletingId, setDeletingId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
+
+  async function loadStats() {
+    try {
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/external-keys/stats`,
+      );
+      if (res.ok) {
+        const body = await res.json();
+        setStats(body.stats ?? {});
+      }
+    } catch {
+      // non-critical — graph just won't show
+    }
+  }
 
   async function loadKeys() {
     setLoadingKeys(true);
@@ -96,6 +226,7 @@ function ApiKeysSection({ orgId }) {
 
   useEffect(() => {
     loadKeys();
+    loadStats();
   }, [orgId]);
 
   async function handleAddKey(e) {
@@ -259,6 +390,8 @@ function ApiKeysSection({ orgId }) {
                   ))}
                 </div>
               )}
+
+              <RateLimitGraph serviceKeys={keysByService[svc]} stats={stats} />
             </div>
           ))}
         </div>
