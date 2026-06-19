@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/manage/roles")({
@@ -441,6 +441,55 @@ function RolesPage() {
         title="Roles"
         blurb="Create custom roles with specific permission sets. Assign roles to staff from the Staff section."
       />
+
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground px-0.5">
+          Built-in roles
+        </p>
+        {[
+          {
+            name: "Owner",
+            desc: "Full control. Can manage all members, roles, settings, and configurations.",
+            className: "ring-brand/30 bg-brand/5",
+            labelClass: "text-brand",
+          },
+          {
+            name: "Admin",
+            desc: "Elevated access. Can manage members and use all staff tools.",
+            className: "ring-border bg-surface/40",
+            labelClass: "text-foreground",
+          },
+          {
+            name: "Member",
+            desc: "Basic access. Standard staff member with no elevated privileges.",
+            className: "ring-border bg-surface/40",
+            labelClass: "text-foreground",
+          },
+          {
+            name: "Disabled",
+            desc: "No access. Blocked from all staff-related functionality and panels.",
+            className: "ring-danger/30 bg-danger/5",
+            labelClass: "text-danger",
+            icon: <Ban className="size-3 shrink-0" />,
+          },
+        ].map((r) => (
+          <div
+            key={r.name}
+            className={`flex items-center gap-3 rounded-md ring-1 px-3 py-2 ${r.className}`}
+          >
+            <div className="flex-1 min-w-0">
+              <p className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}>
+                {r.icon}
+                {r.name}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{r.desc}</p>
+            </div>
+            <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 shrink-0">
+              built-in
+            </span>
+          </div>
+        ))}
+      </div>
 
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
         <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">

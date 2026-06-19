@@ -61,6 +61,7 @@ function roleLabel(roleId, customRoles) {
   if (roleId === "org_owner") return "Owner";
   if (roleId === "org_admin") return "Admin";
   if (roleId === "org_member") return "Member";
+  if (roleId === "org_disabled") return "Disabled";
   return customRoles.find((r) => r.roleId === roleId)?.roleName ?? roleId;
 }
 
@@ -431,6 +432,7 @@ function StaffPage() {
         ) : (
           members.map((m) => {
             const isOwnerRow = m.roleId === "org_owner";
+            const isDisabledRow = m.roleId === "org_disabled";
             const isMe = sessionUser?.userId === m.userId;
             const isChangingRole = changingRoleId === m.userId;
             const canActOnRow = isOwner || !isOwnerRow;
@@ -440,7 +442,7 @@ function StaffPage() {
             return (
               <div
                 key={m.userId}
-                className="flex items-center justify-between gap-2 bg-background ring-1 ring-border rounded-md p-2"
+                className={`flex items-center justify-between gap-2 ring-1 rounded-md p-2 ${isDisabledRow ? "bg-danger/5 ring-danger/20 opacity-70" : "bg-background ring-border"}`}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="size-7 rounded bg-brand/20 text-brand text-[10px] font-mono font-bold grid place-items-center shrink-0">
@@ -894,6 +896,10 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
                 </SelectGroup>
               </>
             )}
+            <SelectSeparator />
+            <SelectItem value="org_disabled" className="text-danger">
+              Disabled
+            </SelectItem>
           </>
         ) : (
           <>
@@ -918,6 +924,10 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
                 </SelectGroup>
               </>
             )}
+            <SelectSeparator />
+            <SelectItem value="org_disabled" className="text-danger">
+              Disabled
+            </SelectItem>
           </>
         )}
       </SelectContent>

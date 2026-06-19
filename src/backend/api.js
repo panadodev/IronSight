@@ -1483,7 +1483,8 @@ async function ensureRolePermissionSeed() {
      VALUES
       ('org_member', 'Member'),
       ('org_admin', 'Admin'),
-      ('org_owner', 'Owner')
+      ('org_owner', 'Owner'),
+      ('org_disabled', 'Disabled')
      ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name`,
   );
 
@@ -1952,6 +1953,7 @@ async function listUserOrganizations(userId) {
      LEFT JOIN users u ON u.user_id = all_m.user_id
      WHERE self_m.user_id = $1
        AND o.org_id <> $2
+       AND self_m.role_id != 'org_disabled'
      GROUP BY o.org_id, o.guild_id, o.name
      ORDER BY o.org_id`,
     [userId, SYSADMIN.globalOrgId],
@@ -3292,7 +3294,7 @@ async function handleListOrgRoles(request, orgId) {
      LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
      LEFT JOIN role_discord_roles rdr ON rdr.role_id = r.role_id
      WHERE r.role_id LIKE ($1 || '_%')
-       AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner')
+       AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
      GROUP BY r.role_id, r.role_name
      ORDER BY r.role_name ASC`,
     [orgId],
@@ -3646,7 +3648,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   // Legacy friendly-name mapping
   let resolvedTeam = newTeam === "management" ? "org_admin" : newTeam;
 
-  const builtInRoles = ["org_member", "org_admin", "org_owner"];
+  const builtInRoles = ["org_member", "org_admin", "org_owner", "org_disabled"];
 
   if (!builtInRoles.includes(resolvedTeam)) {
     // Must be a valid custom role belonging to this org
@@ -6898,10 +6900,7 @@ function executeRconCommand(rconUrl, command) {
     ws.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(String(event.data));
-        if (
-          msg.Identifier === requestId ||
-          (commandSent && msg.Identifier === 0)
-        ) {
+        if (msg.Identifier === requestId) {
           try {
             ws.close(1000, "Done");
           } catch {
