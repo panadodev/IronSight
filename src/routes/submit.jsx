@@ -34,7 +34,6 @@ const REPORT_CATEGORIES = [
     label: "Toxicity",
     blurb: "Slurs, harassment, hate speech.",
   },
-  { id: "other", label: "Other", blurb: "Rule break not covered above." },
 ];
 
 function SubmitPage() {
@@ -49,6 +48,7 @@ function SubmitPage() {
   const [body, setBody] = useState("");
   const [targetSteamId, setTargetSteamId] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [selectedPlayers, setSelectedPlayers] = useState([]);
   const [playerQuery, setPlayerQuery] = useState("");
   const [playerResults, setPlayerResults] = useState([]);
   const [playerSearching, setPlayerSearching] = useState(false);
@@ -104,7 +104,8 @@ function SubmitPage() {
 
   const selectedType =
     ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
-  const isPlayerReport = selectedType?.name?.toLowerCase().includes("report");
+  const isPlayerReport = selectedType?.category === "player_single" || selectedType?.category === "player_multi";
+  const isMultiPlayerReport = selectedType?.category === "player_multi";
 
   useEffect(() => {
     if (!isPlayerReport) return;
@@ -146,12 +147,17 @@ function SubmitPage() {
     let ticketTitle = title.trim();
     let message = body.trim();
     if (isPlayerReport) {
-      const steamId = targetSteamId.trim();
-      if (!steamId || !message) return;
-      ticketTitle = ticketTitle || `${reportCategory} \u2014 ${steamId}`;
+      const players = isMultiPlayerReport ? selectedPlayers : (selectedPlayer ? [selectedPlayer] : []);
+      if (players.length === 0 || !message) return;
+      const steamIds = players.map((p) => p.steamId).join(", ");
+      ticketTitle = ticketTitle || `${reportCategory} \u2014 ${steamIds}`;
       const evidenceText = evidence.trim();
       if (evidenceText) message = `${message}\n\nEvidence:\n${evidenceText}`;
-      message = `Target Steam ID: ${steamId}\nCategory: ${reportCategory}\n\n${message}`;
+      if (isMultiPlayerReport) {
+        message = `Target Steam IDs: ${steamIds}\nCategory: ${reportCategory}\n\n${message}`;
+      } else {
+        message = `Target Steam ID: ${steamIds}\nCategory: ${reportCategory}\n\n${message}`;
+      }
     } else {
       if (!ticketTitle || !message) return;
     }
@@ -189,6 +195,7 @@ function SubmitPage() {
     setBody("");
     setTargetSteamId("");
     setSelectedPlayer(null);
+    setSelectedPlayers([]);
     setPlayerQuery("");
     setPlayerResults([]);
     setPlayerDropdownOpen(false);
@@ -312,8 +319,10 @@ function SubmitPage() {
 
   const canSubmit = (() => {
     if (!selectedTypeId) return false;
-    if (isPlayerReport)
-      return targetSteamId.trim().length > 0 && body.trim().length > 0;
+    if (isPlayerReport) {
+      const hasPlayers = isMultiPlayerReport ? selectedPlayers.length > 0 : !!selectedPlayer;
+      return hasPlayers && body.trim().length > 0;
+    }
     return title.trim().length > 0 && body.trim().length > 0;
   })();
 
@@ -389,92 +398,180 @@ function SubmitPage() {
             <>
               <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step 1 \u00b7 Reported player
+                  Step 1 · Reported player{isMultiPlayerReport ? "s" : ""}
                 </label>
-                {selectedPlayer ? (
-                  <div className="flex items-center gap-3 p-3 bg-surface/40 ring-1 ring-border rounded">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{selectedPlayer.name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">
-                        {selectedPlayer.steamId}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedPlayer(null);
-                        setTargetSteamId("");
-                        setPlayerQuery("");
-                        setPlayerResults([]);
-                      }}
-                      className="text-xs text-muted-foreground hover:text-foreground shrink-0 px-2 py-1 rounded hover:bg-surface/60 transition-colors"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : (
-                  <div ref={playerSearchRef} className="relative">
-                    <input
-                      type="text"
-                      value={playerQuery}
-                      onChange={(e) => {
-                        setPlayerQuery(e.target.value);
-                        setSelectedPlayer(null);
-                        setTargetSteamId("");
-                      }}
-                      onFocus={() =>
-                        playerResults.length > 0 && setPlayerDropdownOpen(true)
-                      }
-                      placeholder="Search by name or Steam ID\u2026"
-                      className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
-                    />
-                    {playerSearching && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                        Searching\u2026
-                      </span>
-                    )}
-                    {playerDropdownOpen && playerResults.length > 0 && (
-                      <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-background ring-1 ring-border rounded-md shadow-lg">
-                        {playerResults.map((p) => (
-                          <button
-                            key={p.steamId}
-                            type="button"
-                            onClick={() => {
-                              setSelectedPlayer(p);
-                              setTargetSteamId(p.steamId);
-                              setPlayerDropdownOpen(false);
-                              setPlayerQuery("");
-                              setPlayerResults([]);
-                            }}
-                            className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-surface/60 transition-colors border-b border-border/50 last:border-0"
+                {isMultiPlayerReport ? (
+                  <>
+                    {selectedPlayers.length > 0 && (
+                      <div className="flex flex-wrap gap-2 p-3 bg-surface/40 ring-1 ring-border rounded">
+                        {selectedPlayers.map((player) => (
+                          <div
+                            key={player.steamId}
+                            className="flex items-center gap-2 px-3 py-1 bg-brand/20 ring-1 ring-brand/40 rounded-full"
                           >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium">{p.name}</p>
-                              <p className="text-[10px] font-mono text-muted-foreground">
-                                {p.steamId}
-                              </p>
-                            </div>
-                            <span className="text-[10px] text-muted-foreground shrink-0">
-                              {new Date(p.lastSeenAt * 1000).toLocaleDateString()}
-                            </span>
-                          </button>
+                            <span className="text-sm font-medium">{player.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedPlayers(
+                                  selectedPlayers.filter((p) => p.steamId !== player.steamId)
+                                );
+                              }}
+                              className="text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              ×
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}
-                    {playerQuery.trim().length >= 2 &&
-                      !playerSearching &&
-                      playerResults.length === 0 && (
-                        <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
-                          <div className="p-3 text-xs text-muted-foreground">
-                            No players found matching &ldquo;{playerQuery.trim()}&rdquo;.
-                          </div>
+                    <div ref={playerSearchRef} className="relative">
+                      <input
+                        type="text"
+                        value={playerQuery}
+                        onChange={(e) => setPlayerQuery(e.target.value)}
+                        onFocus={() =>
+                          playerResults.length > 0 && setPlayerDropdownOpen(true)
+                        }
+                        placeholder="Add players by name or Steam ID…"
+                        className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+                      />
+                      {playerSearching && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                          Searching…
+                        </span>
+                      )}
+                      {playerDropdownOpen && playerResults.length > 0 && (
+                        <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-background ring-1 ring-border rounded-md shadow-lg">
+                          {playerResults.map((p) => (
+                            <button
+                              key={p.steamId}
+                              type="button"
+                              onClick={() => {
+                                if (!selectedPlayers.find((sp) => sp.steamId === p.steamId)) {
+                                  setSelectedPlayers([...selectedPlayers, p]);
+                                }
+                                setPlayerDropdownOpen(false);
+                                setPlayerQuery("");
+                                setPlayerResults([]);
+                              }}
+                              className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-surface/60 transition-colors border-b border-border/50 last:border-0"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium">{p.name}</p>
+                                <p className="text-[10px] font-mono text-muted-foreground">
+                                  {p.steamId}
+                                </p>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground shrink-0">
+                                {new Date(p.lastSeenAt * 1000).toLocaleDateString()}
+                              </span>
+                            </button>
+                          ))}
                         </div>
                       )}
-                  </div>
+                      {playerQuery.trim().length >= 2 &&
+                        !playerSearching &&
+                        playerResults.length === 0 && (
+                          <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
+                            <div className="p-3 text-xs text-muted-foreground">
+                              No players found matching "{playerQuery.trim()}".
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Search for players by their in-game name or Steam64 ID. Add as many as needed.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {selectedPlayer ? (
+                      <div className="flex items-center gap-3 p-3 bg-surface/40 ring-1 ring-border rounded">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">{selectedPlayer.name}</p>
+                          <p className="text-[10px] font-mono text-muted-foreground">
+                            {selectedPlayer.steamId}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPlayer(null);
+                            setTargetSteamId("");
+                            setPlayerQuery("");
+                            setPlayerResults([]);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground shrink-0 px-2 py-1 rounded hover:bg-surface/60 transition-colors"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    ) : (
+                      <div ref={playerSearchRef} className="relative">
+                        <input
+                          type="text"
+                          value={playerQuery}
+                          onChange={(e) => {
+                            setPlayerQuery(e.target.value);
+                            setSelectedPlayer(null);
+                            setTargetSteamId("");
+                          }}
+                          onFocus={() =>
+                            playerResults.length > 0 && setPlayerDropdownOpen(true)
+                          }
+                          placeholder="Search by name or Steam ID…"
+                          className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+                        />
+                        {playerSearching && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                            Searching…
+                          </span>
+                        )}
+                        {playerDropdownOpen && playerResults.length > 0 && (
+                          <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-background ring-1 ring-border rounded-md shadow-lg">
+                            {playerResults.map((p) => (
+                              <button
+                                key={p.steamId}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPlayer(p);
+                                  setTargetSteamId(p.steamId);
+                                  setPlayerDropdownOpen(false);
+                                  setPlayerQuery("");
+                                  setPlayerResults([]);
+                                }}
+                                className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-surface/60 transition-colors border-b border-border/50 last:border-0"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium">{p.name}</p>
+                                  <p className="text-[10px] font-mono text-muted-foreground">
+                                    {p.steamId}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                  {new Date(p.lastSeenAt * 1000).toLocaleDateString()}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {playerQuery.trim().length >= 2 &&
+                          !playerSearching &&
+                          playerResults.length === 0 && (
+                            <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
+                              <div className="p-3 text-xs text-muted-foreground">
+                                No players found matching "{playerQuery.trim()}".
+                              </div>
+                            </div>
+                          )}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      Search for the player by their in-game name or Steam64 ID.
+                    </p>
+                  </>
                 )}
-                <p className="text-[10px] text-muted-foreground">
-                  Search for the player by their in-game name or Steam64 ID.
-                </p>
               </section>
               <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">

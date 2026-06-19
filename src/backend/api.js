@@ -759,6 +759,19 @@ async function ensureSchema() {
     END $$
   `);
 
+  // Add ticket_type_category column for differentiating player report types
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'ticket_types' AND column_name = 'ticket_type_category'
+      ) THEN
+        ALTER TABLE ticket_types ADD COLUMN ticket_type_category TEXT NOT NULL DEFAULT 'generic'
+          CHECK (ticket_type_category IN ('generic', 'player_single', 'player_multi'));
+      END IF;
+    END $$
+  `);
+
   // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
   // Guard: table may not exist yet on first migration pass
   await pool.query(`
@@ -4350,28 +4363,44 @@ async function handleUpdateRolePermissions(request, roleId) {
 
 const DEFAULT_TICKET_TYPES = [
   {
-    name: "Player Report",
-    description:
-      "Report a player for cheating, teaming, or other rule violations.",
-  },
-  { name: "Ban Appeal", description: "Appeal a ban or mute on this server." },
-  {
-    name: "VIP Issue",
-    description: "Issues related to VIP memberships or perks.",
+    name: "Cheating",
+    description: "Report a player for cheating (aimbot, ESP, scripts, macros).",
+    category: "player_single",
   },
   {
-    name: "General Support",
+    name: "Teaming",
+    description: "Report players for teaming or group size violations.",
+    category: "player_multi",
+  },
+  {
+    name: "Toxicity",
+    description: "Report a player for toxicity, harassment, or hate speech.",
+    category: "player_single",
+  },
+  {
+    name: "Support",
     description: "General questions and support requests.",
+    category: "generic",
+  },
+  {
+    name: "VIP",
+    description: "Issues related to VIP memberships or perks.",
+    category: "generic",
+  },
+  {
+    name: "Appeal",
+    description: "Appeal a ban or mute on this server.",
+    category: "generic",
   },
 ];
 
 async function ensureDefaultTicketTypes(orgId) {
   for (const t of DEFAULT_TICKET_TYPES) {
     await pool.query(
-      `INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (org_id, ticket_type_name) DO NOTHING`,
-      [orgId, t.name, t.description],
+      `INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description, ticket_type_category)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (org_id, ticket_type_name) DO UPDATE SET ticket_type_category = $4`,
+      [orgId, t.name, t.description, t.category],
     );
   }
 }
@@ -4672,7 +4701,7 @@ async function handleListOrgTicketTypes(request, orgId) {
   }
 
   const { rows } = await pool.query(
-    `SELECT ticket_type_id, ticket_type_name, ticket_type_description
+    `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category
      FROM ticket_types WHERE org_id = $1 ORDER BY ticket_type_id ASC`,
     [orgId],
   );
@@ -4681,6 +4710,7 @@ async function handleListOrgTicketTypes(request, orgId) {
       ticketTypeId: Number(row.ticket_type_id),
       name: String(row.ticket_type_name),
       description: String(row.ticket_type_description),
+      category: String(row.ticket_type_category),
     })),
   });
 }
