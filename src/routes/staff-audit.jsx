@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Activity, ChevronDown } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
+import { useTimezone } from "@/lib/timezone-store";
 
 const Route = createFileRoute("/staff-audit")({
   head: () => ({ meta: [{ title: "Staff Audit Log — IronSight" }] }),
@@ -44,14 +45,15 @@ function actionMeta(type) {
   );
 }
 
-function buildDailyBuckets(logs) {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+function buildDailyBuckets(logs, tz) {
+  const opts = tz ? { timeZone: tz } : undefined;
+  const todayStr = new Date().toLocaleDateString("en-CA", opts);
   const days = Array.from({ length: 30 }, () => 0);
   for (const log of logs) {
-    const d = new Date(log.createdAt);
-    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const diff = Math.round((todayStart - dayStart) / 86400000);
+    const dStr = new Date(log.createdAt * 1000).toLocaleDateString("en-CA", opts);
+    const diff = Math.round(
+      (new Date(todayStr).getTime() - new Date(dStr).getTime()) / 86400000,
+    );
     if (diff >= 0 && diff < 30) {
       days[29 - diff]++;
     }
@@ -143,16 +145,19 @@ function ActivityChart({ days }) {
   );
 }
 
-function formatWhen(isoStr) {
-  const d = new Date(isoStr);
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diff = Math.round((todayStart - dayStart) / 86400000);
+function formatWhen(unix, tz) {
+  const opts = tz ? { timeZone: tz } : undefined;
+  const d = new Date(unix * 1000);
+  const todayStr = new Date().toLocaleDateString("en-CA", opts);
+  const dStr = d.toLocaleDateString("en-CA", opts);
+  const diff = Math.round(
+    (new Date(todayStr).getTime() - new Date(dStr).getTime()) / 86400000,
+  );
   const hhmm = d.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    ...(opts ?? {}),
   });
   if (diff === 0) return `Today · ${hhmm}`;
   if (diff === 1) return `Yesterday · ${hhmm}`;
@@ -193,6 +198,7 @@ const PAGE_SIZE = 50;
 
 function StaffAuditPage() {
   const { sessionOrgAdminIds } = useAuth();
+  const tz = useTimezone();
   const search = Route.useSearch();
   const staffId = search.staff ?? "";
   const orgId = search.org ?? sessionOrgAdminIds[0] ?? "";
@@ -226,7 +232,7 @@ function StaffAuditPage() {
       .finally(() => setLoading(false));
   }, [staffId, orgId]);
 
-  const dailyBuckets = useMemo(() => buildDailyBuckets(logs), [logs]);
+  const dailyBuckets = useMemo(() => buildDailyBuckets(logs, tz), [logs, tz]);
 
   const actionTypes = useMemo(() => {
     const counts = {};
@@ -378,7 +384,7 @@ function StaffAuditPage() {
                                   className="border-t border-border"
                                 >
                                   <td className="px-2 py-1 text-muted-foreground whitespace-nowrap">
-                                    {formatWhen(log.createdAt)}
+                                    {formatWhen(log.createdAt, tz)}
                                   </td>
                                   <td className="px-2 py-1">
                                     <span

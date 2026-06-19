@@ -10,6 +10,7 @@ import {
 } from "@/components/player-sidebar";
 import { BanDialog, LENGTH_OPTIONS } from "@/components/ban-dialog";
 import { useAuth } from "@/lib/auth-context";
+import { useTimezone } from "@/lib/timezone-store";
 import { PlayerLinks } from "@/components/player-links";
 import { Ban, MicOff } from "lucide-react";
 import {
@@ -43,7 +44,7 @@ const LENGTH_MINUTES = {
 
 function lengthToExpiresAt(length) {
   if (length === "permanent" || !LENGTH_MINUTES[length]) return null;
-  return new Date(Date.now() + LENGTH_MINUTES[length] * 60000).toISOString();
+  return Math.floor(Date.now() / 1000) + LENGTH_MINUTES[length] * 60;
 }
 
 function fmtNum(n) {
@@ -51,9 +52,9 @@ function fmtNum(n) {
   return Number(n).toLocaleString("en-US");
 }
 
-function relativeTime(isoString) {
-  if (!isoString) return "—";
-  const days = Math.floor((Date.now() - Date.parse(isoString)) / 864e5);
+function relativeTime(unix) {
+  if (!unix) return "—";
+  const days = Math.floor((Date.now() / 1000 - unix) / 86400);
   if (days === 0) return "today";
   if (days === 1) return "1d ago";
   if (days < 30) return `${days}d ago`;
@@ -70,10 +71,10 @@ function steamIdColor(steamId) {
 function banRecordStatus(r) {
   if (r.revoked) return { label: "Revoked", tone: "muted" };
   if (!r.expiresAt) return { label: "Permanent", tone: "danger" };
-  const ms = Date.parse(r.expiresAt) - Date.now();
-  if (ms <= 0) return { label: "Expired", tone: "muted" };
-  const days = Math.floor(ms / 864e5);
-  const hours = Math.floor((ms % 864e5) / 36e5);
+  const sec = r.expiresAt - Math.floor(Date.now() / 1000);
+  if (sec <= 0) return { label: "Expired", tone: "muted" };
+  const days = Math.floor(sec / 86400);
+  const hours = Math.floor((sec % 86400) / 3600);
   return {
     label: days > 0 ? `${days}d left` : `${hours}h left`,
     tone: "warning",
@@ -136,18 +137,18 @@ function Avatar({ steamId, displayName, avatarUrl, size = 64 }) {
   );
 }
 
-function cacheAge(iso) {
-  if (!iso) return null;
-  const ms = Date.now() - Date.parse(iso);
-  if (ms < 60000) return "just now";
-  const min = Math.floor(ms / 60000);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
+function cacheAge(unix) {
+  if (!unix) return null;
+  const m = Math.floor((Date.now() / 1000 - unix) / 60);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const hr = Math.floor(m / 60);
   if (hr < 24) return `${hr}h ago`;
   return `${Math.floor(hr / 24)}d ago`;
 }
 
 function CacheStamp({ playerData, refreshing }) {
+  const tz = useTimezone();
   const steamAt = playerData?.steam?.cachedAt;
   const bmAt = playerData?.bm?.cachedAt;
   const stale = playerData?.isStale;
@@ -171,7 +172,7 @@ function CacheStamp({ playerData, refreshing }) {
   return (
     <span
       className={`text-[10px] font-mono ${stale ? "text-warning/80" : "text-muted-foreground/60"}`}
-      title={`Steam: ${steamAt ? new Date(steamAt).toLocaleString() : "—"}\nBM: ${bmAt ? new Date(bmAt).toLocaleString() : "—"}`}
+      title={`Steam: ${steamAt ? new Date(steamAt * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {}) : "—"}\nBM: ${bmAt ? new Date(bmAt * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {}) : "—"}`}
     >
       cached {cacheAge(newest)}
       {stale ? " · stale" : ""}
@@ -181,6 +182,7 @@ function CacheStamp({ playerData, refreshing }) {
 
 function PlayerLookupPage() {
   const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded } = useAuth();
+  const tz = useTimezone();
   const search = Route.useSearch();
 
   const [input, setInput] = useState(search.steam ?? "");
@@ -394,9 +396,7 @@ function PlayerLookupPage() {
   const lastSeen = (() => {
     const s = playerData?.bmSessions?.[0];
     if (!s?.lastSeen) return null;
-    const d = new Date(s.lastSeen);
-    const diffMs = Date.now() - d.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
+    const diffMin = Math.floor((Date.now() / 1000 - s.lastSeen) / 60);
     if (diffMin < 2) return `Now — ${s.serverName ?? "Server"}`;
     if (diffMin < 60) return `${diffMin}m ago — ${s.serverName ?? "Server"}`;
     const diffH = Math.floor(diffMin / 60);
@@ -723,9 +723,7 @@ function PlayerLookupPage() {
                     subjectId={playerData.steamId}
                     isOnline={
                       playerData.bmSessions?.[0]?.lastSeen
-                        ? Date.now() -
-                            Date.parse(playerData.bmSessions[0].lastSeen) <
-                          5 * 60 * 1000
+                        ? Date.now() / 1000 - playerData.bmSessions[0].lastSeen < 300
                         : false
                     }
                     bmSessions={playerData.bmSessions}
@@ -909,7 +907,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
               const st = banRecordStatus(r);
               const isActive =
                 !r.revoked &&
-                (!r.expiresAt || Date.parse(r.expiresAt) > Date.now());
+                (!r.expiresAt || r.expiresAt > Math.floor(Date.now() / 1000));
               return (
                 <li
                   key={r.banId}
@@ -919,7 +917,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{r.reason}</p>
                       <p className="text-[10px] font-mono text-muted-foreground">
-                        {new Date(r.issuedAt).toLocaleDateString()} · by{" "}
+                        {new Date(r.issuedAt * 1000).toLocaleDateString(undefined, tz ? { timeZone: tz } : {})} · by{" "}
                         {r.issuedByName ?? "unknown"}
                         {r.category ? ` · ${r.category}` : ""}
                       </p>

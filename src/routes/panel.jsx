@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
+import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Activity,
@@ -88,6 +89,7 @@ function applyVars(cmd, values) {
   return cmd.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, k) => values[k] ?? `{${k}}`);
 }
 function PingBadge({ lastHealthPing, className = "" }) {
+  const tz = useTimezone();
   if (!lastHealthPing) {
     return (
       <span
@@ -98,8 +100,7 @@ function PingBadge({ lastHealthPing, className = "" }) {
       </span>
     );
   }
-  const ageMs = Date.now() - new Date(lastHealthPing).getTime();
-  const ageSec = Math.floor(ageMs / 1000);
+  const ageSec = Math.floor(Date.now() / 1000 - lastHealthPing);
   let label, cls;
   if (ageSec < 90) {
     label = `${ageSec}s ago`;
@@ -116,7 +117,7 @@ function PingBadge({ lastHealthPing, className = "" }) {
   return (
     <span
       className={`inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.5 rounded ring-1 ${cls} ${className}`}
-      title={`Last plugin ping: ${new Date(lastHealthPing).toLocaleString()}`}
+      title={`Last plugin ping: ${new Date(lastHealthPing * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {})}`}
     >
       <Activity className="size-2.5" /> {label}
     </span>
@@ -139,6 +140,7 @@ const TAB_ALT_PERMISSION = {
 
 function PanelPage() {
   const { orgs, hasOrgPermission } = useAuth();
+  const tz = useTimezone();
   const search = Route.useSearch();
   const tab = search.tab ?? "rcon";
   const tabPerm = TAB_PERMISSION[tab];
@@ -1443,7 +1445,7 @@ function PresetsTab({ servers, orgId }) {
                   )}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
-                  {new Date(p.latestUpdatedAt).toLocaleDateString()}
+                  {new Date(p.latestUpdatedAt * 1000).toLocaleDateString(undefined, tz ? { timeZone: tz } : {})}
                 </div>
               </div>
               <RiskPicker risk={p.risk} onChange={(r) => setRisk(p.id, r)} />
@@ -1683,7 +1685,7 @@ function CustomPluginDialog({ open, groupTags, onClose, onSave }) {
                 source: "custom",
                 installedVersion: version,
                 latestVersion: version,
-                latestUpdatedAt: /* @__PURE__ */ new Date().toISOString(),
+                latestUpdatedAt: Math.floor(Date.now() / 1000),
                 assignedTags: tags,
                 risk,
                 enabled: true,
@@ -3276,7 +3278,8 @@ function ServersTab({ orgId }) {
                   ? `${pteroStatus.panelUrl}/server/${s.pteroIdentifier}`
                   : null;
               const addedDate = s.createdAt
-                ? new Date(s.createdAt).toLocaleDateString(undefined, {
+                ? new Date(s.createdAt * 1000).toLocaleDateString(undefined, {
+                    ...(tz ? { timeZone: tz } : {}),
                     month: "short",
                     day: "numeric",
                     year: "numeric",

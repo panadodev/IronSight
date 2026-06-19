@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
+import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,15 +25,16 @@ function fmtLocalInput(ms) {
 function parseLocal(v) {
   return new Date(v).getTime();
 }
-function fmtTime(ms) {
+function fmtTime(ms, tz) {
   const d = new Date(ms);
-  return d.toLocaleString();
+  return d.toLocaleString(undefined, tz ? { timeZone: tz } : {});
 }
 
 const NOW = Date.now();
 
 function ChatPage() {
   const { selectedOrgIds } = useAuth();
+  const tz = useTimezone();
 
   const [servers, setServers] = useState([]);
   const [serversLoading, setServersLoading] = useState(true);
@@ -355,7 +357,7 @@ function ChatPage() {
                     className="flex gap-3 px-2 py-1 hover:bg-surface/50 rounded"
                   >
                     <span className="text-muted-foreground shrink-0 w-[140px]">
-                      {fmtTime(l.ts * 1000)}
+                      {fmtTime(l.ts * 1000, tz)}
                     </span>
                     {l.teamMessage && (
                       <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500 shrink-0 self-center">

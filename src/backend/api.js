@@ -1,4 +1,4 @@
-/* eslint-disable prettier/prettier */
+﻿/* eslint-disable prettier/prettier */
 import { Queue } from "bullmq";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import "dotenv/config";
@@ -516,14 +516,21 @@ function getPendingLink(request) {
 
 async function ensureSchema() {
   await pool.query(`
+    CREATE OR REPLACE FUNCTION unix_now()
+    RETURNS BIGINT LANGUAGE SQL STABLE AS $$
+      SELECT EXTRACT(EPOCH FROM NOW())::BIGINT
+    $$
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       user_id UUID PRIMARY KEY,
       username TEXT NOT NULL,
       email TEXT,
       discord_id TEXT UNIQUE,
       steam_id TEXT UNIQUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now(),
       CONSTRAINT chk_users_identity_present CHECK (discord_id IS NOT NULL OR steam_id IS NOT NULL)
     )
   `);
@@ -533,8 +540,8 @@ async function ensureSchema() {
       session_id UUID PRIMARY KEY,
       user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
       token_hash TEXT NOT NULL UNIQUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      expires_at TIMESTAMPTZ NOT NULL,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      expires_at BIGINT NOT NULL,
       ip_address TEXT,
       user_agent TEXT,
       revoked BOOLEAN NOT NULL DEFAULT FALSE
@@ -546,7 +553,7 @@ async function ensureSchema() {
       org_id TEXT PRIMARY KEY,
       guild_id TEXT UNIQUE,
       name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -598,8 +605,8 @@ async function ensureSchema() {
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       key_hash TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      last_used_at TIMESTAMPTZ,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      last_used_at BIGINT,
       revoked BOOLEAN NOT NULL DEFAULT FALSE
     )
   `);
@@ -613,9 +620,9 @@ async function ensureSchema() {
       status TEXT NOT NULL DEFAULT 'todo',
       created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
       assigned_to UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      completed_at TIMESTAMPTZ,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now(),
+      completed_at BIGINT,
       CONSTRAINT chk_todos_status CHECK (status IN ('todo', 'in_progress', 'completed', 'blocked'))
     )
   `);
@@ -656,7 +663,7 @@ async function ensureSchema() {
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       ticket_type_name TEXT NOT NULL,
       ticket_type_description TEXT NOT NULL DEFAULT '',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -679,9 +686,9 @@ async function ensureSchema() {
       priority TEXT NOT NULL DEFAULT 'normal',
       category TEXT,
       title TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      closed_at TIMESTAMPTZ,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now(),
+      closed_at BIGINT,
       CONSTRAINT chk_tickets_status CHECK (status IN ('open', 'waiting_response', 'closed')),
       CONSTRAINT chk_tickets_priority CHECK (priority IN ('urgent', 'high', 'normal', 'low'))
     )
@@ -693,7 +700,7 @@ async function ensureSchema() {
       ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
       user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
       message TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -704,7 +711,7 @@ async function ensureSchema() {
       user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
       action TEXT NOT NULL,
       details JSONB,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -746,8 +753,8 @@ async function ensureSchema() {
       discord_username TEXT NOT NULL,
       steam_id TEXT NOT NULL,
       user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -780,7 +787,7 @@ async function ensureSchema() {
       user_agent TEXT NULL,
       session_id TEXT NULL,
       correlation_id UUID NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -805,7 +812,7 @@ async function ensureSchema() {
       server_name TEXT NOT NULL,
       owner_org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       api_key_hash TEXT NOT NULL UNIQUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
       added_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
     )
   `);
@@ -832,7 +839,7 @@ async function ensureSchema() {
     `ALTER TABLE servers ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
   );
   await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS last_health_ping TIMESTAMPTZ`,
+    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS last_health_ping BIGINT`,
   );
 
   // ── Text chat log ─────────────────────────────────────────────────────────
@@ -846,7 +853,7 @@ async function ensureSchema() {
       server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
       server_name TEXT NOT NULL,
       team_message BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -873,7 +880,7 @@ async function ensureSchema() {
       killer_steam_id TEXT NOT NULL,
       victim_name TEXT NOT NULL,
       combatlog_cache JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -903,7 +910,7 @@ async function ensureSchema() {
       reporter_name TEXT NOT NULL,
       reporter_steam_id TEXT NOT NULL,
       reported_steam_id TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -930,8 +937,8 @@ async function ensureSchema() {
       event_type TEXT NOT NULL,
       team_members JSONB NOT NULL DEFAULT '[]',
       team_leader TEXT NOT NULL,
-      event_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      event_time BIGINT NOT NULL DEFAULT unix_now(),
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
       CONSTRAINT chk_team_events_type CHECK (event_type IN ('created', 'joined', 'left'))
     )
   `);
@@ -954,9 +961,9 @@ async function ensureSchema() {
       panel_url TEXT NOT NULL,
       api_key TEXT,
       api_key_encrypted TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      last_used_at TIMESTAMPTZ,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now(),
+      last_used_at BIGINT,
       created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
     )
   `);
@@ -967,7 +974,7 @@ async function ensureSchema() {
     `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS api_key_encrypted TEXT`,
   );
   await pool.query(
-    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`,
+    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
   );
   await pool.query(
     `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL`,
@@ -984,8 +991,8 @@ async function ensureSchema() {
       description TEXT NOT NULL DEFAULT '',
       min_rank INTEGER NOT NULL DEFAULT 1,
       created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
   await pool.query(
@@ -1002,8 +1009,8 @@ async function ensureSchema() {
       extra_keywords TEXT[] NOT NULL DEFAULT '{}',
       content TEXT NOT NULL,
       created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
   await pool.query(
@@ -1015,7 +1022,7 @@ async function ensureSchema() {
       org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
       yellow TEXT[] NOT NULL DEFAULT '{}',
       red TEXT[] NOT NULL DEFAULT '{}',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
 
@@ -1026,7 +1033,7 @@ async function ensureSchema() {
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       category TEXT NOT NULL,
       label TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
       CONSTRAINT chk_org_ban_reasons_category
         CHECK (category IN ('cheating', 'teaming', 'toxicity', 'mute'))
     )
@@ -1041,7 +1048,7 @@ async function ensureSchema() {
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       category TEXT NOT NULL,
       note_format TEXT NOT NULL DEFAULT '',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now(),
       PRIMARY KEY (org_id, category),
       CONSTRAINT chk_org_ban_note_formats_category
         CHECK (category IN ('cheating', 'teaming', 'toxicity', 'mute'))
@@ -1058,11 +1065,11 @@ async function ensureSchema() {
       umod_slug TEXT,
       installed_version TEXT,
       latest_version TEXT,
-      latest_updated_at TIMESTAMPTZ,
+      latest_updated_at BIGINT,
       assigned_tags JSONB NOT NULL DEFAULT '[]',
       risk INTEGER NOT NULL DEFAULT 2 CHECK (risk IN (1,2,3)),
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
       UNIQUE(org_id, name)
     )
   `);
@@ -1082,11 +1089,11 @@ async function ensureSchema() {
       category TEXT,
       reason TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '',
-      expires_at TIMESTAMPTZ,
-      issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at BIGINT,
+      issued_at BIGINT NOT NULL DEFAULT unix_now(),
       issued_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
       revoked BOOLEAN NOT NULL DEFAULT FALSE,
-      revoked_at TIMESTAMPTZ,
+      revoked_at BIGINT,
       revoked_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
       CONSTRAINT chk_ban_action_type CHECK (action_type IN ('ban', 'mute')),
       CONSTRAINT chk_ban_identifier_type CHECK (identifier_type IN ('steam_id', 'ip'))
@@ -1121,9 +1128,9 @@ async function ensureSchema() {
       label TEXT NOT NULL DEFAULT '',
       priority INT NOT NULL DEFAULT 0,
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      rate_limited_until TIMESTAMPTZ,
-      last_used_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      rate_limited_until BIGINT,
+      last_used_at BIGINT,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
       created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
       CONSTRAINT chk_ext_api_key_service
         CHECK (service IN ('battlemetrics', 'steam', 'proxycheck'))
@@ -1142,27 +1149,27 @@ async function ensureSchema() {
       display_name TEXT,
       avatar_url TEXT,
       steam_profile_visibility TEXT,
-      steam_profile_created_at TIMESTAMPTZ,
+      steam_profile_created_at BIGINT,
       steam_rust_hours NUMERIC(10,1),
       steam_data_public BOOLEAN NOT NULL DEFAULT TRUE,
       bm_id TEXT,
-      bm_profile_created_at TIMESTAMPTZ,
+      bm_profile_created_at BIGINT,
       bm_private BOOLEAN NOT NULL DEFAULT FALSE,
       bm_rust_hours NUMERIC(10,1),
       bm_aimtrain_hours NUMERIC(10,1),
       bm_server_count INT NOT NULL DEFAULT 0,
       bm_rust_bans_count INT NOT NULL DEFAULT 0,
-      bm_rust_bans_last_ban TIMESTAMPTZ,
+      bm_rust_bans_last_ban BIGINT,
       bm_rust_bans_banned BOOLEAN NOT NULL DEFAULT FALSE,
       bm_cheating_reports INT NOT NULL DEFAULT 0,
       bm_teaming_reports INT NOT NULL DEFAULT 0,
       bm_other_reports INT NOT NULL DEFAULT 0,
       bm_kills INT NOT NULL DEFAULT 0,
       bm_deaths INT NOT NULL DEFAULT 0,
-      steam_cached_at TIMESTAMPTZ,
-      bm_cached_at TIMESTAMPTZ,
-      activity_cached_at TIMESTAMPTZ,
-      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+      steam_cached_at BIGINT,
+      bm_cached_at BIGINT,
+      activity_cached_at BIGINT,
+      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
     )
   `);
   await pool.query(
@@ -1178,8 +1185,8 @@ async function ensureSchema() {
       bm_server_id TEXT NOT NULL,
       server_name TEXT,
       hours_played NUMERIC(10,1) NOT NULL DEFAULT 0,
-      last_seen TIMESTAMPTZ,
-      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen BIGINT,
+      cached_at BIGINT NOT NULL DEFAULT unix_now(),
       PRIMARY KEY (steam_id, bm_server_id)
     )
   `);
@@ -1193,8 +1200,8 @@ async function ensureSchema() {
       steam_id TEXT PRIMARY KEY,
       friends_public BOOLEAN NOT NULL DEFAULT TRUE,
       friend_count INT NOT NULL DEFAULT 0,
-      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+      cached_at BIGINT NOT NULL DEFAULT unix_now(),
+      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
     )
   `);
 
@@ -1202,8 +1209,8 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS player_friends (
       steam_id TEXT NOT NULL,
       friend_steam_id TEXT NOT NULL,
-      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      last_confirmed TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      first_seen BIGINT NOT NULL DEFAULT unix_now(),
+      last_confirmed BIGINT NOT NULL DEFAULT unix_now(),
       PRIMARY KEY (steam_id, friend_steam_id)
     )
   `);
@@ -1220,8 +1227,8 @@ async function ensureSchema() {
       server_id UUID REFERENCES servers(server_id) ON DELETE SET NULL,
       server_name TEXT,
       is_vpn BOOLEAN,
-      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      first_seen BIGINT NOT NULL DEFAULT unix_now(),
+      last_seen BIGINT NOT NULL DEFAULT unix_now(),
       UNIQUE(steam_id, ip_address)
     )
   `);
@@ -1242,8 +1249,8 @@ async function ensureSchema() {
       isp TEXT,
       country TEXT,
       asn TEXT,
-      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+      cached_at BIGINT NOT NULL DEFAULT unix_now(),
+      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
     )
   `);
 
@@ -1256,9 +1263,9 @@ async function ensureSchema() {
       has_bm_bans BOOLEAN NOT NULL DEFAULT FALSE,
       bm_ban_count INT NOT NULL DEFAULT 0,
       has_eac_bans BOOLEAN NOT NULL DEFAULT FALSE,
-      eac_last_ban TIMESTAMPTZ,
-      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days',
+      eac_last_ban BIGINT,
+      cached_at BIGINT NOT NULL DEFAULT unix_now(),
+      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000,
       PRIMARY KEY (steam_id, related_bm_id)
     )
   `);
@@ -1276,11 +1283,11 @@ async function ensureSchema() {
       bm_org_name TEXT,
       reason TEXT,
       note TEXT,
-      expires_at TIMESTAMPTZ,
-      banned_at TIMESTAMPTZ,
+      expires_at BIGINT,
+      banned_at BIGINT,
       permanent BOOLEAN NOT NULL DEFAULT TRUE,
-      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      cache_expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+      cached_at BIGINT NOT NULL DEFAULT unix_now(),
+      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
     )
   `);
   await pool.query(
@@ -1292,7 +1299,7 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS org_player_sightings (
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       steam_id TEXT NOT NULL,
-      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at BIGINT NOT NULL DEFAULT unix_now(),
       PRIMARY KEY (org_id, steam_id)
     )
   `);
@@ -1314,8 +1321,8 @@ async function ensureSchema() {
       author_username TEXT NOT NULL DEFAULT '',
       content TEXT NOT NULL DEFAULT '',
       attachments JSONB NOT NULL DEFAULT '[]',
-      discord_created_at TIMESTAMPTZ NOT NULL,
-      indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      discord_created_at BIGINT NOT NULL,
+      indexed_at BIGINT NOT NULL DEFAULT unix_now(),
       PRIMARY KEY (org_id, message_id)
     )
   `);
@@ -1342,9 +1349,9 @@ async function ensureSchema() {
       action_type TEXT NOT NULL,
       reason TEXT,
       duration_seconds INTEGER,
-      expires_at TIMESTAMPTZ,
+      expires_at BIGINT,
       actor_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
   await pool.query(
@@ -1363,7 +1370,7 @@ async function ensureSchema() {
       guild_id TEXT NOT NULL,
       channel_name TEXT NOT NULL DEFAULT '',
       last_message_id TEXT,
-      synced_at TIMESTAMPTZ,
+      synced_at BIGINT,
       PRIMARY KEY (org_id, channel_id)
     )
   `);
@@ -1372,9 +1379,41 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS discord_member_notify_cursor (
       org_id TEXT NOT NULL,
       guild_id TEXT NOT NULL,
-      last_checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_checked_at BIGINT NOT NULL DEFAULT unix_now(),
       PRIMARY KEY (org_id, guild_id)
     )
+  `);
+}
+
+async function migrateTimestampsToUnix() {
+  await pool.query(`
+    DO $$
+    DECLARE
+      r RECORD;
+    BEGIN
+      FOR r IN
+        SELECT c.table_name, c.column_name, c.column_default
+        FROM information_schema.columns c
+        WHERE c.table_schema = 'public'
+          AND c.data_type = 'timestamp with time zone'
+      LOOP
+        EXECUTE format(
+          'ALTER TABLE %I ALTER COLUMN %I TYPE BIGINT USING EXTRACT(EPOCH FROM %I)::BIGINT',
+          r.table_name, r.column_name, r.column_name
+        );
+        IF r.column_default LIKE '%interval%' OR r.column_default LIKE '%INTERVAL%' THEN
+          EXECUTE format(
+            'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT unix_now() + 2592000',
+            r.table_name, r.column_name
+          );
+        ELSIF r.column_default IS NOT NULL AND (r.column_default LIKE '%now()%' OR r.column_default LIKE '%NOW()%') THEN
+          EXECUTE format(
+            'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT unix_now()',
+            r.table_name, r.column_name
+          );
+        END IF;
+      END LOOP;
+    END $$
   `);
 }
 
@@ -1395,7 +1434,7 @@ async function migratePterodactylApiKeys() {
       `UPDATE ptero_api_keys
        SET api_key_encrypted = $2,
            api_key = NULL,
-           updated_at = NOW()
+           updated_at = unix_now()
        WHERE org_id = $1`,
       [String(row.org_id), encrypted],
     );
@@ -1424,7 +1463,7 @@ async function loadPterodactylCredentials(orgId) {
       `UPDATE ptero_api_keys
        SET api_key_encrypted = $2,
            api_key = NULL,
-           updated_at = NOW()
+           updated_at = unix_now()
        WHERE org_id = $1`,
       [orgId, encrypted],
     );
@@ -1453,6 +1492,7 @@ async function ensureRolePermissionSeed() {
      VALUES
       ('todo_read',           'View todos'),
       ('todo_write',          'Create and edit todos'),
+      ('todo_delete',         'Delete todos'),
       ('org_manage',          'Manage organization members'),
       ('role_create',         'Create and manage custom roles'),
       ('rcon_access',         'Use RCON console'),
@@ -1479,8 +1519,10 @@ async function ensureRolePermissionSeed() {
      VALUES
       ('org_member', 'todo_write'),
       ('org_admin', 'todo_write'),
+      ('org_admin', 'todo_delete'),
       ('org_admin', 'org_manage'),
       ('org_owner', 'todo_write'),
+      ('org_owner', 'todo_delete'),
       ('org_owner', 'org_manage'),
       ('org_owner', 'role_create')
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
@@ -1578,15 +1620,15 @@ async function migrateLegacyData() {
         : null;
 
       const createdAt = Number.isFinite(Number(row.created_unix))
-        ? new Date(Number(row.created_unix) * 1000).toISOString()
-        : new Date().toISOString();
+        ? Number(row.created_unix)
+        : Math.floor(Date.now() / 1000);
       const completedAt = Number.isFinite(Number(row.completed_unix))
-        ? new Date(Number(row.completed_unix) * 1000).toISOString()
+        ? Number(row.completed_unix)
         : null;
 
       await pool.query(
         `INSERT INTO todos (todo_id, org_id, title, description, status, created_by, assigned_to, created_at, updated_at, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, unix_now(), $9)
          ON CONFLICT (todo_id) DO NOTHING`,
         [
           todoId,
@@ -1638,7 +1680,7 @@ async function ensureSysadminSeed() {
        SET username = $2,
            discord_id = $3,
            steam_id = $4,
-           updated_at = NOW()
+           updated_at = unix_now()
        WHERE user_id = $1`,
       [userId, SYSADMIN.username, sysAdminDiscordId, sysAdminSteamId],
     );
@@ -1771,6 +1813,7 @@ async function init() {
     });
 
     await ensureSchema();
+    await migrateTimestampsToUnix();
     await migratePterodactylApiKeys();
     await ensureRolePermissionSeed();
     await migrateLegacyData();
@@ -1798,7 +1841,7 @@ async function createSessionForUser(user, options = {}) {
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const ipAddress = options.ipAddress ?? null;
   const userAgent = options.userAgent ?? null;
-  const expiresAt = new Date(Date.now() + env.sessionTtlSeconds * 1000);
+  const expiresAt = Math.floor(Date.now() / 1000) + env.sessionTtlSeconds;
 
   const session = {
     userId: String(user.userId),
@@ -1822,12 +1865,12 @@ async function createSessionForUser(user, options = {}) {
   );
   await pool.query(
     `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, revoked)
-     VALUES ($1, $2, $3, NOW(), $4, $5, $6, FALSE)`,
+     VALUES ($1, $2, $3, unix_now(), $4, $5, $6, FALSE)`,
     [
       sid,
       session.userId,
       tokenHash,
-      expiresAt.toISOString(),
+      expiresAt,
       ipAddress,
       userAgent,
     ],
@@ -1875,7 +1918,7 @@ async function getSession(request) {
        WHERE session_id = $1
          AND token_hash = $2
          AND revoked = FALSE
-         AND expires_at > NOW()
+         AND expires_at > unix_now()
        LIMIT 1`,
       [sid, tokenHash],
     );
@@ -2013,8 +2056,8 @@ async function getTodoRowsForOrgs(orgIds) {
             t.status,
             assignee.discord_id AS assignee_discord_id,
             t.org_id,
-            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_unix,
-            CASE WHEN t.completed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.completed_at)::BIGINT END AS completed_unix,
+            t.created_at AS created_unix,
+            t.completed_at AS completed_unix,
             creator.discord_id AS created_by_discord_id
      FROM todos t
      LEFT JOIN users assignee ON assignee.user_id = t.assigned_to
@@ -2255,7 +2298,7 @@ async function handleDiscordCallback(request) {
     if (existing?.steam_id) {
       if (String(existing.username) !== discordUser.username) {
         await pool.query(
-          "UPDATE users SET username = $1, updated_at = NOW() WHERE user_id = $2",
+          "UPDATE users SET username = $1, updated_at = unix_now() WHERE user_id = $2",
           [discordUser.username, String(existing.user_id)],
         );
       }
@@ -2385,7 +2428,7 @@ async function handleSteamCallback(request) {
         `UPDATE users
          SET username = $2,
              steam_id = $3,
-             updated_at = NOW()
+             updated_at = unix_now()
          WHERE user_id = $1`,
         [String(existingUser.user_id), pending.username, steamId],
       );
@@ -2502,7 +2545,7 @@ async function handleUpdateAuthMe(request) {
   await pool.query(
     `UPDATE users
      SET username = $2,
-         updated_at = NOW()
+         updated_at = unix_now()
      WHERE user_id = $1`,
     [session.userId, username],
   );
@@ -2875,7 +2918,7 @@ async function handleUpdateTodo(request, todoId) {
 
   const nextStatus = status || String(existing.status);
   const completedAt =
-    nextStatus === "completed" ? new Date().toISOString() : null;
+    nextStatus === "completed" ? Math.floor(Date.now() / 1000) : null;
 
   await pool.query(
     `UPDATE todos
@@ -2884,7 +2927,7 @@ async function handleUpdateTodo(request, todoId) {
          status = COALESCE($4, status),
          assigned_to = COALESCE($5, assigned_to),
          completed_at = $6,
-         updated_at = NOW()
+         updated_at = unix_now()
      WHERE todo_id = $1`,
     [todoId, title, details, status, assigneeUserId, completedAt],
   );
@@ -2903,7 +2946,7 @@ async function handleDeleteTodo(request, todoId) {
   const existing = existingRes.rows[0];
   if (!existing) return json({ error: "Todo not found" }, 404);
 
-  if (!canWriteTodos(session, String(existing.org_id))) {
+  if (!orgHasPermission(session, String(existing.org_id), "todo_delete")) {
     return json({ error: "Forbidden" }, 403);
   }
 
@@ -3719,12 +3762,12 @@ async function handleGetOrgStaffStats(request, orgId) {
     await Promise.all([
       pool.query(
         `SELECT COUNT(*) AS cnt FROM player_bans
-         WHERE org_id = $1 AND NOT revoked AND issued_at > NOW() - INTERVAL '30 days'`,
+         WHERE org_id = $1 AND NOT revoked AND issued_at > unix_now() - 2592000`,
         [orgId],
       ),
       pool.query(
         `SELECT COUNT(*) AS cnt FROM tickets
-         WHERE org_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+         WHERE org_id = $1 AND created_at > unix_now() - 2592000`,
         [orgId],
       ),
       pool.query(
@@ -3735,8 +3778,8 @@ async function handleGetOrgStaffStats(request, orgId) {
         `SELECT COUNT(DISTINCT s.user_id) AS cnt
          FROM sessions s
          JOIN organization_members om ON om.user_id = s.user_id
-         WHERE om.org_id = $1 AND NOT s.revoked AND s.expires_at > NOW()
-           AND s.created_at > NOW() - INTERVAL '1 hour'`,
+         WHERE om.org_id = $1 AND NOT s.revoked AND s.expires_at > unix_now()
+           AND s.created_at > unix_now() - 3600`,
         [orgId],
       ),
       pool.query(
@@ -3746,28 +3789,28 @@ async function handleGetOrgStaffStats(request, orgId) {
            COALESCE((
              SELECT COUNT(*) FROM tickets t
              WHERE t.assigned_to = om.user_id AND t.org_id = $1
-               AND t.status = 'closed' AND t.closed_at > NOW() - INTERVAL '7 days'
+               AND t.status = 'closed' AND t.closed_at > unix_now() - 604800
            ), 0) AS tickets_7d,
            COALESCE((
              SELECT COUNT(*) FROM tickets t
              WHERE t.assigned_to = om.user_id AND t.org_id = $1
-               AND t.status = 'closed' AND t.closed_at > NOW() - INTERVAL '30 days'
+               AND t.status = 'closed' AND t.closed_at > unix_now() - 2592000
            ), 0) AS tickets_30d,
            COALESCE((
              SELECT COUNT(*) FROM tickets t
              WHERE t.assigned_to = om.user_id AND t.org_id = $1 AND t.status = 'closed'
            ), 0) AS tickets_all,
            (
-             SELECT EXTRACT(EPOCH FROM MAX(s2.created_at))::BIGINT
+             SELECT MAX(s2.created_at)
              FROM sessions s2 WHERE s2.user_id = om.user_id AND NOT s2.revoked
            ) AS last_panel_login,
            (
-             SELECT EXTRACT(EPOCH FROM MAX(ops.last_seen_at))::BIGINT
+             SELECT MAX(ops.last_seen_at)
              FROM org_player_sightings ops
              WHERE ops.steam_id = u.steam_id AND ops.org_id = $1
            ) AS last_ingame,
            (
-             SELECT EXTRACT(EPOCH FROM MAX(pb.issued_at))::BIGINT
+             SELECT MAX(pb.issued_at)
              FROM player_bans pb WHERE pb.issued_by = om.user_id AND pb.org_id = $1
            ) AS last_ban,
            COALESCE((
@@ -3880,7 +3923,7 @@ async function handleGetStaffAuditLog(request, orgId) {
     metadata: row.metadata,
     beforeState: row.before_state,
     afterState: row.after_state,
-    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    createdAt: row.created_at ? Number(row.created_at) : null,
   }));
 
   return json({
@@ -3968,7 +4011,7 @@ async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
       ),
     },
     viewOnly: true,
-    viewedAt: new Date().toISOString(),
+    viewedAt: Math.floor(Date.now() / 1000),
   });
 }
 
@@ -3992,7 +4035,7 @@ async function handleGetOrgDetails(request, orgId) {
       guildId: org.guild_id == null ? null : String(org.guild_id),
       name: String(org.name),
       createdAt:
-        org.created_at == null ? null : new Date(org.created_at).toISOString(),
+        org.created_at == null ? null : Number(org.created_at),
     },
   });
 }
@@ -4054,7 +4097,7 @@ async function handleUpdateOrgDetails(request, orgId) {
       createdAt:
         updated.created_at == null
           ? null
-          : new Date(updated.created_at).toISOString(),
+          : Number(updated.created_at),
     },
   });
 }
@@ -4292,9 +4335,9 @@ async function loadTicketFromDb(ticketId) {
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
             t.status, t.priority, t.title,
-            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_at,
-            EXTRACT(EPOCH FROM t.updated_at)::BIGINT AS updated_at,
-            CASE WHEN t.closed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.closed_at)::BIGINT END AS closed_at,
+            t.created_at,
+            t.updated_at,
+            t.closed_at,
             tt.ticket_type_name,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
             assignee.username AS assigned_to_username
@@ -4330,7 +4373,7 @@ async function loadTicketFromDb(ticketId) {
 async function loadTicketMessages(ticketId) {
   const { rows } = await pool.query(
     `SELECT tm.message_id, tm.ticket_id, tm.user_id, tm.message, tm.is_internal,
-            EXTRACT(EPOCH FROM tm.created_at)::BIGINT AS created_at,
+            tm.created_at,
             u.username, u.steam_id
      FROM ticket_messages tm
      LEFT JOIN users u ON u.user_id = tm.user_id
@@ -4461,7 +4504,7 @@ async function handlePublicSteamCallback(request) {
       userId = String(existingUser.user_id);
       await pool.query(
         `UPDATE users
-         SET username = $2, discord_id = $3, steam_id = $4, updated_at = NOW()
+         SET username = $2, discord_id = $3, steam_id = $4, updated_at = unix_now()
          WHERE user_id = $1`,
         [userId, pending.username, pending.discordId, steamId],
       );
@@ -4482,7 +4525,7 @@ async function handlePublicSteamCallback(request) {
        DO UPDATE SET discord_username = EXCLUDED.discord_username,
                      steam_id = EXCLUDED.steam_id,
                      user_id = EXCLUDED.user_id,
-                     updated_at = NOW()`,
+                     updated_at = unix_now()`,
       [pending.discordId, pending.username, steamId, userId],
     );
 
@@ -4695,7 +4738,24 @@ async function handleGetTicket(request, ticketIdStr) {
   }
 
   const messages = await loadTicketMessages(id);
-  return json({ ticket, messages });
+
+  const isViewerStaff =
+    isGlobalAdmin(session) ||
+    canManageOrg(session, ticket.org_id) ||
+    orgHasPermission(session, ticket.org_id, "tickets_view") ||
+    orgHasPermission(session, ticket.org_id, "tickets_manage");
+
+  const returnedMessages = isViewerStaff
+    ? messages
+    : messages
+        .filter((m) => !m.isInternal)
+        .map((m) =>
+          m.userId !== session.userId
+            ? { ...m, username: null, steamId: null }
+            : m,
+        );
+
+  return json({ ticket, messages: returnedMessages });
 }
 
 async function handleAddTicketMessage(request, ticketIdStr) {
@@ -4748,12 +4808,12 @@ async function handleAddTicketMessage(request, ticketIdStr) {
 
   if (isCreator && ticket.status === "waiting_response") {
     await pool.query(
-      `UPDATE tickets SET status = 'open', updated_at = NOW() WHERE ticket_id = $1`,
+      `UPDATE tickets SET status = 'open', updated_at = unix_now() WHERE ticket_id = $1`,
       [id],
     );
   } else {
     await pool.query(
-      `UPDATE tickets SET updated_at = NOW() WHERE ticket_id = $1`,
+      `UPDATE tickets SET updated_at = unix_now() WHERE ticket_id = $1`,
       [id],
     );
   }
@@ -4816,7 +4876,7 @@ async function handleUpdateTicket(request, ticketIdStr) {
     return json({ error: "Invalid priority" }, 400);
   }
 
-  const setClauses = ["updated_at = NOW()"];
+  const setClauses = ["updated_at = unix_now()"];
   const values = [];
   let idx = 1;
 
@@ -4833,7 +4893,7 @@ async function handleUpdateTicket(request, ticketIdStr) {
     values.push(assignedTo);
   }
   if (status === "closed") {
-    setClauses.push("closed_at = NOW()");
+    setClauses.push("closed_at = unix_now()");
   } else if (status && status !== "closed" && ticket.status === "closed") {
     setClauses.push("closed_at = NULL");
   }
@@ -4914,9 +4974,9 @@ async function handleListOrgTickets(request, orgId) {
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
             t.status, t.priority, t.title,
-            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_at,
-            EXTRACT(EPOCH FROM t.updated_at)::BIGINT AS updated_at,
-            CASE WHEN t.closed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.closed_at)::BIGINT END AS closed_at,
+            t.created_at,
+            t.updated_at,
+            t.closed_at,
             tt.ticket_type_name,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
             assignee.username AS assigned_to_username
@@ -4958,9 +5018,9 @@ async function handleListMyTickets(request) {
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id,
             t.status, t.priority, t.title,
-            EXTRACT(EPOCH FROM t.created_at)::BIGINT AS created_at,
-            EXTRACT(EPOCH FROM t.updated_at)::BIGINT AS updated_at,
-            CASE WHEN t.closed_at IS NULL THEN NULL ELSE EXTRACT(EPOCH FROM t.closed_at)::BIGINT END AS closed_at,
+            t.created_at,
+            t.updated_at,
+            t.closed_at,
             tt.ticket_type_name,
             o.name AS org_name
      FROM tickets t
@@ -5077,13 +5137,13 @@ async function handleSavePteroKey(request, orgId) {
        created_by_user_id,
        last_used_at
      )
-     VALUES ($1, $2, NULL, $3, NOW(), $4, NULL)
+     VALUES ($1, $2, NULL, $3, unix_now(), $4, NULL)
      ON CONFLICT (org_id)
      DO UPDATE SET panel_url = EXCLUDED.panel_url,
                    api_key = NULL,
                    api_key_encrypted = EXCLUDED.api_key_encrypted,
                    created_by_user_id = EXCLUDED.created_by_user_id,
-                   updated_at = NOW()`,
+                   updated_at = unix_now()`,
     [orgId, panelUrl, encryptPterodactylApiKey(apiKey), session.userId],
   );
 
@@ -5120,7 +5180,7 @@ async function handleGetPteroKey(request, orgId) {
   return json({
     connected: true,
     panelUrl: String(row.panel_url),
-    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    updatedAt: row.updated_at ? Number(row.updated_at) : null,
   });
 }
 
@@ -5267,7 +5327,7 @@ async function handleListPteroServers(request, orgId) {
 
   await pool.query(
     `UPDATE ptero_api_keys
-     SET last_used_at = NOW()
+     SET last_used_at = unix_now()
      WHERE org_id = $1`,
     [orgId],
   );
@@ -5583,13 +5643,13 @@ async function handleGetPteroStatus(request, orgId) {
         ironsightServerId: reg.server_id,
         ironsightServerName: reg.server_name,
         lastHealthPing: reg.last_health_ping
-          ? new Date(reg.last_health_ping).toISOString()
+          ? Number(reg.last_health_ping)
           : null,
       };
     });
 
   await pool.query(
-    `UPDATE ptero_api_keys SET last_used_at = NOW() WHERE org_id = $1`,
+    `UPDATE ptero_api_keys SET last_used_at = unix_now() WHERE org_id = $1`,
     [orgId],
   );
 
@@ -5796,7 +5856,7 @@ async function handleListServers(request) {
       serverId: String(row.server_id),
       serverName: String(row.server_name),
       ownerOrgId: String(row.owner_org_id),
-      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+      createdAt: row.created_at ? Number(row.created_at) : null,
       pteroIdentifier: row.ptero_identifier ?? null,
       rconConfigured: row.rcon_configured === true,
       rconHost: row.rcon_host ?? null,
@@ -5804,7 +5864,7 @@ async function handleListServers(request) {
       gamePort: row.game_port ?? null,
       tags: Array.isArray(row.tags) ? row.tags : [],
       lastHealthPing: row.last_health_ping
-        ? new Date(row.last_health_ping).toISOString()
+        ? Number(row.last_health_ping)
         : null,
     })),
   });
@@ -5833,8 +5893,8 @@ async function handleListScripts(request, orgId) {
       command: String(row.command),
       description: String(row.description),
       minRank: Number(row.min_rank),
-      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+      createdAt: row.created_at ? Number(row.created_at) : null,
+      updatedAt: row.updated_at ? Number(row.updated_at) : null,
     })),
   });
 }
@@ -5882,8 +5942,8 @@ async function handleCreateScript(request, orgId) {
         command: String(row.command),
         description: String(row.description),
         minRank: Number(row.min_rank),
-        createdAt: new Date(row.created_at).toISOString(),
-        updatedAt: new Date(row.updated_at).toISOString(),
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
       },
     },
     201,
@@ -5942,7 +6002,7 @@ async function handleUpdateScript(request, orgId, scriptId) {
 
   if (setClauses.length === 0)
     return json({ error: "No fields to update" }, 400);
-  setClauses.push(`updated_at = NOW()`);
+  setClauses.push(`updated_at = unix_now()`);
 
   params.push(scriptId);
   params.push(orgId);
@@ -5962,8 +6022,8 @@ async function handleUpdateScript(request, orgId, scriptId) {
       command: String(row.command),
       description: String(row.description),
       minRank: Number(row.min_rank),
-      createdAt: new Date(row.created_at).toISOString(),
-      updatedAt: new Date(row.updated_at).toISOString(),
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
     },
   });
 }
@@ -6100,7 +6160,7 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
   }
   if (setClauses.length === 0)
     return json({ error: "No fields to update" }, 400);
-  setClauses.push(`updated_at = NOW()`);
+  setClauses.push(`updated_at = unix_now()`);
 
   params.push(predefineId);
   params.push(orgId);
@@ -6180,11 +6240,11 @@ async function handleSetOrgToxicity(request, orgId) {
 
   await pool.query(
     `INSERT INTO org_toxicity_config (org_id, yellow, red, updated_at)
-     VALUES ($1, COALESCE($2::text[], '{}'), COALESCE($3::text[], '{}'), NOW())
+     VALUES ($1, COALESCE($2::text[], '{}'), COALESCE($3::text[], '{}'), unix_now())
      ON CONFLICT (org_id) DO UPDATE SET
        yellow = COALESCE($2::text[], org_toxicity_config.yellow),
        red = COALESCE($3::text[], org_toxicity_config.red),
-       updated_at = NOW()`,
+       updated_at = unix_now()`,
     [orgId, setYellow, setRed],
   );
 
@@ -6354,9 +6414,9 @@ async function handleSetBanNoteFormat(request, orgId) {
 
   await pool.query(
     `INSERT INTO org_ban_note_formats (org_id, category, note_format, updated_at)
-     VALUES ($1, $2, $3, NOW())
+     VALUES ($1, $2, $3, unix_now())
      ON CONFLICT (org_id, category) DO UPDATE SET
-       note_format = EXCLUDED.note_format, updated_at = NOW()`,
+       note_format = EXCLUDED.note_format, updated_at = unix_now()`,
     [orgId, category, noteFormat],
   );
   return json({ ok: true, category, noteFormat });
@@ -6422,7 +6482,7 @@ async function handleCreatePlugin(request, orgId) {
   const installedVersion = String(body?.installedVersion ?? "").trim() || null;
   const latestVersion = String(body?.latestVersion ?? "").trim() || null;
   const latestUpdatedAt = body?.latestUpdatedAt
-    ? new Date(body.latestUpdatedAt)
+    ? Number(body.latestUpdatedAt)
     : null;
   const assignedTags = Array.isArray(body?.assignedTags)
     ? body.assignedTags.map(String).filter(Boolean)
@@ -6951,7 +7011,7 @@ async function handleServerHealthCheck(request) {
   const server = serverRes.rows[0];
 
   await pool.query(
-    `UPDATE servers SET last_health_ping = NOW() WHERE server_id = $1`,
+    `UPDATE servers SET last_health_ping = unix_now() WHERE server_id = $1`,
     [server.server_id],
   );
 
@@ -7042,7 +7102,7 @@ async function handleIngestChatMessage(request) {
     ],
   );
   const row = insertRes.rows[0];
-  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+  const createdUnix = Number(row.created_at);
 
   console.log(
     `[ingest:chat] stored — id=${row.id} server=${server.server_name} player=${playerName ?? steamId} team=${teamMessage} msg=${JSON.stringify(message)}`,
@@ -7147,19 +7207,16 @@ async function handleGetChatLogs(request) {
     }
   }
 
-  const startDate = new Date(startUnix * 1000).toISOString();
-  const endDate = new Date(endUnix * 1000).toISOString();
-
   const { rows } = await pool.query(
     `SELECT id, message, steam_id, player_name, team_message,
-            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+            created_at AS ts
      FROM text_chat_log
      WHERE server_id = $1
        AND created_at >= $2
        AND created_at <= $3
      ORDER BY created_at ASC
      LIMIT $4`,
-    [serverId, startDate, endDate, limit],
+    [serverId, startUnix, endUnix, limit],
   );
 
   const lines = rows.map((row) => ({
@@ -7251,7 +7308,7 @@ async function handleIngestPvp(request) {
     ],
   );
   const row = insertRes.rows[0];
-  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+  const createdUnix = Number(row.created_at);
 
   const cacheKey = `pvp:server:${server.server_id}`;
   const cacheEntry = JSON.stringify({
@@ -7346,19 +7403,16 @@ async function handleGetPvpLogs(request) {
     }
   }
 
-  const startDate = new Date(startUnix * 1000).toISOString();
-  const endDate = new Date(endUnix * 1000).toISOString();
-
   const { rows } = await pool.query(
     `SELECT id, killer_steam_id, victim_name, combatlog_cache,
-            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+            created_at AS ts
      FROM pvp_log
      WHERE server_id = $1
        AND created_at >= $2
        AND created_at <= $3
      ORDER BY created_at ASC
      LIMIT $4`,
-    [serverId, startDate, endDate, limit],
+    [serverId, startUnix, endUnix, limit],
   );
 
   const lines = rows.map((row) => ({
@@ -7487,7 +7541,7 @@ async function handleIngestReport(request) {
     ],
   );
   const row = insertRes.rows[0];
-  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+  const createdUnix = Number(row.created_at);
 
   const cacheKey = `reports:server:${server.server_id}`;
   const cacheEntry = JSON.stringify({
@@ -7585,20 +7639,17 @@ async function handleGetReports(request) {
     }
   }
 
-  const startDate = new Date(startUnix * 1000).toISOString();
-  const endDate = new Date(endUnix * 1000).toISOString();
-
   const { rows } = await pool.query(
     `SELECT id, report_type, report_reason, report_description,
             reporter_name, reporter_steam_id, reported_steam_id,
-            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+            created_at AS ts
      FROM player_reports
      WHERE server_id = $1
        AND created_at >= $2
        AND created_at <= $3
      ORDER BY created_at ASC
      LIMIT $4`,
-    [serverId, startDate, endDate, limit],
+    [serverId, startUnix, endUnix, limit],
   );
 
   const lines = rows.map((row) => ({
@@ -7711,11 +7762,11 @@ async function handleIngestTeamEvent(request) {
       eventType,
       JSON.stringify(safeMembers),
       teamLeader,
-      eventTime.toISOString(),
+      Math.floor(eventTime.getTime() / 1000),
     ],
   );
   const row = insertRes.rows[0];
-  const createdUnix = Math.floor(new Date(row.created_at).getTime() / 1000);
+  const createdUnix = Number(row.created_at);
   const eventTimeUnix = Math.floor(eventTime.getTime() / 1000);
 
   const cacheKey = `team:server:${server.server_id}`;
@@ -7812,20 +7863,17 @@ async function handleGetTeamEvents(request) {
     }
   }
 
-  const startDate = new Date(startUnix * 1000).toISOString();
-  const endDate = new Date(endUnix * 1000).toISOString();
-
   const { rows } = await pool.query(
     `SELECT id, event_type, team_members, team_leader,
-            EXTRACT(EPOCH FROM event_time)::BIGINT AS event_time_unix,
-            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+            event_time AS event_time_unix,
+            created_at AS ts
      FROM team_events
      WHERE server_id = $1
        AND created_at >= $2
        AND created_at <= $3
      ORDER BY created_at ASC
      LIMIT $4`,
-    [serverId, startDate, endDate, limit],
+    [serverId, startUnix, endUnix, limit],
   );
 
   const lines = rows.map((row) => ({
@@ -7882,12 +7930,12 @@ async function handleListOrgBans(request, orgId) {
       category: r.category ?? null,
       reason: String(r.reason),
       note: String(r.note),
-      expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
-      issuedAt: new Date(r.issued_at).toISOString(),
+      expiresAt: r.expires_at ? Number(r.expires_at) : null,
+      issuedAt: Number(r.issued_at),
       issuedBy: r.issued_by ? String(r.issued_by) : null,
       issuedByName: r.issued_by_name ?? null,
       revoked: Boolean(r.revoked),
-      revokedAt: r.revoked_at ? new Date(r.revoked_at).toISOString() : null,
+      revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
       serverIds: Array.isArray(r.server_ids) ? r.server_ids : [],
     })),
   });
@@ -7939,7 +7987,7 @@ async function handleCreateBan(request, orgId) {
   }
 
   const banId = crypto.randomUUID();
-  const expiresAtDate = expiresAt ? new Date(expiresAt) : null;
+  const expiresAtUnix = expiresAt ? Number(expiresAt) : null;
 
   await pool.query(
     `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_type, category, reason, note, expires_at, issued_by)
@@ -7953,7 +8001,7 @@ async function handleCreateBan(request, orgId) {
       category ?? null,
       reason,
       note,
-      expiresAtDate,
+      expiresAtUnix,
       session.userId,
     ],
   );
@@ -8054,7 +8102,7 @@ async function handleUpdateBan(request, orgId, banId) {
   }
   if ("expiresAt" in body) {
     sets.push(`expires_at = $${idx}`);
-    params.push(body.expiresAt ? new Date(body.expiresAt) : null);
+    params.push(body.expiresAt ? Number(body.expiresAt) : null);
     idx++;
   }
 
@@ -8085,7 +8133,7 @@ async function handleRevokeBan(request, orgId, banId) {
   const { identifier, identifier_type, action_type } = banCheck.rows[0];
 
   await pool.query(
-    `UPDATE player_bans SET revoked = TRUE, revoked_at = NOW(), revoked_by = $3
+    `UPDATE player_bans SET revoked = TRUE, revoked_at = unix_now(), revoked_by = $3
      WHERE ban_id = $1 AND org_id = $2`,
     [banId, orgId, session.userId],
   );
@@ -8194,7 +8242,7 @@ async function handleMuteCheck(request) {
        AND identifier_type = 'steam_id'
        AND action_type = 'mute'
        AND revoked = FALSE
-       AND (expires_at IS NULL OR expires_at > NOW())
+       AND (expires_at IS NULL OR expires_at > unix_now())
      ORDER BY issued_at DESC
      LIMIT 1`,
     [server.owner_org_id, steamId],
@@ -8205,18 +8253,13 @@ async function handleMuteCheck(request) {
   }
 
   const row = rows[0];
-  const expiresAt = row.expires_at
-    ? new Date(row.expires_at).toISOString()
-    : null;
-  const expiresUnix = row.expires_at
-    ? Math.floor(new Date(row.expires_at).getTime() / 1000)
-    : null;
+  const expiresUnix = row.expires_at ? Number(row.expires_at) : null;
 
   return json({
     muted: true,
-    permanent: expiresAt === null,
+    permanent: expiresUnix === null,
     reason: String(row.reason),
-    expiresAt,
+    expiresAt: expiresUnix,
     expiresUnix,
   });
 }
@@ -8246,7 +8289,7 @@ async function getAvailableExternalKeys(orgId, service) {
      WHERE org_id = $1
        AND service = $2
        AND enabled = TRUE
-       AND (rate_limited_until IS NULL OR rate_limited_until < NOW())
+       AND (rate_limited_until IS NULL OR rate_limited_until < unix_now())
      ORDER BY priority DESC, last_used_at ASC NULLS FIRST`,
     [orgId, service],
   );
@@ -8260,7 +8303,7 @@ async function markExternalKeyRateLimited(keyId, retryAfterSeconds) {
   const secs = Math.min(Math.max(Number(retryAfterSeconds) || 60, 1), 7200);
   await pool.query(
     `UPDATE org_external_api_keys
-     SET rate_limited_until = NOW() + ($1 * INTERVAL '1 second')
+     SET rate_limited_until = unix_now() + $1
      WHERE key_id = $2`,
     [secs, keyId],
   );
@@ -8268,7 +8311,7 @@ async function markExternalKeyRateLimited(keyId, retryAfterSeconds) {
 
 async function markExternalKeyUsed(keyId) {
   await pool.query(
-    `UPDATE org_external_api_keys SET last_used_at = NOW() WHERE key_id = $1`,
+    `UPDATE org_external_api_keys SET last_used_at = unix_now() WHERE key_id = $1`,
     [keyId],
   );
 }
@@ -8437,8 +8480,7 @@ async function fetchSteamPlayerData(steamId, orgId) {
         { 0: "Not Configured", 1: "Private", 2: "Private", 3: "Public" }[
           visState
         ] ?? "Private";
-      profileCreatedAt =
-        p.timecreated != null ? new Date(p.timecreated * 1000) : null;
+      profileCreatedAt = p.timecreated ?? null;
     }
   }
 
@@ -8502,7 +8544,7 @@ async function fetchBMPlayerData(bmId, orgId) {
       bmServerId: String(entry.id),
       serverName: entry.attributes?.name ?? null,
       hoursPlayed: Math.round(hours * 10) / 10,
-      lastSeen: entry.meta?.lastSeen ? new Date(entry.meta.lastSeen) : null,
+      lastSeen: entry.meta?.lastSeen ? Math.floor(new Date(entry.meta.lastSeen).getTime() / 1000) : null,
     });
   }
 
@@ -8510,14 +8552,14 @@ async function fetchBMPlayerData(bmId, orgId) {
 
   return {
     bmProfileCreatedAt: json.data?.attributes?.createdAt
-      ? new Date(json.data.attributes.createdAt)
+      ? Math.floor(new Date(json.data.attributes.createdAt).getTime() / 1000)
       : null,
     bmPrivate: json.data?.attributes?.private ?? false,
     bmRustHours: Math.round(bmRustHours * 10) / 10,
     bmAimtrainHours: Math.round(bmAimtrainHours * 10) / 10,
     bmServerCount: serverCount,
     bmRustBansCount: rustBans?.count ?? 0,
-    bmRustBansLastBan: rustBans?.lastBan ? new Date(rustBans.lastBan) : null,
+    bmRustBansLastBan: rustBans?.lastBan ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000) : null,
     bmRustBansBanned: rustBans?.banned ?? false,
     sessions,
     hoursInaccurate: totalIncluded >= 250,
@@ -8583,10 +8625,10 @@ async function fetchBMPlayerBans(bmId, orgId) {
       reason: ban.attributes?.reason ?? null,
       note: ban.attributes?.note ?? null,
       expiresAt: ban.attributes?.expires
-        ? new Date(ban.attributes.expires)
+        ? Math.floor(new Date(ban.attributes.expires).getTime() / 1000)
         : null,
       bannedAt: ban.attributes?.timestamp
-        ? new Date(ban.attributes.timestamp)
+        ? Math.floor(new Date(ban.attributes.timestamp).getTime() / 1000)
         : null,
       permanent: ban.attributes?.permanent ?? !ban.attributes?.expires,
     };
@@ -8738,7 +8780,7 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
         hasBmBans: bmBanCount > 0,
         bmBanCount,
         hasEacBans: (rustBans?.count ?? 0) > 0,
-        eacLastBan: rustBans?.lastBan ? new Date(rustBans.lastBan) : null,
+        eacLastBan: rustBans?.lastBan ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000) : null,
       });
     } catch (err) {
       console.warn(
@@ -8841,8 +8883,8 @@ async function writeSteamDataToCache(steamId, data) {
        steam_profile_created_at = COALESCE($5, steam_profile_created_at),
        steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE steam_rust_hours END,
        steam_data_public        = $6,
-       steam_cached_at          = NOW(),
-       cache_expires_at         = NOW() + INTERVAL '30 days'
+       steam_cached_at          = unix_now(),
+       cache_expires_at         = unix_now() + 2592000
      WHERE steam_id = $1`,
     [
       steamId,
@@ -8869,8 +8911,8 @@ async function writeBMDataToCache(steamId, bmId, data) {
        bm_rust_bans_count   = $8,
        bm_rust_bans_last_ban = $9,
        bm_rust_bans_banned  = $10,
-       bm_cached_at         = NOW(),
-       cache_expires_at     = NOW() + INTERVAL '30 days'
+       bm_cached_at         = unix_now(),
+       cache_expires_at     = unix_now() + 2592000
      WHERE steam_id = $1`,
     [
       steamId,
@@ -8895,7 +8937,7 @@ async function writeActivityToCache(steamId, data) {
        bm_other_reports    = $4,
        bm_kills            = $5,
        bm_deaths           = $6,
-       activity_cached_at  = NOW()
+       activity_cached_at  = unix_now()
      WHERE steam_id = $1`,
     [
       steamId,
@@ -8914,12 +8956,12 @@ async function writeBMSessionsToCache(steamId, sessions) {
     `INSERT INTO player_bm_sessions
        (steam_id, bm_server_id, server_name, hours_played, last_seen)
      SELECT $1, unnest($2::text[]), unnest($3::text[]),
-            unnest($4::numeric[]), unnest($5::timestamptz[])
+            unnest($4::numeric[]), unnest($5::BIGINT[])
      ON CONFLICT (steam_id, bm_server_id) DO UPDATE SET
        server_name  = EXCLUDED.server_name,
        hours_played = EXCLUDED.hours_played,
        last_seen    = EXCLUDED.last_seen,
-       cached_at    = NOW()`,
+       cached_at    = unix_now()`,
     [
       steamId,
       sessions.map((s) => s.bmServerId),
@@ -8943,8 +8985,8 @@ async function writeBMBansToCache(steamId, bans) {
          note         = EXCLUDED.note,
          expires_at   = EXCLUDED.expires_at,
          permanent    = EXCLUDED.permanent,
-         cached_at    = NOW(),
-         cache_expires_at = NOW() + INTERVAL '30 days'`,
+         cached_at    = unix_now(),
+         cache_expires_at = unix_now() + 2592000`,
       [
         steamId,
         ban.bmBanId,
@@ -8964,9 +9006,9 @@ async function writeIpsToHistory(steamId, ips) {
   for (const { ip, isProxy } of ips) {
     await pool.query(
       `INSERT INTO player_ip_history (steam_id, ip_address, is_vpn, last_seen)
-       VALUES ($1, $2, $3, NOW())
+       VALUES ($1, $2, $3, unix_now())
        ON CONFLICT (steam_id, ip_address) DO UPDATE SET
-         last_seen = NOW(),
+         last_seen = unix_now(),
          is_vpn    = COALESCE($3, player_ip_history.is_vpn)`,
       [steamId, ip, isProxy],
     );
@@ -8987,8 +9029,8 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
          bm_ban_count  = EXCLUDED.bm_ban_count,
          has_eac_bans  = EXCLUDED.has_eac_bans,
          eac_last_ban  = EXCLUDED.eac_last_ban,
-         cached_at     = NOW(),
-         cache_expires_at = NOW() + INTERVAL '30 days'`,
+         cached_at     = unix_now(),
+         cache_expires_at = unix_now() + 2592000`,
       [
         steamId,
         acc.relatedBmId,
@@ -9010,21 +9052,21 @@ async function writeFriendsToCache(steamId, result) {
      ON CONFLICT (steam_id) DO UPDATE SET
        friends_public   = $2,
        friend_count     = $3,
-       cached_at        = NOW(),
-       cache_expires_at = NOW() + INTERVAL '30 days'`,
+       cached_at        = unix_now(),
+       cache_expires_at = unix_now() + 2592000`,
     [steamId, result.isPublic, result.friends?.length ?? 0],
   );
 
   if (!result.isPublic || !result.friends?.length) return;
 
-  const now = new Date();
+  const nowUnix = Math.floor(Date.now() / 1000);
   for (const friendId of result.friends) {
     await pool.query(
       `INSERT INTO player_friends (steam_id, friend_steam_id, last_confirmed)
        VALUES ($1, $2, $3)
        ON CONFLICT (steam_id, friend_steam_id) DO UPDATE SET
          last_confirmed = $3`,
-      [steamId, friendId, now],
+      [steamId, friendId, nowUnix],
     );
   }
 }
@@ -9037,8 +9079,8 @@ async function writeProxycheckToCache(ipResults) {
        ON CONFLICT (ip_address) DO UPDATE SET
          is_proxy  = $2, is_vpn = $3, isp = $4,
          country   = $5, asn = $6,
-         cached_at = NOW(),
-         cache_expires_at = NOW() + INTERVAL '30 days'`,
+         cached_at = unix_now(),
+         cache_expires_at = unix_now() + 2592000`,
       [ip, meta.isProxy, meta.isVpn, meta.isp, meta.country, meta.asn],
     );
     await pool.query(
@@ -9172,7 +9214,7 @@ async function getPlayerCacheData(steamId) {
   const [profile, sessions, bans, friendsMeta, ips, related] =
     await Promise.all([
       pool.query(
-        `SELECT *, cache_expires_at < NOW() AS is_stale
+        `SELECT *, cache_expires_at < unix_now() AS is_stale
          FROM player_cache WHERE steam_id = $1`,
         [steamId],
       ),
@@ -9518,9 +9560,9 @@ async function handleIngestPlayerConnect(request) {
   if (ip) {
     await pool.query(
       `INSERT INTO player_ip_history (steam_id, ip_address, server_id, server_name, last_seen)
-       VALUES ($1, $2, $3, $4, NOW())
+       VALUES ($1, $2, $3, $4, unix_now())
        ON CONFLICT (steam_id, ip_address) DO UPDATE SET
-         last_seen   = NOW(),
+         last_seen   = unix_now(),
          server_id   = EXCLUDED.server_id,
          server_name = EXCLUDED.server_name`,
       [steamId, ip, server.server_id, server.server_name],
@@ -9545,12 +9587,12 @@ async function handleIngestPlayerConnect(request) {
     [steamId],
   );
   const cacheRow = cacheCheck.rows[0];
-  const oneHourAgo = new Date(Date.now() - 3600000);
+  const oneHourAgo = Math.floor(Date.now() / 1000) - 3600;
   const needsRefresh =
     !cacheRow ||
     !cacheRow.steam_cached_at ||
     !cacheRow.bm_cached_at ||
-    new Date(cacheRow.steam_cached_at) < oneHourAgo;
+    Number(cacheRow.steam_cached_at) < oneHourAgo;
 
   if (needsRefresh) {
     refreshPlayerData(steamId, server.owner_org_id).catch((err) =>
@@ -9773,8 +9815,8 @@ async function handleGetOrgPlayerList(request, orgId) {
       try {
         await pool.query(
           `INSERT INTO org_player_sightings (org_id, steam_id, last_seen_at)
-           SELECT $1, unnest($2::text[]), NOW()
-           ON CONFLICT (org_id, steam_id) DO UPDATE SET last_seen_at = NOW()`,
+           SELECT $1, unnest($2::text[]), unix_now()
+           ON CONFLICT (org_id, steam_id) DO UPDATE SET last_seen_at = unix_now()`,
           [orgId, onlineSteamIds],
         );
       } catch {}
@@ -9798,7 +9840,7 @@ async function handleGetOrgPlayerList(request, orgId) {
            AND pb.org_id = $1
            AND pb.revoked = FALSE
            AND pb.action_type = 'ban'
-           AND (pb.expires_at IS NULL OR pb.expires_at > NOW())
+           AND (pb.expires_at IS NULL OR pb.expires_at > unix_now())
        )
      ORDER BY ops.last_seen_at DESC`,
     [orgId],
@@ -9836,11 +9878,8 @@ async function handleGetOrgPlayerList(request, orgId) {
       Number(cache.bm_cheating_reports ?? 0) +
       Number(cache.bm_teaming_reports ?? 0) +
       Number(cache.bm_other_reports ?? 0);
-    const accountCreated = cache.steam_profile_created_at
-      ? new Date(cache.steam_profile_created_at)
-      : null;
-    const accountAgeDays = accountCreated
-      ? Math.floor((Date.now() - accountCreated.getTime()) / 86400000)
+    const accountAgeDays = cache.steam_profile_created_at
+      ? Math.floor((Date.now() / 1000 - Number(cache.steam_profile_created_at)) / 86400)
       : 0;
 
     const h = totalHours === 0 ? 1 : totalHours;
@@ -10677,7 +10716,7 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
         msg.author.global_name ?? msg.author.username,
         msg.content ?? "",
         JSON.stringify(msg.attachments ?? []),
-        msg.timestamp,
+        Math.floor(new Date(msg.timestamp).getTime() / 1000),
       ],
     );
   }
@@ -10691,11 +10730,11 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
   await pool.query(
     `INSERT INTO discord_channel_sync
        (org_id, channel_id, guild_id, channel_name, last_message_id, synced_at)
-     VALUES ($1,$2,$3,$4,$5,NOW())
+     VALUES ($1,$2,$3,$4,$5,unix_now())
      ON CONFLICT (org_id, channel_id) DO UPDATE SET
        last_message_id = EXCLUDED.last_message_id,
        channel_name = EXCLUDED.channel_name,
-       synced_at = NOW()`,
+       synced_at = unix_now()`,
     [orgId, channelId, guildId, channelName, newestId],
   );
 
@@ -10704,7 +10743,7 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
 
 async function pruneOldDiscordMessages() {
   await pool.query(
-    `DELETE FROM discord_messages WHERE indexed_at < NOW() - INTERVAL '30 days'`,
+    `DELETE FROM discord_messages WHERE indexed_at < unix_now() - 2592000`,
   );
 }
 
@@ -10969,7 +11008,7 @@ async function handleDiscordModAction(request, orgId) {
 
   const expiresAt =
     action === "timeout" && durationSeconds
-      ? new Date(Date.now() + durationSeconds * 1000).toISOString()
+      ? Math.floor(Date.now() / 1000) + durationSeconds
       : null;
 
   await pool.query(
@@ -11017,7 +11056,7 @@ async function deleteUserDiscordMessagesFromGuild(guildId, orgId, discordUserId)
 
   if (rows.length === 0) return;
 
-  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  const cutoff = Math.floor(Date.now() / 1000) - 14 * 24 * 3600;
 
   // Group by channel
   const byChannel = new Map();
@@ -11028,10 +11067,10 @@ async function deleteUserDiscordMessagesFromGuild(guildId, orgId, discordUserId)
 
   for (const [channelId, messages] of byChannel) {
     const recent = messages
-      .filter((m) => new Date(m.discord_created_at).getTime() >= cutoff)
+      .filter((m) => Number(m.discord_created_at) >= cutoff)
       .map((m) => m.message_id);
     const old = messages
-      .filter((m) => new Date(m.discord_created_at).getTime() < cutoff)
+      .filter((m) => Number(m.discord_created_at) < cutoff)
       .map((m) => m.message_id);
 
     // Bulk delete in batches of 100 (Discord minimum is 2)

@@ -14,8 +14,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
+import { timezoneStore } from "@/lib/timezone-store";
 import { lastVisitStore, useLastVisits } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META, TICKETS } from "@/lib/mock-data";
@@ -49,7 +57,7 @@ function SiteNav() {
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [draft, setDraft] = useState(profile);
+  const [draft, setDraft] = useState({ ...profile, timezone: timezoneStore.get() });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [createdOrgs, setCreatedOrgs] = useState([]);
@@ -148,6 +156,7 @@ function SiteNav() {
       discordLinked: sessionUser?.discordId
         ? { id: sessionUser.discordId, name: sessionUser.username }
         : profile.discordLinked,
+      timezone: timezoneStore.get(),
     }));
     setProfileOpen(true);
   };
@@ -179,6 +188,7 @@ function SiteNav() {
         invalidateAuthMe(); // stale username in cache — evict so next load is fresh
       }
 
+      timezoneStore.set(draft.timezone ?? "");
       updateProfile({
         ...draft,
         displayName: nextSessionUser?.username ?? trimmedName,
@@ -430,7 +440,7 @@ function SiteNav() {
       (c) =>
         c.assigneeId === meId &&
         c.status !== "completed" &&
-        new Date(c.createdAt).getTime() > todoLastVisit,
+        c.createdAt * 1000 > todoLastVisit,
     );
   useEffect(() => {
     if (effectiveView !== "staff") return;
@@ -942,6 +952,41 @@ function SiteNav() {
                 </p>
               </div>
             )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="timezone">Timezone</Label>
+              <Select
+                value={draft.timezone ?? ""}
+                onValueChange={(v) => setDraft({ ...draft, timezone: v })}
+              >
+                <SelectTrigger id="timezone">
+                  <SelectValue placeholder="Browser default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Browser default</SelectItem>
+                  <SelectItem value="UTC">UTC</SelectItem>
+                  <SelectItem value="America/Los_Angeles">America/Los_Angeles (PT)</SelectItem>
+                  <SelectItem value="America/Denver">America/Denver (MT)</SelectItem>
+                  <SelectItem value="America/Chicago">America/Chicago (CT)</SelectItem>
+                  <SelectItem value="America/New_York">America/New_York (ET)</SelectItem>
+                  <SelectItem value="America/Halifax">America/Halifax (AT)</SelectItem>
+                  <SelectItem value="America/Sao_Paulo">America/Sao_Paulo (BRT)</SelectItem>
+                  <SelectItem value="Europe/London">Europe/London (GMT/BST)</SelectItem>
+                  <SelectItem value="Europe/Paris">Europe/Paris (CET/CEST)</SelectItem>
+                  <SelectItem value="Europe/Helsinki">Europe/Helsinki (EET/EEST)</SelectItem>
+                  <SelectItem value="Europe/Moscow">Europe/Moscow (MSK)</SelectItem>
+                  <SelectItem value="Asia/Dubai">Asia/Dubai (GST)</SelectItem>
+                  <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST)</SelectItem>
+                  <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
+                  <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                  <SelectItem value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</SelectItem>
+                  <SelectItem value="Pacific/Auckland">Pacific/Auckland (NZST/NZDT)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Timestamps throughout the panel will display in this timezone.
+              </p>
+            </div>
 
             {profileError ? (
               <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

@@ -7,6 +7,7 @@ import { PlayerSidebar } from "@/components/player-sidebar";
 import { PredefineSearch } from "@/components/predefine-search";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
+import { timezoneStore } from "@/lib/timezone-store";
 import {
   REPORT_CATEGORY_LABEL,
   STATUS_LABEL,
@@ -20,6 +21,14 @@ import {
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+function fmtTs(ms) {
+  const tz = timezoneStore.get();
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(tz ? { timeZone: tz } : {}),
+  });
+}
 const Route = createFileRoute("/")({
   validateSearch: (search) => ({
     ticket: typeof search.ticket === "string" ? search.ticket : void 0,
@@ -106,7 +115,7 @@ function mapDbTicketToUi(row) {
     restrictedRank: null,
     status: String(row.status || "open"),
     priority: String(row.priority || "normal"),
-    createdAt: new Date(Number(row.created_at) * 1000).toISOString(),
+    createdAt: Number(row.created_at),
     createdLabel: shortAge(row.created_at),
     title: String(row.title || `Ticket #${row.ticket_id}`),
     summary: String(row.title || ""),
@@ -266,7 +275,7 @@ function StaffDashboard() {
       if (sortBy === "priority")
         return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
       if (sortBy === "type") return a.type.localeCompare(b.type);
-      return b.createdAt.localeCompare(a.createdAt);
+      return b.createdAt - a.createdAt;
     });
     return sorted;
   }, [
@@ -305,13 +314,7 @@ function StaffDashboard() {
             selected.createdByUserId && m.userId === selected.createdByUserId
               ? "reporter"
               : "staff",
-          timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString(
-            [],
-            {
-              hour: "2-digit",
-              minute: "2-digit",
-            },
-          ),
+          timestamp: fmtTs(Number(m.createdAt) * 1000),
           body: m.message,
         }));
         setTickets((all) =>
@@ -377,10 +380,7 @@ function StaffDashboard() {
           if (msg) logs.push(msg);
         }
         if (logs.length === 0) return next;
-        const stamp = /* @__PURE__ */ new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        const stamp = fmtTs(Date.now());
         const newMessages = [
           ...(patch.messages ?? next.messages),
           ...logs.map((body) => ({
@@ -504,10 +504,7 @@ function StaffDashboard() {
           authorId: activeStaff.id,
           authorName: activeStaff.name,
           authorKind: "system",
-          timestamp: /* @__PURE__ */ new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          timestamp: fmtTs(Date.now()),
           body: lines.join("\n"),
         },
       ],
@@ -528,10 +525,7 @@ function StaffDashboard() {
           authorId: activeStaff.id,
           authorName: activeStaff.name,
           authorKind: "system",
-          timestamp: /* @__PURE__ */ new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          timestamp: fmtTs(Date.now()),
           body: lines.join("\n"),
         },
       ],
@@ -587,13 +581,7 @@ function StaffDashboard() {
               selected.createdByUserId && m.userId === selected.createdByUserId
                 ? "reporter"
                 : "staff",
-            timestamp: new Date(Number(m.createdAt) * 1000).toLocaleTimeString(
-              [],
-              {
-                hour: "2-digit",
-                minute: "2-digit",
-              },
-            ),
+            timestamp: fmtTs(Number(m.createdAt) * 1000),
             body: m.message,
           }));
           setTickets((all) =>
@@ -637,10 +625,7 @@ function StaffDashboard() {
             ? `${activeStaff.name} (internal)`
             : activeStaff.name,
           authorKind: isNote ? "system" : "staff",
-          timestamp: /* @__PURE__ */ new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          timestamp: fmtTs(Date.now()),
           body: draft.trim(),
           pinned: isNote ? pinNote : false,
         },
@@ -1405,10 +1390,7 @@ function StaffDashboard() {
                       authorId: "system",
                       authorName: "System",
                       authorKind: "system",
-                      timestamp: /* @__PURE__ */ new Date().toLocaleTimeString(
-                        [],
-                        { hour: "2-digit", minute: "2-digit" },
-                      ),
+                      timestamp: fmtTs(Date.now()),
                       body: reason,
                     },
                   ],
@@ -1487,15 +1469,15 @@ function StaffDashboard() {
   );
 }
 function ReportsList({ reports, proofOnly, recencyDays }) {
-  const cutoff = recencyDays > 0 ? Date.now() - recencyDays * 864e5 : 0;
+  const cutoff = recencyDays > 0 ? Math.floor(Date.now() / 1000) - recencyDays * 86400 : 0;
   const byProof = proofOnly
     ? reports.filter((r) => r.evidence.trim().length > 0)
     : reports;
   const shown =
     cutoff > 0
       ? byProof.filter((r) => {
-          const t = Date.parse(r.submittedAt);
-          return Number.isNaN(t) ? true : t >= cutoff;
+          const t = r.submittedAt;
+          return t == null ? true : t >= cutoff;
         })
       : byProof;
   const hiddenCount = reports.length - shown.length;

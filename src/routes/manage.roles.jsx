@@ -135,6 +135,11 @@ const PERMISSION_GROUPS = [
         label: "Manage Todos",
         desc: "Create and edit todos",
       },
+      {
+        id: "todo_delete",
+        label: "Delete Todos",
+        desc: "Permanently delete todos",
+      },
     ],
   },
 ];

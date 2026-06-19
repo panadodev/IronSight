@@ -826,10 +826,9 @@ function buildServerSessions(subjectId, isOnline, windowDays = 7) {
     };
   });
 }
-function bmSessionLastSeen(iso) {
-  if (!iso) return "—";
-  const ms = Date.now() - Date.parse(iso);
-  const min = Math.floor(ms / 60000);
+function bmSessionLastSeen(unix) {
+  if (!unix) return "—";
+  const min = Math.floor((Date.now() / 1000 - unix) / 60);
   if (min < 2) return "now";
   if (min < 60) return `${min}m ago`;
   const hr = Math.floor(min / 60);

@@ -60,9 +60,8 @@ function rankLabel(rank) {
     NOTE_RANK_OPTIONS.find((o) => o.value === rank)?.label ?? `Rank ${rank}+`
   );
 }
-function timeAgo(iso) {
-  const ms = Date.now() - Date.parse(iso);
-  const m = Math.floor(ms / 6e4);
+function timeAgo(unix) {
+  const m = Math.floor((Date.now() / 1000 - unix) / 60);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);

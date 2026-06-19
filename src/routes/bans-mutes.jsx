@@ -29,9 +29,8 @@ const Route = createFileRoute("/bans-mutes")({
   component: BansMutesPage,
 });
 
-function fmtAgo(iso) {
-  const d = Date.now() - Date.parse(iso);
-  const m = Math.max(0, Math.floor(d / 6e4));
+function fmtAgo(unix) {
+  const m = Math.max(0, Math.floor((Date.now() / 1000 - unix) / 60));
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
@@ -41,9 +40,9 @@ function fmtAgo(iso) {
 function fmtRemaining(expiresAt, revoked) {
   if (revoked) return "Revoked";
   if (!expiresAt) return "Permanent";
-  const ms = Date.parse(expiresAt) - Date.now();
-  if (ms <= 0) return "Expired";
-  const min = Math.floor(ms / 6e4);
+  const sec = expiresAt - Math.floor(Date.now() / 1000);
+  if (sec <= 0) return "Expired";
+  const min = Math.floor(sec / 60);
   if (min < 60) return `${min}m left`;
   const h = Math.floor(min / 60);
   if (h < 24) return `${h}h left`;
@@ -77,7 +76,7 @@ function computeExpiresAt(durationValue) {
   if (durationValue === "-1") return null;
   const minutes = parseInt(durationValue, 10);
   if (isNaN(minutes)) return null;
-  return new Date(Date.now() + minutes * 60000).toISOString();
+  return Math.floor(Date.now() / 1000) + minutes * 60;
 }
 
 function BansMutesPage() {
@@ -320,7 +319,7 @@ function BansMutesPage() {
                               ? "bg-muted text-muted-foreground ring-border"
                               : !r.expiresAt
                                 ? "bg-danger/15 text-danger ring-danger/40"
-                                : Date.parse(r.expiresAt) <= Date.now()
+                                : r.expiresAt <= Math.floor(Date.now() / 1000)
                                   ? "bg-surface text-muted-foreground ring-border"
                                   : "bg-warning/15 text-warning ring-warning/40")
                           }

@@ -116,15 +116,15 @@ function buildExternalBans(subjectId) {
 }
 function bmBanStatusLabel(ban) {
   if (ban.permanent || !ban.expiresAt) return { label: "Permanent", tone: "danger" };
-  const ms = Date.parse(ban.expiresAt) - Date.now();
-  if (ms <= 0) return { label: "Expired", tone: "muted" };
-  const days = Math.floor(ms / 864e5);
-  const hours = Math.floor((ms % 864e5) / 36e5);
+  const sec = ban.expiresAt - Math.floor(Date.now() / 1000);
+  if (sec <= 0) return { label: "Expired", tone: "muted" };
+  const days = Math.floor(sec / 86400);
+  const hours = Math.floor((sec % 86400) / 3600);
   return { label: days > 0 ? `Expires in ${days}d` : `Expires in ${hours}h`, tone: "warning" };
 }
 function bmBanWhen(bannedAt) {
   if (!bannedAt) return "—";
-  const days = Math.floor((Date.now() - Date.parse(bannedAt)) / 864e5);
+  const days = Math.floor((Date.now() / 1000 - bannedAt) / 86400);
   if (days < 7) return `${days}d ago`;
   if (days < 30) return `${Math.floor(days / 7)}w ago`;
   if (days < 365) return `${Math.floor(days / 30)}mo ago`;

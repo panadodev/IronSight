@@ -227,7 +227,7 @@ function ApiKeysSection({ orgId }) {
                         {k.label || k.service}
                       </span>
                       {k.rateLimitedUntil &&
-                        new Date(k.rateLimitedUntil) > new Date() && (
+                        k.rateLimitedUntil > Math.floor(Date.now() / 1000) && (
                           <span className="text-[10px] text-amber-500 font-mono shrink-0">
                             rate-limited
                           </span>

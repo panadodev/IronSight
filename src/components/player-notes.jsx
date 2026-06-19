@@ -85,7 +85,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
         .filter((n) => myRank >= n.minRank)
         .sort((a, b) => {
           if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-          return Date.parse(b.createdAt) - Date.parse(a.createdAt);
+          return b.createdAt - a.createdAt;
         }),
     [all, myRank],
   );
@@ -181,7 +181,7 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
     () =>
       all
         .filter((n) => n.pinned && myRank >= n.minRank)
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+        .sort((a, b) => b.createdAt - a.createdAt),
     [all, myRank],
   );
   if (visible.length === 0) return null;

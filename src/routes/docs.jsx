@@ -49,9 +49,8 @@ const Route = createFileRoute("/docs")({
   head: () => ({ meta: [{ title: "Docs \u2014 IronSight" }] }),
   component: DocsPage,
 });
-function timeAgo(iso) {
-  const ms = Date.now() - Date.parse(iso);
-  const m = Math.floor(ms / 6e4);
+function timeAgo(unix) {
+  const m = Math.floor((Date.now() / 1000 - unix) / 60);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
