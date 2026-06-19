@@ -9899,6 +9899,51 @@ async function handleRefreshPlayer(request, steamId) {
   return json(fresh);
 }
 
+// ── Org player search (ticket submission) ────────────────────────────────────
+
+async function handleSearchOrgPlayers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const q = String(url.searchParams.get("q") ?? "").trim();
+  if (q.length < 2) return json({ players: [] });
+
+  if (redis) {
+    try {
+      const count = await redis.eval(
+        `local n = redis.call('INCR', KEYS[1])
+         if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+         return n`,
+        1, `rl:player-search:${session.userId}`, "60",
+      );
+      if (count > 60) return json({ error: "Too many requests" }, 429);
+    } catch {}
+  }
+
+  const { rows } = await pool.query(
+    `SELECT pc.steam_id, COALESCE(pc.display_name, pc.steam_id) AS name, ops.last_seen_at
+     FROM org_player_sightings ops
+     JOIN player_cache pc ON pc.steam_id = ops.steam_id
+     WHERE ops.org_id = $1
+       AND (
+         pc.display_name ILIKE $2
+         OR pc.steam_id LIKE $3
+       )
+     ORDER BY ops.last_seen_at DESC
+     LIMIT 20`,
+    [orgId, `%${q}%`, `${q}%`],
+  );
+
+  return json({
+    players: rows.map((r) => ({
+      steamId: String(r.steam_id),
+      name: String(r.name),
+      lastSeenAt: Number(r.last_seen_at),
+    })),
+  });
+}
+
 // ── Org player list (cached players + live RCON online status) ────────────────
 
 async function handleGetOrgPlayerList(request, orgId) {
@@ -10725,6 +10770,13 @@ async function _handleApiRequest(request) {
         orgExternalKeyDetailMatch[1],
         orgExternalKeyDetailMatch[2],
       );
+
+    // Org player search (for ticket submission)
+    const orgPlayerSearchMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/search$/,
+    );
+    if (orgPlayerSearchMatch && request.method === "GET")
+      return handleSearchOrgPlayers(request, orgPlayerSearchMatch[1]);
 
     // Org player list
     const orgPlayerListMatch = pathname.match(

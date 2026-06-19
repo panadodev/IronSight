@@ -1,6 +1,6 @@
 ﻿import { SiteNav } from "@/components/site-nav";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const Route = createFileRoute("/submit")({
   validateSearch: (s) => ({
@@ -48,6 +48,12 @@ function SubmitPage() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [targetSteamId, setTargetSteamId] = useState("");
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [playerQuery, setPlayerQuery] = useState("");
+  const [playerResults, setPlayerResults] = useState([]);
+  const [playerSearching, setPlayerSearching] = useState(false);
+  const [playerDropdownOpen, setPlayerDropdownOpen] = useState(false);
+  const playerSearchRef = useRef(null);
   const [reportCategory, setReportCategory] = useState("cheating");
   const [evidence, setEvidence] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -100,6 +106,41 @@ function SubmitPage() {
     ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
   const isPlayerReport = selectedType?.name?.toLowerCase().includes("report");
 
+  useEffect(() => {
+    if (!isPlayerReport) return;
+    const q = playerQuery.trim();
+    if (q.length < 2) {
+      setPlayerResults([]);
+      setPlayerDropdownOpen(false);
+      return;
+    }
+    setPlayerSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/players/search?q=${encodeURIComponent(q)}`,
+          { credentials: "include" },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setPlayerResults(data.players ?? []);
+          setPlayerDropdownOpen(true);
+        }
+      } catch {}
+      setPlayerSearching(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [playerQuery, isPlayerReport, orgId]);
+
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (!playerSearchRef.current?.contains(e.target))
+        setPlayerDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
   async function handleSubmit() {
     if (!selectedTypeId || !orgId) return;
     let ticketTitle = title.trim();
@@ -147,6 +188,10 @@ function SubmitPage() {
     setTitle("");
     setBody("");
     setTargetSteamId("");
+    setSelectedPlayer(null);
+    setPlayerQuery("");
+    setPlayerResults([]);
+    setPlayerDropdownOpen(false);
     setReportCategory("cheating");
     setEvidence("");
     setSubmitError("");
@@ -344,17 +389,91 @@ function SubmitPage() {
             <>
               <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step 1 \u00b7 Reported player Steam ID
+                  Step 1 \u00b7 Reported player
                 </label>
-                <input
-                  type="text"
-                  value={targetSteamId}
-                  onChange={(e) => setTargetSteamId(e.target.value)}
-                  placeholder="e.g. 76561198000000000"
-                  className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
-                />
+                {selectedPlayer ? (
+                  <div className="flex items-center gap-3 p-3 bg-surface/40 ring-1 ring-border rounded">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{selectedPlayer.name}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">
+                        {selectedPlayer.steamId}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlayer(null);
+                        setTargetSteamId("");
+                        setPlayerQuery("");
+                        setPlayerResults([]);
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground shrink-0 px-2 py-1 rounded hover:bg-surface/60 transition-colors"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <div ref={playerSearchRef} className="relative">
+                    <input
+                      type="text"
+                      value={playerQuery}
+                      onChange={(e) => {
+                        setPlayerQuery(e.target.value);
+                        setSelectedPlayer(null);
+                        setTargetSteamId("");
+                      }}
+                      onFocus={() =>
+                        playerResults.length > 0 && setPlayerDropdownOpen(true)
+                      }
+                      placeholder="Search by name or Steam ID\u2026"
+                      className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+                    />
+                    {playerSearching && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                        Searching\u2026
+                      </span>
+                    )}
+                    {playerDropdownOpen && playerResults.length > 0 && (
+                      <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-background ring-1 ring-border rounded-md shadow-lg">
+                        {playerResults.map((p) => (
+                          <button
+                            key={p.steamId}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPlayer(p);
+                              setTargetSteamId(p.steamId);
+                              setPlayerDropdownOpen(false);
+                              setPlayerQuery("");
+                              setPlayerResults([]);
+                            }}
+                            className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-surface/60 transition-colors border-b border-border/50 last:border-0"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium">{p.name}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground">
+                                {p.steamId}
+                              </p>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              {new Date(p.lastSeenAt * 1000).toLocaleDateString()}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {playerQuery.trim().length >= 2 &&
+                      !playerSearching &&
+                      playerResults.length === 0 && (
+                        <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
+                          <div className="p-3 text-xs text-muted-foreground">
+                            No players found matching &ldquo;{playerQuery.trim()}&rdquo;.
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground">
-                  Enter the Steam64 ID of the player you are reporting.
+                  Search for the player by their in-game name or Steam64 ID.
                 </p>
               </section>
               <section className="space-y-3">
