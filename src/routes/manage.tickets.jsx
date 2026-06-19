@@ -13,17 +13,17 @@ function TicketsPage() {
     orgTicketTypes,
     setOrgTicketTypeEnabled,
     sessionUser,
-    hasOrgPermission,
+    sessionOrgOwnerIds,
   } = useAuth();
   const orgId = useManageOrgId();
   if (!orgId) return null;
-  const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "org_manage");
+  const isOwner =
+    Boolean(sessionUser?.isSysAdmin) || sessionOrgOwnerIds.includes(orgId);
   const enabled =
     orgTicketTypes[orgId] ??
     TICKET_TYPE_KEYS.reduce((acc, k) => ({ ...acc, [k]: true }), {});
   return (
-    <GateRank rank={isAdmin ? 4 : 0} required={4}>
+    <GateRank rank={isOwner ? 4 : 0} required={4}>
       <SectionHeader
         title="Tickets"
         blurb="Enable or disable each ticket type for this org."

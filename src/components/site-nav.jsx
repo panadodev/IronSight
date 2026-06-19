@@ -88,6 +88,7 @@ function SiteNav() {
   const canPredefines = anyOrgHas("predefines_manage");
   const canToxicity = anyOrgHas("toxicity_manage");
   const canBanConfigs = anyOrgHas("ban_configs_manage");
+  const canTicketsManage = anyOrgHas("tickets_manage");
   const canPlayersView = anyOrgHas("players_view");
   const canBansManage = anyOrgHas("bans_manage");
   const canTriggers = anyOrgHas("triggers_manage");
@@ -97,7 +98,8 @@ function SiteNav() {
     canRoleManage ||
     canPredefines ||
     canToxicity ||
-    canBanConfigs;
+    canBanConfigs ||
+    canTicketsManage;
 
   const allOrgs = useMemo(() => {
     const map = new Map(orgs.map((o) => [o.id, o]));
@@ -208,6 +210,7 @@ function SiteNav() {
       "ban_configs_manage",
       "toxicity_manage",
       "predefines_manage",
+      "tickets_manage",
     ];
     const sessionOrgAdminIds = Array.isArray(sessionUser?.orgAdminOrgIds)
       ? sessionUser.orgAdminOrgIds
@@ -404,6 +407,11 @@ function SiteNav() {
           to: "/manage/ban-configs",
           label: "Ban configs",
           show: canBanConfigs,
+        },
+        {
+          to: "/manage/tickets",
+          label: "Tickets",
+          show: canTicketsManage,
         },
         {
           to: "/manage/staff",

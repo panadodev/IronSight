@@ -15,7 +15,7 @@ const Route = createFileRoute("/manage")({
 
 const MANAGE_PERMS = [
   "org_manage", "role_create", "ban_configs_manage",
-  "toxicity_manage", "predefines_manage",
+  "toxicity_manage", "predefines_manage", "tickets_manage",
 ];
 function ManageLayout() {
   const { adminableOrgIds, orgs, sessionOrgAdminIds, sessionOrgPermissions, orgsLoaded } = useAuth();
