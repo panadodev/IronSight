@@ -1173,6 +1173,7 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
   );
 }
 function PresetsTab({ servers, orgId }) {
+  const tz = useTimezone();
   const [plugins, setPlugins] = useState([]);
   const [pluginsLoading, setPluginsLoading] = useState(true);
   const [groupTags, setGroupTags] = useState(
@@ -2590,6 +2591,7 @@ function StatusTab({ orgId }) {
   );
 }
 function ServersTab({ orgId }) {
+  const tz = useTimezone();
   const [pteroStatus, setPteroStatus] = useState(null); // null=loading, {connected,panelUrl}
   const [pteroForm, setPteroForm] = useState({ panelUrl: "", apiKey: "" });
   const [pteroSaving, setPteroSaving] = useState(false);
