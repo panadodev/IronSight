@@ -4636,7 +4636,8 @@ async function handleGetTicket(request, ticketIdStr) {
     } else if (canManageOrg(session, ticket.org_id)) {
       // Org admin/owner can view all tickets
     } else {
-      const hasPermission = (session.orgPermissions?.[ticket.org_id] ?? []).includes("tickets_view");
+      const perms = session.orgPermissions?.[ticket.org_id] ?? [];
+      const hasPermission = perms.includes("tickets_view") || perms.includes("tickets_manage");
       if (!hasPermission) return json({ error: "Forbidden" }, 403);
 
       // Enforce ticket type restriction if the role has specific types assigned
@@ -4697,7 +4698,8 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   // Check staff permission
   const isStaff =
     isGlobalAdmin(session) ||
-    orgHasPermission(session, ticket.org_id, "tickets_view");
+    orgHasPermission(session, ticket.org_id, "tickets_view") ||
+    orgHasPermission(session, ticket.org_id, "tickets_manage");
 
   // Creator can add messages, staff can add messages
   if (!isCreator && !isStaff) return json({ error: "Forbidden" }, 403);
@@ -4843,7 +4845,8 @@ async function handleListOrgTickets(request, orgId) {
   } else if (canManageOrg(session, orgId)) {
     // Org admin/owner sees all tickets
   } else {
-    const hasPermission = (session.orgPermissions?.[orgId] ?? []).includes("tickets_view");
+    const perms = session.orgPermissions?.[orgId] ?? [];
+    const hasPermission = perms.includes("tickets_view") || perms.includes("tickets_manage");
     if (!hasPermission) return json({ error: "Forbidden" }, 403);
 
     // Restrict to ticket types the role is explicitly assigned to (empty = no restriction)

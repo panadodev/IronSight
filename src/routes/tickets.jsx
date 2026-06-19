@@ -114,7 +114,8 @@ function TicketsPage() {
   const ticketOrgIds = useMemo(() => {
     const ids = new Set(adminableOrgIds);
     for (const org of orgs) {
-      if ((sessionOrgPermissions[org.id] ?? []).includes("tickets_view")) ids.add(org.id);
+      const perms = sessionOrgPermissions[org.id] ?? [];
+      if (perms.includes("tickets_view") || perms.includes("tickets_manage")) ids.add(org.id);
     }
     return Array.from(ids);
   }, [adminableOrgIds, orgs, sessionOrgPermissions]);
