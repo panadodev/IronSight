@@ -16,11 +16,6 @@ function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(null);
 
-  if (!orgId) return null;
-
-  const isOwner =
-    Boolean(sessionUser?.isSysAdmin) || sessionOrgOwnerIds.includes(orgId);
-
   useEffect(() => {
     if (!orgId) return;
     setLoading(true);
@@ -35,13 +30,15 @@ function TicketsPage() {
       .catch(() => setLoading(false));
   }, [orgId]);
 
-  const enabled = ticketTypes.reduce(
-    (acc, tt) => {
-      const key = tt.name.toLowerCase().replace(/\s+/g, "");
-      return { ...acc, [key]: tt.isEnabled };
-    },
-    {}
-  );
+  if (!orgId) return null;
+
+  const isOwner =
+    Boolean(sessionUser?.isSysAdmin) || sessionOrgOwnerIds.includes(orgId);
+
+  const enabled = ticketTypes.reduce((acc, tt) => {
+    const key = tt.name.toLowerCase().replace(/\s+/g, "");
+    return { ...acc, [key]: tt.isEnabled };
+  }, {});
 
   const handleToggle = async (key, value) => {
     const ticketType = ticketTypes.find((tt) => {
@@ -60,7 +57,7 @@ function TicketsPage() {
           credentials: "include",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ isEnabled: value }),
-        }
+        },
       );
 
       if (res.ok) {
@@ -68,8 +65,8 @@ function TicketsPage() {
           prev.map((tt) =>
             tt.ticketTypeId === ticketType.ticketTypeId
               ? { ...tt, isEnabled: value }
-              : tt
-          )
+              : tt,
+          ),
         );
       }
     } catch {}
@@ -88,6 +85,7 @@ function TicketsPage() {
         <TicketTypesPanel
           enabled={enabled}
           onToggle={handleToggle}
+          updating={updating}
         />
       )}
     </GateRank>

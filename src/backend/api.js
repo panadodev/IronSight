@@ -4730,6 +4730,15 @@ async function handleListOrgTicketTypes(request, orgId) {
     return json({ error: "Organization not found" }, 404);
   }
 
+  // Seed defaults if this org has never had ticket types configured
+  const countRes = await pool.query(
+    `SELECT COUNT(*) AS n FROM ticket_types WHERE org_id = $1`,
+    [orgId],
+  );
+  if (Number(countRes.rows[0].n) === 0) {
+    await ensureDefaultTicketTypes(orgId);
+  }
+
   let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled
      FROM ticket_types WHERE org_id = $1`;
 
