@@ -5415,7 +5415,7 @@ async function handleImportPteroServer(request, orgId) {
 
   await pool.query(
     `INSERT INTO servers (server_id, server_name, owner_org_id, api_key_hash, added_by_user_id, ptero_identifier)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+     VALUES ($1, $2, $3, $4, (SELECT user_id FROM users WHERE user_id = $5 LIMIT 1), $6)`,
     [serverId, serverName, orgId, apiKeyHash, session.userId, pteroIdentifier],
   );
 
@@ -5859,7 +5859,7 @@ async function handleRegisterServer(request) {
 
   await pool.query(
     `INSERT INTO servers (server_id, server_name, owner_org_id, api_key_hash, added_by_user_id)
-     VALUES ($1, $2, $3, $4, $5)`,
+     VALUES ($1, $2, $3, $4, (SELECT user_id FROM users WHERE user_id = $5 LIMIT 1))`,
     [serverId, serverName, orgId, apiKeyHash, session.userId],
   );
 
