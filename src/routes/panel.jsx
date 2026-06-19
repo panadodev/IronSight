@@ -276,7 +276,7 @@ function PanelPage() {
               <StatusTab key={activeOrg.id} orgId={activeOrg.id} />
             )}
             {tab === "servers" && (
-              <ServersTab key={activeOrg.id} orgId={activeOrg.id} />
+              <ServersTab key={activeOrg.id} orgId={activeOrg.id} onServerUpdate={setAllServers} />
             )}
           </div>
         </main>
@@ -2590,7 +2590,7 @@ function StatusTab({ orgId }) {
     </div>
   );
 }
-function ServersTab({ orgId }) {
+function ServersTab({ orgId, onServerUpdate }) {
   const tz = useTimezone();
   const [pteroStatus, setPteroStatus] = useState(null); // null=loading, {connected,panelUrl}
   const [pteroForm, setPteroForm] = useState({ panelUrl: "", apiKey: "" });
@@ -2648,7 +2648,7 @@ function ServersTab({ orgId }) {
             : s,
         ),
       );
-      setAllServers((prev) =>
+      onServerUpdate?.((prev) =>
         prev.map((s) =>
           s.id === serverId
             ? { ...s, rconConfigured: true, rconWorking: testPassed }
