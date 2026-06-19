@@ -132,14 +132,27 @@ const TAB_PERMISSION = {
   servers: "servers_manage",
 };
 
+// manage implies view for these tabs
+const TAB_ALT_PERMISSION = {
+  scripts: "scripts_manage",
+};
+
 function PanelPage() {
   const { orgs, hasOrgPermission } = useAuth();
   const search = Route.useSearch();
   const tab = search.tab ?? "rcon";
   const tabPerm = TAB_PERMISSION[tab];
+  const tabAltPerm = TAB_ALT_PERMISSION[tab] ?? null;
   const allowedOrgIds = useMemo(
-    () => orgs.filter((o) => hasOrgPermission(o.id, tabPerm)).map((o) => o.id),
-    [orgs, hasOrgPermission, tabPerm],
+    () =>
+      orgs
+        .filter(
+          (o) =>
+            hasOrgPermission(o.id, tabPerm) ||
+            (tabAltPerm && hasOrgPermission(o.id, tabAltPerm)),
+        )
+        .map((o) => o.id),
+    [orgs, hasOrgPermission, tabPerm, tabAltPerm],
   );
   const allowedOrgs = useMemo(
     () => orgs.filter((o) => allowedOrgIds.includes(o.id)),

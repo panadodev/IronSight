@@ -8,7 +8,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { ShieldAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 const Route = createFileRoute("/manage")({
   component: ManageLayout,
 });
@@ -18,49 +18,17 @@ const MANAGE_PERMS = [
   "toxicity_manage", "predefines_manage",
 ];
 function ManageLayout() {
-  const { adminableOrgIds, orgs } = useAuth();
+  const { adminableOrgIds, orgs, sessionOrgAdminIds, sessionOrgPermissions, orgsLoaded } = useAuth();
   const orgId = useManageOrgId();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const [sessionUser, setSessionUser] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadSession() {
-      try {
-        const res = await fetch("/api/auth/me", { credentials: "include" });
-        if (!res.ok) {
-          if (!cancelled) setSessionUser(null);
-          return;
-        }
-
-        const body = await res.json();
-        if (!cancelled) setSessionUser(body?.user ?? null);
-      } catch {
-        if (!cancelled) setSessionUser(null);
-      }
-    }
-
-    loadSession();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const manageableOrgIds = useMemo(() => {
-    if (sessionUser?.isSysAdmin) return orgs.map((o) => o.id);
-
-    const sessionOrgAdminIds = Array.isArray(sessionUser?.orgAdminOrgIds)
-      ? sessionUser.orgAdminOrgIds
-      : [];
-    const orgPerms = sessionUser?.orgPermissions ?? {};
     const permOrgIds = orgs
-      .filter((o) => MANAGE_PERMS.some((p) => (orgPerms[o.id] ?? []).includes(p)))
+      .filter((o) => MANAGE_PERMS.some((p) => (sessionOrgPermissions[o.id] ?? []).includes(p)))
       .map((o) => o.id);
-
     return Array.from(new Set([...sessionOrgAdminIds, ...permOrgIds, ...adminableOrgIds]));
-  }, [sessionUser, orgs, adminableOrgIds]);
+  }, [sessionOrgPermissions, sessionOrgAdminIds, orgs, adminableOrgIds]);
 
   const manageable = useMemo(
     () => orgs.filter((o) => manageableOrgIds.includes(o.id)),
@@ -80,6 +48,7 @@ function ManageLayout() {
       navigate({ to: "/manage/details", replace: true });
     }
   }, [path, navigate]);
+  if (!orgsLoaded) return null;
   if (manageable.length === 0) {
     return (
       <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">

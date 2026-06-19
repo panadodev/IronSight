@@ -71,11 +71,11 @@ function SiteNav() {
   }, [isSysAdminSession, orgs, hasOrgPermission]);
 
   const canRcon = anyOrgHas("rcon_access");
-  const canScriptsView = anyOrgHas("scripts_view");
+  const canScriptsView = anyOrgHas("scripts_view") || anyOrgHas("scripts_manage");
   const canPresets = anyOrgHas("presets_manage");
   const canStatus = anyOrgHas("status_view");
   const canServers = anyOrgHas("servers_manage");
-  const canTicketsView = anyOrgHas("tickets_view");
+  const canTicketsView = anyOrgHas("tickets_view") || anyOrgHas("tickets_manage");
   const canOrgManage = anyOrgHas("org_manage");
   const canRoleManage = anyOrgHas("role_create");
   const canPredefines = anyOrgHas("predefines_manage");
