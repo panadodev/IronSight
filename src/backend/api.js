@@ -739,6 +739,17 @@ async function ensureSchema() {
     `ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`,
   );
 
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_ticket_types_org_name'
+      ) THEN
+        ALTER TABLE ticket_types ADD CONSTRAINT uq_ticket_types_org_name
+          UNIQUE (org_id, ticket_type_name);
+      END IF;
+    END $$
+  `);
+
   // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
   // Guard: table may not exist yet on first migration pass
   await pool.query(`
@@ -2131,8 +2142,12 @@ async function rateLimitLogin(request) {
   const ip = getClientIp(request);
   const limiterKey = `rl:login:${ip}`;
   try {
-    const attempts = await redis.incr(limiterKey);
-    await redis.expire(limiterKey, 60);
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, limiterKey, '60',
+    );
     if (attempts > env.loginRateLimitPerMinute) {
       return json(
         { error: "Too many login attempts. Try again in a minute." },
@@ -2464,11 +2479,17 @@ async function handleSteamCallback(request) {
     }
 
     const userId = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO users (user_id, username, discord_id, steam_id)
-       VALUES ($1, $2, $3, $4)`,
-      [userId, pending.username, pending.discordId, steamId],
-    );
+    try {
+      await pool.query(
+        `INSERT INTO users (user_id, username, discord_id, steam_id)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, pending.username, pending.discordId, steamId],
+      );
+    } catch (err) {
+      if (err.code === "23505")
+        return redirect("/login?error=steam_already_linked", clearPendingLinkHeaders(new Headers()));
+      throw err;
+    }
 
     return createSessionForUser(
       {
@@ -2661,11 +2682,16 @@ async function handleCreateOrganization(request) {
     }
   }
 
-  await pool.query(
-    `INSERT INTO organizations (org_id, guild_id, name)
-     VALUES ($1, $2, $3)`,
-    [derivedOrgId, guildId || null, name],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO organizations (org_id, guild_id, name)
+       VALUES ($1, $2, $3)`,
+      [derivedOrgId, guildId || null, name],
+    );
+  } catch (err) {
+    if (err.code === "23505") return json({ error: "Organization ID already exists" }, 409);
+    throw err;
+  }
 
   // Make the creator an owner
   await pool.query(
@@ -2896,7 +2922,7 @@ async function handleUpdateTodo(request, todoId) {
       : String(body.assigneeDiscordId).trim();
 
   const existingRes = await pool.query(
-    "SELECT todo_id, org_id, status FROM todos WHERE todo_id = $1 LIMIT 1",
+    "SELECT todo_id, org_id, status, completed_at FROM todos WHERE todo_id = $1 LIMIT 1",
     [todoId],
   );
   const existing = existingRes.rows[0];
@@ -2931,20 +2957,20 @@ async function handleUpdateTodo(request, todoId) {
     }
   }
 
-  const nextStatus = status || String(existing.status);
-  const completedAt =
-    nextStatus === "completed" ? Math.floor(Date.now() / 1000) : null;
-
   await pool.query(
     `UPDATE todos
      SET title = COALESCE($2, title),
          description = COALESCE($3, description),
          status = COALESCE($4, status),
          assigned_to = COALESCE($5, assigned_to),
-         completed_at = $6,
+         completed_at = CASE
+           WHEN $4 = 'completed' AND completed_at IS NULL THEN unix_now()
+           WHEN $4 IS NOT NULL AND $4 != 'completed' THEN NULL
+           ELSE completed_at
+         END,
          updated_at = unix_now()
      WHERE todo_id = $1`,
-    [todoId, title, details, status, assigneeUserId, completedAt],
+    [todoId, title, details, status, assigneeUserId],
   );
 
   return json({ ok: true });
@@ -3434,45 +3460,48 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
       ? body.discordRoleIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
 
-    await pool.query(`BEGIN`);
+    const client = await pool.connect();
     try {
+      await client.query(`BEGIN`);
       if (hasPermissions) {
-        await pool.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
+        await client.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
           roleId,
         ]);
         for (const permId of filteredPerms) {
-          await pool.query(
+          await client.query(
             `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
             [roleId, permId],
           );
         }
       }
       if (hasTicketTypes) {
-        await pool.query(`DELETE FROM ticket_type_roles WHERE role_id = $1`, [
+        await client.query(`DELETE FROM ticket_type_roles WHERE role_id = $1`, [
           roleId,
         ]);
         for (const typeId of validTypeIds) {
-          await pool.query(
+          await client.query(
             `INSERT INTO ticket_type_roles (ticket_type_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
             [typeId, roleId],
           );
         }
       }
       if (hasDiscordRoles) {
-        await pool.query(`DELETE FROM role_discord_roles WHERE role_id = $1`, [
+        await client.query(`DELETE FROM role_discord_roles WHERE role_id = $1`, [
           roleId,
         ]);
         for (const discordRoleId of filteredDiscordRoleIds) {
-          await pool.query(
+          await client.query(
             `INSERT INTO role_discord_roles (role_id, discord_role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
             [roleId, discordRoleId],
           );
         }
       }
-      await pool.query(`COMMIT`);
+      await client.query(`COMMIT`);
     } catch (err) {
-      await pool.query(`ROLLBACK`);
+      await client.query(`ROLLBACK`);
       throw err;
+    } finally {
+      client.release();
     }
   }
 
@@ -4250,30 +4279,25 @@ async function handleUpdateRolePermissions(request, roleId) {
     return json({ error: "Role not found" }, 404);
   }
 
-  await pool.query(`BEGIN`);
-
+  const client = await pool.connect();
   try {
-    await pool.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
+    await client.query(`BEGIN`);
+    await client.query(`DELETE FROM role_permissions WHERE role_id = $1`, [
       roleId,
     ]);
-
     for (const permId of permissionIds) {
-      await pool.query(
+      await client.query(
         `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2)`,
         [roleId, permId],
       );
     }
-
-    await pool.query(`COMMIT`);
-
-    return json({
-      ok: true,
-      roleId,
-      permissionIds,
-    });
+    await client.query(`COMMIT`);
+    return json({ ok: true, roleId, permissionIds });
   } catch (err) {
-    await pool.query(`ROLLBACK`);
+    await client.query(`ROLLBACK`);
     throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -4297,14 +4321,11 @@ const DEFAULT_TICKET_TYPES = [
 ];
 
 async function ensureDefaultTicketTypes(orgId) {
-  const existing = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM ticket_types WHERE org_id = $1`,
-    [orgId],
-  );
-  if (Number(existing.rows[0].cnt) > 0) return;
   for (const t of DEFAULT_TICKET_TYPES) {
     await pool.query(
-      `INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description) VALUES ($1, $2, $3)`,
+      `INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (org_id, ticket_type_name) DO NOTHING`,
       [orgId, t.name, t.description],
     );
   }
@@ -4675,27 +4696,32 @@ async function handleCreateTicket(request) {
       );
   }
 
-  const result = await pool.query(
-    `INSERT INTO tickets (org_id, ticket_type_id, created_by, title)
-     VALUES ($1, $2, $3, $4)
-     RETURNING ticket_id`,
-    [orgId, ticketTypeId, session.userId, title],
-  );
-  const ticketId = Number(result.rows[0].ticket_id);
-
-  await pool.query(
-    `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
-    [ticketId, session.userId, message],
-  );
-  await pool.query(
-    `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-    [
-      ticketId,
-      session.userId,
-      "created",
-      JSON.stringify({ title, orgId, ticketTypeId }),
-    ],
-  );
+  const txClient = await pool.connect();
+  let ticketId;
+  try {
+    await txClient.query(`BEGIN`);
+    const result = await txClient.query(
+      `INSERT INTO tickets (org_id, ticket_type_id, created_by, title)
+       VALUES ($1, $2, $3, $4)
+       RETURNING ticket_id`,
+      [orgId, ticketTypeId, session.userId, title],
+    );
+    ticketId = Number(result.rows[0].ticket_id);
+    await txClient.query(
+      `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
+      [ticketId, session.userId, message],
+    );
+    await txClient.query(
+      `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
+      [ticketId, session.userId, "created", JSON.stringify({ title, orgId, ticketTypeId })],
+    );
+    await txClient.query(`COMMIT`);
+  } catch (err) {
+    await txClient.query(`ROLLBACK`);
+    throw err;
+  } finally {
+    txClient.release();
+  }
 
   const ticket = await loadTicketFromDb(ticketId);
   if (ticket) await cacheTicket(ticket);
@@ -7274,8 +7300,12 @@ async function handleIngestPvp(request) {
 
   const rlKey = `rl:pvp:${server.server_id}`;
   try {
-    const attempts = await redis.incr(rlKey);
-    await redis.expire(rlKey, 60);
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, rlKey, '60',
+    );
     if (attempts > PVP_INGEST_RATE_LIMIT_PER_MINUTE) {
       return json({ error: "Rate limit exceeded" }, 429);
     }
@@ -7469,8 +7499,12 @@ async function handleIngestReport(request) {
 
   const rlKey = `rl:reports:${server.server_id}`;
   try {
-    const attempts = await redis.incr(rlKey);
-    await redis.expire(rlKey, 60);
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, rlKey, '60',
+    );
     if (attempts > REPORTS_INGEST_RATE_LIMIT_PER_MINUTE) {
       return json({ error: "Rate limit exceeded" }, 429);
     }
@@ -7709,8 +7743,12 @@ async function handleIngestTeamEvent(request) {
 
   const rlKey = `rl:team:${server.server_id}`;
   try {
-    const attempts = await redis.incr(rlKey);
-    await redis.expire(rlKey, 60);
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, rlKey, '60',
+    );
     if (attempts > TEAM_INGEST_RATE_LIMIT_PER_MINUTE) {
       return json({ error: "Rate limit exceeded" }, 429);
     }
@@ -8228,8 +8266,12 @@ async function handleMuteCheck(request) {
 
   const rlKey = `rl:mute-check:${server.server_id}`;
   try {
-    const attempts = await redis.incr(rlKey);
-    await redis.expire(rlKey, 60);
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, rlKey, '60',
+    );
     if (attempts > MUTE_CHECK_RATE_LIMIT_PER_MINUTE) {
       return json({ error: "Rate limit exceeded" }, 429);
     }
@@ -8305,10 +8347,15 @@ async function getAvailableExternalKeys(orgId, service) {
      ORDER BY priority DESC, last_used_at ASC NULLS FIRST`,
     [orgId, service],
   );
-  return rows.map((r) => ({
-    keyId: String(r.key_id),
-    key: decryptExternalApiKey(String(r.key_encrypted)),
-  }));
+  const keys = [];
+  for (const r of rows) {
+    try {
+      keys.push({ keyId: String(r.key_id), key: decryptExternalApiKey(String(r.key_encrypted)) });
+    } catch {
+      console.warn(`[ext-api] key ${r.key_id} for org ${orgId}/${service} failed to decrypt, skipping`);
+    }
+  }
+  return keys;
 }
 
 async function markExternalKeyRateLimited(keyId, retryAfterSeconds) {
@@ -8759,21 +8806,20 @@ async function fetchSteamFriends(steamId, orgId) {
 }
 
 async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
-  const results = [];
-  for (const { bmId, matchCount } of relatedPlayers.slice(0, 12)) {
-    try {
+  const settled = await Promise.allSettled(
+    relatedPlayers.slice(0, 12).map(async ({ bmId, matchCount }) => {
       const profileResp = await bmFetch(
         orgId,
         `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}?include=identifier&version=%5E0.1.0`,
       );
-      if (!profileResp?.ok) continue;
+      if (!profileResp?.ok) return null;
 
       const profileJson = await profileResp.json();
-      const steamId = (profileJson.included ?? []).find(
+      const steamIdInc = (profileJson.included ?? []).find(
         (inc) =>
           inc.type === "identifier" && inc.attributes?.type === "steamID",
       );
-      const rustBans = steamId?.attributes?.metadata?.rustBans;
+      const rustBans = steamIdInc?.attributes?.metadata?.rustBans;
 
       const bansResp = await bmFetch(
         orgId,
@@ -8785,22 +8831,29 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
         bmBanCount = bansJson.data?.length ?? 0;
       }
 
-      results.push({
+      return {
         relatedBmId: String(bmId),
         relatedName: profileJson.data?.attributes?.name ?? null,
         matchCount,
         hasBmBans: bmBanCount > 0,
         bmBanCount,
         hasEacBans: (rustBans?.count ?? 0) > 0,
-        eacLastBan: rustBans?.lastBan ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000) : null,
-      });
-    } catch (err) {
-      console.warn(
-        `[player] related account ${bmId} fetch error: ${err.message}`,
-      );
-    }
-  }
-  return results;
+        eacLastBan: rustBans?.lastBan
+          ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000)
+          : null,
+      };
+    }),
+  );
+
+  return settled
+    .filter((r) => {
+      if (r.status === "rejected") {
+        console.warn(`[player] related account fetch error: ${r.reason?.message}`);
+        return false;
+      }
+      return r.value !== null;
+    })
+    .map((r) => r.value);
 }
 
 async function runProxycheckForIps(ipList, orgId) {
@@ -8985,76 +9038,81 @@ async function writeBMSessionsToCache(steamId, sessions) {
 }
 
 async function writeBMBansToCache(steamId, bans) {
-  for (const ban of bans) {
-    await pool.query(
-      `INSERT INTO player_bm_bans_cache
-         (steam_id, bm_ban_id, bm_org_id, bm_org_name, reason, note,
-          expires_at, banned_at, permanent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (bm_ban_id) DO UPDATE SET
-         bm_org_name  = EXCLUDED.bm_org_name,
-         reason       = EXCLUDED.reason,
-         note         = EXCLUDED.note,
-         expires_at   = EXCLUDED.expires_at,
-         permanent    = EXCLUDED.permanent,
-         cached_at    = unix_now(),
-         cache_expires_at = unix_now() + 2592000`,
-      [
-        steamId,
-        ban.bmBanId,
-        ban.bmOrgId,
-        ban.bmOrgName,
-        ban.reason,
-        ban.note,
-        ban.expiresAt,
-        ban.bannedAt,
-        ban.permanent,
-      ],
-    );
-  }
+  if (!bans.length) return;
+  await pool.query(
+    `INSERT INTO player_bm_bans_cache
+       (steam_id, bm_ban_id, bm_org_id, bm_org_name, reason, note,
+        expires_at, banned_at, permanent)
+     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
+            unnest($4::text[]), unnest($5::text[]), unnest($6::text[]),
+            unnest($7::bigint[]), unnest($8::bigint[]), unnest($9::boolean[])
+     ON CONFLICT (bm_ban_id) DO UPDATE SET
+       bm_org_name      = EXCLUDED.bm_org_name,
+       reason           = EXCLUDED.reason,
+       note             = EXCLUDED.note,
+       expires_at       = EXCLUDED.expires_at,
+       permanent        = EXCLUDED.permanent,
+       cached_at        = unix_now(),
+       cache_expires_at = unix_now() + 2592000`,
+    [
+      bans.map(() => steamId),
+      bans.map((b) => b.bmBanId),
+      bans.map((b) => b.bmOrgId),
+      bans.map((b) => b.bmOrgName),
+      bans.map((b) => b.reason),
+      bans.map((b) => b.note),
+      bans.map((b) => b.expiresAt),
+      bans.map((b) => b.bannedAt),
+      bans.map((b) => b.permanent),
+    ],
+  );
 }
 
 async function writeIpsToHistory(steamId, ips) {
-  for (const { ip, isProxy } of ips) {
-    await pool.query(
-      `INSERT INTO player_ip_history (steam_id, ip_address, is_vpn, last_seen)
-       VALUES ($1, $2, $3, unix_now())
-       ON CONFLICT (steam_id, ip_address) DO UPDATE SET
-         last_seen = unix_now(),
-         is_vpn    = COALESCE($3, player_ip_history.is_vpn)`,
-      [steamId, ip, isProxy],
-    );
-  }
+  if (!ips.length) return;
+  await pool.query(
+    `INSERT INTO player_ip_history (steam_id, ip_address, is_vpn, last_seen)
+     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::boolean[]), unix_now()
+     ON CONFLICT (steam_id, ip_address) DO UPDATE SET
+       last_seen = unix_now(),
+       is_vpn    = COALESCE(EXCLUDED.is_vpn, player_ip_history.is_vpn)`,
+    [
+      ips.map(() => steamId),
+      ips.map((x) => x.ip),
+      ips.map((x) => x.isProxy),
+    ],
+  );
 }
 
 async function writeRelatedAccountsToCache(steamId, accounts) {
-  for (const acc of accounts) {
-    await pool.query(
-      `INSERT INTO player_related_accounts
-         (steam_id, related_bm_id, related_name, match_count,
-          has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
-         related_name  = COALESCE(EXCLUDED.related_name, player_related_accounts.related_name),
-         match_count   = EXCLUDED.match_count,
-         has_bm_bans   = EXCLUDED.has_bm_bans,
-         bm_ban_count  = EXCLUDED.bm_ban_count,
-         has_eac_bans  = EXCLUDED.has_eac_bans,
-         eac_last_ban  = EXCLUDED.eac_last_ban,
-         cached_at     = unix_now(),
-         cache_expires_at = unix_now() + 2592000`,
-      [
-        steamId,
-        acc.relatedBmId,
-        acc.relatedName,
-        acc.matchCount,
-        acc.hasBmBans,
-        acc.bmBanCount,
-        acc.hasEacBans,
-        acc.eacLastBan,
-      ],
-    );
-  }
+  if (!accounts.length) return;
+  await pool.query(
+    `INSERT INTO player_related_accounts
+       (steam_id, related_bm_id, related_name, match_count,
+        has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban)
+     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
+            unnest($4::int[]), unnest($5::boolean[]), unnest($6::int[]),
+            unnest($7::boolean[]), unnest($8::bigint[])
+     ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
+       related_name     = COALESCE(EXCLUDED.related_name, player_related_accounts.related_name),
+       match_count      = EXCLUDED.match_count,
+       has_bm_bans      = EXCLUDED.has_bm_bans,
+       bm_ban_count     = EXCLUDED.bm_ban_count,
+       has_eac_bans     = EXCLUDED.has_eac_bans,
+       eac_last_ban     = EXCLUDED.eac_last_ban,
+       cached_at        = unix_now(),
+       cache_expires_at = unix_now() + 2592000`,
+    [
+      accounts.map(() => steamId),
+      accounts.map((a) => a.relatedBmId),
+      accounts.map((a) => a.relatedName),
+      accounts.map((a) => a.matchCount),
+      accounts.map((a) => a.hasBmBans),
+      accounts.map((a) => a.bmBanCount),
+      accounts.map((a) => a.hasEacBans),
+      accounts.map((a) => a.eacLastBan),
+    ],
+  );
 }
 
 async function writeFriendsToCache(steamId, result) {
@@ -9072,15 +9130,17 @@ async function writeFriendsToCache(steamId, result) {
   if (!result.isPublic || !result.friends?.length) return;
 
   const nowUnix = Math.floor(Date.now() / 1000);
-  for (const friendId of result.friends) {
-    await pool.query(
-      `INSERT INTO player_friends (steam_id, friend_steam_id, last_confirmed)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (steam_id, friend_steam_id) DO UPDATE SET
-         last_confirmed = $3`,
-      [steamId, friendId, nowUnix],
-    );
-  }
+  await pool.query(
+    `INSERT INTO player_friends (steam_id, friend_steam_id, last_confirmed)
+     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::bigint[])
+     ON CONFLICT (steam_id, friend_steam_id) DO UPDATE SET
+       last_confirmed = EXCLUDED.last_confirmed`,
+    [
+      result.friends.map(() => steamId),
+      result.friends,
+      result.friends.map(() => nowUnix),
+    ],
+  );
 }
 
 async function writeProxycheckToCache(ipResults) {
@@ -9179,10 +9239,12 @@ async function refreshPlayerData(steamId, orgId) {
     await writePlayerDataToRedis(steamId);
     console.log(`[player:refresh] ${steamId} — core data written to Redis`);
 
-    // Background: friends, activity, related account details, proxycheck
-    // Updates Redis a second time once all complete
+    // Secondary pass: friends, activity, related account details, proxycheck
+    // Awaited inside the try block so the fetch lock is held for the full duration,
+    // preventing a concurrent refresh from acquiring the lock and then having its
+    // Redis write overwritten by this chain finishing late.
     const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
-    Promise.all([
+    await Promise.all([
       fetchSteamFriends(steamId, orgId).then((r) =>
         writeFriendsToCache(steamId, r),
       ),
@@ -9201,18 +9263,13 @@ async function refreshPlayerData(steamId, orgId) {
             writeProxycheckToCache(r),
           )
         : Promise.resolve(),
-    ])
-      .then(async () => {
-        await writePlayerDataToRedis(steamId);
-        console.log(
-          `[player:refresh] ${steamId} — background tasks done, Redis updated`,
-        );
-      })
-      .catch((err) =>
-        console.error(
-          `[player:refresh] ${steamId} — background task error: ${err.message}`,
-        ),
-      );
+    ]).catch((err) =>
+      console.error(
+        `[player:refresh] ${steamId} — background task error: ${err.message}`,
+      ),
+    );
+    await writePlayerDataToRedis(steamId);
+    console.log(`[player:refresh] ${steamId} — background tasks done, Redis updated`);
   } catch (err) {
     console.error(
       `[player:refresh] ${steamId} — refresh failed: ${err.message}`,
@@ -9547,8 +9604,12 @@ async function handleIngestPlayerConnect(request) {
 
   const rlKey = `rl:connect:${server.server_id}`;
   try {
-    const attempts = await redis.incr(rlKey);
-    await redis.expire(rlKey, 60);
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, rlKey, '60',
+    );
     if (attempts > CONNECT_INGEST_RATE_LIMIT_PER_MINUTE)
       return json({ error: "Rate limit exceeded" }, 429);
   } catch {}
