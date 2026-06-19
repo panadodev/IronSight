@@ -194,13 +194,8 @@ function StaffPage() {
   const [sortCol, setSortCol] = useState("tickets_30d");
   const [sortDir, setSortDir] = useState("desc");
 
-  if (!orgId) return null;
-
-  const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "org_manage");
-  const isOwner = sessionOrgOwnerIds.includes(orgId);
-
   async function loadMembers() {
+    if (!orgId) return;
     setMembersLoading(true);
     try {
       const res = await fetch(
@@ -219,6 +214,7 @@ function StaffPage() {
   }
 
   async function loadCustomRoles() {
+    if (!orgId) return;
     try {
       const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/roles`, {
         credentials: "include",
@@ -231,6 +227,7 @@ function StaffPage() {
   }
 
   async function loadStaffStats() {
+    if (!orgId) return;
     try {
       const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/staff-stats`,
@@ -244,11 +241,17 @@ function StaffPage() {
   }
 
   useEffect(() => {
-    if (!orgId) return;
     loadMembers();
     loadCustomRoles();
     loadStaffStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+
+  if (!orgId) return null;
+
+  const isAdmin =
+    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "org_manage");
+  const isOwner = sessionOrgOwnerIds.includes(orgId);
 
   async function handleAdd() {
     const id = discordId.trim();
