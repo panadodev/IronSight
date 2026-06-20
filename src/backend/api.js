@@ -350,9 +350,38 @@ function redirect(location, headers = new Headers()) {
 }
 
 function getClientIp(request) {
+  // Prefer the edge-provided client IP (Cloudflare), which a client cannot
+  // forge. Fall back to the right-most x-forwarded-for hop (closest to our
+  // edge) rather than the left-most, which is fully client-controlled.
+  const cf = request.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
   const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
+  if (fwd) {
+    const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
   return "unknown";
+}
+
+// Generic Redis sliding-window-ish limiter. Returns a 429 response when the
+// caller exceeds `limit` actions within `windowSeconds`, otherwise null.
+// Fails open (returns null) if Redis is unavailable, matching rateLimitLogin.
+async function checkRateLimit(key, limit, windowSeconds = 60) {
+  if (!redis) return null;
+  try {
+    const n = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1, key, String(windowSeconds),
+    );
+    if (n > limit) {
+      return json({ error: "Too many requests. Slow down." }, 429);
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function parseMaybeList(value) {
@@ -430,6 +459,33 @@ function orgHasPermission(session, orgId, permissionId) {
     (session.orgPermissions?.[orgId] ?? []).includes(permissionId)
   );
 }
+
+// Permission IDs that may be assigned to a custom role via the role editor.
+// Must stay in sync with the `permissions` table seed in runMigrations().
+const ASSIGNABLE_PERMISSIONS = [
+  "todo_read",
+  "todo_write",
+  "todo_delete",
+  "org_manage",
+  "role_create",
+  "rcon_access",
+  "scripts_view",
+  "scripts_manage",
+  "presets_manage",
+  "status_view",
+  "servers_manage",
+  "tickets_view",
+  "tickets_manage",
+  "tickets_player_intel",
+  "ban_configs_manage",
+  "toxicity_manage",
+  "predefines_manage",
+  "bans_delete",
+  "players_view",
+  "bans_manage",
+  "triggers_manage",
+  "discord_mod",
+];
 
 function getBaseUrl(request) {
   return env.appUrl ?? new URL(request.url).origin;
@@ -2699,7 +2755,9 @@ async function handleAuthMe(request) {
       steamId: session.steamId,
       groups: freshAccess.groups,
       orgAdminOrgIds: freshAccess.orgAdminOrgIds,
+      orgOwnerOrgIds: freshAccess.orgOwnerOrgIds ?? [],
       orgPermissions: freshAccess.orgPermissions ?? {},
+      globalAdmin: isGlobalAdmin(session),
       isSysAdmin: isConfiguredSysAdmin(session),
     },
   });
@@ -3407,16 +3465,8 @@ async function handleCreateOrgRole(request, orgId) {
 
   // Add permissions to the role
   if (permissions.length > 0) {
-    const validPermissions = [
-      "todo_read", "todo_write", "org_manage", "role_create",
-      "rcon_access", "scripts_view", "scripts_manage", "presets_manage",
-      "status_view", "servers_manage", "tickets_view", "tickets_manage",
-      "tickets_player_intel",
-      "ban_configs_manage", "toxicity_manage", "predefines_manage", "bans_delete",
-      "players_view", "bans_manage", "triggers_manage", "discord_mod",
-    ];
     const filteredPermissions = permissions.filter((p) =>
-      validPermissions.includes(String(p).trim()),
+      ASSIGNABLE_PERMISSIONS.includes(String(p).trim()),
     );
 
     // Prevent privilege escalation: custom role_create users cannot grant
@@ -3566,31 +3616,9 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
   if (hasPermissions || hasTicketTypes || hasDiscordRoles) {
     let filteredPerms = [];
     if (hasPermissions) {
-      const VALID_PERMISSIONS = [
-        "todo_read",
-        "todo_write",
-        "org_manage",
-        "role_create",
-        "rcon_access",
-        "scripts_view",
-        "scripts_manage",
-        "presets_manage",
-        "status_view",
-        "servers_manage",
-        "tickets_view",
-        "tickets_manage",
-        "ban_configs_manage",
-        "toxicity_manage",
-        "predefines_manage",
-        "bans_delete",
-        "players_view",
-        "bans_manage",
-        "triggers_manage",
-        "discord_mod",
-      ];
       filteredPerms = body.permissions
         .map((p) => String(p).trim())
-        .filter((p) => VALID_PERMISSIONS.includes(p));
+        .filter((p) => ASSIGNABLE_PERMISSIONS.includes(p));
 
       // Prevent privilege escalation: custom role_create users cannot grant
       // permissions they don't hold themselves, but may preserve ones already
@@ -3875,6 +3903,26 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     if (!customRoleRes.rows[0]) {
       return json({ error: "Invalid role" }, 400);
     }
+
+    // Prevent escalation-by-proxy: a non-admin/owner actor (e.g. a custom role
+    // holding org_manage) cannot assign a member to a role that grants
+    // permissions the actor does not personally hold.
+    if (!canManageOrg(session, orgId)) {
+      const rolePermsRes = await pool.query(
+        `SELECT permission_id FROM role_permissions WHERE role_id = $1`,
+        [resolvedTeam],
+      );
+      const userPerms = new Set(session.orgPermissions?.[orgId] ?? []);
+      const escalated = rolePermsRes.rows
+        .map((r) => String(r.permission_id))
+        .filter((p) => !userPerms.has(p));
+      if (escalated.length > 0) {
+        return json(
+          { error: "Cannot assign a role granting permissions you do not hold" },
+          403,
+        );
+      }
+    }
   }
 
   // Determine if the actor is an org owner (vs just admin)
@@ -4107,7 +4155,7 @@ async function handleGetStaffAuditLog(request, orgId) {
   const url = new URL(request.url);
   const staffId = url.searchParams.get("staffId");
   const limit = parseLimit(url.searchParams.get("limit"), 50, 500);
-  const offset = Number(url.searchParams.get("offset") ?? 0);
+  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset"))) || 0);
 
   if (!staffId) {
     return json({ error: "staffId query parameter is required" }, 400);
@@ -4914,6 +4962,9 @@ async function handleCreateTicket(request) {
     );
   }
 
+  const rl = await checkRateLimit(`rl:ticket:${session.userId}`, 10, 60);
+  if (rl) return rl;
+
   let body;
   try {
     body = await request.json();
@@ -5334,7 +5385,7 @@ async function handleListOrgTickets(request, orgId) {
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status");
   const limit = parseLimit(url.searchParams.get("limit"), 50, 200);
-  const offset = Number(url.searchParams.get("offset") ?? 0);
+  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset"))) || 0);
 
   const conditions = ["t.org_id = $1"];
   const values = [orgId];
@@ -7109,6 +7160,8 @@ async function handlePluginPush(request, orgId, pluginId) {
   if (!pluginRes.rows[0]) return json({ error: "Plugin not found" }, 404);
 
   const { name, assigned_tags, latest_version } = pluginRes.rows[0];
+  // Strip control chars before interpolating into the RCON console command.
+  const safeName = String(name).replace(/[\r\n\x00-\x1f]/g, "");
   const tags = Array.isArray(assigned_tags) ? assigned_tags : [];
 
   const results = { pushed: [], failed: [] };
@@ -7126,7 +7179,7 @@ async function handlePluginPush(request, orgId, pluginId) {
         }
         const rconUrl = `ws://${s.rcon_host}:${s.rcon_port}/${encodeURIComponent(password)}`;
         try {
-          await executeRconCommand(rconUrl, `oxide.reload ${name}`);
+          await executeRconCommand(rconUrl, `oxide.reload ${safeName}`);
           results.pushed.push(s.server_id);
         } catch {
           results.failed.push(s.server_id);
@@ -7191,7 +7244,10 @@ async function handleUnloadRisk(request, orgId) {
           }
           const rconUrl = `ws://${s.rcon_host}:${s.rcon_port}/${encodeURIComponent(password)}`;
           try {
-            await executeRconCommand(rconUrl, `oxide.unload ${p.name}`);
+            await executeRconCommand(
+              rconUrl,
+              `oxide.unload ${String(p.name).replace(/[\r\n\x00-\x1f]/g, "")}`,
+            );
             results.unloaded.push({
               pluginId: p.plugin_id,
               serverId: s.server_id,
@@ -7417,6 +7473,13 @@ async function handleExecRconCommand(request, serverId) {
     return json({ error: "Forbidden: rcon_access permission required" }, 403);
   }
 
+  const rl = await checkRateLimit(
+    `rl:rcon:${session.userId}:${serverId}`,
+    30,
+    60,
+  );
+  if (rl) return rl;
+
   if (!rcon_host || !rcon_port || !rcon_password_enc) {
     return json({ error: "RCON not configured for this server" }, 400);
   }
@@ -7440,15 +7503,28 @@ async function handleExecRconCommand(request, serverId) {
 
   const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(rconPassword)}`;
 
+  let rconResult = null;
+  let rconErr = null;
   try {
-    const { response, consoleLogs } = await executeRconCommand(
-      rconUrl,
-      command,
-    );
-    return json({ ok: true, response, consoleLogs });
+    rconResult = await executeRconCommand(rconUrl, command);
   } catch (err) {
-    return json({ error: `RCON error: ${String(err?.message ?? err)}` }, 502);
+    rconErr = String(err?.message ?? err);
   }
+
+  auditLog({
+    orgId: owner_org_id,
+    actorUserId: session.userId,
+    resourceType: "server",
+    resourceId: serverId,
+    actionType: "RCON_COMMAND",
+    actionCategory: "server_management",
+    severity: 2,
+    metadata: { command, success: rconErr === null },
+    ipAddress: getClientIp(request),
+  });
+
+  if (rconErr) return json({ error: `RCON error: ${rconErr}` }, 502);
+  return json({ ok: true, response: rconResult.response, consoleLogs: rconResult.consoleLogs });
 }
 
 async function handleServerHealthCheck(request) {
@@ -8443,6 +8519,9 @@ async function handleCreateBan(request, orgId) {
   if (!orgHasPermission(session, orgId, "bans_manage"))
     return json({ error: "Forbidden: bans_manage permission required" }, 403);
 
+  const rl = await checkRateLimit(`rl:ban:${session.userId}`, 30, 60);
+  if (rl) return rl;
+
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: "Invalid JSON" }, 400);
 
@@ -8450,12 +8529,16 @@ async function handleCreateBan(request, orgId) {
     actionType = "ban",
     identifier,
     identifierType,
-    reason = "",
-    note = "",
+    reason: rawReason = "",
+    note: rawNote = "",
     expiresAt,
     serverIds = [],
     category,
   } = body;
+
+  // Cap free-text fields to bound DB writes and RCON command size.
+  const reason = String(rawReason).slice(0, 500);
+  const note = String(rawNote).slice(0, 1000);
 
   if (!identifier?.trim())
     return json({ error: "identifier is required" }, 400);
@@ -8483,7 +8566,13 @@ async function handleCreateBan(request, orgId) {
   }
 
   const banId = crypto.randomUUID();
-  const expiresAtUnix = expiresAt ? Number(expiresAt) : null;
+  let expiresAtUnix = null;
+  if (expiresAt != null && expiresAt !== "") {
+    const n = Number(expiresAt);
+    if (!Number.isFinite(n) || n < 0)
+      return json({ error: "expiresAt must be a valid Unix timestamp" }, 400);
+    expiresAtUnix = Math.trunc(n);
+  }
 
   await pool.query(
     `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_type, category, reason, note, expires_at, issued_by)
@@ -8543,7 +8632,9 @@ async function handleCreateBan(request, orgId) {
         } else if (identifierType === "ip") {
           command = `banip ${safeId}`;
         } else {
-          const safeReason = reason.replace(/"/g, "'");
+          const safeReason = reason
+            .replace(/[\r\n\x00-\x1f]/g, " ")
+            .replace(/"/g, "'");
           command = `ban ${safeId} "${safeReason}"`;
         }
         const result = await executeRconCommand(rconUrl, command);
@@ -8564,6 +8655,25 @@ async function handleCreateBan(request, orgId) {
     }
   }
 
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: actionType === "mute" ? "mute" : "ban",
+    resourceId: banId,
+    actionType: actionType === "mute" ? "MUTE_CREATED" : "BAN_CREATED",
+    actionCategory: "moderation",
+    severity: 3,
+    metadata: {
+      identifier: identifier.trim(),
+      identifierType,
+      reason,
+      category: category ?? null,
+      expiresAt: expiresAtUnix,
+      serverIds: validServerIds,
+    },
+    ipAddress: getClientIp(request),
+  });
+
   return json({ ok: true, banId, rconResults }, 201);
 }
 
@@ -8574,10 +8684,11 @@ async function handleUpdateBan(request, orgId, banId) {
     return json({ error: "Forbidden: bans_manage permission required" }, 403);
 
   const banCheck = await pool.query(
-    `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    `SELECT ban_id, action_type FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
     [banId, orgId],
   );
   if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
+  const existingActionType = String(banCheck.rows[0].action_type);
 
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: "Invalid JSON" }, 400);
@@ -8588,17 +8699,24 @@ async function handleUpdateBan(request, orgId, banId) {
 
   if (body.reason !== undefined) {
     sets.push(`reason = $${idx}`);
-    params.push(String(body.reason));
+    params.push(String(body.reason).slice(0, 500));
     idx++;
   }
   if (body.note !== undefined) {
     sets.push(`note = $${idx}`);
-    params.push(String(body.note));
+    params.push(String(body.note).slice(0, 1000));
     idx++;
   }
   if ("expiresAt" in body) {
+    let expiresAtUnix = null;
+    if (body.expiresAt != null && body.expiresAt !== "") {
+      const n = Number(body.expiresAt);
+      if (!Number.isFinite(n) || n < 0)
+        return json({ error: "expiresAt must be a valid Unix timestamp" }, 400);
+      expiresAtUnix = Math.trunc(n);
+    }
     sets.push(`expires_at = $${idx}`);
-    params.push(body.expiresAt ? Number(body.expiresAt) : null);
+    params.push(expiresAtUnix);
     idx++;
   }
 
@@ -8608,6 +8726,23 @@ async function handleUpdateBan(request, orgId, banId) {
       params,
     );
   }
+
+  const changes = {};
+  if (body.reason !== undefined) changes.reason = body.reason;
+  if (body.note !== undefined) changes.note = body.note;
+  if ("expiresAt" in body) changes.expiresAt = body.expiresAt;
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: existingActionType === "mute" ? "mute" : "ban",
+    resourceId: banId,
+    actionType: existingActionType === "mute" ? "MUTE_UPDATED" : "BAN_UPDATED",
+    actionCategory: "moderation",
+    severity: 2,
+    metadata: { changes },
+    ipAddress: getClientIp(request),
+  });
 
   return json({ ok: true });
 }
@@ -8633,6 +8768,18 @@ async function handleRevokeBan(request, orgId, banId) {
      WHERE ban_id = $1 AND org_id = $2`,
     [banId, orgId, session.userId],
   );
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: action_type === "mute" ? "mute" : "ban",
+    resourceId: banId,
+    actionType: action_type === "mute" ? "MUTE_REVOKED" : "BAN_REVOKED",
+    actionCategory: "moderation",
+    severity: 3,
+    metadata: { identifier: String(identifier), identifierType: String(identifier_type) },
+    ipAddress: getClientIp(request),
+  });
 
   const rconResults = [];
   if (action_type !== "mute") {
@@ -10847,6 +10994,18 @@ async function handleGetPlayer(request, steamId) {
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
 
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "player",
+    resourceId: steamId,
+    actionType: "PLAYER_VIEWED",
+    actionCategory: "player_management",
+    severity: 1,
+    metadata: { steamId },
+    ipAddress: getClientIp(request),
+  });
+
   // Redis first — avoids 6 PostgreSQL queries on the hot path
   const fromRedis = await getPlayerDataFromRedis(steamId);
   if (fromRedis) {
@@ -10950,6 +11109,8 @@ async function handleGetPlayerReports(request, steamId) {
 async function handleSearchOrgPlayers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
 
   const url = new URL(request.url);
   const q = String(url.searchParams.get("q") ?? "").trim();
@@ -12778,8 +12939,8 @@ async function handleGetDiscordModLog(request, orgId) {
   }
 
   const url = new URL(request.url);
-  const limit = Math.min(100, parseInt(url.searchParams.get("limit") ?? "50", 10));
-  const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+  const limit = Math.min(100, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || 50));
+  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset"))) || 0);
   const targetId = url.searchParams.get("target_discord_id") ?? null;
 
   const conditions = ["ml.org_id = $1"];

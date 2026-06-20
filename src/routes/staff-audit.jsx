@@ -34,6 +34,14 @@ const ACTION_META = {
     label: "Ptero key removed",
     color: "hsl(30 60% 50%)",
   },
+  PLAYER_VIEWED: { label: "Player viewed", color: "hsl(200 70% 60%)" },
+  BAN_CREATED: { label: "Ban created", color: "hsl(0 80% 55%)" },
+  MUTE_CREATED: { label: "Mute created", color: "hsl(25 80% 55%)" },
+  BAN_UPDATED: { label: "Ban updated", color: "hsl(15 70% 55%)" },
+  MUTE_UPDATED: { label: "Mute updated", color: "hsl(35 70% 55%)" },
+  BAN_REVOKED: { label: "Ban revoked", color: "hsl(160 65% 50%)" },
+  MUTE_REVOKED: { label: "Mute revoked", color: "hsl(145 65% 50%)" },
+  RCON_COMMAND: { label: "RCON command", color: "hsl(270 65% 60%)" },
 };
 
 function actionMeta(type) {
@@ -185,6 +193,28 @@ function formatDetail(log) {
       return m.roleId ?? "";
     case "PTERODACTYL_API_KEY_SET":
       return m.panelHost ?? "";
+    case "PLAYER_VIEWED":
+      return m.steamId ?? log.resourceId ?? "";
+    case "BAN_CREATED":
+    case "MUTE_CREATED": {
+      const parts = [m.identifier];
+      if (m.reason) parts.push(m.reason);
+      if (m.expiresAt)
+        parts.push(`exp ${new Date(m.expiresAt * 1000).toLocaleDateString()}`);
+      return parts.filter(Boolean).join(" · ");
+    }
+    case "BAN_UPDATED":
+    case "MUTE_UPDATED": {
+      const changed = Object.keys(m.changes ?? {});
+      return changed.length ? `changed: ${changed.join(", ")}` : "—";
+    }
+    case "BAN_REVOKED":
+    case "MUTE_REVOKED":
+      return m.identifier ?? log.resourceId ?? "";
+    case "RCON_COMMAND":
+      return [m.command, m.success === false ? "(failed)" : null]
+        .filter(Boolean)
+        .join(" ");
     default:
       return Object.entries(m)
         .filter(([, v]) => v != null && v !== "")
