@@ -1528,6 +1528,19 @@ async function ensureSchema() {
   await pool.query(`
     ALTER TABLE todos ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium'
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_blacklisted_words (
+      word_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      word TEXT NOT NULL,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      UNIQUE (org_id, word)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_blacklisted_words_org_id ON org_blacklisted_words(org_id)`,
+  );
 }
 
 async function migrateTimestampsToUnix() {
@@ -8506,7 +8519,7 @@ async function handleCreateBan(request, orgId) {
   }
 
   const rconResults = [];
-  if (validServerIds.length > 0) {
+  if (validServerIds.length > 0 && actionType !== "mute") {
     const serversWithRcon = await pool.query(
       `SELECT server_id, server_name, rcon_host, rcon_port, rcon_password_enc
        FROM servers
@@ -8621,44 +8634,44 @@ async function handleRevokeBan(request, orgId, banId) {
     [banId, orgId, session.userId],
   );
 
-  const targetServers = await pool.query(
-    `SELECT s.server_id, s.server_name, s.rcon_host, s.rcon_port, s.rcon_password_enc
-     FROM ban_server_targets bst
-     JOIN servers s ON s.server_id = bst.server_id
-     WHERE bst.ban_id = $1
-       AND s.rcon_host IS NOT NULL
-       AND s.rcon_port IS NOT NULL
-       AND s.rcon_password_enc IS NOT NULL`,
-    [banId],
-  );
-
   const rconResults = [];
-  for (const srv of targetServers.rows) {
-    try {
-      const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
-      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
-      let command;
-      if (action_type === "mute") {
-        command = `unmute ${String(identifier)}`;
-      } else if (identifier_type === "ip") {
-        command = `unbanip ${String(identifier)}`;
-      } else {
-        command = `unban ${String(identifier)}`;
+  if (action_type !== "mute") {
+    const targetServers = await pool.query(
+      `SELECT s.server_id, s.server_name, s.rcon_host, s.rcon_port, s.rcon_password_enc
+       FROM ban_server_targets bst
+       JOIN servers s ON s.server_id = bst.server_id
+       WHERE bst.ban_id = $1
+         AND s.rcon_host IS NOT NULL
+         AND s.rcon_port IS NOT NULL
+         AND s.rcon_password_enc IS NOT NULL`,
+      [banId],
+    );
+
+    for (const srv of targetServers.rows) {
+      try {
+        const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+        let command;
+        if (identifier_type === "ip") {
+          command = `unbanip ${String(identifier)}`;
+        } else {
+          command = `unban ${String(identifier)}`;
+        }
+        const result = await executeRconCommand(rconUrl, command);
+        rconResults.push({
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          ok: true,
+          response: result.response,
+        });
+      } catch (err) {
+        rconResults.push({
+          serverId: String(srv.server_id),
+          serverName: String(srv.server_name),
+          ok: false,
+          error: String(err.message),
+        });
       }
-      const result = await executeRconCommand(rconUrl, command);
-      rconResults.push({
-        serverId: String(srv.server_id),
-        serverName: String(srv.server_name),
-        ok: true,
-        response: result.response,
-      });
-    } catch (err) {
-      rconResults.push({
-        serverId: String(srv.server_id),
-        serverName: String(srv.server_name),
-        ok: false,
-        error: String(err.message),
-      });
     }
   }
 
@@ -8748,6 +8761,171 @@ async function handleMuteCheck(request) {
     reason: String(row.reason),
     expiresAt: expiresUnix,
     expiresUnix,
+  });
+}
+
+const MUTE_SYNC_RATE_LIMIT_PER_MINUTE = 120;
+
+async function handleIngestMuteSync(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw)
+    return json({ error: "Missing API key (x-api-key header or Authorization: Bearer <key>)" }, 401);
+
+  const apiKeyHash = crypto.createHash("sha256").update(apiKeyRaw).digest("hex");
+  const serverRes = await pool.query(
+    "SELECT server_id, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  const rlKey = `rl:mute-sync:${server.server_id}`;
+  try {
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1,
+      rlKey,
+      "60",
+    );
+    if (attempts > MUTE_SYNC_RATE_LIMIT_PER_MINUTE)
+      return json({ error: "Rate limit exceeded" }, 429);
+  } catch {
+    // fail-open
+  }
+
+  const body = await request.json().catch(() => null);
+  if (!body || !Array.isArray(body.steam_ids))
+    return json({ error: "steam_ids array is required" }, 400);
+
+  const steamIds = body.steam_ids
+    .filter((id) => typeof id === "string" && /^765611\d{11}$/.test(id.trim()))
+    .map((id) => id.trim())
+    .slice(0, 200);
+
+  if (steamIds.length === 0) return json({ active_mutes: {} });
+
+  const { rows } = await pool.query(
+    `SELECT pb.identifier, pb.expires_at
+     FROM player_bans pb
+     WHERE pb.action_type = 'mute'
+       AND pb.revoked = FALSE
+       AND (pb.expires_at IS NULL OR pb.expires_at > unix_now())
+       AND pb.identifier = ANY($1)
+       AND pb.identifier_type = 'steam_id'
+       AND pb.org_id = $2
+       AND (
+         NOT EXISTS (SELECT 1 FROM ban_server_targets bst WHERE bst.ban_id = pb.ban_id)
+         OR EXISTS (SELECT 1 FROM ban_server_targets bst WHERE bst.ban_id = pb.ban_id AND bst.server_id = $3)
+       )`,
+    [steamIds, server.owner_org_id, server.server_id],
+  );
+
+  const active_mutes = {};
+  for (const row of rows) {
+    active_mutes[row.identifier] = row.expires_at ? Number(row.expires_at) : null;
+  }
+
+  return json({ active_mutes });
+}
+
+async function handleGetBlacklistedWords(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "triggers_manage"))
+    return json({ error: "Forbidden" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT word_id, word, created_at FROM org_blacklisted_words WHERE org_id = $1 ORDER BY created_at ASC`,
+    [orgId],
+  );
+  return json({
+    words: rows.map((r) => ({
+      word_id: r.word_id,
+      word: r.word,
+      created_at: Number(r.created_at),
+    })),
+  });
+}
+
+async function handleAddBlacklistedWord(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "triggers_manage"))
+    return json({ error: "Forbidden" }, 403);
+
+  const body = await request.json().catch(() => null);
+  if (!body) return json({ error: "Invalid JSON" }, 400);
+
+  const word = (body.word ?? "").trim().toLowerCase();
+  if (!word) return json({ error: "word is required" }, 400);
+  if (word.length > 100) return json({ error: "word must be 100 characters or fewer" }, 400);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_blacklisted_words (org_id, word)
+     VALUES ($1, $2)
+     ON CONFLICT (org_id, word) DO NOTHING
+     RETURNING word_id, word, created_at`,
+    [orgId, word],
+  );
+
+  if (!rows[0]) {
+    const existing = await pool.query(
+      `SELECT word_id, word, created_at FROM org_blacklisted_words WHERE org_id = $1 AND word = $2`,
+      [orgId, word],
+    );
+    const r = existing.rows[0];
+    return json({ word_id: r.word_id, word: r.word, created_at: Number(r.created_at) }, 200);
+  }
+
+  const r = rows[0];
+  return json({ word_id: r.word_id, word: r.word, created_at: Number(r.created_at) }, 201);
+}
+
+async function handleDeleteBlacklistedWord(request, orgId, wordId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "triggers_manage"))
+    return json({ error: "Forbidden" }, 403);
+
+  const result = await pool.query(
+    `DELETE FROM org_blacklisted_words WHERE word_id = $1 AND org_id = $2`,
+    [wordId, orgId],
+  );
+
+  if (result.rowCount === 0) return json({ error: "Word not found" }, 404);
+  return json({ ok: true });
+}
+
+async function handleGetBlacklistedWordsForServer(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKeyRaw = (
+    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
+  ).trim();
+  if (!apiKeyRaw) return json({ error: "Missing API key" }, 401);
+
+  const apiKeyHash = crypto.createHash("sha256").update(apiKeyRaw).digest("hex");
+  const serverRes = await pool.query(
+    "SELECT server_id, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
+    [apiKeyHash],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
+  const server = serverRes.rows[0];
+
+  const { rows } = await pool.query(
+    `SELECT word FROM org_blacklisted_words WHERE org_id = $1 ORDER BY created_at ASC`,
+    [server.owner_org_id],
+  );
+
+  return new Response(rows.map((r) => r.word).join(";"), {
+    status: 200,
+    headers: { "Content-Type": "text/plain" },
   });
 }
 
@@ -11635,6 +11813,12 @@ async function _handleApiRequest(request) {
     if (pathname === "/api/mute-check" && request.method === "GET")
       return handleMuteCheck(request);
 
+    if (pathname === "/api/ingest/mute-sync" && request.method === "POST")
+      return handleIngestMuteSync(request);
+
+    if (pathname === "/api/blacklisted-words" && request.method === "GET")
+      return handleGetBlacklistedWordsForServer(request);
+
     // External API key rate limit stats
     const orgExternalKeyStatsMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/external-keys\/stats$/,
@@ -11665,6 +11849,25 @@ async function _handleApiRequest(request) {
         request,
         orgExternalKeyDetailMatch[1],
         orgExternalKeyDetailMatch[2],
+      );
+
+    // Blacklisted words (management UI)
+    const orgBlacklistedWordsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/blacklisted-words$/,
+    );
+    if (orgBlacklistedWordsMatch && request.method === "GET")
+      return handleGetBlacklistedWords(request, orgBlacklistedWordsMatch[1]);
+    if (orgBlacklistedWordsMatch && request.method === "POST")
+      return handleAddBlacklistedWord(request, orgBlacklistedWordsMatch[1]);
+
+    const orgBlacklistedWordDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/blacklisted-words\/([a-f0-9-]+)$/,
+    );
+    if (orgBlacklistedWordDetailMatch && request.method === "DELETE")
+      return handleDeleteBlacklistedWord(
+        request,
+        orgBlacklistedWordDetailMatch[1],
+        orgBlacklistedWordDetailMatch[2],
       );
 
     // Public server list (for ticket submission portal — no auth required)

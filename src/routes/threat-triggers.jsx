@@ -21,8 +21,9 @@ import {
   Save,
   ShieldAlert,
   Trash2,
+  X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 const Route = createFileRoute("/threat-triggers")({
   head: () => ({ meta: [{ title: "Threat Triggers \u2014 IronSight" }] }),
   component: ThreatTriggersPage,
@@ -273,6 +274,65 @@ function ThreatTriggersPage() {
   const [tab, setTab] = useState("cheating");
   const [dataByOrg, setDataByOrg] = useState({});
   const [dirty, setDirty] = useState(false);
+  const [words, setWords] = useState([]);
+  const [wordsLoading, setWordsLoading] = useState(false);
+  const [wordInput, setWordInput] = useState("");
+
+  const fetchWords = useCallback(async () => {
+    if (!orgId) return;
+    setWordsLoading(true);
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/blacklisted-words`);
+      if (res.ok) {
+        const data = await res.json();
+        setWords(data.words ?? []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setWordsLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    fetchWords();
+  }, [fetchWords]);
+
+  const addWord = async () => {
+    const trimmed = wordInput.trim().toLowerCase();
+    if (!trimmed || !orgId) return;
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/blacklisted-words`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word: trimmed }),
+      });
+      if (res.ok) {
+        const newWord = await res.json();
+        setWords((prev) => [
+          ...prev.filter((w) => w.word_id !== newWord.word_id),
+          newWord,
+        ]);
+        setWordInput("");
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const deleteWord = async (wordId) => {
+    if (!orgId) return;
+    try {
+      const res = await fetch(
+        `/api/orgs/${orgId}/blacklisted-words/${wordId}`,
+        { method: "DELETE" },
+      );
+      if (res.ok) setWords((prev) => prev.filter((w) => w.word_id !== wordId));
+    } catch {
+      // ignore
+    }
+  };
+
   if (!orgId || !org || !canManageTriggers) {
     return (
       <div className="h-screen w-full flex flex-col bg-background">
@@ -565,6 +625,69 @@ function ThreatTriggersPage() {
               .
             </span>
           </div>
+
+          {/* Blacklisted Words */}
+          <section className="rounded-md ring-1 ring-border bg-surface/40">
+            <div className="px-4 py-3 border-b border-border">
+              <h2 className="text-sm font-semibold">Blacklisted Words</h2>
+              <p className="text-[11px] text-muted-foreground">
+                Returned to the game plugin via{" "}
+                <span className="font-mono text-foreground">
+                  GET /api/blacklisted-words
+                </span>{" "}
+                as a semicolon-separated string. The plugin polls this every 30
+                seconds and handles chat filtering server-side.
+              </p>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  value={wordInput}
+                  onChange={(e) => setWordInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addWord();
+                    }
+                  }}
+                  placeholder="Add a word..."
+                  className="h-8 text-sm max-w-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={addWord}
+                  disabled={!wordInput.trim()}
+                >
+                  <Plus className="size-3.5" /> Add
+                </Button>
+              </div>
+              {wordsLoading ? (
+                <p className="text-xs text-muted-foreground">Loading...</p>
+              ) : words.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No blacklisted words configured.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {words.map((w) => (
+                    <span
+                      key={w.word_id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface ring-1 ring-border text-xs font-mono"
+                    >
+                      {w.word}
+                      <button
+                        onClick={() => deleteWord(w.word_id)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </div>

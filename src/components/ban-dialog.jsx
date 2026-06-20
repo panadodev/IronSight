@@ -40,7 +40,7 @@ function BanDialog({
   onSubmit,
   mode = "ban",
 }) {
-  const { orgBanConfigs, orgMuteConfigs } = useAuth();
+  const { orgBanConfigs, orgMuteConfigs, loadOrgBanConfigs } = useAuth();
   const isMute = mode === "mute";
   const isOther = !isMute && category === "other";
   const banCategory = isOther ? null : category;
@@ -55,6 +55,13 @@ function BanDialog({
   const [customReason, setCustomReason] = useState("");
   const [length, setLength] = useState("7d");
   const [note, setNote] = useState("");
+  useEffect(() => {
+    if (!open || !orgId) return;
+    if (orgBanConfigs[orgId] === undefined) {
+      loadOrgBanConfigs(orgId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, orgId]);
   useEffect(() => {
     if (!open) return;
     setReasonId(isOther ? "__custom__" : (reasons[0]?.id ?? "__custom__"));

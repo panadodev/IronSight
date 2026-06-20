@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { BanConfigsPanel } from "@/components/manage-org-dialog";
@@ -10,38 +10,21 @@ const Route = createFileRoute("/manage/ban-configs")({
 });
 
 function BanConfigsPage() {
-  const { sessionUser, hasOrgPermission } = useAuth();
+  const { sessionUser, hasOrgPermission, orgBanConfigs, orgMuteConfigs, loadOrgBanConfigs } =
+    useAuth();
   const orgId = useManageOrgId();
-  const [data, setData] = useState({
-    configs: {},
-    mute: { reasons: [], noteFormat: "" },
-  });
+  const [loading, setLoading] = useState(false);
 
   const isAdmin =
     Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "ban_configs_manage");
 
-  const load = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ban-configs`,
-        { credentials: "include" },
-      );
-      if (res.ok) {
-        const body = await res.json();
-        setData({
-          configs: body.configs ?? {},
-          mute: body.mute ?? { reasons: [], noteFormat: "" },
-        });
-      }
-    } catch {
-      /* ignore */
-    }
-  }, [orgId]);
-
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!orgId) return;
+    setLoading(true);
+    loadOrgBanConfigs(orgId).finally(() => setLoading(false));
+  }, [orgId, loadOrgBanConfigs]);
+
+  const refresh = () => loadOrgBanConfigs(orgId);
 
   const addReason = async (category, label) => {
     const res = await fetch(
@@ -55,11 +38,11 @@ function BanConfigsPage() {
     );
     const body = await res.json().catch(() => null);
     if (!res.ok) return { ok: false, error: body?.error ?? "Failed to add." };
-    await load();
+    await refresh();
     return { ok: true };
   };
 
-  const updateReason = async (id, label) => {
+  const updateReason = async (category, id, label) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/ban-configs/reasons/${encodeURIComponent(id)}`,
       {
@@ -71,11 +54,11 @@ function BanConfigsPage() {
     );
     const body = await res.json().catch(() => null);
     if (!res.ok) return { ok: false, error: body?.error ?? "Failed to save." };
-    await load();
+    await refresh();
     return { ok: true };
   };
 
-  const removeReason = async (id) => {
+  const removeReason = async (category, id) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/ban-configs/reasons/${encodeURIComponent(id)}`,
       { method: "DELETE", credentials: "include" },
@@ -84,7 +67,7 @@ function BanConfigsPage() {
       const body = await res.json().catch(() => null);
       return { ok: false, error: body?.error ?? "Failed to remove." };
     }
-    await load();
+    await refresh();
     return { ok: true };
   };
 
@@ -100,11 +83,17 @@ function BanConfigsPage() {
     );
     const body = await res.json().catch(() => null);
     if (!res.ok) return { ok: false, error: body?.error ?? "Failed to save." };
-    await load();
+    await refresh();
     return { ok: true };
   };
 
   if (!orgId) return null;
+
+  const banCfg = orgBanConfigs[orgId];
+  const muteCfg = orgMuteConfigs[orgId];
+  const allConfigs = banCfg
+    ? { ...banCfg, mute: muteCfg ?? { reasons: [], noteFormat: "" } }
+    : null;
 
   return (
     <GateRank rank={isAdmin ? 4 : 0} required={4}>
@@ -112,19 +101,18 @@ function BanConfigsPage() {
         title="Ban configs"
         blurb="Pre-set ban reasons and note templates per report category."
       />
-      <BanConfigsPanel
-        orgId={orgId}
-        configs={data.configs}
-        muteConfig={data.mute}
-        onAddReason={(cat, label) => addReason(cat, label)}
-        onUpdateReason={(cat, id, label) => updateReason(id, label)}
-        onRemoveReason={(cat, id) => removeReason(id)}
-        onSetNoteFormat={(cat, fmt) => setNoteFormat(cat, fmt)}
-        onAddMuteReason={(label) => addReason("mute", label)}
-        onUpdateMuteReason={(id, label) => updateReason(id, label)}
-        onRemoveMuteReason={(id) => removeReason(id)}
-        onSetMuteNoteFormat={(fmt) => setNoteFormat("mute", fmt)}
-      />
+      {loading && !allConfigs ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <BanConfigsPanel
+          orgId={orgId}
+          configs={allConfigs ?? {}}
+          onAddReason={addReason}
+          onUpdateReason={updateReason}
+          onRemoveReason={removeReason}
+          onSetNoteFormat={setNoteFormat}
+        />
+      )}
     </GateRank>
   );
 }

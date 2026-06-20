@@ -341,38 +341,45 @@ const ALL_TABS = [...BAN_CATEGORIES, "mute"];
 function BanConfigsPanel({
   orgId,
   configs,
-  muteConfig,
   onAddReason,
   onUpdateReason,
   onRemoveReason,
   onSetNoteFormat,
-  onAddMuteReason,
-  onUpdateMuteReason,
-  onRemoveMuteReason,
-  onSetMuteNoteFormat,
 }) {
   const [tab, setTab] = useState("teaming");
   const [newReason, setNewReason] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editLabel, setEditLabel] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
+  const [saveError, setSaveError] = useState(null);
   const isMuteTab = tab === "mute";
-  const cfg = isMuteTab
-    ? muteConfig
-    : (configs[tab] ?? { reasons: [], noteFormat: "" });
+  const cfg = configs[tab] ?? { reasons: [], noteFormat: "" };
   useEffect(() => {
     setNoteDraft(cfg.noteFormat);
     setEditingId(null);
     setNewReason("");
+    setSaveError(null);
   }, [orgId, tab, cfg.noteFormat]);
-  const addReason = (label) =>
-    isMuteTab ? onAddMuteReason(label) : onAddReason(tab, label);
-  const updateReason = (id, label) =>
-    isMuteTab ? onUpdateMuteReason(id, label) : onUpdateReason(tab, id, label);
-  const removeReason = (id) =>
-    isMuteTab ? onRemoveMuteReason(id) : onRemoveReason(tab, id);
-  const setNoteFormat = (fmt) =>
-    isMuteTab ? onSetMuteNoteFormat(fmt) : onSetNoteFormat(tab, fmt);
+  const addReason = async (label) => {
+    const result = await onAddReason(tab, label);
+    if (!result?.ok) setSaveError(result?.error ?? "Failed to add.");
+    else setSaveError(null);
+  };
+  const updateReason = async (id, label) => {
+    const result = await onUpdateReason(tab, id, label);
+    if (!result?.ok) setSaveError(result?.error ?? "Failed to save.");
+    else { setSaveError(null); setEditingId(null); }
+  };
+  const removeReason = async (id) => {
+    const result = await onRemoveReason(tab, id);
+    if (!result?.ok) setSaveError(result?.error ?? "Failed to remove.");
+    else setSaveError(null);
+  };
+  const setNoteFormat = async (fmt) => {
+    const result = await onSetNoteFormat(tab, fmt);
+    if (!result?.ok) setSaveError(result?.error ?? "Failed to save.");
+    else setSaveError(null);
+  };
   const noun = isMuteTab ? "mute" : "ban";
   return (
     <div className="space-y-4">
@@ -439,10 +446,7 @@ function BanConfigsPanel({
                   size="icon"
                   variant="ghost"
                   className="size-7"
-                  onClick={() => {
-                    updateReason(r.id, editLabel);
-                    setEditingId(null);
-                  }}
+                  onClick={() => updateReason(r.id, editLabel)}
                 >
                   <Check className="size-3.5" />
                 </Button>
@@ -512,6 +516,9 @@ function BanConfigsPanel({
         />
       </div>
 
+      {saveError && (
+        <p className="text-[11px] text-destructive">{saveError}</p>
+      )}
       <p className="text-[10px] text-muted-foreground font-mono">
         "Other" reports always use a custom reason and have no note template.
       </p>

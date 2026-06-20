@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { manageOrgStore } from "./manage-org-store";
 import { TEAM_META } from "./mock-data";
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
@@ -369,6 +369,22 @@ function AuthProvider({ children }) {
     });
     return { ok: true };
   };
+  const loadOrgBanConfigs = useCallback(async (orgId) => {
+    if (!orgId) return;
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ban-configs`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const body = await res.json();
+      setOrgBanConfigs((prev) => ({ ...prev, [orgId]: body.configs ?? {} }));
+      setOrgMuteConfigs((prev) => ({
+        ...prev,
+        [orgId]: body.mute ?? { reasons: [], noteFormat: "" },
+      }));
+    } catch {}
+  }, []);
   const [orgTicketTypes, setOrgTicketTypes] = useState({});
   const setOrgTicketTypeEnabled = (orgId, key, enabled) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
@@ -572,6 +588,7 @@ function AuthProvider({ children }) {
       removeMuteReason,
       updateMuteReason,
       setMuteNoteFormat,
+      loadOrgBanConfigs,
       orgTicketTypes,
       setOrgTicketTypeEnabled,
       hasStaffAccount,
