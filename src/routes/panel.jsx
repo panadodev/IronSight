@@ -1184,6 +1184,13 @@ function PresetsTab({ servers }) {
   const [cmdState, setCmdState] = useState({});
   const [configDialog, setConfigDialog] = useState(null);
 
+  // Auto-select first server when the server list arrives after mount
+  useEffect(() => {
+    if (selectedServerId === null && pteroServers.length > 0) {
+      setSelectedServerId(pteroServers[0].id);
+    }
+  }, [pteroServers, selectedServerId]);
+
   useEffect(() => {
     if (!selectedServerId) return;
     let cancelled = false;
@@ -1193,9 +1200,17 @@ function PresetsTab({ servers }) {
     fetch(`/api/servers/${selectedServerId}/ptero-plugins`, {
       credentials: "include",
     })
-      .then((r) =>
-        r.ok ? r.json() : r.json().then((d) => Promise.reject(d.error ?? r.status)),
-      )
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        let errMsg;
+        try {
+          const d = await r.json();
+          errMsg = d.error ?? `HTTP ${r.status}`;
+        } catch {
+          errMsg = `HTTP ${r.status}`;
+        }
+        return Promise.reject(errMsg);
+      })
       .then((d) => {
         if (!cancelled) {
           setPlugins(d.plugins ?? []);
