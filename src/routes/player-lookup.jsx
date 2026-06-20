@@ -198,6 +198,9 @@ function PlayerLookupPage() {
   const [offenses, setOffenses] = useState([]);
   const [offensesLoading, setOffensesLoading] = useState(false);
 
+  const [reports, setReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+
   const [banPickerOpen, setBanPickerOpen] = useState(false);
   const [banCategory, setBanCategory] = useState(null);
   const [muteOpen, setMuteOpen] = useState(false);
@@ -285,6 +288,7 @@ function PlayerLookupPage() {
     setPlayerData(null);
     setFirstFetch(false);
     setOffenses([]);
+    setReports([]);
     if (pollRef.current) {
       clearTimeout(pollRef.current);
       pollRef.current = null;
@@ -333,6 +337,32 @@ function PlayerLookupPage() {
       cancelled = true;
     };
   }, [steamId, JSON.stringify(offenseOrgIds)]);
+
+  useEffect(() => {
+    if (!steamId || !fetchOrgId) {
+      setReports([]);
+      return;
+    }
+    let cancelled = false;
+    setReportsLoading(true);
+    fetch(
+      `/api/players/${encodeURIComponent(steamId)}/reports?orgId=${encodeURIComponent(fetchOrgId)}`,
+      { credentials: "include" },
+    )
+      .then((r) => r.json())
+      .then((b) => {
+        if (!cancelled) setReports(b.reports ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setReports([]);
+      })
+      .finally(() => {
+        if (!cancelled) setReportsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [steamId, fetchOrgId]);
 
   const submit = (e) => {
     e.preventDefault();
@@ -706,6 +736,15 @@ function PlayerLookupPage() {
                   )}
                 </section>
 
+                {/* Previous In-Game Reports */}
+                {!isSupportOnly && (
+                  <PlayerReportsSection
+                    reports={reports}
+                    loading={reportsLoading}
+                    tz={tz}
+                  />
+                )}
+
                 {/* Bans on Other Orgs */}
                 {!isSupportOnly && (
                   <ExternalBansSection
@@ -786,6 +825,71 @@ function PlayerLookupPage() {
         )}
       </div>
     </SteamRequiredGate>
+  );
+}
+
+const REPORT_TYPE_TONE = {
+  cheating: "text-danger bg-danger/10 ring-danger/30",
+  teaming: "text-warning bg-warning/10 ring-warning/30",
+  toxicity: "text-warning bg-warning/10 ring-warning/30",
+};
+
+function PlayerReportsSection({ reports, loading, tz }) {
+  return (
+    <section>
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+        <span>In-Game Reports</span>
+        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+          {loading ? "…" : reports.length}
+        </span>
+      </h3>
+      {loading ? (
+        <p className="text-xs text-muted-foreground italic">Loading…</p>
+      ) : reports.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">No reports on file.</p>
+      ) : (
+        <div className="rounded-md ring-1 ring-border overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-surface/60">
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Type</th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Reason</th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Server</th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden md:table-cell">Reporter</th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.map((r, i) => (
+                <tr
+                  key={r.id}
+                  className={`border-b border-border last:border-0 ${i % 2 === 0 ? "bg-background" : "bg-surface/30"}`}
+                >
+                  <td className="px-3 py-2 shrink-0">
+                    <span
+                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${REPORT_TYPE_TONE[r.reportType.toLowerCase()] ?? "text-muted-foreground bg-surface ring-border"}`}
+                    >
+                      {r.reportType}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-foreground max-w-[200px]">
+                    <p className="truncate" title={r.reportReason}>{r.reportReason}</p>
+                    {r.reportDescription && (
+                      <p className="text-[10px] text-muted-foreground truncate" title={r.reportDescription}>{r.reportDescription}</p>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground truncate max-w-[140px] hidden sm:table-cell" title={r.serverName}>{r.serverName}</td>
+                  <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{r.reporterName}</td>
+                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                    {relativeTime(r.createdAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

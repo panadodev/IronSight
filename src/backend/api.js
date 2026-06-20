@@ -1947,6 +1947,7 @@ async function init() {
       connectionString: env.databaseUrl,
       max: Number(process.env.PG_POOL_MAX ?? 20),
       idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30000),
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 5000),
     });
 
     redis = new Redis(env.redisUrl, {
@@ -3959,6 +3960,12 @@ async function handleGetOrgStaffStats(request, orgId) {
     return json({ error: "Forbidden: org_manage permission required" }, 403);
   }
 
+  const statsCacheKey = `org:staff-stats:${orgId}`;
+  try {
+    const cached = await redis.get(statsCacheKey);
+    if (cached) return json(JSON.parse(cached));
+  } catch {}
+
   const [bans30dRes, tickets30dRes, openTicketsRes, onlineRes, memberStatsRes] =
     await Promise.all([
       pool.query(
@@ -4025,7 +4032,7 @@ async function handleGetOrgStaffStats(request, orgId) {
       ),
     ]);
 
-  return json({
+  const result = {
     orgStats: {
       bans30d: Number(bans30dRes.rows[0]?.cnt ?? 0),
       tickets30d: Number(tickets30dRes.rows[0]?.cnt ?? 0),
@@ -4042,7 +4049,13 @@ async function handleGetOrgStaffStats(request, orgId) {
       lastBan: r.last_ban ? Number(r.last_ban) : null,
       ingameHoursAll: Number(r.ingame_hours_all),
     })),
-  });
+  };
+
+  try {
+    await redis.set(statsCacheKey, JSON.stringify(result), "EX", 60);
+  } catch {}
+
+  return json(result);
 }
 
 async function handleGetOrgMembers(request, orgId) {
@@ -6109,6 +6122,12 @@ async function handleDeleteServer(request, serverId) {
   }
 
   await pool.query(`DELETE FROM servers WHERE server_id = $1`, [serverId]);
+
+  try {
+    const userOrgs = await listUserOrganizations(session.userId);
+    if (userOrgs.length) await invalidateServerListCache(userOrgs.map((o) => o.orgId));
+  } catch {}
+
   return json({ ok: true });
 }
 
@@ -6187,6 +6206,11 @@ async function handleRegisterServer(request) {
     [serverId, serverName, orgId, apiKeyHash, session.userId],
   );
 
+  try {
+    const userOrgs = await listUserOrganizations(session.userId);
+    if (userOrgs.length) await invalidateServerListCache(userOrgs.map((o) => o.orgId));
+  } catch {}
+
   return json(
     {
       ok: true,
@@ -6197,6 +6221,12 @@ async function handleRegisterServer(request) {
   );
 }
 
+async function invalidateServerListCache(orgIds) {
+  try {
+    await redis.del(`servers:by-orgs:${[...orgIds].sort().join("|")}`);
+  } catch {}
+}
+
 async function handleListServers(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -6205,6 +6235,12 @@ async function handleListServers(request) {
   if (!userOrgs.length) return json({ servers: [] });
 
   const orgIds = userOrgs.map((o) => o.orgId);
+  const serversCacheKey = `servers:by-orgs:${[...orgIds].sort().join("|")}`;
+
+  try {
+    const cached = await redis.get(serversCacheKey);
+    if (cached) return json(JSON.parse(cached));
+  } catch {}
 
   const { rows } = await pool.query(
     `SELECT server_id, server_name, owner_org_id, created_at, ptero_identifier,
@@ -6216,7 +6252,7 @@ async function handleListServers(request) {
     [orgIds],
   );
 
-  return json({
+  const result = {
     servers: rows.map((row) => ({
       serverId: String(row.server_id),
       serverName: String(row.server_name),
@@ -6232,7 +6268,13 @@ async function handleListServers(request) {
         ? Number(row.last_health_ping)
         : null,
     })),
-  });
+  };
+
+  try {
+    await redis.set(serversCacheKey, JSON.stringify(result), "EX", 30);
+  } catch {}
+
+  return json(result);
 }
 
 // ── Public org server list (for ticket submission portal) ────────────────────
@@ -6585,15 +6627,27 @@ async function handleGetOrgToxicity(request, orgId) {
   if (error) return error;
   void session;
 
+  const toxicityCacheKey = `org:toxicity:${orgId}`;
+  try {
+    const cached = await redis.get(toxicityCacheKey);
+    if (cached) return json(JSON.parse(cached));
+  } catch {}
+
   const { rows } = await pool.query(
     `SELECT yellow, red FROM org_toxicity_config WHERE org_id = $1`,
     [orgId],
   );
   const row = rows[0];
-  return json({
+  const result = {
     yellow: Array.isArray(row?.yellow) ? row.yellow : [],
     red: Array.isArray(row?.red) ? row.red : [],
-  });
+  };
+
+  try {
+    await redis.set(toxicityCacheKey, JSON.stringify(result), "EX", 60);
+  } catch {}
+
+  return json(result);
 }
 
 async function handleSetOrgToxicity(request, orgId) {
@@ -6643,6 +6697,7 @@ async function handleSetOrgToxicity(request, orgId) {
     [orgId],
   );
   const row = rows[0];
+  try { await redis.del(`org:toxicity:${orgId}`); } catch {}
   return json({
     yellow: Array.isArray(row?.yellow) ? row.yellow : [],
     red: Array.isArray(row?.red) ? row.red : [],
@@ -6664,6 +6719,12 @@ const DEFAULT_BAN_NOTE_FORMATS = {
 };
 
 async function buildOrgBanConfig(orgId) {
+  const banConfigCacheKey = `org:ban-config:${orgId}`;
+  try {
+    const cached = await redis.get(banConfigCacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+
   const reasonsRes = await pool.query(
     `SELECT reason_id, category, label FROM org_ban_reasons
      WHERE org_id = $1 ORDER BY created_at ASC`,
@@ -6684,7 +6745,7 @@ async function buildOrgBanConfig(orgId) {
     noteFormat: noteByCat[category] ?? DEFAULT_BAN_NOTE_FORMATS[category] ?? "",
   });
 
-  return {
+  const result = {
     configs: {
       cheating: make("cheating"),
       teaming: make("teaming"),
@@ -6692,6 +6753,12 @@ async function buildOrgBanConfig(orgId) {
     },
     mute: make("mute"),
   };
+
+  try {
+    await redis.set(banConfigCacheKey, JSON.stringify(result), "EX", 60);
+  } catch {}
+
+  return result;
 }
 
 async function handleGetOrgBanConfigs(request, orgId) {
@@ -6729,6 +6796,7 @@ async function handleCreateBanReason(request, orgId) {
      RETURNING reason_id, label`,
     [orgId, category, label],
   );
+  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
   return json(
     {
       reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
@@ -6763,6 +6831,7 @@ async function handleUpdateBanReason(request, orgId, reasonId) {
     [label, reasonId, orgId],
   );
   if (!rows[0]) return json({ error: "Reason not found" }, 404);
+  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
   return json({
     reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
   });
@@ -6780,6 +6849,7 @@ async function handleDeleteBanReason(request, orgId, reasonId) {
     [reasonId, orgId],
   );
   if (res.rowCount === 0) return json({ error: "Reason not found" }, 404);
+  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
   return json({ ok: true });
 }
 
@@ -6809,6 +6879,7 @@ async function handleSetBanNoteFormat(request, orgId) {
        note_format = EXCLUDED.note_format, updated_at = unix_now()`,
     [orgId, category, noteFormat],
   );
+  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
   return json({ ok: true, category, noteFormat });
 }
 
@@ -10655,6 +10726,47 @@ async function handleRefreshPlayer(request, steamId) {
   return json(fresh);
 }
 
+// ── Player reports by Steam ID ────────────────────────────────────────────────
+
+async function handleGetPlayerReports(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const url = new URL(request.url);
+  const orgId = url.searchParams.get("orgId");
+  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT pr.id, pr.report_type, pr.report_reason, pr.report_description,
+            pr.reporter_name, pr.reporter_steam_id, pr.server_name, pr.created_at
+     FROM player_reports pr
+     JOIN servers s ON s.server_id = pr.server_id
+     WHERE pr.reported_steam_id = $1
+       AND s.owner_org_id = $2
+     ORDER BY pr.created_at DESC
+     LIMIT 200`,
+    [steamId, orgId],
+  );
+
+  const reports = rows.map((row) => ({
+    id: String(row.id),
+    reportType: String(row.report_type),
+    reportReason: String(row.report_reason),
+    reportDescription: String(row.report_description),
+    reporterName: String(row.reporter_name),
+    reporterSteamId: String(row.reporter_steam_id),
+    serverName: String(row.server_name),
+    createdAt: Number(row.created_at),
+  }));
+
+  return json({ reports });
+}
+
 // ── Org player search (ticket submission) ────────────────────────────────────
 
 async function handleSearchOrgPlayers(request, orgId) {
@@ -11587,6 +11699,13 @@ async function _handleApiRequest(request) {
     if (playerRefreshMatch && request.method === "POST")
       return handleRefreshPlayer(request, playerRefreshMatch[1]);
 
+    // Player reports
+    const playerReportsMatch = pathname.match(
+      /^\/api\/players\/(\d+)\/reports$/,
+    );
+    if (playerReportsMatch && request.method === "GET")
+      return handleGetPlayerReports(request, playerReportsMatch[1]);
+
     return json({ error: "Not found" }, 404);
   });
 }
@@ -11619,11 +11738,20 @@ async function discordFetch(path, opts = {}) {
 
 async function getGuildRoles(guildId) {
   if (!env.discordBotToken || !guildId) return [];
+
+  const cacheKey = `discord:roles:${guildId}`;
+  try {
+    const cached = await redis?.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+
   try {
     const res = await discordFetch(`/guilds/${guildId}/roles`);
     if (!res.ok) return [];
     const roles = await res.json();
-    return Array.isArray(roles) ? roles : [];
+    const result = Array.isArray(roles) ? roles : [];
+    try { await redis?.set(cacheKey, JSON.stringify(result), "EX", 300); } catch {}
+    return result;
   } catch {
     return [];
   }
@@ -11729,12 +11857,19 @@ async function handleGetOrgDiscordRoles(request, orgId) {
 
 async function getGuildTextChannels(guildId) {
   if (!env.discordBotToken || !guildId) return [];
+
+  const cacheKey = `discord:channels:${guildId}`;
+  try {
+    const cached = await redis?.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+
   try {
     const res = await discordFetch(`/guilds/${guildId}/channels`);
     if (!res.ok) return [];
     const channels = await res.json();
     // type 0 = GUILD_TEXT, type 5 = GUILD_ANNOUNCEMENT
-    return channels
+    const result = channels
       .filter((c) => c.type === 0 || c.type === 5)
       .map((c) => ({
         id: c.id,
@@ -11743,6 +11878,8 @@ async function getGuildTextChannels(guildId) {
         permission_overwrites: c.permission_overwrites ?? [],
       }))
       .sort((a, b) => a.position - b.position);
+    try { await redis?.set(cacheKey, JSON.stringify(result), "EX", 300); } catch {}
+    return result;
   } catch {
     return [];
   }
@@ -11791,26 +11928,31 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
   const messages = await res.json();
   if (!Array.isArray(messages) || messages.length === 0) return 0;
 
-  for (const msg of messages) {
-    if (!msg.author || msg.author.bot) continue;
+  const toInsert = messages.filter((msg) => msg.author && !msg.author.bot);
+  if (toInsert.length > 0) {
+    const cols = 10;
+    const valuePlaceholders = toInsert
+      .map((_, i) => `(${Array.from({ length: cols }, (__, c) => `$${i * cols + c + 1}`).join(",")})`)
+      .join(",");
+    const flatParams = toInsert.flatMap((msg) => [
+      msg.id,
+      orgId,
+      guildId,
+      channelId,
+      channelName,
+      msg.author.id,
+      msg.author.global_name ?? msg.author.username,
+      msg.content ?? "",
+      JSON.stringify(msg.attachments ?? []),
+      Math.floor(new Date(msg.timestamp).getTime() / 1000),
+    ]);
     await pool.query(
       `INSERT INTO discord_messages
          (message_id, org_id, guild_id, channel_id, channel_name,
           author_discord_id, author_username, content, attachments, discord_created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       VALUES ${valuePlaceholders}
        ON CONFLICT (org_id, message_id) DO NOTHING`,
-      [
-        msg.id,
-        orgId,
-        guildId,
-        channelId,
-        channelName,
-        msg.author.id,
-        msg.author.global_name ?? msg.author.username,
-        msg.content ?? "",
-        JSON.stringify(msg.attachments ?? []),
-        Math.floor(new Date(msg.timestamp).getTime() / 1000),
-      ],
+      flatParams,
     );
   }
 
