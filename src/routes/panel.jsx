@@ -196,6 +196,7 @@ function PanelPage() {
               tags: Array.isArray(s.tags) ? s.tags : [],
               rconConfigured: s.rconConfigured ?? false,
               rconWorking: null,
+              pteroIdentifier: s.pteroIdentifier ?? null,
             })),
           );
       })
@@ -1172,528 +1173,348 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
     </Dialog>
   );
 }
-function PresetsTab({ servers, orgId }) {
-  const tz = useTimezone();
-  const [plugins, setPlugins] = useState([]);
-  const [pluginsLoading, setPluginsLoading] = useState(true);
-  const [groupTags, setGroupTags] = useState(
-    Array.from(new Set(servers.flatMap((s) => s.tags))),
+function PresetsTab({ servers }) {
+  const pteroServers = servers.filter((s) => s.pteroIdentifier);
+  const [selectedServerId, setSelectedServerId] = useState(
+    pteroServers[0]?.id ?? null,
   );
-  const [newGroupTag, setNewGroupTag] = useState("");
-  const [addingCustom, setAddingCustom] = useState(false);
+  const [plugins, setPlugins] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
+  const [cmdState, setCmdState] = useState({});
+  const [configDialog, setConfigDialog] = useState(null);
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!selectedServerId) return;
     let cancelled = false;
-    setPluginsLoading(true);
-    fetch(`/api/orgs/${orgId}/plugins`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    setLoading(true);
+    setFetchError(null);
+    setPlugins([]);
+    fetch(`/api/servers/${selectedServerId}/ptero-plugins`, {
+      credentials: "include",
+    })
+      .then((r) =>
+        r.ok ? r.json() : r.json().then((d) => Promise.reject(d.error ?? r.status)),
+      )
       .then((d) => {
         if (!cancelled) {
           setPlugins(d.plugins ?? []);
-          setPluginsLoading(false);
+          setLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) setPluginsLoading(false);
+      .catch((err) => {
+        if (!cancelled) {
+          setFetchError(String(err));
+          setLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [selectedServerId]);
 
-  const patchPlugin = async (pluginId, fields) => {
-    await fetch(`/api/orgs/${orgId}/plugins/${pluginId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(fields),
-    });
-  };
-
-  const update = async (p) => {
-    setPlugins((prev) =>
-      prev.map((x) =>
-        x.id === p.id ? { ...x, installedVersion: x.latestVersion } : x,
-      ),
+  const runCmd = async (pluginName, cmd) => {
+    const key = `${pluginName}:${cmd}`;
+    setCmdState((s) => ({ ...s, [key]: "loading" }));
+    try {
+      const res = await fetch(
+        `/api/servers/${selectedServerId}/ptero-plugin-cmd`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cmd, pluginName }),
+        },
+      );
+      const data = await res.json();
+      setCmdState((s) => ({
+        ...s,
+        [key]: res.ok
+          ? { output: data.output ?? "" }
+          : { error: data.error ?? "Failed" },
+      }));
+    } catch (err) {
+      setCmdState((s) => ({ ...s, [key]: { error: err.message } }));
+    }
+    setTimeout(
+      () =>
+        setCmdState((s) => {
+          const n = { ...s };
+          delete n[key];
+          return n;
+        }),
+      4000,
     );
-    await fetch(`/api/orgs/${orgId}/plugins/${p.id}/push`, {
-      method: "POST",
-      credentials: "include",
-    });
   };
 
-  const toggleTag = async (pluginId, t) => {
-    const plugin = plugins.find((p) => p.id === pluginId);
-    if (!plugin) return;
-    const newTags = plugin.assignedTags.includes(t)
-      ? plugin.assignedTags.filter((x) => x !== t)
-      : [...plugin.assignedTags, t];
-    setPlugins((prev) =>
-      prev.map((p) =>
-        p.id === pluginId ? { ...p, assignedTags: newTags } : p,
-      ),
-    );
-    await patchPlugin(pluginId, { assignedTags: newTags });
-  };
+  const selectedServer = servers.find((s) => s.id === selectedServerId);
 
-  const setRisk = async (pluginId, r) => {
-    setPlugins((prev) =>
-      prev.map((p) => (p.id === pluginId ? { ...p, risk: r } : p)),
-    );
-    await patchPlugin(pluginId, { risk: r });
-  };
-
-  const unloadRisk = async (r) => {
-    setPlugins((prev) =>
-      prev.map((p) => (p.risk === r ? { ...p, enabled: false } : p)),
-    );
-    await fetch(`/api/orgs/${orgId}/plugins/unload-risk`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ risk: r }),
-    });
-  };
-
-  const togglePlugin = async (id) => {
-    const plugin = plugins.find((p) => p.id === id);
-    if (!plugin) return;
-    const newEnabled = !plugin.enabled;
-    setPlugins((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, enabled: newEnabled } : p)),
-    );
-    await patchPlugin(id, { enabled: newEnabled });
-  };
-
-  const addPlugin = async (draft) => {
-    const res = await fetch(`/api/orgs/${orgId}/plugins`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    setPlugins((prev) => [
-      ...prev,
-      {
-        id: data.pluginId,
-        name: draft.name,
-        source: draft.source ?? "custom",
-        umodSlug: draft.umodSlug ?? null,
-        installedVersion: draft.installedVersion ?? null,
-        latestVersion: draft.latestVersion ?? null,
-        latestUpdatedAt: draft.latestUpdatedAt ?? null,
-        assignedTags: draft.assignedTags ?? [],
-        risk: draft.risk ?? 2,
-        enabled: true,
-      },
-    ]);
-  };
-
-  const riskCount = (r) =>
-    plugins.filter((p) => p.risk === r && p.enabled).length;
-  if (pluginsLoading)
+  if (pteroServers.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground py-4">Loading plugins…</p>
+      <div className="rounded-lg ring-1 ring-border bg-surface/40 p-8 text-center">
+        <Server className="size-8 mx-auto text-muted-foreground mb-3" />
+        <p className="text-sm font-medium mb-1">No Pterodactyl servers</p>
+        <p className="text-xs text-muted-foreground">
+          Import a server with a Pterodactyl identifier from the Servers tab to
+          manage plugins here.
+        </p>
+      </div>
     );
+  }
+
   return (
     <div className="space-y-3">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <p className="text-xs text-muted-foreground max-w-xl">
-          uMod &amp; custom plugins, grouped by server tag. Each plugin carries
-          a <b>risk</b> rating (1–3); use the unload buttons to instantly
-          disable a whole risk class across every matching server.
-        </p>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {[1, 2, 3].map((r) => (
-            <Button
-              key={r}
-              size="sm"
-              variant="outline"
-              onClick={() => unloadRisk(r)}
-              disabled={riskCount(r) === 0}
-              className={
-                r === 1
-                  ? "border-success/40 hover:bg-success/10 text-success"
-                  : r === 2
-                    ? "border-warning/40 hover:bg-warning/10 text-warning"
-                    : "border-destructive/40 hover:bg-destructive/10 text-destructive"
-              }
-            >
-              <AlertTriangle className="size-3.5 mr-1" /> Unload risk {r}
-              <span className="ml-1 opacity-60">({riskCount(r)})</span>
-            </Button>
-          ))}
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button size="sm" onClick={() => setAddingCustom(true)}>
-            <Upload className="size-3.5 mr-1" /> Add custom plugin
-          </Button>
-        </div>
-      </div>
+      <p className="text-xs text-muted-foreground max-w-xl">
+        Oxide plugins loaded from{" "}
+        <span className="font-mono">/home/container/oxide/plugins/</span> via
+        Pterodactyl. Reload and unload send RCON commands to the selected
+        server. Config edits write to{" "}
+        <span className="font-mono">/home/container/oxide/config/</span> and
+        trigger a plugin reload.
+      </p>
 
-      {/* Group tag manager */}
-      <div className="ring-1 ring-border rounded-md bg-surface/40 p-2 flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground pl-1">
-          Server group tags
-        </span>
-        {groupTags.map((t) => (
-          <span
-            key={t}
-            className="px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 bg-brand/10 ring-brand/30 text-brand"
-          >
-            {t}
-          </span>
-        ))}
-        <div className="flex items-center gap-1 ml-auto">
-          <Input
-            value={newGroupTag}
-            onChange={(e) => setNewGroupTag(e.target.value)}
-            placeholder="new group tag"
-            className="h-7 text-xs w-36"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && newGroupTag.trim()) {
-                setGroupTags((p) =>
-                  Array.from(
-                    /* @__PURE__ */ new Set([...p, newGroupTag.trim()]),
-                  ),
-                );
-                setNewGroupTag("");
-              }
-            }}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!newGroupTag.trim()}
-            onClick={() => {
-              setGroupTags((p) =>
-                Array.from(/* @__PURE__ */ new Set([...p, newGroupTag.trim()])),
-              );
-              setNewGroupTag("");
-            }}
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-        <div className="grid grid-cols-[1.6fr_1fr_0.8fr_2fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-          <div>Plugin</div>
-          <div>Version</div>
-          <div>Risk</div>
-          <div>Group tags</div>
-          <div />
-        </div>
-        {plugins.map((p) => {
-          const outdated = p.installedVersion !== p.latestVersion;
-          const affected = servers.filter((s) =>
-            s.tags.some((t) => p.assignedTags.includes(t)),
-          );
-          const unassigned = groupTags.filter(
-            (t) => !p.assignedTags.includes(t),
-          );
-          return (
-            <div
-              key={p.id}
-              className={
-                "grid grid-cols-[1.6fr_1fr_0.8fr_2fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center " +
-                (p.enabled ? "" : "opacity-50")
-              }
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-semibold truncate">
-                    {p.name}
-                  </span>
-                  <Badge
-                    variant="outline"
-                    className={
-                      "text-[9px] font-mono h-4 px-1.5 " +
-                      (p.source === "custom"
-                        ? "border-brand/40 text-brand bg-brand/5"
-                        : "border-border text-muted-foreground")
-                    }
-                  >
-                    {p.source}
-                  </Badge>
-                  {!p.enabled && (
-                    <Badge
-                      variant="outline"
-                      className="text-[9px] font-mono h-4 px-1.5 border-destructive/40 text-destructive bg-destructive/5"
-                    >
-                      unloaded
-                    </Badge>
-                  )}
-                </div>
-                <div className="text-[10px] font-mono text-muted-foreground truncate">
-                  {p.source === "umod"
-                    ? `umod.org/${p.umodSlug}`
-                    : "custom upload"}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs font-mono flex items-center gap-1.5">
-                  {p.installedVersion}
-                  {outdated && (
-                    <>
-                      <span className="text-muted-foreground/50">→</span>
-                      <span className="text-warning">{p.latestVersion}</span>
-                      <span className="size-1.5 rounded-full bg-warning animate-pulse" />
-                    </>
-                  )}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {new Date(p.latestUpdatedAt * 1000).toLocaleDateString(undefined, tz ? { timeZone: tz } : {})}
-                </div>
-              </div>
-              <RiskPicker risk={p.risk} onChange={(r) => setRisk(p.id, r)} />
-              <div className="flex gap-1 flex-wrap items-center">
-                {p.assignedTags.length === 0 && (
-                  <span className="text-[10px] text-muted-foreground italic">
-                    no tags
-                  </span>
-                )}
-                {p.assignedTags.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => toggleTag(p.id, t)}
-                    className="group inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 bg-brand/15 ring-brand/40 text-brand hover:bg-destructive/15 hover:ring-destructive/40 hover:text-destructive transition-colors"
-                    title={`Remove ${t}`}
-                  >
-                    {t}
-                    <X className="size-2.5 opacity-0 group-hover:opacity-100" />
-                  </button>
-                ))}
-                {unassigned.length > 0 && (
-                  <AddTagPopover
-                    tags={unassigned}
-                    onPick={(t) => toggleTag(p.id, t)}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7"
-                  title={p.enabled ? "Unload plugin" : "Load plugin"}
-                  onClick={() => togglePlugin(p.id)}
-                >
-                  <Power
-                    className={
-                      "size-3.5 " +
-                      (p.enabled ? "text-success" : "text-muted-foreground")
-                    }
-                  />
-                </Button>
-                <Button
-                  size="sm"
-                  variant={outdated ? "default" : "outline"}
-                  disabled={!outdated || !affected.length}
-                  onClick={() => update(p)}
-                  title={`Push to ${affected.length} server(s)`}
-                >
-                  <RefreshCw className="size-3.5 mr-1" />
-                  {outdated ? `Update (${affected.length})` : "Up to date"}
-                </Button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <CustomPluginDialog
-        open={addingCustom}
-        groupTags={groupTags}
-        onClose={() => setAddingCustom(false)}
-        onSave={async (p) => {
-          await addPlugin(p);
-          setAddingCustom(false);
-        }}
-      />
-    </div>
-  );
-}
-function RiskPicker({ risk, onChange }) {
-  const cls = (r, on) =>
-    on
-      ? r === 1
-        ? "bg-success/20 ring-success/50 text-success"
-        : r === 2
-          ? "bg-warning/20 ring-warning/50 text-warning"
-          : "bg-destructive/20 ring-destructive/50 text-destructive"
-      : "bg-surface ring-border text-muted-foreground hover:text-foreground";
-  return (
-    <div className="inline-flex items-center gap-0.5 ring-1 ring-border rounded p-0.5 w-fit">
-      {[1, 2, 3].map((r) => (
-        <button
-          key={r}
-          onClick={() => onChange(r)}
-          className={
-            "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
-            cls(r, risk === r)
-          }
-          title={`Risk ${r}`}
-        >
-          {r}
-        </button>
-      ))}
-    </div>
-  );
-}
-function AddTagPopover({ tags, onPick }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono ring-1 ring-dashed ring-border text-muted-foreground hover:text-foreground hover:ring-brand/40"
-          title="Add group tag"
-        >
-          <Plus className="size-2.5" /> tag
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-44 p-1">
-        <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground px-1.5 py-1">
-          Add group tag
-        </div>
-        <div className="space-y-0.5 max-h-56 overflow-y-auto">
-          {tags.map((t) => (
-            <button
-              key={t}
-              onClick={() => {
-                onPick(t);
-                setOpen(false);
-              }}
-              className="w-full text-left px-2 py-1 rounded hover:bg-surface text-[11px] font-mono"
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-function CustomPluginDialog({ open, groupTags, onClose, onSave }) {
-  const [name, setName] = useState("");
-  const [version, setVersion] = useState("0.1.0");
-  const [risk, setRisk] = useState(2);
-  const [tags, setTags] = useState([]);
-  const [fileName, setFileName] = useState(null);
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setVersion("0.1.0");
-      setRisk(2);
-      setTags([]);
-      setFileName(null);
-    }
-  }, [open]);
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add custom plugin</DialogTitle>
-          <DialogDescription>
-            Upload a .cs / .dll plugin that isn't on uMod. It will sit alongside
-            uMod plugins and follow the same tag &amp; risk rules.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1.5">
-            <Label>Plugin file</Label>
-            <label className="flex items-center gap-2 ring-1 ring-dashed ring-border rounded px-3 py-3 cursor-pointer hover:bg-surface/40">
-              <Upload className="size-4 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground flex-1 truncate">
-                {fileName ?? "Click to select a .cs or .dll file"}
-              </span>
-              <input
-                type="file"
-                accept=".cs,.dll,.zip"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) {
-                    setFileName(f.name);
-                    if (!name) setName(f.name.replace(/\.(cs|dll|zip)$/i, ""));
-                  }
-                }}
-              />
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="MyPlugin"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Version</Label>
-              <Input
-                value={version}
-                onChange={(e) => setVersion(e.target.value)}
-                className="font-mono"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Risk</Label>
-            <RiskPicker risk={risk} onChange={setRisk} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Assign to group tags</Label>
-            <div className="flex flex-wrap gap-1">
-              {groupTags.map((t) => {
-                const on = tags.includes(t);
-                return (
-                  <button
-                    key={t}
-                    onClick={() =>
-                      setTags((p) =>
-                        on ? p.filter((x) => x !== t) : [...p, t],
-                      )
-                    }
-                    className={
-                      "px-2 py-0.5 rounded text-[11px] font-mono font-bold ring-1 transition-colors " +
-                      (on
-                        ? "bg-brand/15 ring-brand/40 text-brand"
-                        : "bg-surface ring-border text-muted-foreground hover:text-foreground")
-                    }
-                  >
-                    {t}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!name || !fileName}
-            onClick={() =>
-              onSave({
-                name,
-                source: "custom",
-                installedVersion: version,
-                latestVersion: version,
-                latestUpdatedAt: Math.floor(Date.now() / 1000),
-                assignedTags: tags,
-                risk,
-                enabled: true,
-              })
+      {/* Server selector */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {pteroServers.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setSelectedServerId(s.id)}
+            className={
+              "px-3 py-1 rounded text-xs font-medium ring-1 transition-colors " +
+              (s.id === selectedServerId
+                ? "bg-primary text-primary-foreground ring-primary"
+                : "bg-surface/40 ring-border text-muted-foreground hover:text-foreground")
             }
           >
-            <Upload className="size-3.5 mr-1" /> Add plugin
+            {s.name}
+          </button>
+        ))}
+      </div>
+
+      {loading && (
+        <p className="text-sm text-muted-foreground py-4">
+          Loading plugins from server…
+        </p>
+      )}
+      {!loading && fetchError && (
+        <div className="ring-1 ring-destructive/40 rounded-md bg-destructive/5 p-3 text-sm text-destructive">
+          {fetchError}
+        </div>
+      )}
+      {!loading && !fetchError && plugins.length === 0 && (
+        <p className="text-sm text-muted-foreground py-4">
+          No .cs plugins found in /home/container/oxide/plugins/
+        </p>
+      )}
+      {!loading && !fetchError && plugins.length > 0 && (
+        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+          <div className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div>Plugin</div>
+            <div>Version</div>
+            <div>Description</div>
+            <div />
+          </div>
+          {plugins.map((p) => {
+            const rKey = `${p.pluginName}:reload`;
+            const uKey = `${p.pluginName}:unload`;
+            const rState = cmdState[rKey];
+            const uState = cmdState[uKey];
+            return (
+              <div
+                key={p.fileName}
+                className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">{p.name}</div>
+                  {p.author && (
+                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                      {p.author}
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs font-mono text-muted-foreground">
+                  {p.version ?? "—"}
+                </div>
+                <div
+                  className="text-xs text-muted-foreground truncate"
+                  title={p.description ?? ""}
+                >
+                  {p.description ?? "—"}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    disabled={rState === "loading"}
+                    onClick={() => runCmd(p.pluginName, "reload")}
+                    title="Reload plugin (o.reload)"
+                  >
+                    <RefreshCw
+                      className={
+                        "size-3.5 " +
+                        (rState === "loading"
+                          ? "animate-spin text-muted-foreground"
+                          : rState?.output !== undefined
+                            ? "text-success"
+                            : rState?.error
+                              ? "text-destructive"
+                              : "")
+                      }
+                    />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    disabled={uState === "loading"}
+                    onClick={() => runCmd(p.pluginName, "unload")}
+                    title="Unload plugin (o.unload)"
+                  >
+                    <Power
+                      className={
+                        "size-3.5 " +
+                        (uState === "loading"
+                          ? "text-muted-foreground animate-pulse"
+                          : uState?.output !== undefined
+                            ? "text-muted-foreground"
+                            : uState?.error
+                              ? "text-destructive"
+                              : "text-success")
+                      }
+                    />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    onClick={() =>
+                      setConfigDialog({
+                        serverId: selectedServerId,
+                        pluginName: p.pluginName,
+                        serverName: selectedServer?.name ?? "",
+                      })
+                    }
+                    title="Edit config"
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {configDialog && (
+        <PluginConfigDialog
+          serverId={configDialog.serverId}
+          pluginName={configDialog.pluginName}
+          serverName={configDialog.serverName}
+          onClose={() => setConfigDialog(null)}
+        />
+      )}
+    </div>
+  );
+}
+function PluginConfigDialog({ serverId, pluginName, serverName, onClose }) {
+  const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setResult(null);
+    fetch(
+      `/api/servers/${serverId}/ptero-plugin-config/${encodeURIComponent(pluginName)}`,
+      { credentials: "include" },
+    )
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        setContent(d.content ?? "{}");
+        setLoading(false);
+      })
+      .catch(() => {
+        setContent("{}");
+        setLoading(false);
+      });
+  }, [serverId, pluginName]);
+
+  const save = async () => {
+    setSaving(true);
+    setResult(null);
+    try {
+      const res = await fetch(
+        `/api/servers/${serverId}/ptero-plugin-config/${encodeURIComponent(pluginName)}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "text/plain" },
+          body: content,
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setResult({ error: data.error ?? "Failed to save" });
+      } else {
+        setResult({
+          output: data.rconOutput ?? null,
+          rconError: data.rconError ?? null,
+        });
+      }
+    } catch (err) {
+      setResult({ error: err.message });
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="font-mono">
+            {pluginName}.json
+          </DialogTitle>
+          <DialogDescription>{serverName}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading config…</p>
+          ) : (
+            <Textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="font-mono text-xs min-h-64 resize-y"
+              spellCheck={false}
+            />
+          )}
+          {result && (
+            <div
+              className={
+                "rounded p-2 text-xs font-mono ring-1 " +
+                (result.error
+                  ? "bg-destructive/10 text-destructive ring-destructive/30"
+                  : "bg-surface ring-border text-muted-foreground")
+              }
+            >
+              {result.error && <div>Error: {result.error}</div>}
+              {result.rconError && (
+                <div className="text-warning">RCON: {result.rconError}</div>
+              )}
+              {result.output && <div>↳ {result.output}</div>}
+              {!result.error && !result.rconError && !result.output && (
+                <div className="text-success">Saved successfully</div>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving || loading}>
+            {saving ? "Saving…" : "Save & Reload"}
           </Button>
         </DialogFooter>
       </DialogContent>

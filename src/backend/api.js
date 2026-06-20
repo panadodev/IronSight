@@ -7271,6 +7271,350 @@ async function handleUnloadRisk(request, orgId) {
   return json({ ok: true, ...results });
 }
 
+// ── Plugin Configs (Pterodactyl file discovery) ────────────────────────────────
+
+function parseOxidePluginMeta(content) {
+  const info = content.match(
+    /\[Info\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)\]/,
+  );
+  const desc = content.match(/\[Description\s*\(\s*"([^"]*)"\s*\)\]/);
+  if (!info) return null;
+  return {
+    name: info[1],
+    author: info[2],
+    version: info[3],
+    description: desc ? desc[1] : null,
+  };
+}
+
+function safePluginName(raw) {
+  const name = String(raw ?? "").trim();
+  if (!/^[a-zA-Z0-9._-]{1,64}$/.test(name) || name.includes(".."))
+    return null;
+  return name;
+}
+
+async function fetchPteroFileList(panelUrl, apiKey, identifier, directory) {
+  const res = await fetch(
+    `${panelUrl}/api/client/servers/${encodeURIComponent(identifier)}/files/list?directory=${encodeURIComponent(directory)}`,
+    { headers: PTERO_HEADERS(apiKey), signal: AbortSignal.timeout(12000) },
+  );
+  if (!res.ok) throw new Error(`ptero_file_list_${res.status}`);
+  const data = await res.json();
+  return (data?.data ?? []).map((f) => f.attributes).filter(Boolean);
+}
+
+async function fetchPteroFileContents(panelUrl, apiKey, identifier, filePath) {
+  const res = await fetch(
+    `${panelUrl}/api/client/servers/${encodeURIComponent(identifier)}/files/contents?file=${encodeURIComponent(filePath)}`,
+    { headers: PTERO_HEADERS(apiKey), signal: AbortSignal.timeout(15000) },
+  );
+  if (!res.ok) throw new Error(`ptero_file_read_${res.status}`);
+  return res.text();
+}
+
+async function writePteroFile(panelUrl, apiKey, identifier, filePath, content) {
+  const res = await fetch(
+    `${panelUrl}/api/client/servers/${encodeURIComponent(identifier)}/files/write?file=${encodeURIComponent(filePath)}`,
+    {
+      method: "POST",
+      headers: { ...PTERO_HEADERS(apiKey), "Content-Type": "text/plain" },
+      body: content,
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!res.ok) throw new Error(`ptero_file_write_${res.status}`);
+}
+
+async function handleListPteroPlugins(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, ptero_identifier FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const { owner_org_id, ptero_identifier } = serverRes.rows[0];
+
+  if (
+    !orgHasPermission(session, owner_org_id, "presets_manage") &&
+    !orgHasPermission(session, owner_org_id, "servers_manage")
+  ) {
+    return json({ error: "Forbidden" }, 403);
+  }
+  if (!ptero_identifier)
+    return json({ error: "Server has no Pterodactyl identifier" }, 400);
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(owner_org_id);
+  } catch {
+    return json({ error: "Failed to load Pterodactyl credentials" }, 500);
+  }
+  if (!credentials)
+    return json({ error: "Pterodactyl not configured for this org" }, 400);
+
+  const { panelUrl, apiKey } = credentials;
+
+  let files;
+  try {
+    files = await fetchPteroFileList(
+      panelUrl,
+      apiKey,
+      ptero_identifier,
+      "/home/container/oxide/plugins",
+    );
+  } catch (err) {
+    return json({ error: `Failed to list plugins: ${err.message}` }, 502);
+  }
+
+  const csFiles = files.filter(
+    (f) => f.is_file && f.name.toLowerCase().endsWith(".cs"),
+  );
+
+  const settled = await Promise.allSettled(
+    csFiles.map(async (f) => {
+      let meta = null;
+      try {
+        const src = await fetchPteroFileContents(
+          panelUrl,
+          apiKey,
+          ptero_identifier,
+          `/home/container/oxide/plugins/${f.name}`,
+        );
+        meta = parseOxidePluginMeta(src);
+      } catch {
+        // metadata unavailable — use filename fallback
+      }
+      return {
+        fileName: f.name,
+        pluginName: f.name.replace(/\.cs$/i, ""),
+        name: meta?.name ?? f.name.replace(/\.cs$/i, ""),
+        author: meta?.author ?? null,
+        version: meta?.version ?? null,
+        description: meta?.description ?? null,
+        modifiedAt: f.modified_at ?? null,
+      };
+    }),
+  );
+
+  return json({
+    plugins: settled
+      .filter((r) => r.status === "fulfilled")
+      .map((r) => r.value)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  });
+}
+
+async function handleGetPteroPluginConfig(request, serverId, rawName) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const pluginName = safePluginName(rawName);
+  if (!pluginName) return json({ error: "Invalid plugin name" }, 400);
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, ptero_identifier FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const { owner_org_id, ptero_identifier } = serverRes.rows[0];
+
+  if (
+    !orgHasPermission(session, owner_org_id, "presets_manage") &&
+    !orgHasPermission(session, owner_org_id, "servers_manage")
+  ) {
+    return json({ error: "Forbidden" }, 403);
+  }
+  if (!ptero_identifier)
+    return json({ error: "Server has no Pterodactyl identifier" }, 400);
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(owner_org_id);
+  } catch {
+    return json({ error: "Failed to load Pterodactyl credentials" }, 500);
+  }
+  if (!credentials)
+    return json({ error: "Pterodactyl not configured for this org" }, 400);
+
+  const { panelUrl, apiKey } = credentials;
+
+  try {
+    const content = await fetchPteroFileContents(
+      panelUrl,
+      apiKey,
+      ptero_identifier,
+      `/home/container/oxide/config/${pluginName}.json`,
+    );
+    return json({ content });
+  } catch (err) {
+    if (err.message.includes("404")) return json({ content: null });
+    return json({ error: `Failed to read config: ${err.message}` }, 502);
+  }
+}
+
+async function handleSavePteroPluginConfig(request, serverId, rawName) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const pluginName = safePluginName(rawName);
+  if (!pluginName) return json({ error: "Invalid plugin name" }, 400);
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, ptero_identifier, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const { owner_org_id, ptero_identifier, rcon_host, rcon_port, rcon_password_enc } =
+    serverRes.rows[0];
+
+  if (!orgHasPermission(session, owner_org_id, "presets_manage")) {
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
+  }
+  if (!ptero_identifier)
+    return json({ error: "Server has no Pterodactyl identifier" }, 400);
+
+  let content;
+  try {
+    content = await request.text();
+  } catch {
+    return json({ error: "Failed to read request body" }, 400);
+  }
+  if (!content || content.length > 1_048_576)
+    return json({ error: "Config body is empty or exceeds 1 MB" }, 400);
+  try {
+    JSON.parse(content);
+  } catch {
+    return json({ error: "Config must be valid JSON" }, 400);
+  }
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(owner_org_id);
+  } catch {
+    return json({ error: "Failed to load Pterodactyl credentials" }, 500);
+  }
+  if (!credentials)
+    return json({ error: "Pterodactyl not configured for this org" }, 400);
+
+  const { panelUrl, apiKey } = credentials;
+
+  try {
+    await writePteroFile(
+      panelUrl,
+      apiKey,
+      ptero_identifier,
+      `/home/container/oxide/config/${pluginName}.json`,
+      content,
+    );
+  } catch (err) {
+    return json({ error: `Failed to write config: ${err.message}` }, 502);
+  }
+
+  // Reload plugin via RCON so the new config takes effect
+  if (rcon_host && rcon_port && rcon_password_enc) {
+    let password;
+    try {
+      password = decryptPterodactylApiKey(String(rcon_password_enc));
+    } catch {
+      return json({
+        ok: true,
+        saved: true,
+        rconError: "Failed to decrypt RCON password",
+      });
+    }
+    const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(password)}`;
+    try {
+      const result = await executeRconCommand(
+        rconUrl,
+        `oxide.reload ${pluginName}`,
+      );
+      return json({ ok: true, saved: true, rconOutput: result.response });
+    } catch (err) {
+      return json({ ok: true, saved: true, rconError: err.message });
+    }
+  }
+
+  return json({ ok: true, saved: true, rconOutput: null });
+}
+
+async function handlePteroPluginCmd(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const { owner_org_id, rcon_host, rcon_port, rcon_password_enc } =
+    serverRes.rows[0];
+
+  if (!orgHasPermission(session, owner_org_id, "presets_manage")) {
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const cmd = String(body?.cmd ?? "").trim();
+  const pluginName = safePluginName(body?.pluginName);
+
+  if (!pluginName) return json({ error: "Invalid plugin name" }, 400);
+  if (!["reload", "unload"].includes(cmd))
+    return json({ error: "cmd must be reload or unload" }, 400);
+
+  if (!rcon_host || !rcon_port || !rcon_password_enc)
+    return json({ error: "RCON not configured for this server" }, 400);
+
+  let password;
+  try {
+    password = decryptPterodactylApiKey(String(rcon_password_enc));
+  } catch {
+    return json({ error: "Failed to decrypt RCON password" }, 500);
+  }
+
+  const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(password)}`;
+  const rconCmd =
+    cmd === "reload"
+      ? `oxide.reload ${pluginName}`
+      : `oxide.unload ${pluginName}`;
+
+  try {
+    const result = await executeRconCommand(rconUrl, rconCmd);
+    return json({
+      ok: true,
+      output: result.response,
+      consoleLogs: result.consoleLogs,
+    });
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+}
+
 // ── Server RCON credentials ───────────────────────────────────────────────────
 
 async function handleSetServerRcon(request, serverId) {
@@ -11874,6 +12218,35 @@ async function _handleApiRequest(request) {
     if (serverRotateMatch && request.method === "POST") {
       return handleRotateServerKey(request, serverRotateMatch[1]);
     }
+
+    // Plugin Configs via Pterodactyl
+    const serverPteroPluginsMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/ptero-plugins$/,
+    );
+    if (serverPteroPluginsMatch && request.method === "GET")
+      return handleListPteroPlugins(request, serverPteroPluginsMatch[1]);
+
+    const serverPteroPluginCmdMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/ptero-plugin-cmd$/,
+    );
+    if (serverPteroPluginCmdMatch && request.method === "POST")
+      return handlePteroPluginCmd(request, serverPteroPluginCmdMatch[1]);
+
+    const serverPteroConfigMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/ptero-plugin-config\/([^/]+)$/,
+    );
+    if (serverPteroConfigMatch && request.method === "GET")
+      return handleGetPteroPluginConfig(
+        request,
+        serverPteroConfigMatch[1],
+        decodeURIComponent(serverPteroConfigMatch[2]),
+      );
+    if (serverPteroConfigMatch && request.method === "POST")
+      return handleSavePteroPluginConfig(
+        request,
+        serverPteroConfigMatch[1],
+        decodeURIComponent(serverPteroConfigMatch[2]),
+      );
 
     // Server RCON
     const serverRconMatch = pathname.match(

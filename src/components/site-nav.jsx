@@ -346,7 +346,7 @@ function SiteNav() {
         },
         {
           to: "/panel",
-          label: "Pre-sets",
+          label: "Plugin Configs",
           search: { tab: "presets" },
           matchSearch: (s) => s.tab === "presets",
           show: canPresets,
