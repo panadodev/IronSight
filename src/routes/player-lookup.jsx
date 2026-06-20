@@ -894,6 +894,7 @@ function PlayerReportsSection({ reports, loading, tz }) {
 }
 
 function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
+  const tz = useTimezone();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [drafts, setDrafts] = useState({});
