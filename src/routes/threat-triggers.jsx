@@ -21,9 +21,10 @@ import {
   Save,
   ShieldAlert,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const Route = createFileRoute("/threat-triggers")({
   head: () => ({ meta: [{ title: "Threat Triggers \u2014 IronSight" }] }),
   component: ThreatTriggersPage,
@@ -277,6 +278,8 @@ function ThreatTriggersPage() {
   const [words, setWords] = useState([]);
   const [wordsLoading, setWordsLoading] = useState(false);
   const [wordInput, setWordInput] = useState("");
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
 
   const fetchWords = useCallback(async () => {
     if (!orgId) return;
@@ -330,6 +333,46 @@ function ThreatTriggersPage() {
       if (res.ok) setWords((prev) => prev.filter((w) => w.word_id !== wordId));
     } catch {
       // ignore
+    }
+  };
+
+  const importWords = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !orgId) return;
+    e.target.value = "";
+    const text = await file.text();
+    const existing = new Set(words.map((w) => w.word));
+    const toAdd = [
+      ...new Set(
+        text
+          .split(/[\n,]+/)
+          .map((w) => w.trim().toLowerCase())
+          .filter((w) => w && w.length <= 100 && !existing.has(w)),
+      ),
+    ];
+    if (!toAdd.length) return;
+    setImporting(true);
+    try {
+      const results = await Promise.all(
+        toAdd.map((word) =>
+          fetch(`/api/orgs/${orgId}/blacklisted-words`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ word }),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null),
+        ),
+      );
+      const added = results.filter(Boolean);
+      if (added.length) {
+        setWords((prev) => {
+          const seen = new Set(prev.map((w) => w.word_id));
+          return [...prev, ...added.filter((w) => !seen.has(w.word_id))];
+        });
+      }
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -640,7 +683,7 @@ function ThreatTriggersPage() {
               </p>
             </div>
             <div className="p-4 space-y-3">
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Input
                   value={wordInput}
                   onChange={(e) => setWordInput(e.target.value)}
@@ -660,6 +703,22 @@ function ThreatTriggersPage() {
                   disabled={!wordInput.trim()}
                 >
                   <Plus className="size-3.5" /> Add
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.csv,.text,text/plain,text/csv"
+                  className="hidden"
+                  onChange={importWords}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={importing}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="size-3.5" />
+                  {importing ? "Importing…" : "Import file"}
                 </Button>
               </div>
               {wordsLoading ? (
