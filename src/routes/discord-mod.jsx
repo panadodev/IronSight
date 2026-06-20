@@ -585,7 +585,7 @@ function DiscordModPage() {
               </div>
               {channels.length === 0 && (
                 <p className="px-3 text-xs text-muted-foreground">
-                  Click Sync Messages to load channels.
+                  No channels yet — messages appear as the bot captures them.
                 </p>
               )}
               {channels.map((ch) => (
@@ -613,7 +613,7 @@ function DiscordModPage() {
                 <div className="flex items-center justify-center h-32">
                   <p className="text-xs text-muted-foreground">
                     {selectedChannel
-                      ? "No messages — sync to fetch."
+                      ? "No messages captured yet."
                       : "Select a channel."}
                   </p>
                 </div>

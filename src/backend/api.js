@@ -9535,23 +9535,52 @@ function classifyConnType(meta) {
 async function runProxycheckForIps(ipList, orgId) {
   if (!ipList.length) return {};
   const results = {};
+  let classified = 0;
+  let unknown = 0;
   for (let i = 0; i < ipList.length; i += 100) {
     const chunk = ipList.slice(i, i + 100);
     const resp = await proxycheckApiFetch(orgId, chunk);
-    if (!resp?.ok) continue;
-    const data = await resp.json();
+    if (!resp) {
+      console.warn(
+        `[proxycheck] org=${orgId} — no response (no enabled proxycheck API key for this org?)`,
+      );
+      continue;
+    }
+    if (!resp.ok) {
+      console.warn(`[proxycheck] org=${orgId} — HTTP ${resp.status}`);
+      continue;
+    }
+    const data = await resp.json().catch(() => null);
+    if (!data) {
+      console.warn(`[proxycheck] org=${orgId} — non-JSON response`);
+      continue;
+    }
+    // proxycheck signals key/quota problems via status !== "ok" (e.g. "denied").
+    if (data.status && data.status !== "ok") {
+      console.warn(
+        `[proxycheck] org=${orgId} — status=${data.status} message=${data.message ?? "(none)"}`,
+      );
+    }
     for (const [ip, meta] of Object.entries(data)) {
-      if (ip === "status" || ip === "message") continue;
+      if (ip === "status" || ip === "message" || typeof meta !== "object")
+        continue;
+      const connType = classifyConnType(meta);
+      if (connType) classified++;
+      else unknown++;
       results[ip] = {
         isProxy: meta.proxy === "yes",
-        isVpn: meta.type === "VPN",
-        connType: classifyConnType(meta),
-        isp: meta.isp ?? null,
+        isVpn: (meta.type ?? "") === "VPN",
+        connType,
+        // proxycheck's v2 ASN response uses `provider`/`organisation`, not `isp`.
+        isp: meta.isp ?? meta.provider ?? meta.organisation ?? null,
         country: meta.country ?? null,
         asn: meta.asn ?? null,
       };
     }
   }
+  console.log(
+    `[proxycheck] org=${orgId} — ${Object.keys(results).length} IP(s): ${classified} classified, ${unknown} unknown type`,
+  );
   return results;
 }
 
@@ -9984,6 +10013,29 @@ async function refreshPlayerData(steamId, orgId) {
           fetchSteamGroups(steamId, orgId),
           bmId ? fetchBMSessions(bmId, orgId, { sinceUnix }) : Promise.resolve([]),
         ]);
+
+      // Fallback classification: when proxycheck is unavailable (no key) or
+      // returns no usable `type`, fall back to BattleMetrics' own
+      // connectionInfo.proxy flag so VPN/proxy/hosting IPs are still flagged
+      // rather than showing as "unknown". BM only tells us proxy-vs-not, so this
+      // can only yield `proxy_vpn` (it can't distinguish residential/business).
+      for (const { ip, isProxy } of relIdentifiers.ips) {
+        if (!isProxy) continue;
+        const existing = ipResults[ip];
+        if (!existing) {
+          ipResults[ip] = {
+            isProxy: true,
+            isVpn: false,
+            connType: "proxy_vpn",
+            isp: null,
+            country: null,
+            asn: null,
+          };
+        } else if (!existing.connType) {
+          existing.connType = "proxy_vpn";
+          existing.isProxy = true;
+        }
+      }
 
       await Promise.all([
         writeFriendsToCache(steamId, subjectFriends),
@@ -11814,9 +11866,23 @@ async function handleGetDiscordChannels(request, orgId) {
     } catch {}
   }
 
-  const channels = allChannels.filter((c) =>
+  const visibleApiChannels = allChannels.filter((c) =>
     channelVisibleToRoles(c, userRoleIds, org.guild_id),
   );
+
+  // Include channels the bot has already ingested messages for, even if the
+  // Discord REST API call failed or hasn't been synced yet.
+  const dbChannelRes = await pool.query(
+    `SELECT DISTINCT ON (channel_id) channel_id, channel_name
+     FROM discord_messages WHERE org_id = $1`,
+    [orgId],
+  );
+  const apiChannelIds = new Set(visibleApiChannels.map((c) => c.id));
+  const dbOnlyChannels = dbChannelRes.rows
+    .filter((r) => !apiChannelIds.has(r.channel_id))
+    .map((r) => ({ id: r.channel_id, name: r.channel_name }));
+
+  const channels = [...visibleApiChannels, ...dbOnlyChannels];
 
   const syncRes = await pool.query(
     `SELECT channel_id, channel_name, synced_at FROM discord_channel_sync WHERE org_id = $1`,
