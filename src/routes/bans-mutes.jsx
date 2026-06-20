@@ -132,12 +132,8 @@ function BansMutesPage() {
           ),
         ),
       ]);
-      setBans(
-        banGroups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
-      );
-      setMutes(
-        muteGroups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
-      );
+      setBans(banGroups.flat().sort((a, b) => b.issuedAt - a.issuedAt));
+      setMutes(muteGroups.flat().sort((a, b) => b.issuedAt - a.issuedAt));
     } finally {
       setLoading(false);
     }
