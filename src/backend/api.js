@@ -8806,7 +8806,7 @@ async function handleIngestMuteSync(request) {
   const steamIds = body.steam_ids
     .filter((id) => typeof id === "string" && /^765611\d{11}$/.test(id.trim()))
     .map((id) => id.trim())
-    .slice(0, 200);
+    .slice(0, 350);
 
   if (steamIds.length === 0) return json({ active_mutes: {} });
 
