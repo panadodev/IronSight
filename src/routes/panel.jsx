@@ -1281,10 +1281,9 @@ function PresetsTab({ servers }) {
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground max-w-xl">
         Oxide plugins loaded from{" "}
-        <span className="font-mono">/home/container/oxide/plugins/</span> via
-        Pterodactyl. Reload and unload send RCON commands to the selected
-        server. Config edits write to{" "}
-        <span className="font-mono">/home/container/oxide/config/</span> and
+        <span className="font-mono">/oxide/plugins/</span> via Pterodactyl.
+        Reload and unload send RCON commands to the selected server. Config
+        edits write to <span className="font-mono">/oxide/config/</span> and
         trigger a plugin reload.
       </p>
 
@@ -1318,7 +1317,7 @@ function PresetsTab({ servers }) {
       )}
       {!loading && !fetchError && plugins.length === 0 && (
         <p className="text-sm text-muted-foreground py-4">
-          No .cs plugins found in /home/container/oxide/plugins/
+          No .cs plugins found in /oxide/plugins/
         </p>
       )}
       {!loading && !fetchError && plugins.length > 0 && (

@@ -7366,7 +7366,7 @@ async function handleListPteroPlugins(request, serverId) {
       panelUrl,
       apiKey,
       ptero_identifier,
-      "/home/container/oxide/plugins",
+      "/oxide/plugins",
     );
   } catch (err) {
     return json({ error: `Failed to list plugins: ${err.message}` }, 502);
@@ -7384,7 +7384,7 @@ async function handleListPteroPlugins(request, serverId) {
           panelUrl,
           apiKey,
           ptero_identifier,
-          `/home/container/oxide/plugins/${f.name}`,
+          `/oxide/plugins/${f.name}`,
         );
         meta = parseOxidePluginMeta(src);
       } catch {
@@ -7452,7 +7452,7 @@ async function handleGetPteroPluginConfig(request, serverId, rawName) {
       panelUrl,
       apiKey,
       ptero_identifier,
-      `/home/container/oxide/config/${pluginName}.json`,
+      `/oxide/config/${pluginName}.json`,
     );
     return json({ content });
   } catch (err) {
@@ -7519,7 +7519,7 @@ async function handleSavePteroPluginConfig(request, serverId, rawName) {
       panelUrl,
       apiKey,
       ptero_identifier,
-      `/home/container/oxide/config/${pluginName}.json`,
+      `/oxide/config/${pluginName}.json`,
       content,
     );
   } catch (err) {
