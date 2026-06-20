@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 const Route = createFileRoute("/chat")({
@@ -33,7 +33,7 @@ function fmtTime(ms, tz) {
 const NOW = Date.now();
 
 function ChatPage() {
-  const { selectedOrgIds } = useAuth();
+  const { selectedOrgIds, orgsLoaded, hasStaffAccount } = useAuth();
   const tz = useTimezone();
 
   const [servers, setServers] = useState([]);
@@ -158,12 +158,15 @@ function ChatPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return lines.filter((l) => {
-      if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId))
-        return false;
-      if (q && !l.message.toLowerCase().includes(q)) return false;
-      return true;
-    });
+    return lines
+      .filter((l) => {
+        if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId))
+          return false;
+        if (q && !l.message.toLowerCase().includes(q)) return false;
+        return true;
+      })
+      .slice()
+      .sort((a, b) => b.ts - a.ts);
   }, [lines, selectedPlayers, query]);
 
   const toggle = (id) => {
@@ -184,6 +187,21 @@ function ChatPage() {
         : `${selectedPlayers.size} players`;
 
   const activeServer = availableServers.find((s) => s.serverId === serverId);
+
+  if (orgsLoaded && !hasStaffAccount) {
+    return (
+      <SteamRequiredGate>
+        <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+          <SiteNav />
+          <main className="flex-1 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground">
+              You must belong to an organization to view chat logs.
+            </p>
+          </main>
+        </div>
+      </SteamRequiredGate>
+    );
+  }
 
   return (
     <SteamRequiredGate>
@@ -364,12 +382,14 @@ function ChatPage() {
                         TEAM
                       </span>
                     )}
-                    <span
-                      className="font-semibold shrink-0 w-[140px] truncate"
+                    <Link
+                      to="/player-lookup"
+                      search={{ steam: l.steamId }}
+                      className="font-semibold shrink-0 w-[140px] truncate hover:text-brand hover:underline"
                       title={l.steamId}
                     >
                       {l.playerName ?? l.steamId}
-                    </span>
+                    </Link>
                     <span className="text-foreground/90 break-words">
                       {l.message}
                     </span>

@@ -8,7 +8,11 @@ if (!TOKEN) {
 
 const DISCORD_API = "https://discord.com/api/v10";
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
+const API_URL = process.env.API_URL ?? "http://localhost:3000";
+
 const INTENT_GUILD_MEMBERS = 1 << 1;
+const INTENT_GUILD_MESSAGES = 1 << 9;
+const INTENT_MESSAGE_CONTENT = 1 << 15;
 
 const DM_MESSAGE =
   "👋 **IronSight Notice**\n\n" +
@@ -43,7 +47,9 @@ function reconnect(resume = false) {
 
 function heartbeat() {
   if (!acked) {
-    console.warn("[IronSight Bot] Heartbeat not acknowledged — zombie connection, reconnecting");
+    console.warn(
+      "[IronSight Bot] Heartbeat not acknowledged — zombie connection, reconnecting",
+    );
     reconnect(true);
     return;
   }
@@ -100,8 +106,15 @@ function connect(resume = false) {
             op: 2, // IDENTIFY
             d: {
               token: TOKEN,
-              intents: INTENT_GUILD_MEMBERS,
-              properties: { os: "linux", browser: "ironsight", device: "ironsight" },
+              intents:
+                INTENT_GUILD_MEMBERS |
+                INTENT_GUILD_MESSAGES |
+                INTENT_MESSAGE_CONTENT,
+              properties: {
+                os: "linux",
+                browser: "ironsight",
+                device: "ironsight",
+              },
             },
           });
         }
@@ -138,6 +151,27 @@ function connect(resume = false) {
             dmUser(d.user.id).catch((err) =>
               console.error(`[IronSight Bot] DM failed for ${d.user.id}:`, err),
             );
+          }
+        } else if (t === "MESSAGE_CREATE") {
+          if (d.guild_id && !d.author?.bot && !d.webhook_id) {
+            fetch(`${API_URL}/api/internal/discord/message`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bot ${TOKEN}`,
+              },
+              body: JSON.stringify({
+                messageId: d.id,
+                guildId: d.guild_id,
+                channelId: d.channel_id,
+                channelName: d.channel?.name ?? "",
+                authorId: d.author.id,
+                authorUsername: d.author.global_name ?? d.author.username,
+                content: d.content ?? "",
+                attachments: d.attachments ?? [],
+                timestamp: d.timestamp,
+              }),
+            }).catch(() => {});
           }
         }
         break;

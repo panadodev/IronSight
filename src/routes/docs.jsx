@@ -61,7 +61,7 @@ function timeAgo(unix) {
   return `${mo}mo ago`;
 }
 function DocsPage() {
-  const { orgs, selectedOrgIds, activeStaff, rankOf, isOwner } = useAuth();
+  const { orgs, selectedOrgIds, activeStaff, rankOf, isOwner, orgsLoaded, hasStaffAccount } = useAuth();
   const { articles, categories } = useDocs();
   const [orgId, setOrgId] = useState(
     () => selectedOrgIds[0] ?? orgs[0]?.id ?? "",
@@ -109,6 +109,19 @@ function DocsPage() {
     setSelectedId(a.id);
     setEditing(a);
   };
+  if (orgsLoaded && !hasStaffAccount) {
+    return (
+      <div className="h-screen w-full flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <main className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            You must belong to an organization to view documentation.
+          </p>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
       <SiteNav />

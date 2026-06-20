@@ -1480,6 +1480,10 @@ async function ensureSchema() {
       PRIMARY KEY (org_id, guild_id)
     )
   `);
+
+  await pool.query(`
+    ALTER TABLE todos ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium'
+  `);
 }
 
 async function migrateTimestampsToUnix() {
@@ -2162,6 +2166,7 @@ async function getTodoRowsForOrgs(orgIds) {
             t.title,
             t.description,
             t.status,
+            t.priority,
             assignee.discord_id AS assignee_discord_id,
             t.org_id,
             t.created_at AS created_unix,
@@ -2180,6 +2185,7 @@ async function getTodoRowsForOrgs(orgIds) {
     title: String(row.title),
     details: row.description == null ? "" : String(row.description),
     status: row.status == null ? "todo" : String(row.status),
+    priority: row.priority == null ? "medium" : String(row.priority),
     assigneeDiscordId:
       row.assignee_discord_id == null ? null : String(row.assignee_discord_id),
     orgId: row.org_id == null ? "" : String(row.org_id),
@@ -2918,6 +2924,10 @@ async function handleCreateTodo(request) {
       ? null
       : String(body.assigneeDiscordId).trim();
   const orgId = String(body?.orgId ?? "").trim();
+  const VALID_PRIORITIES = ["low", "medium", "high", "urgent"];
+  const priority = VALID_PRIORITIES.includes(body?.priority)
+    ? body.priority
+    : "medium";
 
   if (!title || !orgId || !assigneeDiscordId) {
     return json(
@@ -2955,9 +2965,9 @@ async function handleCreateTodo(request) {
   const todoId = crypto.randomUUID();
   const createdUnix = nowUnix();
   await pool.query(
-    `INSERT INTO todos (todo_id, title, description, status, assigned_to, org_id, created_by)
-     VALUES ($1, $2, $3, 'todo', $4, $5, $6)`,
-    [todoId, title, details, assignee.userId, orgId, session.userId],
+    `INSERT INTO todos (todo_id, title, description, status, priority, assigned_to, org_id, created_by)
+     VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7)`,
+    [todoId, title, details, priority, assignee.userId, orgId, session.userId],
   );
 
   await queue.add("todo-created", {
@@ -2975,6 +2985,7 @@ async function handleCreateTodo(request) {
         title,
         details,
         status: "todo",
+        priority,
         assigneeDiscordId,
         orgId,
         createdUnix,
@@ -3004,6 +3015,11 @@ async function handleUpdateTodo(request, todoId) {
     body?.assigneeDiscordId == null
       ? null
       : String(body.assigneeDiscordId).trim();
+  const VALID_PRIORITIES = ["low", "medium", "high", "urgent"];
+  const priority =
+    body?.priority != null && VALID_PRIORITIES.includes(body.priority)
+      ? body.priority
+      : null;
 
   const existingRes = await pool.query(
     "SELECT todo_id, org_id, status, completed_at FROM todos WHERE todo_id = $1 LIMIT 1",
@@ -3046,6 +3062,7 @@ async function handleUpdateTodo(request, todoId) {
      SET title = COALESCE($2, title),
          description = COALESCE($3, description),
          status = COALESCE($4, status),
+         priority = COALESCE($6, priority),
          assigned_to = COALESCE($5, assigned_to),
          completed_at = CASE
            WHEN $4 = 'completed' AND completed_at IS NULL THEN unix_now()
@@ -3054,7 +3071,7 @@ async function handleUpdateTodo(request, todoId) {
          END,
          updated_at = unix_now()
      WHERE todo_id = $1`,
-    [todoId, title, details, status, assigneeUserId],
+    [todoId, title, details, status, assigneeUserId, priority],
   );
 
   return json({ ok: true });
@@ -10362,9 +10379,15 @@ async function handleGetOrgPlayerList(request, orgId) {
       ? Math.floor((Date.now() / 1000 - Number(cache.steam_profile_created_at)) / 86400)
       : 0;
 
-    const h = totalHours === 0 ? 1 : totalHours;
-    const susScore =
-      Math.round((1 / h) * Math.pow(kd, reportCount) * 10 * 10) / 10;
+    // Weighted signal approach mirroring Trigger page specs
+    let sigScore = 0;
+    if (ip?.is_proxy) sigScore += 0.5;
+    if (Number(cache.bm_rust_bans_count ?? 0) > 0) sigScore += 0.3;
+    if (accountAgeDays > 0 && accountAgeDays < 365) sigScore += 0.4;
+    if (totalHours > 0 && totalHours < 100) sigScore += 0.3;
+    if (reportCount >= 1) sigScore += 0.1;
+    if (reportCount >= 5) sigScore += 0.3;
+    const susScore = Math.min(Math.round(sigScore * 100), 100);
 
     return {
       steamId: cache.steam_id,
@@ -10445,6 +10468,10 @@ async function _handleApiRequest(request) {
     }
     if (pathname === "/api/auth/me" && request.method === "PATCH") {
       return handleUpdateAuthMe(request);
+    }
+
+    if (pathname === "/api/internal/discord/message" && request.method === "POST") {
+      return handleIngestDiscordMessage(request);
     }
 
     if (pathname === "/api/todo/bootstrap" && request.method === "GET") {
@@ -11195,10 +11222,45 @@ async function getGuildTextChannels(guildId) {
     if (!res.ok) return [];
     const channels = await res.json();
     // type 0 = GUILD_TEXT, type 5 = GUILD_ANNOUNCEMENT
-    return channels.filter((c) => c.type === 0 || c.type === 5);
+    return channels
+      .filter((c) => c.type === 0 || c.type === 5)
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        position: c.position ?? 0,
+        permission_overwrites: c.permission_overwrites ?? [],
+      }))
+      .sort((a, b) => a.position - b.position);
   } catch {
     return [];
   }
+}
+
+const VIEW_CHANNEL_BIT = BigInt(1024);
+
+function channelVisibleToRoles(channel, userRoleIds, guildId) {
+  const overwrites = channel.permission_overwrites ?? [];
+  let everyoneDeny = false;
+  let everyoneAllow = false;
+  let roleDeny = false;
+  let roleAllow = false;
+  for (const ow of overwrites) {
+    if (ow.type !== 0) continue; // only role overwrites
+    const allow = BigInt(ow.allow ?? "0");
+    const deny = BigInt(ow.deny ?? "0");
+    if (ow.id === guildId) {
+      if (deny & VIEW_CHANNEL_BIT) everyoneDeny = true;
+      if (allow & VIEW_CHANNEL_BIT) everyoneAllow = true;
+    } else if (userRoleIds.has(ow.id)) {
+      if (deny & VIEW_CHANNEL_BIT) roleDeny = true;
+      if (allow & VIEW_CHANNEL_BIT) roleAllow = true;
+    }
+  }
+  if (roleDeny) return false;
+  if (roleAllow) return true;
+  if (everyoneAllow) return true;
+  if (everyoneDeny) return false;
+  return true;
 }
 
 async function syncChannelMessages(orgId, guildId, channelId, channelName) {
@@ -11320,7 +11382,25 @@ async function handleGetDiscordChannels(request, orgId) {
   const org = orgRes.rows[0];
   if (!org?.guild_id) return json({ channels: [] });
 
-  const channels = await getGuildTextChannels(org.guild_id);
+  const allChannels = await getGuildTextChannels(org.guild_id);
+
+  // Fetch the session user's guild roles to filter channel visibility
+  const userRoleIds = new Set([org.guild_id]); // @everyone = guildId
+  if (session.discordId) {
+    try {
+      const memberRes = await discordFetch(
+        `/guilds/${org.guild_id}/members/${session.discordId}`,
+      );
+      if (memberRes.ok) {
+        const member = await memberRes.json();
+        (member.roles ?? []).forEach((r) => userRoleIds.add(r));
+      }
+    } catch {}
+  }
+
+  const channels = allChannels.filter((c) =>
+    channelVisibleToRoles(c, userRoleIds, org.guild_id),
+  );
 
   const syncRes = await pool.query(
     `SELECT channel_id, channel_name, synced_at FROM discord_channel_sync WHERE org_id = $1`,
@@ -11335,6 +11415,61 @@ async function handleGetDiscordChannels(request, orgId) {
       syncedAt: syncMap[c.id]?.synced_at ?? null,
     })),
   });
+}
+
+async function handleIngestDiscordMessage(request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  if (
+    !env.discordBotToken ||
+    authHeader !== `Bot ${env.discordBotToken}`
+  ) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const { messageId, guildId, channelId, channelName, authorId, authorUsername, content, attachments, timestamp } = body ?? {};
+  if (!messageId || !guildId || !channelId || !authorId) {
+    return json({ error: "Missing required fields" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT org_id FROM organizations WHERE guild_id = $1 LIMIT 1`,
+    [String(guildId)],
+  );
+  if (!orgRes.rows[0]) return json({ ok: false, reason: "no org" });
+  const orgId = orgRes.rows[0].org_id;
+
+  const createdAt = timestamp
+    ? Math.floor(new Date(timestamp).getTime() / 1000)
+    : nowUnix();
+
+  await pool.query(
+    `INSERT INTO discord_messages
+       (message_id, org_id, guild_id, channel_id, channel_name,
+        author_discord_id, author_username, content, attachments, discord_created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (org_id, message_id) DO NOTHING`,
+    [
+      String(messageId),
+      orgId,
+      String(guildId),
+      String(channelId),
+      String(channelName ?? ""),
+      String(authorId),
+      String(authorUsername ?? ""),
+      String(content ?? ""),
+      JSON.stringify(Array.isArray(attachments) ? attachments : []),
+      createdAt,
+    ],
+  );
+
+  return json({ ok: true });
 }
 
 async function handleGetDiscordMessages(request, orgId) {

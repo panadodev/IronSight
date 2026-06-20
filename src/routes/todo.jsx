@@ -37,6 +37,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import { useEffect, useMemo, useState } from "react";
 
 function redirectToLogin() {
@@ -97,6 +98,16 @@ const STATUS_META = {
   },
 };
 
+const PRIORITY_META = {
+  low: { label: "Low", badge: "border-slate-500/40 text-slate-400 bg-slate-500/10", dot: "bg-slate-400" },
+  medium: { label: "Medium", badge: "border-sky-500/40 text-sky-400 bg-sky-500/10", dot: "bg-sky-400" },
+  high: { label: "High", badge: "border-orange-500/40 text-orange-400 bg-orange-500/10", dot: "bg-orange-400" },
+  urgent: { label: "Urgent", badge: "border-rose-500/40 text-rose-400 bg-rose-500/10", dot: "bg-rose-500" },
+};
+function priorityFor(p) {
+  return PRIORITY_META[p] ?? PRIORITY_META.medium;
+}
+
 function metaFor(status) {
   return STATUS_META[status] ?? STATUS_META.todo;
 }
@@ -110,6 +121,7 @@ function fmtDate(unix) {
 }
 
 function TodoPage() {
+  const { orgsLoaded, hasStaffAccount } = useAuth();
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [canWrite, setCanWrite] = useState(false);
@@ -128,6 +140,7 @@ function TodoPage() {
   const [createTaskOrgId, setCreateTaskOrgId] = useState("");
   const [createTaskTitle, setCreateTaskTitle] = useState("");
   const [createTaskDetails, setCreateTaskDetails] = useState("");
+  const [createTaskPriority, setCreateTaskPriority] = useState("medium");
   const [isCreatingTask, setIsCreatingTask] = useState(false);
 
   // Edit task dialog
@@ -135,6 +148,7 @@ function TodoPage() {
   const [selectedTitle, setSelectedTitle] = useState("");
   const [selectedDetails, setSelectedDetails] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("todo");
+  const [selectedPriority, setSelectedPriority] = useState("medium");
   const [isSavingTodo, setIsSavingTodo] = useState(false);
 
   // Reassign confirm
@@ -291,6 +305,7 @@ function TodoPage() {
     setSelectedTitle(todo.title ?? "");
     setSelectedDetails(todo.details ?? "");
     setSelectedStatus(todo.status ?? "todo");
+    setSelectedPriority(todo.priority ?? "medium");
   }
 
   function closeEditDialog() {
@@ -309,6 +324,7 @@ function TodoPage() {
           title: selectedTitle,
           details: selectedDetails,
           status: selectedStatus,
+          priority: selectedPriority,
         }),
       });
       if (!res.ok) {
@@ -324,6 +340,7 @@ function TodoPage() {
                 title: selectedTitle,
                 details: selectedDetails,
                 status: selectedStatus,
+                priority: selectedPriority,
                 completedUnix:
                   selectedStatus === "completed"
                     ? Math.floor(Date.now() / 1000)
@@ -399,12 +416,14 @@ function TodoPage() {
     setCreateTaskOrgId(effectiveBoardOrgIds[0] ?? orgs[0]?.orgId ?? "");
     setCreateTaskTitle("");
     setCreateTaskDetails("");
+    setCreateTaskPriority("medium");
   }
 
   function closeCreateDialog() {
     setCreateTaskStaff(null);
     setCreateTaskTitle("");
     setCreateTaskDetails("");
+    setCreateTaskPriority("medium");
   }
 
   async function handleCreateTask(e) {
@@ -421,6 +440,7 @@ function TodoPage() {
           assigneeDiscordId: createTaskStaff.discordId,
           orgId: createTaskOrgId,
           status: "todo",
+          priority: createTaskPriority,
         }),
       });
       if (!res.ok) {
@@ -446,6 +466,19 @@ function TodoPage() {
         <div className="flex-1 grid place-items-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
+      </div>
+    );
+  }
+
+  if (orgsLoaded && !hasStaffAccount) {
+    return (
+      <div className="h-screen w-full flex flex-col bg-background">
+        <SiteNav />
+        <main className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            You must belong to an organization to view the todo board.
+          </p>
+        </main>
       </div>
     );
   }
@@ -607,6 +640,24 @@ function TodoPage() {
                 disabled={isCreatingTask}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>Priority</Label>
+              <Select
+                value={createTaskPriority}
+                onValueChange={setCreateTaskPriority}
+                disabled={isCreatingTask}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex gap-2 justify-end pt-1">
               <Button
                 type="button"
@@ -681,6 +732,24 @@ function TodoPage() {
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="blocked">Blocked</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Priority</Label>
+              <Select
+                value={selectedPriority}
+                onValueChange={setSelectedPriority}
+                disabled={isSavingTodo || !canWrite}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -937,6 +1006,7 @@ function TaskCard({
   onQuickComplete,
 }) {
   const meta = metaFor(todo.status);
+  const pMeta = priorityFor(todo.priority ?? "medium");
   return (
     <button
       draggable={canWrite}
@@ -962,14 +1032,23 @@ function TaskCard({
         <span className="text-[10px] font-mono text-muted-foreground truncate">
           {orgName}
         </span>
-        {todo.status !== "todo" && (
+        <div className="flex items-center gap-1 shrink-0">
           <Badge
             variant="outline"
-            className={`text-[9px] font-mono h-4 px-1.5 shrink-0 ${meta.badge}`}
+            className={`text-[9px] font-mono h-4 px-1.5 ${pMeta.badge}`}
           >
-            {meta.label}
+            <span className={`size-1.5 rounded-full mr-1 inline-block ${pMeta.dot}`} />
+            {pMeta.label}
           </Badge>
-        )}
+          {todo.status !== "todo" && (
+            <Badge
+              variant="outline"
+              className={`text-[9px] font-mono h-4 px-1.5 ${meta.badge}`}
+            >
+              {meta.label}
+            </Badge>
+          )}
+        </div>
       </div>
       {todo.details && (
         <p className="text-[10px] text-muted-foreground line-clamp-2">

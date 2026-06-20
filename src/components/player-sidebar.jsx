@@ -835,11 +835,70 @@ function bmSessionLastSeen(unix) {
   if (hr < 24) return `${hr}h ago`;
   return `${Math.floor(hr / 24)}d ago`;
 }
+function sessionRankColor(index, total) {
+  const t = total <= 1 ? 0 : index / (total - 1);
+  const r = Math.round(215 - t * 70);
+  const g = Math.round(66 + t * 149);
+  return `rgb(${r}, ${g}, 66)`;
+}
+function BmPlaytimeList({ sessions }) {
+  const [showCount, setShowCount] = useState("10");
+  const sorted = [...sessions].sort(
+    (a, b) => Number(b.hoursPlayed ?? 0) - Number(a.hoursPlayed ?? 0),
+  );
+  const visible =
+    showCount === "all" ? sorted : sorted.slice(0, Number(showCount));
+  const maxHrs = Number(sorted[0]?.hoursPlayed ?? 0);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+          Highest playtime
+        </span>
+        <select
+          value={showCount}
+          onChange={(e) => setShowCount(e.target.value)}
+          className="text-[9px] font-mono bg-surface ring-1 ring-border rounded px-1 py-0.5 text-muted-foreground"
+        >
+          {["5", "10", "25", "50", "all"].map((v) => (
+            <option key={v} value={v}>{v === "all" ? "All" : `Top ${v}`}</option>
+          ))}
+        </select>
+      </div>
+      <ul className="space-y-1">
+        {visible.map((s, i) => {
+          const hrs = Number(s.hoursPlayed ?? 0);
+          const played = hrs >= 1 ? `${hrs.toFixed(2)} hrs` : `${Math.round(hrs * 60)}m`;
+          const pct = maxHrs > 0 ? (hrs / maxHrs) * 100 : 0;
+          const color = sessionRankColor(i, visible.length);
+          return (
+            <li key={s.bmServerId} style={{ borderLeft: `3px solid ${color}` }} className="pl-2 py-0.5">
+              <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                <span className="text-[10px] font-medium truncate min-w-0 flex-1" title={s.serverName}>
+                  {s.serverName}
+                </span>
+                <span className="text-[10px] font-mono shrink-0" style={{ color }}>
+                  {played}
+                </span>
+              </div>
+              <div className="h-1 bg-surface rounded overflow-hidden">
+                <div
+                  className="h-full rounded"
+                  style={{ width: `${pct}%`, background: color }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
   if (bmSessions) {
     return (
       <section>
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
           <span>Server History (BM)</span>
           <span className="font-mono normal-case tracking-normal text-muted-foreground">
             {bmSessions.length}
@@ -848,24 +907,7 @@ function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
         {bmSessions.length === 0 ? (
           <p className="text-xs text-muted-foreground italic">No server sessions on record.</p>
         ) : (
-          <ul className="space-y-1.5">
-            {bmSessions.map((s) => {
-              const hrs = Number(s.hoursPlayed ?? 0);
-              const played = hrs >= 1
-                ? `${Math.floor(hrs)}h`
-                : `${Math.round(hrs * 60)}m`;
-              return (
-                <li
-                  key={s.bmServerId}
-                  className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1"
-                >
-                  <span className="text-[10px] font-medium truncate min-w-0 flex-1">{s.serverName}</span>
-                  <span className="text-[9px] font-mono text-muted-foreground shrink-0">{played}</span>
-                  <span className="text-[9px] font-mono text-muted-foreground shrink-0">{bmSessionLastSeen(s.lastSeen)}</span>
-                </li>
-              );
-            })}
-          </ul>
+          <BmPlaytimeList sessions={bmSessions} />
         )}
       </section>
     );

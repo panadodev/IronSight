@@ -22,6 +22,10 @@ const timezoneStore = {
   },
 };
 function useTimezone() {
-  return useSyncExternalStore(timezoneStore.subscribe, timezoneStore.get, () => "");
+  return useSyncExternalStore(
+    timezoneStore.subscribe,
+    timezoneStore.get,
+    () => "",
+  );
 }
 export { timezoneStore, useTimezone };

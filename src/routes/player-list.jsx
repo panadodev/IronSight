@@ -37,8 +37,8 @@ const SORT_LABEL = {
 };
 
 function susColor(s) {
-  if (s >= 5) return "bg-danger/15 text-danger ring-danger/40";
-  if (s >= 1) return "bg-warning/15 text-warning ring-warning/40";
+  if (s >= 100) return "bg-danger/15 text-danger ring-danger/40";
+  if (s >= 50) return "bg-warning/15 text-warning ring-warning/40";
   return "bg-surface text-muted-foreground ring-border";
 }
 
@@ -532,7 +532,7 @@ function PlayerListPage() {
                               susColor(p.susScore)
                             }
                           >
-                            {p.susScore.toFixed(1)}
+                            {Math.min(p.susScore, 100)}
                           </span>
                         </div>
                         <div className="text-right font-mono">{p.kills}</div>
