@@ -7709,7 +7709,16 @@ async function handleBulkDeletePteroPlugin(request, orgId) {
     `SELECT server_id, name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
     [orgId],
   );
-  const serverRows = serversRes.rows;
+  const allServerRows = serversRes.rows;
+
+  const requestedIds = Array.isArray(body?.serverIds) ? body.serverIds : null;
+  const serverRows = requestedIds
+    ? allServerRows.filter(
+        (s) => requestedIds.includes(s.server_id),
+      )
+    : allServerRows;
+  if (serverRows.length === 0)
+    return json({ error: "No matching servers found" }, 400);
 
   const results = await Promise.allSettled(
     serverRows.map(async (s) => {
@@ -7791,11 +7800,21 @@ async function handleBulkUploadPteroPlugin(request, orgId) {
 
   const { panelUrl, apiKey } = credentials;
 
+  const rawServerIds = url.searchParams.get("serverIds");
+  const requestedIds = rawServerIds
+    ? rawServerIds.split(",").map((s) => s.trim()).filter(Boolean)
+    : null;
+
   const serversRes = await pool.query(
     `SELECT server_id, name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
     [orgId],
   );
-  const serverRows = serversRes.rows;
+  const allServerRows = serversRes.rows;
+  const serverRows = requestedIds
+    ? allServerRows.filter((s) => requestedIds.includes(s.server_id))
+    : allServerRows;
+  if (serverRows.length === 0)
+    return json({ error: "No matching servers found" }, 400);
 
   const results = await Promise.allSettled(
     serverRows.map((s) =>

@@ -1328,7 +1328,7 @@ function PresetsTab({ servers, orgId }) {
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload className="size-3.5 mr-1.5" />
-          Upload to all
+          Upload plugin
         </Button>
         <input
           ref={fileInputRef}
@@ -1519,7 +1519,7 @@ function PresetsTab({ servers, orgId }) {
       {deleteDialog && (
         <BulkDeleteDialog
           pluginName={deleteDialog.pluginName}
-          serverCount={pteroServers.length}
+          pteroServers={pteroServers}
           orgId={orgId}
           onClose={() => setDeleteDialog(null)}
           onSuccess={(removedName) =>
@@ -1533,7 +1533,7 @@ function PresetsTab({ servers, orgId }) {
         <BulkUploadDialog
           fileName={uploadDialog.fileName}
           content={uploadDialog.content}
-          serverCount={pteroServers.length}
+          pteroServers={pteroServers}
           orgId={orgId}
           onClose={() => setUploadDialog(null)}
         />
@@ -1541,7 +1541,73 @@ function PresetsTab({ servers, orgId }) {
     </div>
   );
 }
-function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }) {
+function ServerPicker({ servers, selected, onChange }) {
+  const allSelected = selected.size === servers.length;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          {selected.size} of {servers.length} server
+          {servers.length !== 1 ? "s" : ""} selected
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            onChange(
+              allSelected ? new Set() : new Set(servers.map((s) => s.id)),
+            )
+          }
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {allSelected ? "Deselect all" : "Select all"}
+        </button>
+      </div>
+      <div className="rounded-md border border-border bg-surface/40 divide-y divide-border max-h-44 overflow-y-auto">
+        {servers.map((s) => (
+          <label
+            key={s.id}
+            className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface/60 transition-colors"
+          >
+            <Checkbox
+              checked={selected.has(s.id)}
+              onCheckedChange={(v) => {
+                const next = new Set(selected);
+                v ? next.add(s.id) : next.delete(s.id);
+                onChange(next);
+              }}
+            />
+            <span className="text-sm">{s.name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+function BulkOpResults({ results }) {
+  return (
+    <div className="space-y-1.5 max-h-56 overflow-y-auto">
+      {results.map((r, i) => (
+        <div key={r.serverId ?? i} className="flex items-center gap-2 text-sm">
+          {r.ok ? (
+            <Check className="size-3.5 text-success flex-shrink-0" />
+          ) : (
+            <X className="size-3.5 text-destructive flex-shrink-0" />
+          )}
+          <span className="truncate">{r.serverName}</span>
+          {r.error && (
+            <span className="text-[10px] text-destructive truncate ml-auto">
+              {r.error}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+function BulkDeleteDialog({ pluginName, pteroServers, orgId, onClose, onSuccess }) {
+  const [selected, setSelected] = useState(
+    () => new Set(pteroServers.map((s) => s.id)),
+  );
   const [deleteConfig, setDeleteConfig] = useState(false);
   const [phase, setPhase] = useState("confirm");
   const [results, setResults] = useState([]);
@@ -1553,7 +1619,11 @@ function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pluginName, deleteConfig }),
+        body: JSON.stringify({
+          pluginName,
+          deleteConfig,
+          serverIds: [...selected],
+        }),
       });
       const data = await res.json();
       setResults(data.results ?? []);
@@ -1569,16 +1639,20 @@ function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }
     <Dialog open onOpenChange={() => phase !== "loading" && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Remove from all servers</DialogTitle>
+          <DialogTitle>Remove from servers</DialogTitle>
           <DialogDescription>
-            <span className="font-mono">{pluginName}.cs</span> will be deleted
-            from all {serverCount} server{serverCount !== 1 ? "s" : ""} in this
-            org.
+            Delete <span className="font-mono">{pluginName}.cs</span> from the
+            selected servers.
           </DialogDescription>
         </DialogHeader>
         {phase === "confirm" && (
           <>
-            <div className="flex items-center gap-2 py-1">
+            <ServerPicker
+              servers={pteroServers}
+              selected={selected}
+              onChange={setSelected}
+            />
+            <div className="flex items-center gap-2 pt-1">
               <Checkbox
                 id="delete-config"
                 checked={deleteConfig}
@@ -1588,7 +1662,7 @@ function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }
                 htmlFor="delete-config"
                 className="text-sm font-normal cursor-pointer"
               >
-                Also delete config file (
+                Also delete config (
                 <span className="font-mono">{pluginName}.json</span>)
               </Label>
             </div>
@@ -1596,39 +1670,26 @@ function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }
               <Button variant="ghost" onClick={onClose}>
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={handleDelete}>
-                Remove
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={selected.size === 0}
+              >
+                Remove from {selected.size} server
+                {selected.size !== 1 ? "s" : ""}
               </Button>
             </DialogFooter>
           </>
         )}
         {phase === "loading" && (
           <p className="text-sm text-muted-foreground py-2">
-            Deleting from all servers…
+            Deleting from {selected.size} server
+            {selected.size !== 1 ? "s" : ""}…
           </p>
         )}
         {phase === "done" && (
           <>
-            <div className="space-y-1.5 max-h-56 overflow-y-auto">
-              {results.map((r, i) => (
-                <div
-                  key={r.serverId ?? i}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  {r.ok ? (
-                    <Check className="size-3.5 text-success flex-shrink-0" />
-                  ) : (
-                    <X className="size-3.5 text-destructive flex-shrink-0" />
-                  )}
-                  <span className="truncate">{r.serverName}</span>
-                  {r.error && (
-                    <span className="text-[10px] text-destructive truncate ml-auto">
-                      {r.error}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
+            <BulkOpResults results={results} />
             <DialogFooter>
               <Button onClick={onClose}>Done</Button>
             </DialogFooter>
@@ -1638,15 +1699,19 @@ function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }
     </Dialog>
   );
 }
-function BulkUploadDialog({ fileName, content, serverCount, orgId, onClose }) {
+function BulkUploadDialog({ fileName, content, pteroServers, orgId, onClose }) {
+  const [selected, setSelected] = useState(
+    () => new Set(pteroServers.map((s) => s.id)),
+  );
   const [phase, setPhase] = useState("confirm");
   const [results, setResults] = useState([]);
 
   const handleUpload = async () => {
     setPhase("loading");
+    const serverIds = [...selected].join(",");
     try {
       const res = await fetch(
-        `/api/orgs/${orgId}/ptero-plugin-upload?fileName=${encodeURIComponent(fileName)}`,
+        `/api/orgs/${orgId}/ptero-plugin-upload?fileName=${encodeURIComponent(fileName)}&serverIds=${encodeURIComponent(serverIds)}`,
         {
           method: "POST",
           credentials: "include",
@@ -1671,49 +1736,40 @@ function BulkUploadDialog({ fileName, content, serverCount, orgId, onClose }) {
     <Dialog open onOpenChange={() => phase !== "loading" && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Upload to all servers</DialogTitle>
+          <DialogTitle>Upload plugin</DialogTitle>
           <DialogDescription>
-            <span className="font-mono">{fileName}</span> will be written to{" "}
-            <span className="font-mono">/oxide/plugins/</span> on all{" "}
-            {serverCount} server{serverCount !== 1 ? "s" : ""}, replacing any
-            existing version.
+            Write <span className="font-mono">{fileName}</span> to{" "}
+            <span className="font-mono">/oxide/plugins/</span> on the selected
+            servers, replacing any existing version.
           </DialogDescription>
         </DialogHeader>
         {phase === "confirm" && (
-          <DialogFooter>
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={handleUpload}>Upload</Button>
-          </DialogFooter>
+          <>
+            <ServerPicker
+              servers={pteroServers}
+              selected={selected}
+              onChange={setSelected}
+            />
+            <DialogFooter>
+              <Button variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpload} disabled={selected.size === 0}>
+                Upload to {selected.size} server
+                {selected.size !== 1 ? "s" : ""}
+              </Button>
+            </DialogFooter>
+          </>
         )}
         {phase === "loading" && (
           <p className="text-sm text-muted-foreground py-2">
-            Uploading to all servers…
+            Uploading to {selected.size} server
+            {selected.size !== 1 ? "s" : ""}…
           </p>
         )}
         {phase === "done" && (
           <>
-            <div className="space-y-1.5 max-h-56 overflow-y-auto">
-              {results.map((r, i) => (
-                <div
-                  key={r.serverId ?? i}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  {r.ok ? (
-                    <Check className="size-3.5 text-success flex-shrink-0" />
-                  ) : (
-                    <X className="size-3.5 text-destructive flex-shrink-0" />
-                  )}
-                  <span className="truncate">{r.serverName}</span>
-                  {r.error && (
-                    <span className="text-[10px] text-destructive truncate ml-auto">
-                      {r.error}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
+            <BulkOpResults results={results} />
             <DialogFooter>
               <Button onClick={onClose}>Done</Button>
             </DialogFooter>
