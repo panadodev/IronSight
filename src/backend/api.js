@@ -7287,6 +7287,24 @@ function parseOxidePluginMeta(content) {
   };
 }
 
+function parseOxidePluginList(output) {
+  const map = {};
+  for (const line of String(output ?? "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || !/^\d+\s/.test(trimmed)) continue;
+    const failedMatch = trimmed.match(/^\d+\s+(\S+)\s+-\s+Failed to compile:\s*(.*)/);
+    if (failedMatch) {
+      map[failedMatch[1]] = { status: "failed", error: failedMatch[2].trim() };
+      continue;
+    }
+    const activeMatch = trimmed.match(/-\s+([\w.]+)\.cs\s*$/);
+    if (activeMatch) {
+      map[activeMatch[1]] = { status: "active" };
+    }
+  }
+  return map;
+}
+
 function safePluginName(raw) {
   const name = String(raw ?? "").trim();
   if (!/^[a-zA-Z0-9._-]{1,64}$/.test(name) || name.includes(".."))
@@ -7331,11 +7349,13 @@ async function handleListPteroPlugins(request, serverId) {
   if (error) return error;
 
   const serverRes = await pool.query(
-    `SELECT owner_org_id, ptero_identifier FROM servers WHERE server_id = $1`,
+    `SELECT owner_org_id, ptero_identifier, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1`,
     [serverId],
   );
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const { owner_org_id, ptero_identifier } = serverRes.rows[0];
+  const { owner_org_id, ptero_identifier, rcon_host, rcon_port, rcon_password_enc } =
+    serverRes.rows[0];
 
   if (
     !orgHasPermission(session, owner_org_id, "presets_manage") &&
@@ -7390,10 +7410,11 @@ async function handleListPteroPlugins(request, serverId) {
       } catch {
         // metadata unavailable — use filename fallback
       }
+      const pluginName = f.name.replace(/\.cs$/i, "");
       return {
         fileName: f.name,
-        pluginName: f.name.replace(/\.cs$/i, ""),
-        name: meta?.name ?? f.name.replace(/\.cs$/i, ""),
+        pluginName,
+        name: meta?.name ?? pluginName,
         author: meta?.author ?? null,
         version: meta?.version ?? null,
         description: meta?.description ?? null,
@@ -7402,11 +7423,31 @@ async function handleListPteroPlugins(request, serverId) {
     }),
   );
 
+  const plugins = settled
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => r.value)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Enrich with live status from RCON if available
+  let statusMap = {};
+  if (rcon_host && rcon_port && rcon_password_enc) {
+    try {
+      const password = decryptPterodactylApiKey(String(rcon_password_enc));
+      const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(password)}`;
+      const result = await executeRconCommand(rconUrl, "oxide.plugins");
+      statusMap = parseOxidePluginList(result.response);
+    } catch {
+      // RCON unavailable — return plugins without live status
+    }
+  }
+
   return json({
-    plugins: settled
-      .filter((r) => r.status === "fulfilled")
-      .map((r) => r.value)
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    plugins: plugins.map((p) => ({
+      ...p,
+      status: statusMap[p.pluginName]?.status ?? null,
+      compileError: statusMap[p.pluginName]?.error ?? null,
+    })),
+    rconAvailable: rcon_host != null && rcon_port != null && rcon_password_enc != null,
   });
 }
 

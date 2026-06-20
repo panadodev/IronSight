@@ -1179,6 +1179,7 @@ function PresetsTab({ servers }) {
     pteroServers[0]?.id ?? null,
   );
   const [plugins, setPlugins] = useState([]);
+  const [rconAvailable, setRconAvailable] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
   const [cmdState, setCmdState] = useState({});
@@ -1214,6 +1215,7 @@ function PresetsTab({ servers }) {
       .then((d) => {
         if (!cancelled) {
           setPlugins(d.plugins ?? []);
+          setRconAvailable(d.rconAvailable ?? false);
           setLoading(false);
         }
       })
@@ -1307,7 +1309,7 @@ function PresetsTab({ servers }) {
 
       {loading && (
         <p className="text-sm text-muted-foreground py-4">
-          Loading plugins from server…
+          Loading plugins and checking status via RCON…
         </p>
       )}
       {!loading && fetchError && (
@@ -1321,6 +1323,28 @@ function PresetsTab({ servers }) {
         </p>
       )}
       {!loading && !fetchError && plugins.length > 0 && (
+        <>
+          {rconAvailable === false && (
+            <p className="text-[11px] text-muted-foreground">
+              Configure RCON on this server to see active/failed status.
+            </p>
+          )}
+          {rconAvailable === true && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-3">
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
+                Active
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />
+                Failed to compile
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 inline-block" />
+                Not loaded
+              </span>
+            </p>
+          )}
         <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
           <div className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
             <div>Plugin</div>
@@ -1336,13 +1360,35 @@ function PresetsTab({ servers }) {
             return (
               <div
                 key={p.fileName}
-                className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center"
+                className={
+                  "grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center " +
+                  (p.status === "failed" ? "bg-destructive/5" : "")
+                }
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold truncate">{p.name}</div>
+                  <div className="flex items-center gap-1.5">
+                    {p.status === "active" && (
+                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-success" title="Active" />
+                    )}
+                    {p.status === "failed" && (
+                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-destructive" title="Failed to compile" />
+                    )}
+                    {p.status === null && rconAvailable && (
+                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/40" title="Not loaded" />
+                    )}
+                    <span className="text-sm font-semibold truncate">{p.name}</span>
+                  </div>
                   {p.author && (
                     <div className="text-[10px] font-mono text-muted-foreground truncate">
                       {p.author}
+                    </div>
+                  )}
+                  {p.status === "failed" && p.compileError && (
+                    <div
+                      className="text-[10px] text-destructive truncate"
+                      title={p.compileError}
+                    >
+                      {p.compileError}
                     </div>
                   )}
                 </div>
@@ -1418,6 +1464,7 @@ function PresetsTab({ servers }) {
             );
           })}
         </div>
+        </>
       )}
 
       {configDialog && (
