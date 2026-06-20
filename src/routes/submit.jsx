@@ -1,4 +1,4 @@
-﻿import { SiteNav } from "@/components/site-nav";
+import { SiteNav } from "@/components/site-nav";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -11,7 +11,7 @@ const Route = createFileRoute("/submit")({
   },
   head: () => ({
     meta: [
-      { title: "Submit a Ticket \u2014 IronSight Support" },
+      { title: "Submit a Ticket — IronSight Support" },
       {
         name: "description",
         content:
@@ -43,7 +43,9 @@ function SubmitPage() {
   const [org, setOrg] = useState(null);
   const [orgLoading, setOrgLoading] = useState(true);
   const [ticketTypes, setTicketTypes] = useState([]);
+  const [servers, setServers] = useState([]);
   const [selectedTypeId, setSelectedTypeId] = useState(null);
+  const [selectedServerId, setSelectedServerId] = useState(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [targetSteamId, setTargetSteamId] = useState("");
@@ -86,12 +88,16 @@ function SubmitPage() {
       fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`).then((r) =>
         r.ok ? r.json() : { ticketTypes: [] },
       ),
+      fetch(`/api/orgs/${encodeURIComponent(orgId)}/public-servers`).then(
+        (r) => (r.ok ? r.json() : { servers: [] }),
+      ),
     ])
-      .then(([orgsBody, typesBody]) => {
+      .then(([orgsBody, typesBody, serversBody]) => {
         if (cancelled) return;
         const found = (orgsBody.orgs ?? []).find((o) => o.orgId === orgId);
         setOrg(found ?? null);
         setTicketTypes(typesBody.ticketTypes ?? []);
+        setServers(serversBody.servers ?? []);
         setOrgLoading(false);
       })
       .catch(() => {
@@ -104,8 +110,11 @@ function SubmitPage() {
 
   const selectedType =
     ticketTypes.find((t) => t.ticketTypeId === selectedTypeId) ?? null;
-  const isPlayerReport = selectedType?.category === "player_single" || selectedType?.category === "player_multi";
+  const isPlayerReport =
+    selectedType?.category === "player_single" ||
+    selectedType?.category === "player_multi";
   const isMultiPlayerReport = selectedType?.category === "player_multi";
+  const showServerStep = isPlayerReport && servers.length > 0;
 
   useEffect(() => {
     if (!isPlayerReport) return;
@@ -146,18 +155,31 @@ function SubmitPage() {
     if (!selectedTypeId || !orgId) return;
     let ticketTitle = title.trim();
     let message = body.trim();
-    const players = isMultiPlayerReport ? selectedPlayers : (selectedPlayer ? [selectedPlayer] : []);
+    const players = isMultiPlayerReport
+      ? selectedPlayers
+      : selectedPlayer
+        ? [selectedPlayer]
+        : [];
     if (isPlayerReport) {
       if (players.length === 0 || !message) return;
       const steamIds = players.map((p) => p.steamId).join(", ");
-      ticketTitle = ticketTitle || `${reportCategory} \u2014 ${steamIds}`;
+      ticketTitle = ticketTitle || `${reportCategory} — ${steamIds}`;
       const evidenceText = evidence.trim();
       if (evidenceText) message = `${message}\n\nEvidence:\n${evidenceText}`;
-      if (isMultiPlayerReport) {
-        message = `Target Steam IDs: ${steamIds}\nCategory: ${reportCategory}\n\n${message}`;
-      } else {
-        message = `Target Steam ID: ${steamIds}\nCategory: ${reportCategory}\n\n${message}`;
-      }
+      const serverName =
+        selectedServerId
+          ? (servers.find((s) => s.serverId === selectedServerId)?.serverName ?? "")
+          : "";
+      const prefix = [
+        serverName ? `Server: ${serverName}` : null,
+        isMultiPlayerReport
+          ? `Target Steam IDs: ${steamIds}`
+          : `Target Steam ID: ${steamIds}`,
+        `Category: ${reportCategory}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      message = `${prefix}\n\n${message}`;
     } else {
       if (!ticketTitle || !message) return;
     }
@@ -192,6 +214,7 @@ function SubmitPage() {
   function resetForm() {
     setSubmitted(null);
     setSelectedTypeId(null);
+    setSelectedServerId(null);
     setTitle("");
     setBody("");
     setTargetSteamId("");
@@ -210,7 +233,7 @@ function SubmitPage() {
       <div className="h-screen flex flex-col bg-background text-foreground">
         <SiteNav />
         <div className="flex-1 grid place-items-center">
-          <p className="text-sm text-muted-foreground">Loading\u2026</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
         </div>
       </div>
     );
@@ -276,7 +299,7 @@ function SubmitPage() {
         <div className="flex-1 grid place-items-center p-6">
           <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 text-center">
             <div className="size-10 mx-auto mb-4 bg-success/10 ring-1 ring-success/30 rounded-full grid place-items-center text-success font-bold text-lg">
-              \u2713
+              ✓
             </div>
             <h1 className="text-xl font-semibold mb-1">Ticket submitted</h1>
             <p className="text-sm text-muted-foreground mb-2">
@@ -321,11 +344,17 @@ function SubmitPage() {
   const canSubmit = (() => {
     if (!selectedTypeId) return false;
     if (isPlayerReport) {
-      const hasPlayers = isMultiPlayerReport ? selectedPlayers.length > 0 : !!selectedPlayer;
-      return hasPlayers && body.trim().length > 0;
+      const hasPlayers = isMultiPlayerReport
+        ? selectedPlayers.length > 0
+        : !!selectedPlayer;
+      const hasServer = !showServerStep || !!selectedServerId;
+      return hasPlayers && hasServer && body.trim().length > 0;
     }
     return title.trim().length > 0 && body.trim().length > 0;
   })();
+
+  let step = 0;
+  const nextStep = () => ++step;
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
@@ -334,18 +363,20 @@ function SubmitPage() {
         <div className="max-w-3xl mx-auto p-8 space-y-8">
           <header>
             <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
-              {org.name} \u00b7 Player Portal
+              {org.name} · Player Portal
             </p>
             <h1 className="text-3xl font-semibold tracking-tight">
               Submit a ticket
             </h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-prose">
-              Pick a ticket type and provide as much detail as possible.
+              {isPlayerReport
+                ? "Reports require you to choose the server you saw the player on, then pick them from the list."
+                : "Pick a ticket type and provide as much detail as possible."}
             </p>
             <p className="text-[10px] font-mono text-muted-foreground mt-1">
               Signed in as{" "}
               <span className="text-foreground">{session.username}</span>
-              {session.steamId && <> \u00b7 Steam {session.steamId}</>}
+              {session.steamId && <> · Steam {session.steamId}</>}
             </p>
           </header>
 
@@ -364,7 +395,14 @@ function SubmitPage() {
                   return (
                     <button
                       key={t.ticketTypeId}
-                      onClick={() => setSelectedTypeId(t.ticketTypeId)}
+                      onClick={() => {
+                        setSelectedTypeId(t.ticketTypeId);
+                        setSelectedServerId(null);
+                        setSelectedPlayer(null);
+                        setSelectedPlayers([]);
+                        setPlayerQuery("");
+                        setPlayerResults([]);
+                      }}
                       className={
                         "text-left p-4 rounded-lg ring-1 transition-colors " +
                         (active
@@ -397,9 +435,47 @@ function SubmitPage() {
 
           {selectedType && isPlayerReport && (
             <>
+              {showServerStep && (
+                <section className="space-y-3">
+                  <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                    Step {nextStep()} · Server
+                  </label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {servers.map((s) => {
+                      const active = selectedServerId === s.serverId;
+                      return (
+                        <button
+                          key={s.serverId}
+                          onClick={() => setSelectedServerId(s.serverId)}
+                          className={
+                            "text-left px-4 py-3 rounded-lg ring-1 transition-colors flex items-center justify-between " +
+                            (active
+                              ? "bg-brand/10 ring-brand/30"
+                              : "bg-surface/40 ring-border hover:bg-surface/70")
+                          }
+                        >
+                          <p
+                            className={
+                              "text-sm font-semibold " +
+                              (active ? "text-brand" : "text-foreground")
+                            }
+                          >
+                            {s.serverName}
+                          </p>
+                          {active && (
+                            <span className="size-1.5 rounded-full bg-brand shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
               <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step 1 · Reported player{isMultiPlayerReport ? "s" : ""}
+                  Step {nextStep()} · Reported player
+                  {isMultiPlayerReport ? "s" : ""}
                 </label>
                 {isMultiPlayerReport ? (
                   <>
@@ -410,12 +486,16 @@ function SubmitPage() {
                             key={player.steamId}
                             className="flex items-center gap-2 px-3 py-1 bg-brand/20 ring-1 ring-brand/40 rounded-full"
                           >
-                            <span className="text-sm font-medium">{player.name}</span>
+                            <span className="text-sm font-medium">
+                              {player.name}
+                            </span>
                             <button
                               type="button"
                               onClick={() => {
                                 setSelectedPlayers(
-                                  selectedPlayers.filter((p) => p.steamId !== player.steamId)
+                                  selectedPlayers.filter(
+                                    (p) => p.steamId !== player.steamId,
+                                  ),
                                 );
                               }}
                               className="text-xs text-muted-foreground hover:text-foreground"
@@ -432,7 +512,8 @@ function SubmitPage() {
                         value={playerQuery}
                         onChange={(e) => setPlayerQuery(e.target.value)}
                         onFocus={() =>
-                          playerResults.length > 0 && setPlayerDropdownOpen(true)
+                          playerResults.length > 0 &&
+                          setPlayerDropdownOpen(true)
                         }
                         placeholder="Add players by name or Steam ID…"
                         className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
@@ -449,8 +530,15 @@ function SubmitPage() {
                               key={p.steamId}
                               type="button"
                               onClick={() => {
-                                if (!selectedPlayers.find((sp) => sp.steamId === p.steamId)) {
-                                  setSelectedPlayers([...selectedPlayers, p]);
+                                if (
+                                  !selectedPlayers.find(
+                                    (sp) => sp.steamId === p.steamId,
+                                  )
+                                ) {
+                                  setSelectedPlayers([
+                                    ...selectedPlayers,
+                                    p,
+                                  ]);
                                 }
                                 setPlayerDropdownOpen(false);
                                 setPlayerQuery("");
@@ -465,7 +553,9 @@ function SubmitPage() {
                                 </p>
                               </div>
                               <span className="text-[10px] text-muted-foreground shrink-0">
-                                {new Date(p.lastSeenAt * 1000).toLocaleDateString()}
+                                {new Date(
+                                  p.lastSeenAt * 1000,
+                                ).toLocaleDateString()}
                               </span>
                             </button>
                           ))}
@@ -476,13 +566,15 @@ function SubmitPage() {
                         playerResults.length === 0 && (
                           <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
                             <div className="p-3 text-xs text-muted-foreground">
-                              No players found matching "{playerQuery.trim()}".
+                              No players found matching "
+                              {playerQuery.trim()}".
                             </div>
                           </div>
                         )}
                     </div>
                     <p className="text-[10px] text-muted-foreground">
-                      Search for players by their in-game name or Steam64 ID. Add as many as needed.
+                      Search by in-game name or Steam64 ID. Add as many as
+                      needed.
                     </p>
                   </>
                 ) : (
@@ -490,7 +582,9 @@ function SubmitPage() {
                     {selectedPlayer ? (
                       <div className="flex items-center gap-3 p-3 bg-surface/40 ring-1 ring-border rounded">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">{selectedPlayer.name}</p>
+                          <p className="text-sm font-medium">
+                            {selectedPlayer.name}
+                          </p>
                           <p className="text-[10px] font-mono text-muted-foreground">
                             {selectedPlayer.steamId}
                           </p>
@@ -519,9 +613,10 @@ function SubmitPage() {
                             setTargetSteamId("");
                           }}
                           onFocus={() =>
-                            playerResults.length > 0 && setPlayerDropdownOpen(true)
+                            playerResults.length > 0 &&
+                            setPlayerDropdownOpen(true)
                           }
-                          placeholder="Search by name or Steam ID…"
+                          placeholder="Type a name or Steam ID — or scroll the list…"
                           className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
                         />
                         {playerSearching && (
@@ -545,13 +640,17 @@ function SubmitPage() {
                                 className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-surface/60 transition-colors border-b border-border/50 last:border-0"
                               >
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium">{p.name}</p>
+                                  <p className="text-sm font-medium">
+                                    {p.name}
+                                  </p>
                                   <p className="text-[10px] font-mono text-muted-foreground">
                                     {p.steamId}
                                   </p>
                                 </div>
                                 <span className="text-[10px] text-muted-foreground shrink-0">
-                                  {new Date(p.lastSeenAt * 1000).toLocaleDateString()}
+                                  {new Date(
+                                    p.lastSeenAt * 1000,
+                                  ).toLocaleDateString()}
                                 </span>
                               </button>
                             ))}
@@ -562,21 +661,24 @@ function SubmitPage() {
                           playerResults.length === 0 && (
                             <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
                               <div className="p-3 text-xs text-muted-foreground">
-                                No players found matching "{playerQuery.trim()}".
+                                No players found matching "
+                                {playerQuery.trim()}".
                               </div>
                             </div>
                           )}
                       </div>
                     )}
                     <p className="text-[10px] text-muted-foreground">
-                      Search for the player by their in-game name or Steam64 ID.
+                      Search for the player by their in-game name or Steam64
+                      ID.
                     </p>
                   </>
                 )}
               </section>
+
               <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step 2 \u00b7 What did they do?
+                  Step {nextStep()} · What did they do?
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {REPORT_CATEGORIES.map((c) => {
@@ -608,9 +710,10 @@ function SubmitPage() {
                   })}
                 </div>
               </section>
+
               <section className="space-y-3">
                 <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step 3 \u00b7 Description
+                  Step {nextStep()} · Description
                 </label>
                 <textarea
                   value={body}
@@ -619,9 +722,10 @@ function SubmitPage() {
                   className="w-full h-32 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40 resize-y"
                 />
               </section>
+
               <section className="space-y-3">
                 <label className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  <span>Step 4 \u00b7 Evidence links</span>
+                  <span>Step {nextStep()} · Evidence links</span>
                   <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">
                     optional
                   </span>
@@ -677,7 +781,7 @@ function SubmitPage() {
                 disabled={!canSubmit || submitting}
                 className="px-8 py-3 bg-brand text-brand-foreground text-sm font-semibold rounded-md ring-1 ring-brand hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
-                {submitting ? "Submitting\u2026" : "Submit ticket"}
+                {submitting ? "Submitting…" : "Submit ticket"}
               </button>
             </div>
           )}

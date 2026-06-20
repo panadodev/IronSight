@@ -772,6 +772,24 @@ async function ensureSchema() {
     END $$
   `);
 
+  // Fix categories for ticket types seeded before the category column existed.
+  // "Player Report" and cheating/toxicity names → player_single; teaming → player_multi.
+  await pool.query(`
+    UPDATE ticket_types
+    SET ticket_type_category = 'player_single'
+    WHERE ticket_type_category = 'generic'
+      AND (
+        LOWER(ticket_type_name) LIKE '%player report%'
+        OR LOWER(ticket_type_name) IN ('cheating', 'toxicity')
+      )
+  `);
+  await pool.query(`
+    UPDATE ticket_types
+    SET ticket_type_category = 'player_multi'
+    WHERE ticket_type_category = 'generic'
+      AND LOWER(ticket_type_name) IN ('teaming')
+  `);
+
   // Add is_enabled column to track which ticket types are active for an org
   await pool.query(`
     DO $$ BEGIN
@@ -6156,6 +6174,31 @@ async function handleListServers(request) {
   });
 }
 
+// ── Public org server list (for ticket submission portal) ────────────────────
+
+async function handleListPublicOrgServers(request, orgId) {
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT server_id, server_name, tags
+     FROM servers
+     WHERE owner_org_id = $1
+     ORDER BY server_name ASC`,
+    [orgId],
+  );
+  return json({
+    servers: rows.map((r) => ({
+      serverId: String(r.server_id),
+      serverName: String(r.server_name),
+      tags: Array.isArray(r.tags) ? r.tags : [],
+    })),
+  });
+}
+
 // ── Scripts ──────────────────────────────────────────────────────────────────
 
 async function handleListScripts(request, orgId) {
@@ -10972,6 +11015,13 @@ async function _handleApiRequest(request) {
         orgExternalKeyDetailMatch[1],
         orgExternalKeyDetailMatch[2],
       );
+
+    // Public server list (for ticket submission portal — no auth required)
+    const orgPublicServersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/public-servers$/,
+    );
+    if (orgPublicServersMatch && request.method === "GET")
+      return handleListPublicOrgServers(request, orgPublicServersMatch[1]);
 
     // Org player search (for ticket submission)
     const orgPlayerSearchMatch = pathname.match(
