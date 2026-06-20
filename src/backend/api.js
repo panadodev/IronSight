@@ -1371,6 +1371,50 @@ async function ensureSchema() {
      ON player_related_accounts(steam_id)`,
   );
 
+  // ── Alt-detection enrichment (additive) ──────────────────────────────────────
+  // Connection classification from proxycheck (residential/business/mobile/
+  // proxy_vpn/hosting). Existing rows keep is_proxy/is_vpn; conn_type is finer.
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS conn_type TEXT`,
+  );
+  // BattleMetrics name-identifier history for the subject (used for name matching).
+  await pool.query(
+    `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS bm_name_aliases JSONB`,
+  );
+  // Per-related-account evidence computed at refresh time.
+  for (const col of [
+    `related_steam_id TEXT`,
+    `name_aliases JSONB`,
+    `name_similarity INT`,
+    `shared_ips JSONB`,
+    `non_proxy_linked BOOLEAN`,
+    `mutual_friends JSONB`,
+    `shared_groups JSONB`,
+    `server_overlap JSONB`,
+    `co_presence JSONB`,
+    `alt_confidence TEXT`,
+  ]) {
+    await pool.query(
+      `ALTER TABLE player_related_accounts ADD COLUMN IF NOT EXISTS ${col}`,
+    );
+  }
+  // Raw BM session windows for subject + enriched alts, used to compute temporal
+  // co-presence (alt-switching vs co-play). Kept separate from the aggregate
+  // player_bm_sessions table which only stores per-server totals.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_session_windows (
+      steam_id TEXT NOT NULL,
+      bm_server_id TEXT NOT NULL,
+      started_at BIGINT NOT NULL,
+      stopped_at BIGINT,
+      PRIMARY KEY (steam_id, bm_server_id, started_at)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_session_windows_steam_id
+     ON player_session_windows(steam_id)`,
+  );
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS player_bm_bans_cache (
       id BIGSERIAL PRIMARY KEY,
@@ -8953,6 +8997,15 @@ async function fetchBMPlayerData(bmId, orgId) {
 
   const rustBans = steamIdentifier?.attributes?.metadata?.rustBans ?? null;
 
+  // BM tracks every name a player has used as a "name" identifier — this is our
+  // alias history for name-similarity matching (Steam exposes none via API).
+  const nameAliases = (json.included ?? [])
+    .filter(
+      (inc) => inc.type === "identifier" && inc.attributes?.type === "name",
+    )
+    .map((inc) => inc.attributes?.identifier)
+    .filter(Boolean);
+
   return {
     bmProfileCreatedAt: json.data?.attributes?.createdAt
       ? Math.floor(new Date(json.data.attributes.createdAt).getTime() / 1000)
@@ -8964,6 +9017,7 @@ async function fetchBMPlayerData(bmId, orgId) {
     bmRustBansCount: rustBans?.count ?? 0,
     bmRustBansLastBan: rustBans?.lastBan ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000) : null,
     bmRustBansBanned: rustBans?.banned ?? false,
+    nameAliases,
     sessions,
     hoursInaccurate: totalIncluded >= 250,
   };
@@ -8978,28 +9032,47 @@ async function fetchBMRelatedIdentifiers(bmId, orgId) {
 
   const data = await resp.json();
   const ips = [];
-  const relatedCounts = {};
+  // bmId -> { matchCount, sharedIps:Set<ip>, sharedTypes:{identifierType:count} }
+  const related = {};
 
   for (const identifier of data.data ?? []) {
-    if (identifier.attributes?.type === "ip") {
-      const ip = identifier.attributes?.identifier;
+    const idType = identifier.attributes?.type ?? null;
+    const idValue = identifier.attributes?.identifier ?? null;
+
+    if (idType === "ip" && idValue) {
       const isProxy =
         identifier.attributes?.metadata?.connectionInfo?.proxy === true;
-      if (ip) ips.push({ ip, isProxy });
+      ips.push({ ip: idValue, isProxy });
     }
 
+    // Every related player listed under this identifier shares THIS identifier
+    // with the subject — so for an "ip" identifier we learn exactly which IP
+    // links each alt, not just that they share something.
     for (const rel of identifier.relationships?.relatedPlayers?.data ?? []) {
-      relatedCounts[rel.id] = (relatedCounts[rel.id] ?? 0) + 1;
+      if (rel.id === bmId) continue; // self-reference
+      const entry =
+        related[rel.id] ??
+        (related[rel.id] = {
+          matchCount: 0,
+          sharedIps: new Set(),
+          sharedTypes: {},
+        });
+      entry.matchCount += 1;
+      if (idType)
+        entry.sharedTypes[idType] = (entry.sharedTypes[idType] ?? 0) + 1;
+      if (idType === "ip" && idValue) entry.sharedIps.add(idValue);
     }
   }
 
-  // Remove the player's own BM ID from related (they reference themselves)
-  delete relatedCounts[bmId];
-
-  const relatedPlayers = Object.entries(relatedCounts)
-    .sort((a, b) => b[1] - a[1])
+  const relatedPlayers = Object.entries(related)
+    .sort((a, b) => b[1].matchCount - a[1].matchCount)
     .slice(0, 20)
-    .map(([id, count]) => ({ bmId: id, matchCount: count }));
+    .map(([id, v]) => ({
+      bmId: id,
+      matchCount: v.matchCount,
+      sharedIps: Array.from(v.sharedIps),
+      sharedTypes: v.sharedTypes,
+    }));
 
   return { ips, relatedPlayers };
 }
@@ -9149,9 +9222,58 @@ async function fetchSteamFriends(steamId, orgId) {
   };
 }
 
+// Returns the player's Steam group GIDs, or null when the profile/groups are
+// private or the call fails. Note: GetUserGroupList only returns GIDs (no names
+// or member counts), so shared-group evidence is a GID intersection count.
+async function fetchSteamGroups(steamId, orgId) {
+  const resp = await steamApiFetch(orgId, "/ISteamUser/GetUserGroupList/v1/", {
+    steamid: steamId,
+  });
+  if (!resp?.ok) return null;
+  const json = await resp.json().catch(() => null);
+  if (!json?.response?.success) return null;
+  return (json.response.groups ?? []).map((g) => String(g.gid));
+}
+
+// Returns recent BM session windows [{bmServerId, startedAt, stoppedAt}] for a
+// player, used to compute temporal co-presence with the subject. Capped to avoid
+// pulling a player's entire history.
+async function fetchBMSessions(bmId, orgId, { maxPages = 5, sinceUnix = null } = {}) {
+  let url =
+    `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}` +
+    `/relationships/sessions?page[size]=100`;
+  const out = [];
+  let pages = 0;
+  while (url && pages < maxPages) {
+    const resp = await bmFetch(orgId, url);
+    if (!resp?.ok) break;
+    const json = await resp.json().catch(() => null);
+    if (!json) break;
+    for (const s of json.data ?? []) {
+      const start = s.attributes?.start
+        ? Math.floor(new Date(s.attributes.start).getTime() / 1000)
+        : null;
+      const stop = s.attributes?.stop
+        ? Math.floor(new Date(s.attributes.stop).getTime() / 1000)
+        : null;
+      const serverId = s.relationships?.server?.data?.id
+        ? String(s.relationships.server.data.id)
+        : null;
+      if (start == null || serverId == null) continue;
+      if (sinceUnix != null && (stop ?? start) < sinceUnix) continue;
+      out.push({ bmServerId: serverId, startedAt: start, stoppedAt: stop });
+    }
+    url = json.links?.next ?? null;
+    pages++;
+  }
+  return out;
+}
+
 async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
+  const sinceUnix = Math.floor(Date.now() / 1000) - 90 * 86400;
   const settled = await Promise.allSettled(
-    relatedPlayers.slice(0, 12).map(async ({ bmId, matchCount }) => {
+    relatedPlayers.slice(0, 12).map(async (rel) => {
+      const { bmId, matchCount, sharedIps = [], sharedTypes = {} } = rel;
       const profileResp = await bmFetch(
         orgId,
         `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}?include=identifier&version=%5E0.1.0`,
@@ -9159,16 +9281,41 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
       if (!profileResp?.ok) return null;
 
       const profileJson = await profileResp.json();
-      const steamIdInc = (profileJson.included ?? []).find(
+      const included = profileJson.included ?? [];
+      const steamIdInc = included.find(
         (inc) =>
           inc.type === "identifier" && inc.attributes?.type === "steamID",
       );
+      const relatedSteamId = steamIdInc?.attributes?.identifier
+        ? String(steamIdInc.attributes.identifier)
+        : null;
+      const nameAliases = included
+        .filter(
+          (inc) => inc.type === "identifier" && inc.attributes?.type === "name",
+        )
+        .map((inc) => inc.attributes?.identifier)
+        .filter(Boolean);
       const rustBans = steamIdInc?.attributes?.metadata?.rustBans;
 
-      const bansResp = await bmFetch(
-        orgId,
-        `https://api.battlemetrics.com/bans?version=%5E0.1.0&filter[player]=${encodeURIComponent(bmId)}`,
-      );
+      // Ban count + social/activity enrichment in parallel. Steam calls need the
+      // resolved steamID; sessions need the BM id. All failures degrade to empty.
+      const [bansResp, friendsRes, groups, sessions] = await Promise.all([
+        bmFetch(
+          orgId,
+          `https://api.battlemetrics.com/bans?version=%5E0.1.0&filter[player]=${encodeURIComponent(bmId)}`,
+        ),
+        relatedSteamId
+          ? fetchSteamFriends(relatedSteamId, orgId).catch(() => ({
+              isPublic: false,
+              friends: null,
+            }))
+          : Promise.resolve({ isPublic: false, friends: null }),
+        relatedSteamId
+          ? fetchSteamGroups(relatedSteamId, orgId).catch(() => null)
+          : Promise.resolve(null),
+        fetchBMSessions(bmId, orgId, { sinceUnix }).catch(() => []),
+      ]);
+
       let bmBanCount = 0;
       if (bansResp?.ok) {
         const bansJson = await bansResp.json();
@@ -9177,8 +9324,15 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
 
       return {
         relatedBmId: String(bmId),
+        relatedSteamId,
         relatedName: profileJson.data?.attributes?.name ?? null,
+        nameAliases,
         matchCount,
+        sharedIps,
+        sharedTypes,
+        friends: friendsRes?.friends ?? null,
+        groups,
+        sessions,
         hasBmBans: bmBanCount > 0,
         bmBanCount,
         hasEacBans: (rustBans?.count ?? 0) > 0,
@@ -9200,6 +9354,184 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
     .map((r) => r.value);
 }
 
+// ── Alt-account evidence + scoring ────────────────────────────────────────────
+
+// Dice bigram similarity (0..100). Same algorithm as the frontend similarity()
+// helper, kept here so the score is computed server-side once at refresh time.
+function nameBigramSimilarity(a, b) {
+  const grams = (s) => {
+    const t = (s ?? "").toLowerCase().replace(/\s+/g, "");
+    const g = new Set();
+    for (let i = 0; i < t.length - 1; i++) g.add(t.slice(i, i + 2));
+    return g;
+  };
+  const A = grams(a);
+  const B = grams(b);
+  if (A.size === 0 && B.size === 0) return 0;
+  let inter = 0;
+  A.forEach((g) => B.has(g) && inter++);
+  return Math.round((2 * inter * 100) / (A.size + B.size || 1));
+}
+
+function bestNameSimilarity(subjectAliases, altAliases) {
+  let best = 0;
+  for (const s of subjectAliases) {
+    for (const a of altAliases) {
+      const sim = nameBigramSimilarity(s, a);
+      if (sim > best) best = sim;
+    }
+  }
+  return best;
+}
+
+// Classify whether two players were ever online together on shared servers.
+// alt_switch  = many shared-server sessions but never overlapping → likely one
+//               person switching accounts.
+// co_play     = sessions frequently overlap → likely teammates, NOT an alt.
+// inconclusive = too little shared-server data to tell.
+function computeCoPresence(subjectWindows, altWindows) {
+  const byServer = (windows) => {
+    const m = new Map();
+    for (const w of windows) {
+      if (!m.has(w.bmServerId)) m.set(w.bmServerId, []);
+      m.get(w.bmServerId).push(w);
+    }
+    return m;
+  };
+  const subjByServer = byServer(subjectWindows);
+  const altByServer = byServer(altWindows);
+  const sharedServers = [...altByServer.keys()].filter((s) =>
+    subjByServer.has(s),
+  );
+  if (!sharedServers.length)
+    return { verdict: "inconclusive", sharedServers: 0, altSessions: 0, overlapping: 0, ratio: 0 };
+
+  let altSessions = 0;
+  let overlapping = 0;
+  for (const srv of sharedServers) {
+    const sw = subjByServer.get(srv);
+    for (const a of altByServer.get(srv)) {
+      altSessions++;
+      const aStart = a.startedAt;
+      const aStop = a.stoppedAt ?? a.startedAt;
+      if (sw.some((s) => s.startedAt <= aStop && aStart <= (s.stoppedAt ?? s.startedAt)))
+        overlapping++;
+    }
+  }
+  const ratio = altSessions ? overlapping / altSessions : 0;
+  let verdict;
+  if (altSessions < 5) verdict = "inconclusive";
+  else if (ratio >= 0.3) verdict = "co_play";
+  else if (overlapping === 0) verdict = "alt_switch";
+  else verdict = "inconclusive";
+  return {
+    verdict,
+    sharedServers: sharedServers.length,
+    altSessions,
+    overlapping,
+    ratio: Math.round(ratio * 100),
+  };
+}
+
+// Pure rollup of all signals for one related account into an evidence object +
+// confidence tier. `subject` carries the subject's aliases/friends/groups/
+// session data; `ipMetaByIp` maps a shared IP to its proxycheck classification.
+function computeAltEvidence(subject, alt, ipMetaByIp) {
+  const STRONG = new Set(["residential", "business", "mobile"]);
+
+  const sharedIps = (alt.sharedIps ?? []).map((ip) => {
+    const m = ipMetaByIp[ip] ?? {};
+    return {
+      ip,
+      connType: m.connType ?? null,
+      isp: m.isp ?? null,
+      asn: m.asn ?? null,
+      country: m.country ?? null,
+    };
+  });
+  const nonProxyLinked = sharedIps.some((x) => STRONG.has(x.connType));
+
+  const subjAliases = subject.aliases?.length
+    ? subject.aliases
+    : subject.displayName
+      ? [subject.displayName]
+      : [];
+  const altAliases = alt.nameAliases?.length
+    ? alt.nameAliases
+    : alt.relatedName
+      ? [alt.relatedName]
+      : [];
+  const nameSimilarity = bestNameSimilarity(subjAliases, altAliases);
+
+  const subjFriends = subject.friends ?? new Set();
+  const mutualFriends = (alt.friends ?? []).filter((f) => subjFriends.has(f));
+
+  const subjGroups = subject.groups ?? new Set();
+  const sharedGroups = (alt.groups ?? []).filter((g) => subjGroups.has(g));
+
+  const subjServers = subject.serverIds ?? new Set();
+  const altServers = new Set((alt.sessions ?? []).map((s) => s.bmServerId));
+  const serverOverlap = [...altServers].filter((s) => subjServers.has(s));
+
+  const coPresence = computeCoPresence(
+    subject.sessionWindows ?? [],
+    alt.sessions ?? [],
+  );
+
+  // Weighted rollup. Residential/business shared IPs are the strongest signal;
+  // VPN/proxy/hosting contribute nothing (they're shared by thousands). Frequent
+  // co-play actively lowers the score (teammates, not the same person).
+  let score = 0;
+  const resBiz = sharedIps.filter(
+    (x) => x.connType === "residential" || x.connType === "business",
+  ).length;
+  const mob = sharedIps.filter((x) => x.connType === "mobile").length;
+  if (resBiz > 0) score += 45 + Math.min(15, (resBiz - 1) * 5);
+  else if (mob > 0) score += 25;
+  if (nameSimilarity >= 70) score += 20;
+  else if (nameSimilarity >= 45) score += 10;
+  score += Math.min(15, mutualFriends.length * 5);
+  score += Math.min(8, sharedGroups.length * 4);
+  if (coPresence.verdict === "alt_switch") score += 20;
+  else if (coPresence.verdict === "co_play") score -= 15;
+  if (alt.hasEacBans || alt.hasBmBans) score += 5;
+  score = Math.max(0, Math.min(100, score));
+
+  let altConfidence;
+  if (score >= 70) altConfidence = "high";
+  else if (score >= 45) altConfidence = "likely";
+  else if (score >= 20) altConfidence = "possible";
+  else altConfidence = "unlikely";
+
+  return {
+    ...alt,
+    sharedIps,
+    nonProxyLinked,
+    nameSimilarity,
+    mutualFriends,
+    sharedGroups,
+    serverOverlap,
+    coPresence,
+    altConfidence,
+    altScore: score,
+  };
+}
+
+// Normalize proxycheck's free-form `type` (plus the proxy flag) into one of the
+// five connection classes the UI groups IPs by. Returns null when unknown.
+function classifyConnType(meta) {
+  const t = (meta.type ?? "").toLowerCase();
+  if (meta.proxy === "yes" || t.includes("vpn") || t.includes("proxy") || t === "tor")
+    return "proxy_vpn";
+  if (t.includes("hosting") || t.includes("data center") || t.includes("server"))
+    return "hosting";
+  if (t.includes("business")) return "business";
+  if (t.includes("wireless") || t.includes("mobile") || t.includes("cellular"))
+    return "mobile";
+  if (t.includes("residential")) return "residential";
+  return null;
+}
+
 async function runProxycheckForIps(ipList, orgId) {
   if (!ipList.length) return {};
   const results = {};
@@ -9213,6 +9545,7 @@ async function runProxycheckForIps(ipList, orgId) {
       results[ip] = {
         isProxy: meta.proxy === "yes",
         isVpn: meta.type === "VPN",
+        connType: classifyConnType(meta),
         isp: meta.isp ?? null,
         country: meta.country ?? null,
         asn: meta.asn ?? null,
@@ -9320,6 +9653,7 @@ async function writeBMDataToCache(steamId, bmId, data) {
        bm_rust_bans_count   = $8,
        bm_rust_bans_last_ban = $9,
        bm_rust_bans_banned  = $10,
+       bm_name_aliases      = $11,
        bm_cached_at         = unix_now(),
        cache_expires_at     = unix_now() + 2592000
      WHERE steam_id = $1`,
@@ -9334,6 +9668,7 @@ async function writeBMDataToCache(steamId, bmId, data) {
       data.bmRustBansCount,
       data.bmRustBansLastBan,
       data.bmRustBansBanned,
+      data.nameAliases ? JSON.stringify(data.nameAliases) : null,
     ],
   );
 }
@@ -9430,31 +9765,73 @@ async function writeIpsToHistory(steamId, ips) {
 
 async function writeRelatedAccountsToCache(steamId, accounts) {
   if (!accounts.length) return;
+  // Per-row insert (≤ 20 rows) — the evidence columns are JSONB, which doesn't
+  // unnest cleanly the way the old scalar-only bulk insert did.
+  for (const a of accounts) {
+    await pool.query(
+      `INSERT INTO player_related_accounts
+         (steam_id, related_bm_id, related_steam_id, related_name, name_aliases,
+          match_count, has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban,
+          name_similarity, shared_ips, non_proxy_linked, mutual_friends,
+          shared_groups, server_overlap, co_presence, alt_confidence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
+         related_steam_id = EXCLUDED.related_steam_id,
+         related_name     = COALESCE(EXCLUDED.related_name, player_related_accounts.related_name),
+         name_aliases     = EXCLUDED.name_aliases,
+         match_count      = EXCLUDED.match_count,
+         has_bm_bans      = EXCLUDED.has_bm_bans,
+         bm_ban_count     = EXCLUDED.bm_ban_count,
+         has_eac_bans     = EXCLUDED.has_eac_bans,
+         eac_last_ban     = EXCLUDED.eac_last_ban,
+         name_similarity  = EXCLUDED.name_similarity,
+         shared_ips       = EXCLUDED.shared_ips,
+         non_proxy_linked = EXCLUDED.non_proxy_linked,
+         mutual_friends   = EXCLUDED.mutual_friends,
+         shared_groups    = EXCLUDED.shared_groups,
+         server_overlap   = EXCLUDED.server_overlap,
+         co_presence      = EXCLUDED.co_presence,
+         alt_confidence   = EXCLUDED.alt_confidence,
+         cached_at        = unix_now(),
+         cache_expires_at = unix_now() + 2592000`,
+      [
+        steamId,
+        a.relatedBmId,
+        a.relatedSteamId ?? null,
+        a.relatedName ?? null,
+        a.nameAliases ? JSON.stringify(a.nameAliases) : null,
+        a.matchCount ?? 0,
+        a.hasBmBans ?? false,
+        a.bmBanCount ?? 0,
+        a.hasEacBans ?? false,
+        a.eacLastBan ?? null,
+        a.nameSimilarity ?? null,
+        a.sharedIps ? JSON.stringify(a.sharedIps) : null,
+        a.nonProxyLinked ?? null,
+        a.mutualFriends ? JSON.stringify(a.mutualFriends) : null,
+        a.sharedGroups ? JSON.stringify(a.sharedGroups) : null,
+        a.serverOverlap ? JSON.stringify(a.serverOverlap) : null,
+        a.coPresence ? JSON.stringify(a.coPresence) : null,
+        a.altConfidence ?? null,
+      ],
+    );
+  }
+}
+
+async function writeSessionWindowsToCache(steamId, windows) {
+  await pool.query(`DELETE FROM player_session_windows WHERE steam_id = $1`, [
+    steamId,
+  ]);
+  if (!windows.length) return;
   await pool.query(
-    `INSERT INTO player_related_accounts
-       (steam_id, related_bm_id, related_name, match_count,
-        has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban)
-     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
-            unnest($4::int[]), unnest($5::boolean[]), unnest($6::int[]),
-            unnest($7::boolean[]), unnest($8::bigint[])
-     ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
-       related_name     = COALESCE(EXCLUDED.related_name, player_related_accounts.related_name),
-       match_count      = EXCLUDED.match_count,
-       has_bm_bans      = EXCLUDED.has_bm_bans,
-       bm_ban_count     = EXCLUDED.bm_ban_count,
-       has_eac_bans     = EXCLUDED.has_eac_bans,
-       eac_last_ban     = EXCLUDED.eac_last_ban,
-       cached_at        = unix_now(),
-       cache_expires_at = unix_now() + 2592000`,
+    `INSERT INTO player_session_windows (steam_id, bm_server_id, started_at, stopped_at)
+     SELECT $1, unnest($2::text[]), unnest($3::bigint[]), unnest($4::bigint[])
+     ON CONFLICT (steam_id, bm_server_id, started_at) DO NOTHING`,
     [
-      accounts.map(() => steamId),
-      accounts.map((a) => a.relatedBmId),
-      accounts.map((a) => a.relatedName),
-      accounts.map((a) => a.matchCount),
-      accounts.map((a) => a.hasBmBans),
-      accounts.map((a) => a.bmBanCount),
-      accounts.map((a) => a.hasEacBans),
-      accounts.map((a) => a.eacLastBan),
+      steamId,
+      windows.map((w) => w.bmServerId),
+      windows.map((w) => w.startedAt),
+      windows.map((w) => w.stoppedAt),
     ],
   );
 }
@@ -9490,14 +9867,14 @@ async function writeFriendsToCache(steamId, result) {
 async function writeProxycheckToCache(ipResults) {
   for (const [ip, meta] of Object.entries(ipResults)) {
     await pool.query(
-      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, isp, country, asn)
-       VALUES ($1,$2,$3,$4,$5,$6)
+      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, conn_type, isp, country, asn)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        ON CONFLICT (ip_address) DO UPDATE SET
-         is_proxy  = $2, is_vpn = $3, isp = $4,
-         country   = $5, asn = $6,
+         is_proxy  = $2, is_vpn = $3, conn_type = $4, isp = $5,
+         country   = $6, asn = $7,
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 2592000`,
-      [ip, meta.isProxy, meta.isVpn, meta.isp, meta.country, meta.asn],
+      [ip, meta.isProxy, meta.isVpn, meta.connType, meta.isp, meta.country, meta.asn],
     );
     await pool.query(
       `UPDATE player_ip_history SET is_vpn = $2 WHERE ip_address = $1`,
@@ -9588,30 +9965,56 @@ async function refreshPlayerData(steamId, orgId) {
     // preventing a concurrent refresh from acquiring the lock and then having its
     // Redis write overwritten by this chain finishing late.
     const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
-    await Promise.all([
-      fetchSteamFriends(steamId, orgId).then((r) =>
-        writeFriendsToCache(steamId, r),
-      ),
-      bmId
-        ? fetchBMActivity(bmId, orgId).then((r) =>
-            writeActivityToCache(steamId, r),
-          )
-        : Promise.resolve(),
-      bmId && relIdentifiers.relatedPlayers.length
-        ? fetchRelatedAccountDetails(relIdentifiers.relatedPlayers, orgId).then(
-            (r) => writeRelatedAccountsToCache(steamId, r),
-          )
-        : Promise.resolve(),
-      ipsOnly.length
-        ? runProxycheckForIps(ipsOnly, orgId).then((r) =>
-            writeProxycheckToCache(r),
-          )
-        : Promise.resolve(),
-    ]).catch((err) =>
+    const sinceUnix = Math.floor(Date.now() / 1000) - 90 * 86400;
+    try {
+      // Phase A: subject-side enrichment. Proxycheck (IP classification),
+      // friends, groups and session windows are all inputs to the alt scoring
+      // that follows, so they must complete first.
+      const [subjectFriends, , ipResults, subjectGroups, subjectWindows] =
+        await Promise.all([
+          fetchSteamFriends(steamId, orgId),
+          bmId
+            ? fetchBMActivity(bmId, orgId).then((r) =>
+                writeActivityToCache(steamId, r),
+              )
+            : Promise.resolve(null),
+          ipsOnly.length
+            ? runProxycheckForIps(ipsOnly, orgId)
+            : Promise.resolve({}),
+          fetchSteamGroups(steamId, orgId),
+          bmId ? fetchBMSessions(bmId, orgId, { sinceUnix }) : Promise.resolve([]),
+        ]);
+
+      await Promise.all([
+        writeFriendsToCache(steamId, subjectFriends),
+        writeProxycheckToCache(ipResults),
+        writeSessionWindowsToCache(steamId, subjectWindows),
+      ]);
+
+      // Phase B: per-alt enrichment + evidence scoring against the subject.
+      if (bmId && relIdentifiers.relatedPlayers.length) {
+        const altDetails = await fetchRelatedAccountDetails(
+          relIdentifiers.relatedPlayers,
+          orgId,
+        );
+        const subjectCtx = {
+          aliases: bmData?.nameAliases ?? [],
+          displayName: steamData.displayName ?? null,
+          friends: new Set(subjectFriends?.friends ?? []),
+          groups: new Set(subjectGroups ?? []),
+          serverIds: new Set((bmData?.sessions ?? []).map((s) => s.bmServerId)),
+          sessionWindows: subjectWindows,
+        };
+        const scored = altDetails.map((alt) =>
+          computeAltEvidence(subjectCtx, alt, ipResults),
+        );
+        await writeRelatedAccountsToCache(steamId, scored);
+      }
+    } catch (err) {
       console.error(
         `[player:refresh] ${steamId} — background task error: ${err.message}`,
-      ),
-    );
+      );
+    }
     await writePlayerDataToRedis(steamId);
     console.log(`[player:refresh] ${steamId} — background tasks done, Redis updated`);
   } catch (err) {
@@ -9651,7 +10054,7 @@ async function getPlayerCacheData(steamId) {
       ),
       pool.query(
         `SELECT pih.ip_address, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
-                im.is_proxy, im.isp, im.country, im.asn
+                im.is_proxy, im.conn_type, im.isp, im.country, im.asn
          FROM player_ip_history pih
          LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
          WHERE pih.steam_id = $1
@@ -9659,8 +10062,10 @@ async function getPlayerCacheData(steamId) {
         [steamId],
       ),
       pool.query(
-        `SELECT related_bm_id, related_name, match_count,
-                has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban, cached_at
+        `SELECT related_bm_id, related_steam_id, related_name, name_aliases,
+                match_count, has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban,
+                name_similarity, shared_ips, non_proxy_linked, mutual_friends,
+                shared_groups, server_overlap, co_presence, alt_confidence, cached_at
          FROM player_related_accounts WHERE steam_id = $1
          ORDER BY match_count DESC`,
         [steamId],
@@ -9741,6 +10146,7 @@ async function getPlayerCacheData(steamId) {
       ipAddress: String(r.ip_address),
       isVpn: r.is_vpn ?? null,
       isProxy: r.is_proxy ?? null,
+      connType: r.conn_type ?? null,
       isp: r.isp ?? null,
       country: r.country ?? null,
       asn: r.asn ?? null,
@@ -9750,12 +10156,22 @@ async function getPlayerCacheData(steamId) {
     })),
     relatedAccounts: related.rows.map((r) => ({
       relatedBmId: String(r.related_bm_id),
+      relatedSteamId: r.related_steam_id ?? null,
       relatedName: r.related_name ?? null,
+      nameAliases: r.name_aliases ?? null,
       matchCount: Number(r.match_count),
       hasBmBans: Boolean(r.has_bm_bans),
       bmBanCount: Number(r.bm_ban_count),
       hasEacBans: Boolean(r.has_eac_bans),
       eacLastBan: r.eac_last_ban ?? null,
+      nameSimilarity: r.name_similarity ?? null,
+      sharedIps: r.shared_ips ?? [],
+      nonProxyLinked: r.non_proxy_linked ?? null,
+      mutualFriends: r.mutual_friends ?? [],
+      sharedGroups: r.shared_groups ?? [],
+      serverOverlap: r.server_overlap ?? [],
+      coPresence: r.co_presence ?? null,
+      altConfidence: r.alt_confidence ?? null,
       cachedAt: r.cached_at,
     })),
     isStale: Boolean(p.is_stale),

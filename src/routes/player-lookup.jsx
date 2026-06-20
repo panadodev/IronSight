@@ -23,7 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PlayerNotesSection } from "@/components/player-notes";
 import { ExternalBansSection } from "@/components/external-bans";
-import { LinkedAccountIntelSection } from "@/components/linked-accounts";
+import { LinkedAccountsSection } from "@/components/linked-accounts";
 
 const LENGTH_MINUTES = {
   "1h": 60,
@@ -181,7 +181,8 @@ function CacheStamp({ playerData, refreshing }) {
 }
 
 function PlayerLookupPage() {
-  const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded } = useAuth();
+  const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded, adminableOrgIds } =
+    useAuth();
   const tz = useTimezone();
   const search = Route.useSearch();
 
@@ -230,6 +231,11 @@ function PlayerLookupPage() {
 
   // No ban permission anywhere → view-only (hide ban/mute actions).
   const isSupportOnly = !banOrgId;
+
+  // Full IP addresses are sensitive — only org admins/owners see them unmasked.
+  const canSeeRealIp = fetchOrgId
+    ? adminableOrgIds.includes(fetchOrgId)
+    : false;
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
@@ -710,10 +716,10 @@ function PlayerLookupPage() {
 
                 {/* Linked Accounts */}
                 {!isSupportOnly && (
-                  <LinkedAccountIntelSection
-                    subjectId={playerData.steamId}
+                  <LinkedAccountsSection
                     subjectName={playerData.displayName ?? playerData.steamId}
                     relatedAccounts={playerData.relatedAccounts}
+                    canSeeRealIp={canSeeRealIp}
                   />
                 )}
 
