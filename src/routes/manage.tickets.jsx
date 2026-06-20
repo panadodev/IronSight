@@ -1,5 +1,5 @@
-import { TicketTypesPanel } from "@/components/manage-org-dialog";
 import { GateRank, SectionHeader } from "@/components/manage-section";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
@@ -35,34 +35,18 @@ function TicketsPage() {
   const isOwner =
     Boolean(sessionUser?.isSysAdmin) || sessionOrgOwnerIds.includes(orgId);
 
-  const enabled = ticketTypes.reduce((acc, tt) => {
-    const key = tt.name.toLowerCase().replace(/\s+/g, "");
-    return { ...acc, [key]: tt.isEnabled };
-  }, {});
-
-  const handleToggle = async (key, value) => {
-    const ticketType = ticketTypes.find((tt) => {
-      const ttKey = tt.name.toLowerCase().replace(/\s+/g, "");
-      return ttKey === key;
-    });
-
-    if (!ticketType) {
-      console.warn("[tickets] handleToggle: no ticket type found for key", key, ticketTypes);
-      return;
-    }
-
+  const handleToggle = async (ticketTypeId, value) => {
     // Optimistic update
     setTicketTypes((prev) =>
       prev.map((tt) =>
-        tt.ticketTypeId === ticketType.ticketTypeId
-          ? { ...tt, isEnabled: value }
-          : tt,
+        tt.ticketTypeId === ticketTypeId ? { ...tt, isEnabled: value } : tt,
       ),
     );
 
+    setUpdating(ticketTypeId);
     try {
       const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketType.ticketTypeId}`,
+        `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketTypeId}`,
         {
           method: "PATCH",
           credentials: "include",
@@ -72,28 +56,24 @@ function TicketsPage() {
       );
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        console.error("[tickets] toggle failed", res.status, body);
-        // Revert
+        // Revert on failure
         setTicketTypes((prev) =>
           prev.map((tt) =>
-            tt.ticketTypeId === ticketType.ticketTypeId
+            tt.ticketTypeId === ticketTypeId
               ? { ...tt, isEnabled: !value }
               : tt,
           ),
         );
       }
-    } catch (err) {
-      console.error("[tickets] toggle network error", err);
-      // Revert
+    } catch {
+      // Revert on network error
       setTicketTypes((prev) =>
         prev.map((tt) =>
-          tt.ticketTypeId === ticketType.ticketTypeId
-            ? { ...tt, isEnabled: !value }
-            : tt,
+          tt.ticketTypeId === ticketTypeId ? { ...tt, isEnabled: !value } : tt,
         ),
       );
     }
+    setUpdating(null);
   };
 
   return (
@@ -104,12 +84,26 @@ function TicketsPage() {
       />
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : ticketTypes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No ticket types found.</p>
       ) : (
-        <TicketTypesPanel
-          enabled={enabled}
-          onToggle={handleToggle}
-          updating={updating}
-        />
+        <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
+          <div className="divide-y divide-border">
+            {ticketTypes.map((tt) => (
+              <div
+                key={tt.ticketTypeId}
+                className="flex items-center justify-between py-2"
+              >
+                <span className="text-sm">{tt.name}</span>
+                <Switch
+                  checked={tt.isEnabled}
+                  disabled={updating === tt.ticketTypeId}
+                  onCheckedChange={(v) => handleToggle(tt.ticketTypeId, v)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </GateRank>
   );
