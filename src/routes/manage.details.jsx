@@ -67,30 +67,22 @@ const SERVICE_HINTS = {
     "Used to flag VPN / proxy connections on new player joins and during lookups.",
 };
 
-const KEY_COLORS = ["#60a5fa", "#34d399", "#a78bfa", "#fbbf24", "#f87171"];
+const STEAM_DAILY_LIMIT = 100_000;
 
-function RateLimitGraph({ serviceKeys, stats }) {
-  const keysWithData = serviceKeys.filter((k) => stats[k.keyId]?.length > 0);
-  if (!keysWithData.length) return null;
+function BmKeyGraph({ keyData }) {
+  if (!keyData?.length) return null;
+  const hasRateData = keyData.some(
+    (pt) => pt.rateMax != null && pt.minRemaining != null,
+  );
+  if (!hasRateData) return null;
 
-  const bucketSet = new Set();
-  for (const k of keysWithData) {
-    for (const pt of stats[k.keyId]) bucketSet.add(pt.bucket);
-  }
-  const buckets = [...bucketSet].sort((a, b) => a - b);
-
-  const data = buckets.map((bucket) => {
-    const entry = { bucket };
-    for (const k of keysWithData) {
-      const pt = stats[k.keyId]?.find((p) => p.bucket === bucket);
-      if (pt?.rateMax && pt.minRemaining != null) {
-        entry[k.keyId] = Math.round(
-          ((pt.rateMax - pt.minRemaining) / pt.rateMax) * 100,
-        );
-      }
-    }
-    return entry;
-  });
+  const data = keyData.map((pt) => ({
+    bucket: pt.bucket,
+    usage:
+      pt.rateMax != null && pt.minRemaining != null
+        ? Math.round(((pt.rateMax - pt.minRemaining) / pt.rateMax) * 100)
+        : undefined,
+  }));
 
   const formatHour = (ts) =>
     new Date(ts * 1000).toLocaleTimeString([], {
@@ -107,13 +99,16 @@ function RateLimitGraph({ serviceKeys, stats }) {
     });
 
   return (
-    <div className="mt-3 space-y-1">
+    <div className="mt-2 space-y-1">
       <p className="text-[10px] text-muted-foreground">
         Rate limit usage — peak per hour, last 48h (
-        <span className="text-amber-500">amber line = 80%</span>)
+        <span className="text-amber-500">amber = 80%</span>)
       </p>
-      <ResponsiveContainer width="100%" height={80}>
-        <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+      <ResponsiveContainer width="100%" height={70}>
+        <LineChart
+          data={data}
+          margin={{ top: 4, right: 4, bottom: 0, left: -16 }}
+        >
           <XAxis
             dataKey="bucket"
             tickFormatter={formatHour}
@@ -140,36 +135,71 @@ function RateLimitGraph({ serviceKeys, stats }) {
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null;
               return (
-                <div className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs shadow-lg space-y-0.5">
+                <div className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs shadow-lg">
                   <p className="text-muted-foreground font-medium">
                     {formatTooltipLabel(label)}
                   </p>
-                  {payload.map((p) => {
-                    const k = keysWithData.find((k) => k.keyId === p.dataKey);
-                    return (
-                      <p key={p.dataKey} style={{ color: p.color }}>
-                        {k?.label || k?.service}: {p.value}%
-                      </p>
-                    );
-                  })}
+                  <p className="text-blue-400">{payload[0]?.value}%</p>
                 </div>
               );
             }}
           />
-          {keysWithData.map((k, i) => (
-            <Line
-              key={k.keyId}
-              type="monotone"
-              dataKey={k.keyId}
-              stroke={KEY_COLORS[i % KEY_COLORS.length]}
-              dot={false}
-              strokeWidth={1.5}
-              connectNulls
-            />
-          ))}
+          <Line
+            type="monotone"
+            dataKey="usage"
+            stroke="#60a5fa"
+            dot={false}
+            strokeWidth={1.5}
+            connectNulls
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+function UsageDayBar({ queriesDay, dailyLimit, label }) {
+  if (!dailyLimit) return null;
+  const pct = Math.min(Math.round((queriesDay / dailyLimit) * 100), 100);
+  return (
+    <div className="mt-2 space-y-1">
+      <p className="text-[10px] text-muted-foreground">
+        {label}: {queriesDay.toLocaleString()} / {dailyLimit.toLocaleString()}{" "}
+        ({pct}%)
+      </p>
+      <div className="h-1 bg-muted rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${pct >= 80 ? "bg-amber-500" : "bg-blue-400"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ProxycheckKeyUsage({ usage }) {
+  if (!usage) return null;
+  return (
+    <UsageDayBar
+      queriesDay={usage.queriesDay}
+      dailyLimit={usage.dailyLimit}
+      label="Queries today"
+    />
+  );
+}
+
+function SteamKeyUsage({ keyData }) {
+  const todayStart = Math.floor(Date.now() / 1000 / 86400) * 86400;
+  const callsToday = (keyData ?? [])
+    .filter((pt) => pt.bucket >= todayStart)
+    .reduce((sum, pt) => sum + (pt.sampleCount || 0), 0);
+  if (!callsToday) return null;
+  return (
+    <UsageDayBar
+      queriesDay={callsToday}
+      dailyLimit={STEAM_DAILY_LIMIT}
+      label="Steam API calls today"
+    />
   );
 }
 
@@ -178,6 +208,7 @@ function ApiKeysSection({ orgId }) {
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [keysError, setKeysError] = useState("");
   const [stats, setStats] = useState({});
+  const [proxycheckUsage, setProxycheckUsage] = useState({});
 
   const [addService, setAddService] = useState("battlemetrics");
   const [addKey, setAddKey] = useState("");
@@ -196,9 +227,10 @@ function ApiKeysSection({ orgId }) {
       if (res.ok) {
         const body = await res.json();
         setStats(body.stats ?? {});
+        setProxycheckUsage(body.proxycheckUsage ?? {});
       }
     } catch {
-      // non-critical — graph just won't show
+      // non-critical — usage displays just won't show
     }
   }
 
@@ -347,51 +379,64 @@ function ApiKeysSection({ orgId }) {
                   No keys configured.
                 </p>
               ) : (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {keysByService[svc].map((k) => (
                     <div
                       key={k.keyId}
-                      className="flex items-center gap-2 rounded-md ring-1 ring-border bg-background px-3 py-2"
+                      className="rounded-md ring-1 ring-border bg-background px-3 py-2"
                     >
-                      <KeyRound className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-xs flex-1 truncate">
-                        {k.label || k.service}
-                      </span>
-                      {k.rateLimitedUntil &&
-                        k.rateLimitedUntil > Math.floor(Date.now() / 1000) && (
-                          <span className="text-[10px] text-amber-500 font-mono shrink-0">
-                            rate-limited
-                          </span>
-                        )}
-                      <span
-                        className={`text-[10px] font-mono shrink-0 ${k.enabled ? "text-emerald-500" : "text-muted-foreground"}`}
-                      >
-                        {k.enabled ? "enabled" : "disabled"}
-                      </span>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        className="text-xs h-6 px-2 shrink-0"
-                        disabled={togglingId === k.keyId}
-                        onClick={() => handleToggle(k)}
-                      >
-                        {k.enabled ? "Disable" : "Enable"}
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        className="text-muted-foreground hover:text-danger h-6 w-6 p-0 shrink-0"
-                        disabled={deletingId === k.keyId}
-                        onClick={() => handleDelete(k.keyId)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="size-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-xs flex-1 truncate">
+                          {k.label || k.service}
+                        </span>
+                        {k.rateLimitedUntil &&
+                          k.rateLimitedUntil >
+                            Math.floor(Date.now() / 1000) && (
+                            <span className="text-[10px] text-amber-500 font-mono shrink-0">
+                              rate-limited
+                            </span>
+                          )}
+                        <span
+                          className={`text-[10px] font-mono shrink-0 ${k.enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                        >
+                          {k.enabled ? "enabled" : "disabled"}
+                        </span>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="text-xs h-6 px-2 shrink-0"
+                          disabled={togglingId === k.keyId}
+                          onClick={() => handleToggle(k)}
+                        >
+                          {k.enabled ? "Disable" : "Enable"}
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-danger h-6 w-6 p-0 shrink-0"
+                          disabled={deletingId === k.keyId}
+                          onClick={() => handleDelete(k.keyId)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+
+                      {svc === "battlemetrics" && (
+                        <BmKeyGraph keyData={stats[k.keyId]} />
+                      )}
+                      {svc === "proxycheck" && (
+                        <ProxycheckKeyUsage
+                          usage={proxycheckUsage[k.keyId]}
+                        />
+                      )}
+                      {svc === "steam" && (
+                        <SteamKeyUsage keyData={stats[k.keyId]} />
+                      )}
                     </div>
                   ))}
                 </div>
               )}
-
-              <RateLimitGraph serviceKeys={keysByService[svc]} stats={stats} />
             </div>
           ))}
         </div>

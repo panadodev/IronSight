@@ -8740,11 +8740,26 @@ async function markExternalKeyUsed(keyId) {
 async function recordRateLimitStats(keyId, orgId, service, resp) {
   const limitHdr = resp.headers.get("X-Rate-Limit-Limit");
   const remainingHdr = resp.headers.get("X-Rate-Limit-Remaining");
-  if (!limitHdr || !remainingHdr) return;
+  const bucketHour = Math.floor(Date.now() / 1000 / 3600) * 3600;
+
+  if (!limitHdr || !remainingHdr) {
+    // Steam doesn't return rate-limit headers; track call count only so the
+    // frontend can display "X / 100,000 calls today".
+    if (service !== "steam") return;
+    await pool.query(
+      `INSERT INTO org_external_api_key_stats
+         (key_id, bucket_hour, org_id, service, rate_limit_max, rate_limit_min_remaining)
+       VALUES ($1, $2, $3, $4, NULL, NULL)
+       ON CONFLICT (key_id, bucket_hour) DO UPDATE SET
+         sample_count = org_external_api_key_stats.sample_count + 1`,
+      [keyId, bucketHour, orgId, service],
+    );
+    return;
+  }
+
   const rateMax = parseInt(limitHdr, 10);
   const remaining = parseInt(remainingHdr, 10);
   if (isNaN(rateMax) || isNaN(remaining) || rateMax <= 0) return;
-  const bucketHour = Math.floor(Date.now() / 1000 / 3600) * 3600;
   await pool.query(
     `INSERT INTO org_external_api_key_stats
        (key_id, bucket_hour, org_id, service, rate_limit_max, rate_limit_min_remaining)
@@ -10399,14 +10414,22 @@ async function handleGetExternalKeyStats(request, orgId) {
 
   const sinceHour = Math.floor(Date.now() / 1000 / 3600) * 3600 - 47 * 3600;
 
-  const { rows } = await pool.query(
-    `SELECT key_id::text AS key_id, bucket_hour, rate_limit_max,
-            rate_limit_min_remaining, sample_count
-     FROM org_external_api_key_stats
-     WHERE org_id = $1 AND bucket_hour >= $2
-     ORDER BY key_id, bucket_hour`,
-    [orgId, sinceHour],
-  );
+  const [{ rows }, pcRows] = await Promise.all([
+    pool.query(
+      `SELECT key_id::text AS key_id, bucket_hour, rate_limit_max,
+              rate_limit_min_remaining, sample_count
+       FROM org_external_api_key_stats
+       WHERE org_id = $1 AND bucket_hour >= $2
+       ORDER BY key_id, bucket_hour`,
+      [orgId, sinceHour],
+    ),
+    pool.query(
+      `SELECT key_id::text AS key_id, key_encrypted
+       FROM org_external_api_keys
+       WHERE org_id = $1 AND service = 'proxycheck'`,
+      [orgId],
+    ),
+  ]);
 
   const stats = {};
   for (const r of rows) {
@@ -10419,7 +10442,28 @@ async function handleGetExternalKeyStats(request, orgId) {
     });
   }
 
-  return json({ stats });
+  const proxycheckUsage = {};
+  await Promise.all(
+    pcRows.rows.map(async (r) => {
+      try {
+        const key = decryptExternalApiKey(String(r.key_encrypted));
+        const resp = await fetch(
+          `https://proxycheck.io/dashboard/export/usage/?key=${encodeURIComponent(key)}`,
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          proxycheckUsage[String(r.key_id)] = {
+            queriesDay: Number(data["Queries Today"] ?? 0),
+            dailyLimit: Number(data["Daily Limit"] ?? 0),
+          };
+        }
+      } catch {
+        // non-critical — usage bar just won't show for this key
+      }
+    }),
+  );
+
+  return json({ stats, proxycheckUsage });
 }
 
 // ── Player connect ingest ─────────────────────────────────────────────────────
