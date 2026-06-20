@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -1173,7 +1174,7 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
     </Dialog>
   );
 }
-function PresetsTab({ servers }) {
+function PresetsTab({ servers, orgId }) {
   const pteroServers = servers.filter((s) => s.pteroIdentifier);
   const [selectedServerId, setSelectedServerId] = useState(
     pteroServers[0]?.id ?? null,
@@ -1184,6 +1185,19 @@ function PresetsTab({ servers }) {
   const [fetchError, setFetchError] = useState(null);
   const [cmdState, setCmdState] = useState({});
   const [configDialog, setConfigDialog] = useState(null);
+  const [deleteDialog, setDeleteDialog] = useState(null);
+  const [uploadDialog, setUploadDialog] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) =>
+      setUploadDialog({ fileName: file.name, content: ev.target.result });
+    reader.readAsText(file);
+  };
 
   // Auto-select first server when the server list arrives after mount
   useEffect(() => {
@@ -1289,22 +1303,40 @@ function PresetsTab({ servers }) {
         trigger a plugin reload.
       </p>
 
-      {/* Server selector */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {pteroServers.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setSelectedServerId(s.id)}
-            className={
-              "px-3 py-1 rounded text-xs font-medium ring-1 transition-colors " +
-              (s.id === selectedServerId
-                ? "bg-primary text-primary-foreground ring-primary"
-                : "bg-surface/40 ring-border text-muted-foreground hover:text-foreground")
-            }
-          >
-            {s.name}
-          </button>
-        ))}
+      {/* Server selector + upload */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {pteroServers.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setSelectedServerId(s.id)}
+              className={
+                "px-3 py-1 rounded text-xs font-medium ring-1 transition-colors " +
+                (s.id === selectedServerId
+                  ? "bg-primary text-primary-foreground ring-primary"
+                  : "bg-surface/40 ring-border text-muted-foreground hover:text-foreground")
+              }
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-xs"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="size-3.5 mr-1.5" />
+          Upload to all
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".cs"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
       </div>
 
       {loading && (
@@ -1459,6 +1491,15 @@ function PresetsTab({ servers }) {
                   >
                     <Pencil className="size-3.5" />
                   </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => setDeleteDialog({ pluginName: p.pluginName })}
+                    title="Remove from all servers"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
                 </div>
               </div>
             );
@@ -1475,7 +1516,211 @@ function PresetsTab({ servers }) {
           onClose={() => setConfigDialog(null)}
         />
       )}
+      {deleteDialog && (
+        <BulkDeleteDialog
+          pluginName={deleteDialog.pluginName}
+          serverCount={pteroServers.length}
+          orgId={orgId}
+          onClose={() => setDeleteDialog(null)}
+          onSuccess={(removedName) =>
+            setPlugins((prev) =>
+              prev.filter((p) => p.pluginName !== removedName),
+            )
+          }
+        />
+      )}
+      {uploadDialog && (
+        <BulkUploadDialog
+          fileName={uploadDialog.fileName}
+          content={uploadDialog.content}
+          serverCount={pteroServers.length}
+          orgId={orgId}
+          onClose={() => setUploadDialog(null)}
+        />
+      )}
     </div>
+  );
+}
+function BulkDeleteDialog({ pluginName, serverCount, orgId, onClose, onSuccess }) {
+  const [deleteConfig, setDeleteConfig] = useState(false);
+  const [phase, setPhase] = useState("confirm");
+  const [results, setResults] = useState([]);
+
+  const handleDelete = async () => {
+    setPhase("loading");
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/ptero-plugin-bulk-delete`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pluginName, deleteConfig }),
+      });
+      const data = await res.json();
+      setResults(data.results ?? []);
+      setPhase("done");
+      if (data.results?.every((r) => r.ok)) onSuccess?.(pluginName);
+    } catch (err) {
+      setResults([{ serverName: "Request failed", ok: false, error: err.message }]);
+      setPhase("done");
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={() => phase !== "loading" && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove from all servers</DialogTitle>
+          <DialogDescription>
+            <span className="font-mono">{pluginName}.cs</span> will be deleted
+            from all {serverCount} server{serverCount !== 1 ? "s" : ""} in this
+            org.
+          </DialogDescription>
+        </DialogHeader>
+        {phase === "confirm" && (
+          <>
+            <div className="flex items-center gap-2 py-1">
+              <Checkbox
+                id="delete-config"
+                checked={deleteConfig}
+                onCheckedChange={(v) => setDeleteConfig(!!v)}
+              />
+              <Label
+                htmlFor="delete-config"
+                className="text-sm font-normal cursor-pointer"
+              >
+                Also delete config file (
+                <span className="font-mono">{pluginName}.json</span>)
+              </Label>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDelete}>
+                Remove
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+        {phase === "loading" && (
+          <p className="text-sm text-muted-foreground py-2">
+            Deleting from all servers…
+          </p>
+        )}
+        {phase === "done" && (
+          <>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto">
+              {results.map((r, i) => (
+                <div
+                  key={r.serverId ?? i}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  {r.ok ? (
+                    <Check className="size-3.5 text-success flex-shrink-0" />
+                  ) : (
+                    <X className="size-3.5 text-destructive flex-shrink-0" />
+                  )}
+                  <span className="truncate">{r.serverName}</span>
+                  {r.error && (
+                    <span className="text-[10px] text-destructive truncate ml-auto">
+                      {r.error}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button onClick={onClose}>Done</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+function BulkUploadDialog({ fileName, content, serverCount, orgId, onClose }) {
+  const [phase, setPhase] = useState("confirm");
+  const [results, setResults] = useState([]);
+
+  const handleUpload = async () => {
+    setPhase("loading");
+    try {
+      const res = await fetch(
+        `/api/orgs/${orgId}/ptero-plugin-upload?fileName=${encodeURIComponent(fileName)}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "text/plain" },
+          body: content,
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setResults([{ serverName: data.error ?? `HTTP ${res.status}`, ok: false }]);
+      } else {
+        setResults(data.results ?? []);
+      }
+      setPhase("done");
+    } catch (err) {
+      setResults([{ serverName: "Request failed", ok: false, error: err.message }]);
+      setPhase("done");
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={() => phase !== "loading" && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Upload to all servers</DialogTitle>
+          <DialogDescription>
+            <span className="font-mono">{fileName}</span> will be written to{" "}
+            <span className="font-mono">/oxide/plugins/</span> on all{" "}
+            {serverCount} server{serverCount !== 1 ? "s" : ""}, replacing any
+            existing version.
+          </DialogDescription>
+        </DialogHeader>
+        {phase === "confirm" && (
+          <DialogFooter>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpload}>Upload</Button>
+          </DialogFooter>
+        )}
+        {phase === "loading" && (
+          <p className="text-sm text-muted-foreground py-2">
+            Uploading to all servers…
+          </p>
+        )}
+        {phase === "done" && (
+          <>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto">
+              {results.map((r, i) => (
+                <div
+                  key={r.serverId ?? i}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  {r.ok ? (
+                    <Check className="size-3.5 text-success flex-shrink-0" />
+                  ) : (
+                    <X className="size-3.5 text-destructive flex-shrink-0" />
+                  )}
+                  <span className="truncate">{r.serverName}</span>
+                  {r.error && (
+                    <span className="text-[10px] text-destructive truncate ml-auto">
+                      {r.error}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button onClick={onClose}>Done</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 function PluginConfigDialog({ serverId, pluginName, serverName, onClose }) {

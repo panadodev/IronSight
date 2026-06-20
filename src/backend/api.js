@@ -7344,6 +7344,19 @@ async function writePteroFile(panelUrl, apiKey, identifier, filePath, content) {
   if (!res.ok) throw new Error(`ptero_file_write_${res.status}`);
 }
 
+async function deletePteroFiles(panelUrl, apiKey, identifier, root, files) {
+  const res = await fetch(
+    `${panelUrl}/api/client/servers/${encodeURIComponent(identifier)}/files/delete`,
+    {
+      method: "POST",
+      headers: { ...PTERO_HEADERS(apiKey), "Content-Type": "application/json" },
+      body: JSON.stringify({ root, files }),
+      signal: AbortSignal.timeout(12000),
+    },
+  );
+  if (!res.ok) throw new Error(`ptero_file_delete_${res.status}`);
+}
+
 async function handleListPteroPlugins(request, serverId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -7654,6 +7667,158 @@ async function handlePteroPluginCmd(request, serverId) {
   } catch (err) {
     return json({ error: err.message }, 502);
   }
+}
+
+async function handleBulkDeletePteroPlugin(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !orgHasPermission(session, orgId, "presets_manage") &&
+    !canManageOrg(session, orgId)
+  ) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const pluginName = safePluginName(body?.pluginName);
+  if (!pluginName) return json({ error: "Invalid plugin name" }, 400);
+  const deleteConfig = body?.deleteConfig === true;
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(orgId);
+  } catch {
+    return json({ error: "Failed to load Pterodactyl credentials" }, 500);
+  }
+  if (!credentials)
+    return json({ error: "Pterodactyl not configured for this org" }, 400);
+
+  const { panelUrl, apiKey } = credentials;
+
+  const serversRes = await pool.query(
+    `SELECT server_id, name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    [orgId],
+  );
+  const serverRows = serversRes.rows;
+
+  const results = await Promise.allSettled(
+    serverRows.map(async (s) => {
+      await deletePteroFiles(
+        panelUrl,
+        apiKey,
+        s.ptero_identifier,
+        "/oxide/plugins",
+        [`${pluginName}.cs`],
+      );
+      if (deleteConfig) {
+        try {
+          await deletePteroFiles(
+            panelUrl,
+            apiKey,
+            s.ptero_identifier,
+            "/oxide/config",
+            [`${pluginName}.json`],
+          );
+        } catch {
+          // Config file may not exist — ignore
+        }
+      }
+    }),
+  );
+
+  return json({
+    results: serverRows.map((s, i) => ({
+      serverId: s.server_id,
+      serverName: s.name,
+      ok: results[i].status === "fulfilled",
+      error:
+        results[i].status === "rejected" ? String(results[i].reason) : null,
+    })),
+  });
+}
+
+async function handleBulkUploadPteroPlugin(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !orgHasPermission(session, orgId, "presets_manage") &&
+    !canManageOrg(session, orgId)
+  ) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const url = new URL(request.url);
+  const rawFileName = url.searchParams.get("fileName") ?? "";
+  if (
+    !/^[a-zA-Z0-9._-]{1,64}\.cs$/i.test(rawFileName) ||
+    rawFileName.includes("..")
+  ) {
+    return json({ error: "Invalid fileName parameter" }, 400);
+  }
+  const fileName = rawFileName;
+
+  let content;
+  try {
+    content = await request.text();
+  } catch {
+    return json({ error: "Failed to read request body" }, 400);
+  }
+  if (!content || content.length > 10_485_760)
+    return json({ error: "File body is empty or exceeds 10 MB" }, 400);
+
+  const securityConfigError = getPterodactylSecurityConfigError();
+  if (securityConfigError) return securityConfigError;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(orgId);
+  } catch {
+    return json({ error: "Failed to load Pterodactyl credentials" }, 500);
+  }
+  if (!credentials)
+    return json({ error: "Pterodactyl not configured for this org" }, 400);
+
+  const { panelUrl, apiKey } = credentials;
+
+  const serversRes = await pool.query(
+    `SELECT server_id, name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    [orgId],
+  );
+  const serverRows = serversRes.rows;
+
+  const results = await Promise.allSettled(
+    serverRows.map((s) =>
+      writePteroFile(
+        panelUrl,
+        apiKey,
+        s.ptero_identifier,
+        `/oxide/plugins/${fileName}`,
+        content,
+      ),
+    ),
+  );
+
+  return json({
+    fileName,
+    results: serverRows.map((s, i) => ({
+      serverId: s.server_id,
+      serverName: s.name,
+      ok: results[i].status === "fulfilled",
+      error:
+        results[i].status === "rejected" ? String(results[i].reason) : null,
+    })),
+  });
 }
 
 // ── Server RCON credentials ───────────────────────────────────────────────────
@@ -12288,6 +12453,18 @@ async function _handleApiRequest(request) {
         serverPteroConfigMatch[1],
         decodeURIComponent(serverPteroConfigMatch[2]),
       );
+
+    const orgPluginBulkDeleteMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero-plugin-bulk-delete$/,
+    );
+    if (orgPluginBulkDeleteMatch && request.method === "POST")
+      return handleBulkDeletePteroPlugin(request, orgPluginBulkDeleteMatch[1]);
+
+    const orgPluginUploadMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero-plugin-upload$/,
+    );
+    if (orgPluginUploadMatch && request.method === "POST")
+      return handleBulkUploadPteroPlugin(request, orgPluginUploadMatch[1]);
 
     // Server RCON
     const serverRconMatch = pathname.match(
