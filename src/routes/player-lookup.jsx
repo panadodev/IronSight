@@ -323,7 +323,7 @@ function PlayerLookupPage() {
       .then((groups) => {
         if (!cancelled) {
           setOffenses(
-            groups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
+            groups.flat().sort((a, b) => b.issuedAt - a.issuedAt),
           );
         }
       })
@@ -920,7 +920,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
         ),
       );
       setRecords(
-        groups.flat().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)),
+        groups.flat().sort((a, b) => b.issuedAt - a.issuedAt),
       );
     } finally {
       setLoading(false);
