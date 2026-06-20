@@ -83,6 +83,21 @@ function ipTypeKey(connType) {
   return connType && IP_TYPE_META[connType] ? connType : "unknown";
 }
 
+function bigramSim(a, b) {
+  const grams = (s) => {
+    const t = (s ?? "").toLowerCase().replace(/\s+/g, "");
+    const g = new Set();
+    for (let i = 0; i < t.length - 1; i++) g.add(t.slice(i, i + 2));
+    return g;
+  };
+  const A = grams(a);
+  const B = grams(b);
+  if (A.size === 0 && B.size === 0) return 0;
+  let inter = 0;
+  A.forEach((g) => B.has(g) && inter++);
+  return (2 * inter * 100) / (A.size + B.size || 1);
+}
+
 function colorFromId(id) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
@@ -867,7 +882,7 @@ function ComparisonDialog({ open, onClose, subjectName, account, canSeeRealIp })
             </Block>
           )}
 
-          {/* Name aliases */}
+          {/* Name aliases — top 5 by bigram similarity to subject name */}
           {(account.nameAliases?.length > 0 || account.relatedName) && (
             <Block
               icon={<ShieldAlert className="size-3" />}
@@ -875,7 +890,13 @@ function ComparisonDialog({ open, onClose, subjectName, account, canSeeRealIp })
             >
               <div className="flex flex-wrap gap-1.5">
                 {(account.nameAliases?.length
-                  ? account.nameAliases
+                  ? [...account.nameAliases]
+                      .sort(
+                        (a, b) =>
+                          bigramSim(b, subjectName) -
+                          bigramSim(a, subjectName),
+                      )
+                      .slice(0, 5)
                   : [account.relatedName]
                 ).map((n, i) => (
                   <span
