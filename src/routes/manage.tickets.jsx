@@ -46,9 +46,20 @@ function TicketsPage() {
       return ttKey === key;
     });
 
-    if (!ticketType) return;
+    if (!ticketType) {
+      console.warn("[tickets] handleToggle: no ticket type found for key", key, ticketTypes);
+      return;
+    }
 
-    setUpdating(ticketType.ticketTypeId);
+    // Optimistic update
+    setTicketTypes((prev) =>
+      prev.map((tt) =>
+        tt.ticketTypeId === ticketType.ticketTypeId
+          ? { ...tt, isEnabled: value }
+          : tt,
+      ),
+    );
+
     try {
       const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketType.ticketTypeId}`,
@@ -60,17 +71,29 @@ function TicketsPage() {
         },
       );
 
-      if (res.ok) {
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error("[tickets] toggle failed", res.status, body);
+        // Revert
         setTicketTypes((prev) =>
           prev.map((tt) =>
             tt.ticketTypeId === ticketType.ticketTypeId
-              ? { ...tt, isEnabled: value }
+              ? { ...tt, isEnabled: !value }
               : tt,
           ),
         );
       }
-    } catch {}
-    setUpdating(null);
+    } catch (err) {
+      console.error("[tickets] toggle network error", err);
+      // Revert
+      setTicketTypes((prev) =>
+        prev.map((tt) =>
+          tt.ticketTypeId === ticketType.ticketTypeId
+            ? { ...tt, isEnabled: !value }
+            : tt,
+        ),
+      );
+    }
   };
 
   return (
