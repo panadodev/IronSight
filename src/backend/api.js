@@ -12233,6 +12233,55 @@ async function handleGetRipeAtlasResults(request, orgId) {
   });
 }
 
+async function handleTriggerRipeAtlasMeasurements(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const { rows: cfgRows } = await pool.query(
+    `SELECT api_key_enc, countries, probes_per_country FROM org_ripe_atlas_config WHERE org_id = $1`,
+    [orgId],
+  );
+  if (!cfgRows[0]) return json({ error: "RIPE Atlas not configured" }, 404);
+
+  let apiKey;
+  try {
+    apiKey = decryptExternalApiKey(String(cfgRows[0].api_key_enc));
+  } catch {
+    return json({ error: "Failed to decrypt API key" }, 500);
+  }
+
+  const { rows: servers } = await pool.query(
+    `SELECT server_id, server_name, rcon_host FROM servers WHERE owner_org_id = $1 AND rcon_host IS NOT NULL`,
+    [orgId],
+  );
+  if (!servers.length) return json({ error: "No servers with RCON configured" }, 400);
+
+  const countries = Array.isArray(cfgRows[0].countries) ? cfgRows[0].countries : [];
+  const probesPerCountry = Number(cfgRows[0].probes_per_country) || 3;
+  let triggered = 0;
+
+  for (const server of servers) {
+    for (const country of countries) {
+      try {
+        const msmId = await ripeAtlasCreateMeasurement(apiKey, server.rcon_host, country, probesPerCountry);
+        await pool.query(
+          `INSERT INTO org_ripe_atlas_measurements (org_id, server_id, atlas_msm_id, target_ip, country) VALUES ($1, $2, $3, $4, $5)`,
+          [orgId, server.server_id, msmId, server.rcon_host, country],
+        );
+        triggered++;
+      } catch (err) {
+        console.warn(
+          `[ripe-atlas] manual trigger failed org=${orgId} server=${server.server_name} country=${country}: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  return json({ triggered });
+}
+
 // ── Player connect ingest ─────────────────────────────────────────────────────
 
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
@@ -13534,6 +13583,12 @@ async function _handleApiRequest(request) {
     );
     if (orgRipeAtlasResultsMatch && request.method === "GET")
       return handleGetRipeAtlasResults(request, orgRipeAtlasResultsMatch[1]);
+
+    const orgRipeAtlasTriggerMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/trigger$/,
+    );
+    if (orgRipeAtlasTriggerMatch && request.method === "POST")
+      return handleTriggerRipeAtlasMeasurements(request, orgRipeAtlasTriggerMatch[1]);
 
     // Blacklisted words (management UI)
     const orgBlacklistedWordsMatch = pathname.match(

@@ -2155,6 +2155,7 @@ function RipeAtlasSection({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
+  const [triggering, setTriggering] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -2172,6 +2173,21 @@ function RipeAtlasSection({ orgId }) {
       setLoading(false);
     }
   }, [orgId]);
+
+  const trigger = useCallback(async () => {
+    setTriggering(true);
+    try {
+      await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/trigger`,
+        { method: "POST", credentials: "include" },
+      );
+      await load();
+    } catch {
+      // non-critical
+    } finally {
+      setTriggering(false);
+    }
+  }, [orgId, load]);
 
   useEffect(() => {
     load();
@@ -2234,6 +2250,13 @@ function RipeAtlasSection({ orgId }) {
               {new Date(updatedAt).toLocaleTimeString()}
             </span>
           )}
+          <button
+            onClick={trigger}
+            disabled={triggering}
+            className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Play className="size-3" /> {triggering ? "Running…" : "Run now"}
+          </button>
           <button
             onClick={load}
             className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
