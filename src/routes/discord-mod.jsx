@@ -295,6 +295,13 @@ function DiscordModPage() {
     if (selectedChannel) fetchMessages();
   }, [fetchMessages]);
 
+  // Poll for new messages every 15 seconds while the messages tab is open
+  useEffect(() => {
+    if (tab !== "messages" || !selectedChannel) return;
+    const timer = setInterval(fetchMessages, 15000);
+    return () => clearInterval(timer);
+  }, [tab, selectedChannel, fetchMessages]);
+
   useEffect(() => {
     if (tab === "modlog") fetchModLog();
     if (tab === "bans") fetchBans();

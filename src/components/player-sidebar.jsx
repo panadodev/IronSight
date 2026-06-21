@@ -146,8 +146,11 @@ function PlayerSidebar({
   orgId,
 }) {
   const d = subject ? deriveStats(subject) : null;
-  const { rankOf, selectedOrgIds, maxRankAcross } = useAuth();
+  const { rankOf, selectedOrgIds, maxRankAcross, hasOrgPermission } = useAuth();
   const effectiveRank = orgId ? rankOf(orgId) : maxRankAcross(selectedOrgIds);
+  const canSeeIp = orgId
+    ? hasOrgPermission(orgId, "ip_read")
+    : selectedOrgIds.some((id) => hasOrgPermission(id, "ip_read"));
   const isSupportOnly = effectiveRank < 2;
   const visibleOffenses = d
     ? isSupportOnly
@@ -195,7 +198,7 @@ function PlayerSidebar({
                           Location
                         </p>
                         <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
-                          {subject.country}
+                          {canSeeIp ? subject.country : "—"}
                           <span
                             className={`inline-block size-1.5 rounded-full ${pingTone(d.pingMs).color}`}
                             title={`${d.pingMs}ms ping`}
@@ -231,7 +234,7 @@ function PlayerSidebar({
                           Location
                         </p>
                         <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
-                          {subject.country}
+                          {canSeeIp ? subject.country : "—"}
                           <span
                             className={`inline-block size-1.5 rounded-full ${pingTone(d.pingMs).color}`}
                             title={`${d.pingMs}ms ping`}

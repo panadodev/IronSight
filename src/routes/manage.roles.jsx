@@ -81,6 +81,11 @@ const PERMISSION_GROUPS = [
         desc: "Use player lookup and the player list",
       },
       {
+        id: "ip_read",
+        label: "View IPs / Location",
+        desc: "See actual IP addresses and player country",
+      },
+      {
         id: "bans_manage",
         label: "Issue Bans / Mutes",
         desc: "Create and edit bans and mutes",

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Ban, MicOff } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import { PinnedPlayerNotesSection } from "@/components/player-notes";
 import { fmtNum, getPlayer, STATUS_LABEL } from "@/lib/mock-data";
 import {
@@ -332,6 +333,8 @@ function InGamePermissionsSection({ steamId }) {
   );
 }
 function AppealSidebar({ ticket, team }) {
+  const { selectedOrgIds, hasOrgPermission } = useAuth();
+  const canSeeIp = selectedOrgIds.some((id) => hasOrgPermission(id, "ip_read"));
   const appellant = getPlayer(ticket.reporterId);
   const assignee = ticket.assigneeId ? ticket.assigneeId : "Unassigned";
   const isAppeal = ticket.type === "ban_appeal";
@@ -399,7 +402,7 @@ function AppealSidebar({ ticket, team }) {
                     Location
                   </p>
                   <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
-                    {appellant.country}
+                    {canSeeIp ? appellant.country : "—"}
                     <span
                       className={`inline-block size-1.5 rounded-full ${pingTone(stats.pingMs).color}`}
                       title={`${stats.pingMs}ms ping`}

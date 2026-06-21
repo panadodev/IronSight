@@ -164,14 +164,18 @@ function connect(resume = false) {
                 messageId: d.id,
                 guildId: d.guild_id,
                 channelId: d.channel_id,
-                channelName: d.channel?.name ?? "",
+                channelName: "",
                 authorId: d.author.id,
                 authorUsername: d.author.global_name ?? d.author.username,
                 content: d.content ?? "",
                 attachments: d.attachments ?? [],
                 timestamp: d.timestamp,
               }),
-            }).catch(() => {});
+            }).then((r) => {
+              if (!r.ok) console.warn(`[IronSight Bot] Ingest failed (${r.status}) for message ${d.id}`);
+            }).catch((err) =>
+              console.error(`[IronSight Bot] Ingest error for message ${d.id}:`, err.message),
+            );
           }
         }
         break;

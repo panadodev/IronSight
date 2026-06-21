@@ -235,9 +235,8 @@ function PlayerLookupPage() {
   // No ban permission anywhere → view-only (hide ban/mute actions).
   const isSupportOnly = !banOrgId;
 
-  // Full IP addresses are sensitive — only org admins/owners see them unmasked.
   const canSeeRealIp = fetchOrgId
-    ? adminableOrgIds.includes(fetchOrgId)
+    ? hasOrgPermission(fetchOrgId, "ip_read")
     : false;
 
   const fetchPlayer = useCallback(

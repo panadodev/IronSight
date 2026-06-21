@@ -482,6 +482,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "predefines_manage",
   "bans_delete",
   "players_view",
+  "ip_read",
   "bans_manage",
   "triggers_manage",
   "discord_mod",
@@ -1586,6 +1587,10 @@ async function ensureSchema() {
   `);
 
   await pool.query(`
+    ALTER TABLE todos ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT false
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS org_blacklisted_words (
       word_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
@@ -1791,6 +1796,7 @@ async function ensureRolePermissionSeed() {
       ('predefines_manage',   'Manage ticket pre-defines'),
       ('bans_delete',         'Delete and revoke bans'),
       ('players_view',        'View player lookup and player list'),
+      ('ip_read',             'View player IP addresses and location'),
       ('bans_manage',         'Issue and manage bans and mutes'),
       ('triggers_manage',     'Configure threat triggers'),
       ('discord_mod',         'Use Discord moderation')
@@ -2342,7 +2348,7 @@ async function fetchDiscordGuildMember(guildId, discordId) {
   }
 }
 
-async function getTodoRowsForOrgs(orgIds) {
+async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
   if (!orgIds.length) return [];
 
   const { rows } = await pool.query(
@@ -2351,6 +2357,7 @@ async function getTodoRowsForOrgs(orgIds) {
             t.description,
             t.status,
             t.priority,
+            t.is_public,
             assignee.discord_id AS assignee_discord_id,
             t.org_id,
             t.created_at AS created_unix,
@@ -2360,8 +2367,14 @@ async function getTodoRowsForOrgs(orgIds) {
      LEFT JOIN users assignee ON assignee.user_id = t.assigned_to
      LEFT JOIN users creator ON creator.user_id = t.created_by
      WHERE t.org_id = ANY($1::text[])
+       AND (
+         t.is_public = true
+         OR t.assigned_to = $2
+         OR t.created_by = $2
+         OR t.org_id = ANY($3::text[])
+       )
      ORDER BY t.created_at DESC`,
-    [orgIds],
+    [orgIds, userId, adminOrgIds.length ? adminOrgIds : ["__never__"]],
   );
 
   return rows.map((row) => ({
@@ -2370,6 +2383,7 @@ async function getTodoRowsForOrgs(orgIds) {
     details: row.description == null ? "" : String(row.description),
     status: row.status == null ? "todo" : String(row.status),
     priority: row.priority == null ? "medium" : String(row.priority),
+    isPublic: Boolean(row.is_public),
     assigneeDiscordId:
       row.assignee_discord_id == null ? null : String(row.assignee_discord_id),
     orgId: row.org_id == null ? "" : String(row.org_id),
@@ -3038,7 +3052,11 @@ async function handleTodoBootstrap(request) {
     await redis.set(membersCacheKey, JSON.stringify(members), "EX", 30);
   }
 
-  const todos = await getTodoRowsForOrgs(orgIds);
+  const adminOrgIds = [
+    ...(session.orgAdminOrgIds ?? []),
+    ...(session.orgOwnerOrgIds ?? []),
+  ];
+  const todos = await getTodoRowsForOrgs(orgIds, session.userId, adminOrgIds);
 
   // Re-derive access using fresh DB data so stale sessions, role/permission
   // changes, and org owners (who have implicit write access) all get the correct
@@ -3114,6 +3132,7 @@ async function handleCreateTodo(request) {
   const priority = VALID_PRIORITIES.includes(body?.priority)
     ? body.priority
     : "medium";
+  const isPublic = Boolean(body?.isPublic);
 
   if (!title || !orgId || !assigneeDiscordId) {
     return json(
@@ -3151,9 +3170,9 @@ async function handleCreateTodo(request) {
   const todoId = crypto.randomUUID();
   const createdUnix = nowUnix();
   await pool.query(
-    `INSERT INTO todos (todo_id, title, description, status, priority, assigned_to, org_id, created_by)
-     VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7)`,
-    [todoId, title, details, priority, assignee.userId, orgId, session.userId],
+    `INSERT INTO todos (todo_id, title, description, status, priority, is_public, assigned_to, org_id, created_by)
+     VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7, $8)`,
+    [todoId, title, details, priority, isPublic, assignee.userId, orgId, session.userId],
   );
 
   await queue.add("todo-created", {
@@ -3172,6 +3191,7 @@ async function handleCreateTodo(request) {
         details,
         status: "todo",
         priority,
+        isPublic,
         assigneeDiscordId,
         orgId,
         createdUnix,
@@ -3206,6 +3226,7 @@ async function handleUpdateTodo(request, todoId) {
     body?.priority != null && VALID_PRIORITIES.includes(body.priority)
       ? body.priority
       : null;
+  const isPublic = body?.isPublic == null ? null : Boolean(body.isPublic);
 
   const existingRes = await pool.query(
     "SELECT todo_id, org_id, status, completed_at FROM todos WHERE todo_id = $1 LIMIT 1",
@@ -3249,6 +3270,7 @@ async function handleUpdateTodo(request, todoId) {
          description = COALESCE($3, description),
          status = COALESCE($4, status),
          priority = COALESCE($6, priority),
+         is_public = COALESCE($7, is_public),
          assigned_to = COALESCE($5, assigned_to),
          completed_at = CASE
            WHEN $4 = 'completed' AND completed_at IS NULL THEN unix_now()
@@ -3257,7 +3279,7 @@ async function handleUpdateTodo(request, todoId) {
          END,
          updated_at = unix_now()
      WHERE todo_id = $1`,
-    [todoId, title, details, status, assigneeUserId, priority],
+    [todoId, title, details, status, assigneeUserId, priority, isPublic],
   );
 
   return json({ ok: true });
@@ -5181,6 +5203,28 @@ async function handleGetTicket(request, ticketIdStr) {
   return json({ ticket, messages: returnedMessages });
 }
 
+function filterPlayerIpData(playerData, canSeeIp) {
+  if (canSeeIp || !playerData) return playerData;
+  const result = { ...playerData };
+  if (Array.isArray(result.ipHistory)) {
+    result.ipHistory = result.ipHistory.map((entry) => ({
+      ...entry,
+      ipAddress: null,
+      country: null,
+      isp: null,
+    }));
+  }
+  if (Array.isArray(result.relatedAccounts)) {
+    result.relatedAccounts = result.relatedAccounts.map((account) => ({
+      ...account,
+      sharedIps: Array.isArray(account.sharedIps)
+        ? account.sharedIps.map((s) => ({ ...s, ip: null, isp: null, country: null }))
+        : account.sharedIps,
+    }));
+  }
+  return result;
+}
+
 async function handleGetTicketPlayerIntel(request, ticketIdStr) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -5199,6 +5243,7 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
     return json({ error: "Forbidden: tickets_player_intel permission required" }, 403);
   }
 
+  const canSeeIp = orgHasPermission(session, ticket.org_id, "ip_read");
   const steamIds = ticket.reported_players ?? [];
   if (steamIds.length === 0) return json({ players: [] });
 
@@ -5251,7 +5296,7 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
       if (!playerData) {
         return { steamId, fetching: true, orgBans };
       }
-      return { ...playerData, orgBans };
+      return { ...filterPlayerIpData(playerData, canSeeIp), orgBans };
     }),
   );
 
@@ -12039,6 +12084,8 @@ async function handleGetPlayer(request, steamId) {
     ipAddress: getClientIp(request),
   });
 
+  const canSeeIp = orgHasPermission(session, orgId, "ip_read");
+
   // Redis first — avoids 6 PostgreSQL queries on the hot path
   const fromRedis = await getPlayerDataFromRedis(steamId);
   if (fromRedis) {
@@ -12047,7 +12094,7 @@ async function handleGetPlayer(request, steamId) {
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
     }
-    return json(fromRedis);
+    return json(filterPlayerIpData(fromRedis, canSeeIp));
   }
 
   // Redis miss — fall back to PostgreSQL
@@ -12068,7 +12115,7 @@ async function handleGetPlayer(request, steamId) {
     );
   }
 
-  return json(cached);
+  return json(filterPlayerIpData(cached, canSeeIp));
 }
 
 async function handleRefreshPlayer(request, steamId) {
@@ -12084,6 +12131,8 @@ async function handleRefreshPlayer(request, steamId) {
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
 
+  const canSeeIp = orgHasPermission(session, orgId, "ip_read");
+
   // Clear Redis so refreshPlayerData can acquire the lock and write fresh data
   try {
     await redis.del(playerRedisKey(steamId));
@@ -12093,7 +12142,7 @@ async function handleRefreshPlayer(request, steamId) {
     (await getPlayerDataFromRedis(steamId)) ??
     (await getPlayerCacheData(steamId));
   if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
-  return json(fresh);
+  return json(filterPlayerIpData(fresh, canSeeIp));
 }
 
 // ── Player reports by Steam ID ────────────────────────────────────────────────

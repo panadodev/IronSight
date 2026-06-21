@@ -29,6 +29,8 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Globe,
+  Lock,
   Loader2,
   Plus,
   Search,
@@ -141,6 +143,7 @@ function TodoPage() {
   const [createTaskTitle, setCreateTaskTitle] = useState("");
   const [createTaskDetails, setCreateTaskDetails] = useState("");
   const [createTaskPriority, setCreateTaskPriority] = useState("medium");
+  const [createTaskIsPublic, setCreateTaskIsPublic] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
 
   // Edit task dialog
@@ -149,6 +152,7 @@ function TodoPage() {
   const [selectedDetails, setSelectedDetails] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("todo");
   const [selectedPriority, setSelectedPriority] = useState("medium");
+  const [selectedIsPublic, setSelectedIsPublic] = useState(false);
   const [isSavingTodo, setIsSavingTodo] = useState(false);
 
   // Reassign confirm
@@ -306,10 +310,12 @@ function TodoPage() {
     setSelectedDetails(todo.details ?? "");
     setSelectedStatus(todo.status ?? "todo");
     setSelectedPriority(todo.priority ?? "medium");
+    setSelectedIsPublic(todo.isPublic ?? false);
   }
 
   function closeEditDialog() {
     setSelectedTodo(null);
+    setSelectedIsPublic(false);
   }
 
   async function handleSaveTodo(e) {
@@ -325,6 +331,7 @@ function TodoPage() {
           details: selectedDetails,
           status: selectedStatus,
           priority: selectedPriority,
+          isPublic: selectedIsPublic,
         }),
       });
       if (!res.ok) {
@@ -341,6 +348,7 @@ function TodoPage() {
                 details: selectedDetails,
                 status: selectedStatus,
                 priority: selectedPriority,
+                isPublic: selectedIsPublic,
                 completedUnix:
                   selectedStatus === "completed"
                     ? Math.floor(Date.now() / 1000)
@@ -417,6 +425,7 @@ function TodoPage() {
     setCreateTaskTitle("");
     setCreateTaskDetails("");
     setCreateTaskPriority("medium");
+    setCreateTaskIsPublic(false);
   }
 
   function closeCreateDialog() {
@@ -424,6 +433,7 @@ function TodoPage() {
     setCreateTaskTitle("");
     setCreateTaskDetails("");
     setCreateTaskPriority("medium");
+    setCreateTaskIsPublic(false);
   }
 
   async function handleCreateTask(e) {
@@ -441,6 +451,7 @@ function TodoPage() {
           orgId: createTaskOrgId,
           status: "todo",
           priority: createTaskPriority,
+          isPublic: createTaskIsPublic,
         }),
       });
       if (!res.ok) {
@@ -658,6 +669,25 @@ function TodoPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center justify-between">
+              <Label>Visibility</Label>
+              <button
+                type="button"
+                onClick={() => setCreateTaskIsPublic((p) => !p)}
+                disabled={isCreatingTask}
+                className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded ring-1 transition-colors ${
+                  createTaskIsPublic
+                    ? "bg-brand/15 ring-brand/40 text-brand"
+                    : "ring-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {createTaskIsPublic ? (
+                  <><Globe className="size-3" /> Public</>
+                ) : (
+                  <><Lock className="size-3" /> Private</>
+                )}
+              </button>
+            </div>
             <div className="flex gap-2 justify-end pt-1">
               <Button
                 type="button"
@@ -753,6 +783,27 @@ function TodoPage() {
                 </SelectContent>
               </Select>
             </div>
+            {canWrite && (
+              <div className="flex items-center justify-between">
+                <Label>Visibility</Label>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIsPublic((p) => !p)}
+                  disabled={isSavingTodo}
+                  className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded ring-1 transition-colors ${
+                    selectedIsPublic
+                      ? "bg-brand/15 ring-brand/40 text-brand"
+                      : "ring-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {selectedIsPublic ? (
+                    <><Globe className="size-3" /> Public</>
+                  ) : (
+                    <><Lock className="size-3" /> Private</>
+                  )}
+                </button>
+              </div>
+            )}
             {canWrite && (
               <div className="flex gap-2 justify-between pt-1">
                 <Button
@@ -1008,16 +1059,22 @@ function TaskCard({
   const meta = metaFor(todo.status);
   const pMeta = priorityFor(todo.priority ?? "medium");
   return (
-    <button
+    <div
       draggable={canWrite}
       onDragStart={onDragStart}
       onClick={onClick}
-      className={`group w-full text-left rounded-md ring-1 p-2.5 space-y-1.5 transition-colors ${meta.card}`}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick(e)}
+      className={`group w-full text-left rounded-md ring-1 p-2.5 space-y-1.5 transition-colors cursor-pointer ${meta.card}`}
     >
       <div className="flex items-start gap-1.5">
         <span className="text-xs font-medium leading-snug flex-1">
           {todo.title}
         </span>
+        {!todo.isPublic && (
+          <Lock className="size-3 shrink-0 mt-0.5 text-muted-foreground/50" title="Private" />
+        )}
         {canWrite && (
           <button
             onClick={onQuickComplete}
@@ -1055,7 +1112,7 @@ function TaskCard({
           {todo.details}
         </p>
       )}
-    </button>
+    </div>
   );
 }
 
