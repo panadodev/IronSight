@@ -7706,7 +7706,7 @@ async function handleBulkDeletePteroPlugin(request, orgId) {
   const { panelUrl, apiKey } = credentials;
 
   const serversRes = await pool.query(
-    `SELECT server_id, name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    `SELECT server_id, server_name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
     [orgId],
   );
   const allServerRows = serversRes.rows;
@@ -7748,7 +7748,7 @@ async function handleBulkDeletePteroPlugin(request, orgId) {
   return json({
     results: serverRows.map((s, i) => ({
       serverId: s.server_id,
-      serverName: s.name,
+      serverName: s.server_name,
       ok: results[i].status === "fulfilled",
       error:
         results[i].status === "rejected" ? String(results[i].reason) : null,
@@ -7806,7 +7806,7 @@ async function handleBulkUploadPteroPlugin(request, orgId) {
     : null;
 
   const serversRes = await pool.query(
-    `SELECT server_id, name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    `SELECT server_id, server_name, ptero_identifier FROM servers WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
     [orgId],
   );
   const allServerRows = serversRes.rows;
@@ -7832,7 +7832,7 @@ async function handleBulkUploadPteroPlugin(request, orgId) {
     fileName,
     results: serverRows.map((s, i) => ({
       serverId: s.server_id,
-      serverName: s.name,
+      serverName: s.server_name,
       ok: results[i].status === "fulfilled",
       error:
         results[i].status === "rejected" ? String(results[i].reason) : null,
