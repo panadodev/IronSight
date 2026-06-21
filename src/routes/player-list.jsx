@@ -75,11 +75,14 @@ function PlayerListPage() {
 
   const PAGE_SIZE = 50;
   const intervalRef = useRef(null);
+  const fetchingRef = useRef(false);
 
   const orgIdsKey = selectedOrgIds.slice().sort().join(",");
 
   const fetchData = useCallback(async () => {
     if (!canAccess || selectedOrgIds.length === 0) return;
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -109,6 +112,7 @@ function PlayerListPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   }, [canAccess, orgIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 

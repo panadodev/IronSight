@@ -8446,6 +8446,21 @@ async function handleServerHealthCheck(request) {
   }
   const server = serverRes.rows[0];
 
+  try {
+    const attempts = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1,
+      `rl:health:${server.server_id}`,
+      "60",
+    );
+    if (attempts > HEALTH_CHECK_RATE_LIMIT_PER_MINUTE)
+      return json({ error: "Rate limit exceeded" }, 429);
+  } catch {
+    // fail-open
+  }
+
   await pool.query(
     `UPDATE servers SET last_health_ping = unix_now() WHERE server_id = $1`,
     [server.server_id],
@@ -8457,6 +8472,7 @@ async function handleServerHealthCheck(request) {
   return json({ ok: true });
 }
 
+const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
 const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
 
 async function handleIngestChatMessage(request) {
@@ -10346,8 +10362,9 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
       let body = "";
       try { body = await resp.text(); } catch {}
       console.warn(
-        `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP 401 — key is invalid or revoked. body="${body.slice(0, 300)}". Trying next key.`,
+        `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP 401 — key is invalid or revoked. body="${body.slice(0, 300)}". Disabling for 1h.`,
       );
+      markExternalKeyRateLimited(keyId, 3600).catch(() => {});
       continue;
     }
 
@@ -12409,16 +12426,25 @@ async function handleRefreshPlayer(request, steamId) {
 
   const canSeeIp = orgHasPermission(session, orgId, "ip_read");
 
-  // Clear Redis so refreshPlayerData can acquire the lock and write fresh data
+  // Clear Redis so the background refresh can acquire the lock and write fresh data
   try {
     await redis.del(playerRedisKey(steamId));
   } catch {}
-  await refreshPlayerData(steamId, orgId);
-  const fresh =
-    (await getPlayerDataFromRedis(steamId)) ??
-    (await getPlayerCacheData(steamId));
-  if (!fresh) return json({ error: "Failed to fetch player data" }, 502);
-  return json(filterPlayerIpData(fresh, canSeeIp));
+
+  // Fire the refresh in the background; poll Redis for core data (written mid-refresh,
+  // after BM/Steam calls complete) rather than awaiting the full ~4s pipeline.
+  refreshPlayerData(steamId, orgId).catch((err) =>
+    console.error(`[player:refresh] bg error for ${steamId}:`, err.message),
+  );
+
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const fresh = await getPlayerDataFromRedis(steamId);
+    if (fresh) return json(filterPlayerIpData(fresh, canSeeIp));
+  }
+
+  // Core data not yet in Redis — tell the client to poll (same as a first-time fetch)
+  return json({ fetching: true });
 }
 
 // ── Sysadmin: clear all player cache ─────────────────────────────────────────

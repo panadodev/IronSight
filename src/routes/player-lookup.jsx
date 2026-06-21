@@ -194,6 +194,7 @@ function PlayerLookupPage() {
   const [playerError, setPlayerError] = useState(null);
   const [firstFetch, setFirstFetch] = useState(false);
   const pollRef = useRef(null);
+  const pollAttemptsRef = useRef(0);
 
   const [offenses, setOffenses] = useState([]);
   const [offensesLoading, setOffensesLoading] = useState(false);
@@ -260,14 +261,22 @@ function PlayerLookupPage() {
         if (!res.ok) {
           setPlayerError(body?.error ?? "Failed to fetch player data.");
           setPlayerData(null);
-        } else if (!forceRefresh && body.fetching) {
-          // Backend is fetching for the first time — poll until data is ready
+        } else if (body.fetching) {
+          // Backend is still fetching — poll until data is ready
+          if (pollAttemptsRef.current >= 10) {
+            pollAttemptsRef.current = 0;
+            setPlayerError("Player data is taking too long to load. Try refreshing.");
+            setFirstFetch(false);
+            return;
+          }
+          pollAttemptsRef.current += 1;
           setFirstFetch(true);
           setPlayerData(null);
           setPlayerLoading(false);
           pollRef.current = setTimeout(() => fetchPlayer(false), 3000);
           return;
         } else {
+          pollAttemptsRef.current = 0;
           setFirstFetch(false);
           setPlayerData(body);
         }
@@ -292,6 +301,7 @@ function PlayerLookupPage() {
       clearTimeout(pollRef.current);
       pollRef.current = null;
     }
+    pollAttemptsRef.current = 0;
     fetchPlayer(false);
   }, [steamId, fetchOrgId, orgsLoaded]);
 

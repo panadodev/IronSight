@@ -410,31 +410,37 @@ function RconTab({ servers, orgId }) {
     }
   };
   const runScript = async (script, vars) => {
+    if (sending) return;
     const cmds = applyVars(script.command, vars)
       .split("\n")
       .map((c) => c.trim())
       .filter(Boolean);
     setPendingScript(null);
+    setSending(true);
     log(`[SCRIPT] \u25B6 ${script.name} on ${server?.name}`);
-    for (const c of cmds) {
-      log(`> ${c}`);
-      try {
-        const { response, consoleLogs } = await execCommand(selected, c);
-        for (const l of consoleLogs) log(`[LOG] ${l}`);
-        if (response) {
-          let display;
-          try {
-            display = JSON.stringify(JSON.parse(response), null, 2);
-          } catch {
-            display = response;
+    try {
+      for (const c of cmds) {
+        log(`> ${c}`);
+        try {
+          const { response, consoleLogs } = await execCommand(selected, c);
+          for (const l of consoleLogs) log(`[LOG] ${l}`);
+          if (response) {
+            let display;
+            try {
+              display = JSON.stringify(JSON.parse(response), null, 2);
+            } catch {
+              display = response;
+            }
+            for (const line of display.split("\n")) {
+              if (line) log(`[RCON] ${line}`);
+            }
           }
-          for (const line of display.split("\n")) {
-            if (line) log(`[RCON] ${line}`);
-          }
+        } catch (err) {
+          log(`[ERR] ${String(err?.message ?? err)}`);
         }
-      } catch (err) {
-        log(`[ERR] ${String(err?.message ?? err)}`);
       }
+    } finally {
+      setSending(false);
     }
   };
   const onPickScript = (script) => {
@@ -506,7 +512,7 @@ function RconTab({ servers, orgId }) {
             )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <ScriptPickerButton scripts={scripts} onPick={onPickScript} />
+            <ScriptPickerButton scripts={scripts} onPick={onPickScript} disabled={sending} />
             <Button size="sm" variant="ghost" onClick={() => setLines([])}>
               Clear
             </Button>
@@ -586,7 +592,7 @@ function RconTab({ servers, orgId }) {
     </div>
   );
 }
-function ScriptPickerButton({ scripts, onPick }) {
+function ScriptPickerButton({ scripts, onPick, disabled }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const filtered = scripts.filter(
@@ -597,7 +603,7 @@ function ScriptPickerButton({ scripts, onPick }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" disabled={disabled}>
           <ScrollText className="size-3.5 mr-1" /> Script
         </Button>
       </PopoverTrigger>
@@ -2420,9 +2426,21 @@ function StatusTab({ orgId }) {
     setError("");
     historyRef.current = new Map();
     load();
-    const id = setInterval(load, 8000);
+    let id = setInterval(load, 8000);
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        clearInterval(id);
+      } else {
+        load();
+        id = setInterval(load, 8000);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       clearInterval(id);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [load]);
 
