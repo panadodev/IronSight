@@ -1009,8 +1009,8 @@ function ServerHistorySection({ bmSessions }) {
   );
 }
 
-function RconTeamSection({ servers }) {
-  const [steamId, setSteamId] = useState("");
+function RconTeamSection({ servers, initialSteamId = "" }) {
+  const [steamId, setSteamId] = useState(initialSteamId);
   const [serverId, setServerId] = useState(servers[0]?.serverId ?? "");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1022,6 +1022,43 @@ function RconTeamSection({ servers }) {
       return still ? prev : (servers[0]?.serverId ?? "");
     });
   }, [servers]);
+
+  // When the viewed player changes, reset and auto-run across all servers
+  useEffect(() => {
+    setSteamId(initialSteamId);
+    setResult(null);
+    setError("");
+    const sid = initialSteamId.trim();
+    if (!sid || servers.length === 0) return;
+    let cancelled = false;
+    setLoading(true);
+    const tryServer = (server) =>
+      fetch(`/api/servers/${encodeURIComponent(server.serverId)}/rcon/exec`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: `teaminfo ${sid}` }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return null;
+          const parsed = parseTeamInfoResponse(data.response ?? "");
+          return parsed && parsed.members.length > 0 ? { server, parsed } : null;
+        })
+        .catch(() => null);
+    Promise.all(servers.map(tryServer)).then((results) => {
+      if (cancelled) return;
+      const hit = results.find(Boolean);
+      if (hit) {
+        setServerId(hit.server.serverId);
+        setResult(hit.parsed);
+      } else {
+        setError("Player is not in a team on any server.");
+      }
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [initialSteamId, servers]);
 
   const handleLookup = async () => {
     const sid = steamId.trim();
@@ -1208,7 +1245,7 @@ function PlayerIntelSidebar({ ticketId, orgId, servers, submitterUsername, submi
           </div>
         )}
 
-        <RconTeamSection servers={servers} />
+        <RconTeamSection servers={servers} initialSteamId={player?.steamId ?? ""} />
 
         {submitterUsername && (
           <section>

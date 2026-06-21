@@ -12145,6 +12145,32 @@ async function handleRefreshPlayer(request, steamId) {
   return json(filterPlayerIpData(fresh, canSeeIp));
 }
 
+// ── Sysadmin: clear all player cache ─────────────────────────────────────────
+
+async function handleClearAllPlayerCache(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isGlobalAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  // Delete all player data keys from Redis (data + fetch locks)
+  let redisCleared = 0;
+  try {
+    const dataKeys = await redis.keys("player:data:*");
+    const lockKeys = await redis.keys("player:fetching:*");
+    const allKeys = [...dataKeys, ...lockKeys];
+    if (allKeys.length > 0) {
+      await redis.del(...allKeys);
+      redisCleared = dataKeys.length;
+    }
+  } catch {}
+
+  // Delete main profile rows; other tables are overwritten on next refresh
+  const { rowCount } = await pool.query(`DELETE FROM player_cache`);
+
+  return json({ ok: true, redisCleared, dbCleared: rowCount ?? 0 });
+}
+
 // ── Player reports by Steam ID ────────────────────────────────────────────────
 
 async function handleGetPlayerReports(request, steamId) {
@@ -13205,6 +13231,10 @@ async function _handleApiRequest(request) {
     if (playerRefreshMatch && request.method === "POST")
       return handleRefreshPlayer(request, playerRefreshMatch[1]);
 
+    // Sysadmin: clear all player cache
+    if (pathname === "/api/admin/player-cache" && request.method === "DELETE")
+      return handleClearAllPlayerCache(request);
+
     // Player reports
     const playerReportsMatch = pathname.match(
       /^\/api\/players\/(\d+)\/reports$/,
@@ -13659,6 +13689,7 @@ async function handleGetDiscordMessages(request, orgId) {
   const channelId = url.searchParams.get("channel_id") ?? null;
   const authorId = url.searchParams.get("author_id") ?? null;
   const before = url.searchParams.get("before") ?? null;
+  const after = url.searchParams.get("after") ?? null;
   const limit = Math.min(100, parseInt(url.searchParams.get("limit") ?? "50", 10));
 
   const conditions = ["org_id = $1"];
@@ -13676,6 +13707,10 @@ async function handleGetDiscordMessages(request, orgId) {
   if (before) {
     conditions.push(`discord_created_at < $${idx++}`);
     params.push(before);
+  }
+  if (after) {
+    conditions.push(`discord_created_at > $${idx++}`);
+    params.push(after);
   }
 
   const { rows } = await pool.query(

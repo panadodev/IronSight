@@ -162,6 +162,8 @@ function DiscordModPage() {
   const [selectedChannel, setSelectedChannel] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
 
@@ -170,6 +172,11 @@ function DiscordModPage() {
   const [members, setMembers] = useState([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const memberSearchRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const messagesScrollRef = useRef(null);
+  const oldestCreatedAtRef = useRef(null);
+  const newestCreatedAtRef = useRef(null);
+  const loadingMoreRef = useRef(false);
 
   // ── Bans tab ──────────────────────────────────────────────────────────────
   const [bans, setBans] = useState([]);
@@ -215,13 +222,53 @@ function DiscordModPage() {
     if (!orgId || !selectedChannel) return;
     setLoadingMessages(true);
     try {
-      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=100`;
+      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=30`;
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
-      setMessages(data.messages ?? []);
+      const msgs = data.messages ?? [];
+      setMessages(msgs);
+      setHasMore(msgs.length === 30);
     } finally {
       setLoadingMessages(false);
+    }
+  }, [orgId, selectedChannel]);
+
+  const loadMoreMessages = useCallback(async () => {
+    if (!orgId || !selectedChannel || loadingMoreRef.current) return;
+    const oldest = oldestCreatedAtRef.current;
+    if (!oldest) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=30&before=${encodeURIComponent(oldest)}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const more = data.messages ?? [];
+      setMessages((prev) => [...prev, ...more]);
+      setHasMore(more.length === 30);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [orgId, selectedChannel]);
+
+  const pollNewMessages = useCallback(async () => {
+    if (!orgId || !selectedChannel) return;
+    const after = newestCreatedAtRef.current;
+    if (!after) return;
+    try {
+      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=30&after=${encodeURIComponent(after)}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const newMsgs = data.messages ?? [];
+      if (newMsgs.length > 0) {
+        setMessages((prev) => [...newMsgs, ...prev]);
+      }
+    } catch {
+      // ignore
     }
   }, [orgId, selectedChannel]);
 
@@ -280,6 +327,7 @@ function DiscordModPage() {
       setChannels([]);
       setSelectedChannel(null);
       setMessages([]);
+      setHasMore(false);
       setMembers([]);
       setBans([]);
       setModLog([]);
@@ -295,12 +343,35 @@ function DiscordModPage() {
     if (selectedChannel) fetchMessages();
   }, [fetchMessages]);
 
-  // Poll for new messages every 15 seconds while the messages tab is open
+  // Sync cursor refs whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      newestCreatedAtRef.current = messages[0].createdAt;
+      oldestCreatedAtRef.current = messages[messages.length - 1].createdAt;
+    }
+  }, [messages]);
+
+  // Poll for new messages every 15 seconds (only fetches newer than what we have)
   useEffect(() => {
     if (tab !== "messages" || !selectedChannel) return;
-    const timer = setInterval(fetchMessages, 15000);
+    const timer = setInterval(pollNewMessages, 15000);
     return () => clearInterval(timer);
-  }, [tab, selectedChannel, fetchMessages]);
+  }, [tab, selectedChannel, pollNewMessages]);
+
+  // Infinite scroll: observe sentinel at bottom of message list
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = messagesScrollRef.current;
+    if (!sentinel || !container || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMoreMessages();
+      },
+      { root: container, threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadMoreMessages]);
 
   useEffect(() => {
     if (tab === "modlog") fetchModLog();
@@ -611,7 +682,7 @@ function DiscordModPage() {
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div ref={messagesScrollRef} className="flex-1 overflow-y-auto">
               {loadingMessages ? (
                 <div className="flex items-center justify-center h-32">
                   <span className="text-xs text-muted-foreground">Loading…</span>
@@ -668,6 +739,16 @@ function DiscordModPage() {
                       </div>
                     </div>
                   ))}
+                  <div
+                    ref={sentinelRef}
+                    className="py-4 flex items-center justify-center"
+                  >
+                    {loadingMore ? (
+                      <span className="text-xs text-muted-foreground">Loading…</span>
+                    ) : !hasMore && messages.length > 0 ? (
+                      <span className="text-[10px] text-muted-foreground/40">All messages loaded</span>
+                    ) : null}
+                  </div>
                 </div>
               )}
             </div>
