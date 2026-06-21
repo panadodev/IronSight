@@ -12053,8 +12053,10 @@ async function handleGetRipeAtlasConfig(request, orgId) {
 
   const row = rows[0];
   let credits = null;
+  let keyPrefix = null;
   try {
     const apiKey = decryptExternalApiKey(String(row.api_key_enc));
+    keyPrefix = apiKey.slice(0, 8);
     credits = await ripeAtlasGetCredits(apiKey);
   } catch {
     // non-critical
@@ -12067,6 +12069,7 @@ async function handleGetRipeAtlasConfig(request, orgId) {
       checkIntervalMinutes: Number(row.check_interval_minutes) || 5,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
+      keyPrefix,
     },
     credits,
   });
@@ -12140,8 +12143,11 @@ async function handlePutRipeAtlasConfig(request, orgId) {
   );
   const row = updated[0];
   let credits = null;
+  let keyPrefix = null;
   try {
-    credits = await ripeAtlasGetCredits(decryptExternalApiKey(String(row.api_key_enc)));
+    const apiKey = decryptExternalApiKey(String(row.api_key_enc));
+    keyPrefix = apiKey.slice(0, 8);
+    credits = await ripeAtlasGetCredits(apiKey);
   } catch {
     // non-critical
   }
@@ -12153,6 +12159,7 @@ async function handlePutRipeAtlasConfig(request, orgId) {
       checkIntervalMinutes: Number(row.check_interval_minutes) || 5,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
+      keyPrefix,
     },
     credits,
   });

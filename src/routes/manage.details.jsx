@@ -793,6 +793,12 @@ function RipeAtlasSection({ orgId }) {
                 onChange={(e) => setApiKey(e.target.value)}
                 required={!config}
               />
+              {config?.keyPrefix && (
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  Current key:{" "}
+                  <span className="text-foreground">{config.keyPrefix}…</span>
+                </p>
+              )}
               <div className="space-y-1 pt-0.5">
                 <p className="text-[10px] text-muted-foreground">
                   This is a{" "}
