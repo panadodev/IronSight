@@ -10310,7 +10310,10 @@ async function recordRateLimitStats(keyId, orgId, service, resp) {
 // Tries each available key in priority order; returns Response or null if all fail
 async function externalFetchWithRotation(orgId, service, buildRequest) {
   const keys = await getAvailableExternalKeys(orgId, service);
-  if (!keys.length) return null;
+  if (!keys.length) {
+    console.warn(`[ext-api:${service}] org=${orgId} — no available keys (all disabled or rate-limited)`);
+    return null;
+  }
 
   for (const { keyId, key } of keys) {
     const { url, options } = buildRequest(key);
@@ -10337,6 +10340,15 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
       continue;
     }
 
+    if (resp.status === 401 || resp.status === 403) {
+      let body = "";
+      try { body = await resp.text(); } catch {}
+      console.warn(
+        `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP ${resp.status} — key may be invalid or missing permissions. body="${body.slice(0, 300)}". Trying next key.`,
+      );
+      continue;
+    }
+
     await markExternalKeyUsed(keyId);
     recordRateLimitStats(keyId, orgId, service, resp).catch((e) =>
       console.warn(`[ext-api:${service}] stats write failed: ${e.message}`),
@@ -10344,6 +10356,7 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
     return resp;
   }
 
+  console.warn(`[ext-api:${service}] org=${orgId} — all ${keys.length} key(s) exhausted, returning null`);
   return null;
 }
 
@@ -10758,10 +10771,7 @@ async function fetchSteamFriends(steamId, orgId) {
     relationship: "friend",
   });
 
-  if (!resp || resp.status === 401 || resp.status === 403) {
-    return { isPublic: false, friends: null };
-  }
-  if (!resp.ok) return { isPublic: false, friends: null };
+  if (!resp?.ok) return { isPublic: false, friends: null };
 
   const json = await resp.json();
   const friends = json.friendslist?.friends;
