@@ -1124,20 +1124,6 @@ function ManageDetailsPage() {
 
       <RipeAtlasSection orgId={orgId} />
 
-      {isSysAdmin && (
-        <div className="space-y-2 border-t border-border pt-6">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold">Roles & Permissions</h2>
-            <span className="text-[9px] font-mono uppercase tracking-widest text-brand bg-brand/10 px-1.5 py-0.5 rounded">
-              Sysadmin Privilege
-            </span>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            This organization does not directly manage roles. Go to SYS_ADMIN
-            section to create or modify global roles.
-          </p>
-        </div>
-      )}
     </div>
   );
 }
