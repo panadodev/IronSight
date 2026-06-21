@@ -31,18 +31,24 @@ let sessionId = null;
 let resumeGatewayUrl = null;
 let seq = null;
 let acked = true;
+let reconnecting = false;
 
 function send(data) {
   ws.send(JSON.stringify(data));
 }
 
 function reconnect(resume = false) {
+  if (reconnecting) return;
+  reconnecting = true;
   clearInterval(heartbeatTimer);
   console.log(`[IronSight Bot] Reconnecting in 5s (resume=${resume})`);
   try {
     ws.close();
   } catch {}
-  setTimeout(() => connect(resume), 5000);
+  setTimeout(() => {
+    reconnecting = false;
+    connect(resume);
+  }, 5000);
 }
 
 function heartbeat() {
@@ -82,16 +88,17 @@ async function dmUser(userId) {
 function connect(resume = false) {
   const url = resume && resumeGatewayUrl ? resumeGatewayUrl : GATEWAY_URL;
   console.log(`[IronSight Bot] Connecting to gateway (resume=${resume})`);
-  ws = new WebSocket(url);
+  const socket = new WebSocket(url);
+  ws = socket;
 
-  ws.addEventListener("open", () => {
+  socket.addEventListener("open", () => {
     if (resume && sessionId) {
       console.log("[IronSight Bot] Sending RESUME");
-      send({ op: 6, d: { token: TOKEN, session_id: sessionId, seq } });
+      socket.send(JSON.stringify({ op: 6, d: { token: TOKEN, session_id: sessionId, seq } }));
     }
   });
 
-  ws.addEventListener("message", async ({ data }) => {
+  socket.addEventListener("message", async ({ data }) => {
     const { op, d, s, t } = JSON.parse(data);
     if (s != null) seq = s;
 
@@ -182,7 +189,7 @@ function connect(resume = false) {
     }
   });
 
-  ws.addEventListener("close", ({ code }) => {
+  socket.addEventListener("close", ({ code }) => {
     clearInterval(heartbeatTimer);
     console.log(`[IronSight Bot] Gateway closed (code ${code})`);
     if (code === 4004) {
@@ -195,10 +202,12 @@ function connect(resume = false) {
       );
       process.exit(1);
     }
-    reconnect(code !== 4007 && code !== 4009);
+    if (!reconnecting) {
+      reconnect(code !== 4007 && code !== 4009);
+    }
   });
 
-  ws.addEventListener("error", (err) =>
+  socket.addEventListener("error", (err) =>
     console.error("[IronSight Bot] WebSocket error:", err),
   );
 }
