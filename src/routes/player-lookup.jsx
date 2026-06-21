@@ -1,7 +1,7 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, RefreshCw, Trash2 } from "lucide-react";
+import { Search, RefreshCw } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import {
   Field,
@@ -181,14 +181,13 @@ function CacheStamp({ playerData, refreshing }) {
 }
 
 function PlayerLookupPage() {
-  const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded, adminableOrgIds, sessionUser } =
+  const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded, adminableOrgIds } =
     useAuth();
   const tz = useTimezone();
   const search = Route.useSearch();
 
   const [input, setInput] = useState(search.steam ?? "");
   const [steamId, setSteamId] = useState(search.steam ?? null);
-  const [cacheClearBusy, setCacheClearBusy] = useState(false);
 
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
@@ -375,25 +374,6 @@ function PlayerLookupPage() {
     fetchPlayer(true);
   };
 
-  const handleClearAllCache = async () => {
-    if (!window.confirm("Clear the entire player cache? All cached player data will be deleted and re-fetched on next lookup.")) return;
-    setCacheClearBusy(true);
-    try {
-      const res = await fetch("/api/admin/player-cache", { method: "DELETE", credentials: "include" });
-      const body = await res.json();
-      if (res.ok) {
-        alert(`Cache cleared. Redis: ${body.redisCleared} keys, DB: ${body.dbCleared} rows deleted.`);
-        if (steamId) fetchPlayer(false);
-      } else {
-        alert(body.error ?? "Failed to clear cache.");
-      }
-    } catch {
-      alert("Network error.");
-    } finally {
-      setCacheClearBusy(false);
-    }
-  };
-
   const submitBan = async (sub) => {
     if (banOrgId && steamId) {
       await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
@@ -506,17 +486,6 @@ function PlayerLookupPage() {
                 >
                   Lookup
                 </button>
-                {sessionUser?.isSysAdmin && (
-                  <button
-                    type="button"
-                    onClick={handleClearAllCache}
-                    disabled={cacheClearBusy}
-                    title="Clear all player cache (sysadmin)"
-                    className="inline-flex items-center gap-1.5 h-10 px-3 bg-surface text-muted-foreground text-xs rounded-md ring-1 ring-border hover:text-danger hover:ring-danger/40 disabled:opacity-50 transition-colors"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
               </form>
               {input.trim().length > 0 && !/^\d{17}$/.test(input.trim()) && (
                 <p className="mt-2 text-[11px] text-warning">

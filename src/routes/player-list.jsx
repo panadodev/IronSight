@@ -17,6 +17,7 @@ import {
   Copy,
   RefreshCw,
   ShieldAlert,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -52,7 +53,7 @@ function steamIdAvatarColor(steamId) {
 }
 
 function PlayerListPage() {
-  const { orgs, selectedOrgIds, hasOrgPermission } = useAuth();
+  const { orgs, selectedOrgIds, hasOrgPermission, sessionUser } = useAuth();
   const canAccess = selectedOrgIds.some((id) =>
     hasOrgPermission(id, "players_view"),
   );
@@ -70,6 +71,7 @@ function PlayerListPage() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [copiedId, setCopiedId] = useState(null);
+  const [cacheClearBusy, setCacheClearBusy] = useState(false);
 
   const PAGE_SIZE = 50;
   const intervalRef = useRef(null);
@@ -205,6 +207,24 @@ function PlayerListPage() {
 
   const rconErrors = serverStatuses.filter((s) => s.rconError);
 
+  const handleClearAllCache = async () => {
+    if (!window.confirm("Clear the entire player cache? All cached player data will be deleted and re-fetched on next lookup.")) return;
+    setCacheClearBusy(true);
+    try {
+      const res = await fetch("/api/admin/player-cache", { method: "DELETE", credentials: "include" });
+      const body = await res.json();
+      if (res.ok) {
+        alert(`Cache cleared. Redis: ${body.redisCleared} keys, DB: ${body.dbCleared} rows deleted.`);
+      } else {
+        alert(body.error ?? "Failed to clear cache.");
+      }
+    } catch {
+      alert("Network error.");
+    } finally {
+      setCacheClearBusy(false);
+    }
+  };
+
   if (!canAccess) {
     return (
       <div className="h-screen w-full flex flex-col bg-background">
@@ -266,6 +286,17 @@ function PlayerListPage() {
                   />
                   Refresh
                 </button>
+                {sessionUser?.isSysAdmin && (
+                  <button
+                    onClick={handleClearAllCache}
+                    disabled={cacheClearBusy}
+                    className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface hover:text-danger hover:ring-danger/40 text-xs disabled:opacity-50 transition-colors"
+                    title="Clear all player cache (sysadmin)"
+                  >
+                    <Trash2 className="size-3" />
+                    Clear Cache
+                  </button>
+                )}
               </div>
             </div>
 

@@ -12150,7 +12150,7 @@ async function handleRefreshPlayer(request, steamId) {
 async function handleClearAllPlayerCache(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!isGlobalAdmin(session))
+  if (!isConfiguredSysAdmin(session))
     return json({ error: "Forbidden: sysadmin only" }, 403);
 
   // Delete all player data keys from Redis (data + fetch locks)
