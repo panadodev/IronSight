@@ -1,119 +1,4 @@
 import { useMemo, useState } from "react";
-const PARTNER_ORGS = [
-  { id: "rustopia", name: "Rustopia", short: "RTP" },
-  { id: "rusticated", name: "Rusticated", short: "RST" },
-  { id: "rustafied", name: "Rustafied", short: "RFD" },
-  { id: "rustoria", name: "Rustoria", short: "RTA" },
-  { id: "moose", name: "Moose Gaming", short: "MG" },
-  { id: "reddit", name: "Reddit.com", short: "RDT" },
-];
-const REASONS = [
-  "Cheating - Aim assist",
-  "Cheating - Wallhack",
-  "Cheating - ESP",
-  "Cheating - Spinbot",
-  "Toxicity - Slurs",
-  "Toxicity - Harassment",
-  "Teaming over limit",
-  "Ban evasion",
-  "Stream sniping",
-  "Exploiting (door glitching)",
-  "Macro / scripting",
-  "EAC bypass attempt",
-];
-const STAFF = [
-  "Vex",
-  "Caelum",
-  "Nyx",
-  "Praxis",
-  "Orion",
-  "Selene",
-  "Kade",
-  "Mira",
-  "Juno",
-  "Briar",
-];
-const NOTE_TEMPLATES = [
-  "Caught on demo, clear snaps to multiple targets behind walls within 0.2s. Reviewed twice with senior team.",
-  "Tracked player through walls during raid defense. Held aim through structures, then prefired exact angle.",
-  "EAC kicked twice in 10 minutes for memory integrity. Player rejoined with a different account on same IP.",
-  "Demo shows impossible recoil compensation on AK over sustained sprays - no recoil pattern visible at all.",
-  "Multiple reports across the wipe. F7s correlated with kill feed during low-pop. Reviewed and confirmed.",
-  "Player admitted to using a paid cheat in voice chat - clip submitted by reporter, audio verified.",
-  "Snap aim on naked target at 180m through a wall, then immediately swapped to second target behind rock.",
-  "Repeated bypass attempts logged by anti-cheat. Pattern matches known cheat loader signature.",
-  "Toxic in global for entire wipe despite warnings and mutes. Escalated to perm after 5th offense.",
-  "Caught teaming with 6 players on a duo server, full base shared, kits exchanged on camera.",
-];
-const STATUSES = [
-  { label: "Permanent", tone: "danger", weight: 6 },
-  { label: "Expires in 14d", tone: "warning", weight: 1 },
-  { label: "Expires in 3d", tone: "warning", weight: 1 },
-  { label: "Expired", tone: "muted", weight: 3 },
-];
-function hash(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 1831565813) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function pickWeighted(rng, items) {
-  const total = items.reduce((a, b) => a + b.weight, 0);
-  let r = rng() * total;
-  for (const it of items) {
-    if ((r -= it.weight) <= 0) return it;
-  }
-  return items[items.length - 1];
-}
-function relTime(rng) {
-  const days = Math.floor(rng() * 720) + 1;
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return `${(days / 365).toFixed(1)}y ago`;
-}
-function buildExternalBans(subjectId) {
-  const seed = hash(subjectId + "::external-bans");
-  const rng = mulberry32(seed);
-  const count = Math.floor(rng() * 5);
-  if (count === 0) return [];
-  const usedOrgs = /* @__PURE__ */ new Set();
-  const bans = [];
-  for (let i = 0; i < count; i++) {
-    let org = PARTNER_ORGS[Math.floor(rng() * PARTNER_ORGS.length)];
-    let attempts = 0;
-    while (usedOrgs.has(org.id) && attempts++ < 8) {
-      org = PARTNER_ORGS[Math.floor(rng() * PARTNER_ORGS.length)];
-    }
-    usedOrgs.add(org.id);
-    const status = pickWeighted(rng, STATUSES);
-    bans.push({
-      id: `${subjectId}-ext-${i}`,
-      orgId: org.id,
-      orgName: org.name,
-      orgShort: org.short,
-      reason: REASONS[Math.floor(rng() * REASONS.length)],
-      by: STAFF[Math.floor(rng() * STAFF.length)],
-      when: relTime(rng),
-      status: status.label,
-      statusTone: status.tone,
-      note: NOTE_TEMPLATES[Math.floor(rng() * NOTE_TEMPLATES.length)],
-    });
-  }
-  return bans;
-}
 function bmBanStatusLabel(ban) {
   if (ban.permanent || !ban.expiresAt) return { label: "Permanent", tone: "danger" };
   const sec = ban.expiresAt - Math.floor(Date.now() / 1000);
@@ -145,10 +30,10 @@ function transformBmBans(rawBans) {
     };
   });
 }
-function ExternalBansSection({ subjectId, bans: rawBans }) {
+function ExternalBansSection({ bans: rawBans }) {
   const bans = useMemo(
-    () => (Array.isArray(rawBans) ? transformBmBans(rawBans) : buildExternalBans(subjectId)),
-    [subjectId, rawBans],
+    () => transformBmBans(Array.isArray(rawBans) ? rawBans : []),
+    [rawBans],
   );
   const [openId, setOpenId] = useState(null);
   const open = bans.find((b) => b.id === openId) ?? null;
@@ -167,7 +52,7 @@ function ExternalBansSection({ subjectId, bans: rawBans }) {
       </h2>
       {bans.length === 0 ? (
         <p className="text-xs text-muted-foreground italic">
-          No bans on partner orgs.
+          No external bans on file.
         </p>
       ) : (
         <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">

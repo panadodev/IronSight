@@ -1,12 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pin, PinOff, Trash2, Lock, StickyNote } from "lucide-react";
-import {
-  usePlayerNotes,
-  playerNotesStore,
-  NOTE_RANK_OPTIONS,
-  rankLabel,
-  timeAgo,
-} from "@/lib/player-notes";
 import { useAuth } from "@/lib/auth-context";
 import {
   Select,
@@ -15,11 +8,104 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const NOTE_RANK_OPTIONS = [
+  { value: 1, label: "Support and above" },
+  { value: 2, label: "Admin and above" },
+  { value: 3, label: "Sr. Admin and above" },
+  { value: 4, label: "Management only" },
+];
+
+function rankLabel(rank) {
+  return (
+    NOTE_RANK_OPTIONS.find((o) => o.value === rank)?.label ?? `Rank ${rank}+`
+  );
+}
+
+function timeAgo(unix) {
+  const m = Math.floor((Date.now() / 1000 - unix) / 60);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  const mo = Math.floor(d / 30);
+  return `${mo}mo ago`;
+}
+
 function useEffectiveRank(orgId) {
   const { rankOf, selectedOrgIds, maxRankAcross } = useAuth();
   return orgId ? rankOf(orgId) : maxRankAcross(selectedOrgIds);
 }
-function NoteCard({ note, canManage, canEdit }) {
+
+// Fetches a player's notes for an org. The backend already filters by the
+// caller's rank (min_rank), so whatever it returns is visible to this user.
+function usePlayerNotesApi(orgId, subjectId) {
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (!orgId || !subjectId) {
+      setNotes([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/players/${encodeURIComponent(subjectId)}/notes`,
+        { credentials: "include" },
+      );
+      const body = await res.json().catch(() => ({}));
+      setNotes(res.ok ? (body.notes ?? []) : []);
+    } catch {
+      setNotes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId, subjectId]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return { notes, loading, reload };
+}
+
+function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange }) {
+  const [busy, setBusy] = useState(false);
+
+  const togglePin = async () => {
+    setBusy(true);
+    try {
+      await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/players/${encodeURIComponent(subjectId)}/notes/${note.id}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pinned: !note.pinned }),
+        },
+      );
+    } finally {
+      setBusy(false);
+      onChange();
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/players/${encodeURIComponent(subjectId)}/notes/${note.id}`,
+        { method: "DELETE", credentials: "include" },
+      );
+    } finally {
+      setBusy(false);
+      onChange();
+    }
+  };
+
   return (
     <li className="bg-surface/40 ring-1 ring-border rounded p-2.5 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
@@ -31,10 +117,9 @@ function NoteCard({ note, canManage, canEdit }) {
         {canManage && (
           <div className="flex items-center gap-1 shrink-0">
             <button
-              onClick={() =>
-                playerNotesStore.update(note.id, { pinned: !note.pinned })
-              }
-              className={`p-1 rounded hover:bg-surface ${note.pinned ? "text-warning" : "text-muted-foreground"}`}
+              onClick={togglePin}
+              disabled={busy}
+              className={`p-1 rounded hover:bg-surface disabled:opacity-50 ${note.pinned ? "text-warning" : "text-muted-foreground"}`}
               title={note.pinned ? "Unpin" : "Pin to tickets"}
             >
               {note.pinned ? (
@@ -45,8 +130,9 @@ function NoteCard({ note, canManage, canEdit }) {
             </button>
             {canEdit && (
               <button
-                onClick={() => playerNotesStore.remove(note.id)}
-                className="p-1 rounded text-muted-foreground hover:text-danger hover:bg-surface"
+                onClick={remove}
+                disabled={busy}
+                className="p-1 rounded text-muted-foreground hover:text-danger hover:bg-surface disabled:opacity-50"
                 title="Delete note"
               >
                 <Trash2 className="size-3" />
@@ -56,7 +142,7 @@ function NoteCard({ note, canManage, canEdit }) {
         )}
       </div>
       <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
-        <span>{note.authorName}</span>
+        <span>{note.authorName ?? "unknown"}</span>
         <span>·</span>
         <span>{timeAgo(note.createdAt)}</span>
         <span className="ml-auto inline-flex items-center gap-1">
@@ -73,37 +159,54 @@ function NoteCard({ note, canManage, canEdit }) {
     </li>
   );
 }
+
 function PlayerNotesSection({ subjectId, orgId }) {
-  const all = usePlayerNotes(subjectId);
-  const { activeStaff, activeStaffId } = useAuth();
+  const { notes, loading, reload } = usePlayerNotesApi(orgId, subjectId);
+  const { sessionUser } = useAuth();
   const myRank = useEffectiveRank(orgId);
   const [body, setBody] = useState("");
   const [minRank, setMinRank] = useState(1);
+  const [saving, setSaving] = useState(false);
+
+  const rankOptions = useMemo(
+    () => NOTE_RANK_OPTIONS.filter((o) => o.value <= Math.max(1, myRank)),
+    [myRank],
+  );
+
   const visible = useMemo(
     () =>
-      all
-        .filter((n) => myRank >= n.minRank)
-        .sort((a, b) => {
-          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-          return b.createdAt - a.createdAt;
-        }),
-    [all, myRank],
+      [...notes].sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return b.createdAt - a.createdAt;
+      }),
+    [notes],
   );
-  const submit = (e) => {
+
+  const submit = async (e) => {
     e.preventDefault();
     const trimmed = body.trim();
-    if (!trimmed || !activeStaff) return;
-    playerNotesStore.add({
-      subjectId,
-      body: trimmed,
-      authorId: activeStaffId,
-      authorName: activeStaff.name,
-      minRank,
-      pinned: false,
-    });
-    setBody("");
-    setMinRank(1);
+    if (!trimmed || !orgId || saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/players/${encodeURIComponent(subjectId)}/notes`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ body: trimmed, minRank, pinned: false }),
+        },
+      );
+      if (res.ok) {
+        setBody("");
+        setMinRank(1);
+        reload();
+      }
+    } finally {
+      setSaving(false);
+    }
   };
+
   return (
     <section>
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
@@ -122,6 +225,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           rows={2}
+          maxLength={4000}
           placeholder="Add a note about this player…"
           className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-brand resize-y"
         />
@@ -134,7 +238,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {NOTE_RANK_OPTIONS.map((opt) => (
+              {rankOptions.map((opt) => (
                 <SelectItem
                   key={opt.value}
                   value={String(opt.value)}
@@ -147,7 +251,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
           </Select>
           <button
             type="submit"
-            disabled={!body.trim()}
+            disabled={!body.trim() || saving || !orgId}
             className="h-8 px-3 bg-brand text-brand-foreground rounded text-xs font-semibold disabled:opacity-40 hover:opacity-90"
           >
             Save note
@@ -155,36 +259,42 @@ function PlayerNotesSection({ subjectId, orgId }) {
         </div>
       </form>
 
-      {visible.length === 0 ? (
+      {loading ? (
+        <p className="text-xs text-muted-foreground italic">Loading…</p>
+      ) : visible.length === 0 ? (
         <p className="text-xs text-muted-foreground italic">
           No notes visible to you.
         </p>
       ) : (
         <ul className="space-y-2">
-          {visible.map((n) => (
-            <NoteCard
-              key={n.id}
-              note={n}
-              canManage={n.authorId === activeStaffId || myRank >= 4}
-              canEdit={n.authorId === activeStaffId || myRank >= 4}
-            />
-          ))}
+          {visible.map((n) => {
+            const isAuthor = n.authorId && n.authorId === sessionUser?.userId;
+            const canManage = isAuthor || myRank >= 4;
+            return (
+              <NoteCard
+                key={n.id}
+                note={n}
+                orgId={orgId}
+                subjectId={subjectId}
+                canManage={canManage}
+                canEdit={canManage}
+                onChange={reload}
+              />
+            );
+          })}
         </ul>
       )}
     </section>
   );
 }
+
 function PinnedPlayerNotesSection({ subjectId, orgId }) {
-  const all = usePlayerNotes(subjectId);
-  const myRank = useEffectiveRank(orgId);
+  const { notes } = usePlayerNotesApi(orgId, subjectId);
   const visible = useMemo(
-    () =>
-      all
-        .filter((n) => n.pinned && myRank >= n.minRank)
-        .sort((a, b) => b.createdAt - a.createdAt),
-    [all, myRank],
+    () => notes.filter((n) => n.pinned).sort((a, b) => b.createdAt - a.createdAt),
+    [notes],
   );
-  if (visible.length === 0) return null;
+  if (!orgId || visible.length === 0) return null;
   return (
     <section>
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
@@ -204,7 +314,7 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
               {n.body}
             </p>
             <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
-              <span>{n.authorName}</span>
+              <span>{n.authorName ?? "unknown"}</span>
               <span>·</span>
               <span>{timeAgo(n.createdAt)}</span>
               <span className="ml-auto inline-flex items-center gap-1">
@@ -218,4 +328,5 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
     </section>
   );
 }
+
 export { PinnedPlayerNotesSection, PlayerNotesSection };

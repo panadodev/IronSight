@@ -13,6 +13,7 @@ import { Route as TosRouteImport } from './routes/tos'
 import { Route as TodoRouteImport } from './routes/todo'
 import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
+import { Route as SysMetricsRouteImport } from './routes/sys-metrics'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as SubmitRouteImport } from './routes/submit'
 import { Route as StaffAuditRouteImport } from './routes/staff-audit'
@@ -36,7 +37,6 @@ import { Route as ManageRolesRouteImport } from './routes/manage.roles'
 import { Route as ManagePredefinesRouteImport } from './routes/manage.predefines'
 import { Route as ManageDetailsRouteImport } from './routes/manage.details'
 import { Route as ManageBanConfigsRouteImport } from './routes/manage.ban-configs'
-import { Route as SysMetricsRouteImport } from './routes/sys-metrics'
 
 const TosRoute = TosRouteImport.update({
   id: '/tos',
@@ -56,6 +56,11 @@ const TicketsRoute = TicketsRouteImport.update({
 const ThreatTriggersRoute = ThreatTriggersRouteImport.update({
   id: '/threat-triggers',
   path: '/threat-triggers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SysMetricsRoute = SysMetricsRouteImport.update({
+  id: '/sys-metrics',
+  path: '/sys-metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SupportRoute = SupportRouteImport.update({
@@ -138,11 +143,6 @@ const SysAdminRolesRoute = SysAdminRolesRouteImport.update({
   path: '/sys-admin/roles',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SysMetricsRoute = SysMetricsRouteImport.update({
-  id: '/sys-metrics',
-  path: '/sys-metrics',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ManageToxicityRoute = ManageToxicityRouteImport.update({
   id: '/toxicity',
   path: '/toxicity',
@@ -195,6 +195,7 @@ export interface FileRoutesByFullPath {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-metrics': typeof SysMetricsRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
@@ -207,7 +208,6 @@ export interface FileRoutesByFullPath {
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
   '/sys-admin/roles': typeof SysAdminRolesRoute
-  '/sys-metrics': typeof SysMetricsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -225,6 +225,7 @@ export interface FileRoutesByTo {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-metrics': typeof SysMetricsRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
@@ -237,7 +238,6 @@ export interface FileRoutesByTo {
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
   '/sys-admin/roles': typeof SysAdminRolesRoute
-  '/sys-metrics': typeof SysMetricsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -256,6 +256,7 @@ export interface FileRoutesById {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-metrics': typeof SysMetricsRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
@@ -268,7 +269,6 @@ export interface FileRoutesById {
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
   '/sys-admin/roles': typeof SysAdminRolesRoute
-  '/sys-metrics': typeof SysMetricsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -288,6 +288,7 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-metrics'
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
@@ -300,7 +301,6 @@ export interface FileRouteTypes {
     | '/manage/tickets'
     | '/manage/toxicity'
     | '/sys-admin/roles'
-    | '/sys-metrics'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -318,6 +318,7 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-metrics'
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
@@ -330,7 +331,6 @@ export interface FileRouteTypes {
     | '/manage/tickets'
     | '/manage/toxicity'
     | '/sys-admin/roles'
-    | '/sys-metrics'
   id:
     | '__root__'
     | '/'
@@ -348,6 +348,7 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-metrics'
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
@@ -360,7 +361,6 @@ export interface FileRouteTypes {
     | '/manage/tickets'
     | '/manage/toxicity'
     | '/sys-admin/roles'
-    | '/sys-metrics'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -379,12 +379,12 @@ export interface RootRouteChildren {
   StaffAuditRoute: typeof StaffAuditRoute
   SubmitRoute: typeof SubmitRoute
   SupportRoute: typeof SupportRoute
+  SysMetricsRoute: typeof SysMetricsRoute
   ThreatTriggersRoute: typeof ThreatTriggersRoute
   TicketsRoute: typeof TicketsRoute
   TodoRoute: typeof TodoRoute
   TosRoute: typeof TosRoute
   SysAdminRolesRoute: typeof SysAdminRolesRoute
-  SysMetricsRoute: typeof SysMetricsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -415,6 +415,13 @@ declare module '@tanstack/react-router' {
       path: '/threat-triggers'
       fullPath: '/threat-triggers'
       preLoaderRoute: typeof ThreatTriggersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sys-metrics': {
+      id: '/sys-metrics'
+      path: '/sys-metrics'
+      fullPath: '/sys-metrics'
+      preLoaderRoute: typeof SysMetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/support': {
@@ -578,13 +585,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManageBanConfigsRouteImport
       parentRoute: typeof ManageRoute
     }
-    '/sys-metrics': {
-      id: '/sys-metrics'
-      path: '/sys-metrics'
-      fullPath: '/sys-metrics'
-      preLoaderRoute: typeof SysMetricsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -627,12 +627,12 @@ const rootRouteChildren: RootRouteChildren = {
   StaffAuditRoute: StaffAuditRoute,
   SubmitRoute: SubmitRoute,
   SupportRoute: SupportRoute,
+  SysMetricsRoute: SysMetricsRoute,
   ThreatTriggersRoute: ThreatTriggersRoute,
   TicketsRoute: TicketsRoute,
   TodoRoute: TodoRoute,
   TosRoute: TosRoute,
   SysAdminRolesRoute: SysAdminRolesRoute,
-  SysMetricsRoute: SysMetricsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

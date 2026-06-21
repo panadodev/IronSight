@@ -138,6 +138,22 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | `team:server:<serverId>`         | Sorted set    | 7 days                               | Last 7 days of team lifecycle events for a server, scored by Unix timestamp.                                                                                            |
 | `rl:team:<serverId>`             | Counter       | 60 s                                 | Team event ingest rate limiter per server (120 req/min).                                                                                                                |
 | `rl:mute-check:<serverId>`       | Counter       | 60 s                                 | Mute check rate limiter per server (60 req/min).                                                                                                                        |
+| `rl:player-view:<userId>`        | Counter       | 60 s                                 | Player-lookup view limiter per user (120 req/min). Each view also writes an audit row, so the cap blunts audit-log flooding.                                            |
+| `rl:player-refresh:<userId>`     | Counter       | 60 s                                 | Player force-refresh limiter per user (20 req/min). Refresh triggers external BattleMetrics/Steam/Proxycheck calls, so this caps upstream-API cost amplification.       |
+| `rl:player-search:<userId>`      | Counter       | 60 s                                 | Org player-search limiter per user (60 req/min).                                                                                                                        |
+| `rl:player-note:<userId>`        | Counter       | 60 s                                 | Player-note creation limiter per user (30 req/min). Prevents note write-spam.                                                                                           |
+| `rl:public-servers:<ip>`         | Counter       | 60 s                                 | Per-IP limiter (60 req/min) on the unauthenticated public server list (ticket portal). Protects the DB pool from enumeration floods.                                    |
+| `rl:ticket-types:<ip>`           | Counter       | 60 s                                 | Per-IP limiter (60 req/min) on the unauthenticated ticket-types list. Applied only to anonymous callers.                                                                |
+
+## Security & Rate Limiting
+
+The panel is sized for ~50 concurrent staff users. Access control and abuse protection are enforced **server-side** in `src/backend/api.js`:
+
+- **Sessions** are JWT cookies whose `sid` is validated on every request against the `sessions` table (`token_hash`, `revoked`, `expires_at`) **and** a Redis `session:<sid>` payload. A forged or revoked token fails all three checks.
+- **Authorization** — every handler calls `requireSession` then `canManageOrg(session, orgId)` (admin/owner) or `orgHasPermission(session, orgId, <perm>)`. Org owners are members of both the owner and admin sets, so they never fail a permission gate. Handlers derive `owner_org_id` from the looked-up DB row before authorizing (prevents IDOR), and all data is scoped by `org_id`, keeping tenants separated.
+- **Rank gating** — `sessionRankForOrg` returns 4 (owner/admin/sysadmin), 3 (any granted permission), or 1 (none). Player notes use this to filter `min_rank` server-side; a staffer can never read or create a note above their own rank.
+- **Rate limiting** — Redis `INCR`/`EXPIRE` counters (see table above) fail **open** on Redis errors. Login and OAuth callbacks are IP-limited (`LOGIN_RATE_LIMIT_PER_MINUTE`, default 10); all game-event ingest endpoints are per-server-limited; player view/refresh/search/notes are per-user-limited; unauthenticated public reads are per-IP-limited. Client IP is taken from `cf-connecting-ip` (or the right-most `x-forwarded-for` hop) so it cannot be spoofed by the client.
+- **Connection pool** — PostgreSQL pool defaults to `PG_POOL_MAX=20` with a 5 s acquisition timeout (fails fast under load). The player hot path is Redis-first to keep pool pressure low. For sustained 50-user load, raise `PG_POOL_MAX` to match your Postgres `max_connections` headroom.
 
 ## Game Event Ingest API
 

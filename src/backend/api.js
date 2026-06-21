@@ -1500,6 +1500,21 @@ async function ensureSchema() {
   await pool.query(
     `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS bm_name_aliases JSONB`,
   );
+  // Steam VAC/game/community/economy ban status (Steam GetPlayerBans). BM's
+  // rustBans only covers EAC; these are Steam-level bans across all of a player's
+  // games and are a strong independent signal.
+  for (const col of [
+    `steam_vac_banned BOOLEAN`,
+    `steam_vac_count INT`,
+    `steam_game_ban_count INT`,
+    `steam_days_since_last_ban INT`,
+    `steam_community_banned BOOLEAN`,
+    `steam_economy_ban TEXT`,
+  ]) {
+    await pool.query(
+      `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS ${col}`,
+    );
+  }
   // Per-related-account evidence computed at refresh time.
   for (const col of [
     `related_steam_id TEXT`,
@@ -1532,6 +1547,28 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_player_session_windows_steam_id
      ON player_session_windows(steam_id)`,
+  );
+
+  // Staff notes attached to a player, scoped per org and gated by min_rank so
+  // sensitive notes are only visible to higher ranks. Shared across staff/devices
+  // (previously a client-only localStorage store).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_notes (
+      id BIGSERIAL PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      subject_steam_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      author_user_id TEXT,
+      author_name TEXT,
+      min_rank INTEGER NOT NULL DEFAULT 1,
+      pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_at BIGINT NOT NULL DEFAULT unix_now()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_notes_lookup
+     ON player_notes(org_id, subject_steam_id)`,
   );
 
   await pool.query(`
@@ -5033,6 +5070,17 @@ async function handleListOrgs() {
 async function handleListOrgTicketTypes(request, orgId) {
   const { session } = await requireSession(request);
 
+  // Reachable unauthenticated (public ticket portal) and can trigger a default
+  // seed write — cap per-IP to protect the DB pool from enumeration floods.
+  if (!session) {
+    const rl = await checkRateLimit(
+      `rl:ticket-types:${getClientIp(request)}`,
+      PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
+      60,
+    );
+    if (rl) return rl;
+  }
+
   const orgRes = await pool.query(
     `SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1`,
     [orgId],
@@ -6556,6 +6604,15 @@ async function handleListServers(request) {
 // ── Public org server list (for ticket submission portal) ────────────────────
 
 async function handleListPublicOrgServers(request, orgId) {
+  // Unauthenticated and enumerable by orgId — cap per-IP so it can't be used to
+  // exhaust the DB pool.
+  const rl = await checkRateLimit(
+    `rl:public-servers:${getClientIp(request)}`,
+    PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
+    60,
+  );
+  if (rl) return rl;
+
   const orgRes = await pool.query(
     "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
@@ -8574,7 +8631,7 @@ async function handleIngestChatMessage(request) {
   const createdUnix = Number(row.created_at);
 
   console.log(
-    `[ingest:chat] stored — id=${row.id} server=${server.server_name} player=${playerName ?? steamId} team=${teamMessage} msg=${JSON.stringify(message)}`,
+    `[ingest:chat] stored — id=${row.id} server=${server.server_name} player=${playerName ?? steamId} team=${teamMessage} len=${message.length}`,
   );
 
   // Cache in Redis sorted set (last 7 days window)
@@ -10481,7 +10538,7 @@ async function findBMIdBySteamId(steamId, orgId) {
 }
 
 async function fetchSteamPlayerData(steamId, orgId) {
-  const [summaryResp, playtimeResp] = await Promise.all([
+  const [summaryResp, playtimeResp, bansResp] = await Promise.all([
     steamApiFetch(orgId, "/ISteamUser/GetPlayerSummaries/v0002/", {
       steamids: steamId,
     }),
@@ -10489,6 +10546,9 @@ async function fetchSteamPlayerData(steamId, orgId) {
       steamid: steamId,
       include_appinfo: "0",
       include_played_free_games: "0",
+    }),
+    steamApiFetch(orgId, "/ISteamUser/GetPlayerBans/v1/", {
+      steamids: steamId,
     }),
   ]);
 
@@ -10527,6 +10587,24 @@ async function fetchSteamPlayerData(steamId, orgId) {
     }
   }
 
+  // Steam GetPlayerBans — VAC/game/community/economy bans across all of Steam.
+  // Always present for a valid SteamID64 (does not depend on profile privacy).
+  let bans = null;
+  if (bansResp?.ok) {
+    const json = await bansResp.json();
+    const b = json.players?.[0];
+    if (b) {
+      bans = {
+        vacBanned: Boolean(b.VACBanned),
+        vacCount: Number(b.NumberOfVACBans ?? 0),
+        gameBanCount: Number(b.NumberOfGameBans ?? 0),
+        daysSinceLastBan: Number(b.DaysSinceLastBan ?? 0),
+        communityBanned: Boolean(b.CommunityBanned),
+        economyBan: b.EconomyBan ?? null,
+      };
+    }
+  }
+
   return {
     success: summaryOk,
     displayName,
@@ -10535,6 +10613,7 @@ async function fetchSteamPlayerData(steamId, orgId) {
     profileCreatedAt,
     rustHours,
     hoursPublic,
+    bans,
   };
 }
 
@@ -11238,6 +11317,12 @@ async function writeSteamDataToCache(steamId, data) {
        steam_profile_created_at = COALESCE($5, steam_profile_created_at),
        steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE steam_rust_hours END,
        steam_data_public        = $6,
+       steam_vac_banned          = COALESCE($8, steam_vac_banned),
+       steam_vac_count           = COALESCE($9, steam_vac_count),
+       steam_game_ban_count      = COALESCE($10, steam_game_ban_count),
+       steam_days_since_last_ban = COALESCE($11, steam_days_since_last_ban),
+       steam_community_banned    = COALESCE($12, steam_community_banned),
+       steam_economy_ban         = COALESCE($13, steam_economy_ban),
        steam_cached_at          = unix_now(),
        cache_expires_at         = unix_now() + 2592000
      WHERE steam_id = $1`,
@@ -11249,6 +11334,12 @@ async function writeSteamDataToCache(steamId, data) {
       data.profileCreatedAt,
       data.hoursPublic,
       data.rustHours,
+      data.bans?.vacBanned ?? null,
+      data.bans?.vacCount ?? null,
+      data.bans?.gameBanCount ?? null,
+      data.bans?.daysSinceLastBan ?? null,
+      data.bans?.communityBanned ?? null,
+      data.bans?.economyBan ?? null,
     ],
   );
 }
@@ -11662,8 +11753,48 @@ async function refreshPlayerData(steamId, orgId) {
   }
 }
 
+// Attach ban status to a player's friends list using only data we already cache
+// locally (no external fetches). Surfaces "this player is friends with known
+// cheaters" — a strong teaming/alt signal. Banned friends are sorted first.
+async function enrichFriendsWithBans(friendIds) {
+  if (!friendIds?.length) return [];
+  const { rows } = await pool.query(
+    `SELECT steam_id, display_name, avatar_url,
+            bm_rust_bans_banned, steam_vac_banned, steam_vac_count,
+            steam_game_ban_count
+     FROM player_cache WHERE steam_id = ANY($1)`,
+    [friendIds],
+  );
+  const byId = new Map(rows.map((r) => [String(r.steam_id), r]));
+  const enriched = friendIds.map((fid) => {
+    const r = byId.get(fid);
+    const banSources = [];
+    if (r) {
+      if (r.bm_rust_bans_banned) banSources.push("eac");
+      if (r.steam_vac_banned && (r.steam_vac_count ?? 0) > 0)
+        banSources.push("vac");
+      if ((r.steam_game_ban_count ?? 0) > 0) banSources.push("game");
+    }
+    return {
+      steamId: fid,
+      displayName: r?.display_name ?? null,
+      avatarUrl: r?.avatar_url ?? null,
+      banned: banSources.length > 0,
+      banSources,
+      cached: Boolean(r),
+    };
+  });
+  // Banned first, then friends we have any cached data for, then the rest.
+  enriched.sort((a, b) => {
+    if (a.banned !== b.banned) return a.banned ? -1 : 1;
+    if (a.cached !== b.cached) return a.cached ? -1 : 1;
+    return 0;
+  });
+  return enriched;
+}
+
 async function getPlayerCacheData(steamId) {
-  const [profile, sessions, bans, friendsMeta, ips, related] =
+  const [profile, sessions, bans, friendsMeta, ips, related, sessionWindows] =
     await Promise.all([
       pool.query(
         `SELECT *, cache_expires_at < unix_now() AS is_stale
@@ -11673,7 +11804,7 @@ async function getPlayerCacheData(steamId) {
       pool.query(
         `SELECT bm_server_id, server_name, hours_played, last_seen
          FROM player_bm_sessions WHERE steam_id = $1
-         ORDER BY hours_played DESC`,
+         ORDER BY last_seen DESC NULLS LAST`,
         [steamId],
       ),
       pool.query(
@@ -11706,6 +11837,19 @@ async function getPlayerCacheData(steamId) {
          ORDER BY match_count DESC`,
         [steamId],
       ),
+      // Recent raw session windows (last 90 days) for the activity timeline.
+      // server_name is joined from the per-server totals table for display.
+      pool.query(
+        `SELECT psw.bm_server_id, psw.started_at, psw.stopped_at, pbs.server_name
+         FROM player_session_windows psw
+         LEFT JOIN player_bm_sessions pbs
+           ON pbs.steam_id = psw.steam_id AND pbs.bm_server_id = psw.bm_server_id
+         WHERE psw.steam_id = $1
+           AND psw.started_at > unix_now() - 7776000
+         ORDER BY psw.started_at DESC
+         LIMIT 200`,
+        [steamId],
+      ),
     ]);
 
   const p = profile.rows[0] ?? null;
@@ -11713,12 +11857,14 @@ async function getPlayerCacheData(steamId) {
 
   const friendsMetaRow = friendsMeta.rows[0] ?? null;
   let friendsList = null;
+  let friendsEnriched = null;
   if (friendsMetaRow?.friends_public) {
     const fr = await pool.query(
       `SELECT friend_steam_id FROM player_friends WHERE steam_id = $1`,
       [steamId],
     );
     friendsList = fr.rows.map((r) => String(r.friend_steam_id));
+    friendsEnriched = await enrichFriendsWithBans(friendsList);
   }
 
   return {
@@ -11730,6 +11876,19 @@ async function getPlayerCacheData(steamId) {
       profileCreatedAt: p.steam_profile_created_at ?? null,
       rustHours: p.steam_rust_hours != null ? Number(p.steam_rust_hours) : null,
       dataPublic: Boolean(p.steam_data_public),
+      vacBanned: p.steam_vac_banned != null ? Boolean(p.steam_vac_banned) : null,
+      vacCount: p.steam_vac_count != null ? Number(p.steam_vac_count) : null,
+      gameBanCount:
+        p.steam_game_ban_count != null ? Number(p.steam_game_ban_count) : null,
+      daysSinceLastBan:
+        p.steam_days_since_last_ban != null
+          ? Number(p.steam_days_since_last_ban)
+          : null,
+      communityBanned:
+        p.steam_community_banned != null
+          ? Boolean(p.steam_community_banned)
+          : null,
+      economyBan: p.steam_economy_ban ?? null,
       cachedAt: p.steam_cached_at ?? null,
     },
     bm: p.bm_id
@@ -11773,6 +11932,7 @@ async function getPlayerCacheData(steamId) {
       public: friendsMetaRow?.friends_public ?? null,
       friendCount: friendsMetaRow?.friend_count ?? null,
       friends: friendsList,
+      enriched: friendsEnriched,
       wasPublic: friendsMetaRow
         ? !friendsMetaRow.friends_public && friendsList !== null
         : false,
@@ -11809,6 +11969,12 @@ async function getPlayerCacheData(steamId) {
       coPresence: r.co_presence ?? null,
       altConfidence: r.alt_confidence ?? null,
       cachedAt: r.cached_at,
+    })),
+    sessionWindows: sessionWindows.rows.map((r) => ({
+      bmServerId: String(r.bm_server_id),
+      serverName: r.server_name ?? null,
+      startedAt: r.started_at,
+      stoppedAt: r.stopped_at ?? null,
     })),
     isStale: Boolean(p.is_stale),
     cacheExpiresAt: p.cache_expires_at,
@@ -12396,7 +12562,7 @@ async function handleIngestPlayerConnect(request) {
           ? "stale(>1h)"
           : "fresh";
   console.log(
-    `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh}(${refreshReason}) ip=${ip ?? "-"}`,
+    `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh}(${refreshReason})`,
   );
 
   return json({ ok: true });
@@ -12407,6 +12573,13 @@ async function handleIngestPlayerConnect(request) {
 function isValidSteamId(steamId) {
   return /^765611\d{11}$/.test(String(steamId));
 }
+
+// Per-user caps for the player endpoints. Generous enough for normal staff
+// browsing (50 concurrent users), tight enough to blunt scripted abuse.
+const PLAYER_VIEW_RATE_LIMIT_PER_MINUTE = 120;
+const PLAYER_REFRESH_RATE_LIMIT_PER_MINUTE = 20;
+const PLAYER_NOTE_WRITE_RATE_LIMIT_PER_MINUTE = 30;
+const PUBLIC_READ_RATE_LIMIT_PER_MINUTE = 60;
 
 async function handleGetPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
@@ -12420,6 +12593,15 @@ async function handleGetPlayer(request, steamId) {
 
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  // Every view writes an audit row; cap per-user so the endpoint can't be used
+  // to flood the audit log or the read pool.
+  const rl = await checkRateLimit(
+    `rl:player-view:${session.userId}`,
+    PLAYER_VIEW_RATE_LIMIT_PER_MINUTE,
+    60,
+  );
+  if (rl) return rl;
 
   auditLog({
     orgId,
@@ -12479,6 +12661,16 @@ async function handleRefreshPlayer(request, steamId) {
 
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  // Force-refresh triggers external BattleMetrics/Steam/Proxycheck calls against
+  // the org's rotating keys. Cap per-user to prevent cost amplification / hammering
+  // those upstream APIs (and our own pool) by spamming distinct Steam IDs.
+  const rl = await checkRateLimit(
+    `rl:player-refresh:${session.userId}`,
+    PLAYER_REFRESH_RATE_LIMIT_PER_MINUTE,
+    60,
+  );
+  if (rl) return rl;
 
   const canSeeIp = orgHasPermission(session, orgId, "ip_read");
 
@@ -12603,6 +12795,218 @@ async function handleGetPlayerReports(request, steamId) {
   }));
 
   return json({ reports });
+}
+
+// ── Player notes ──────────────────────────────────────────────────────────────
+
+const PLAYER_NOTE_MAX_LEN = 4000;
+
+function serializePlayerNote(row) {
+  return {
+    id: String(row.id),
+    subjectId: String(row.subject_steam_id),
+    body: String(row.body),
+    authorId: row.author_user_id ?? null,
+    authorName: row.author_name ?? null,
+    minRank: Number(row.min_rank),
+    pinned: Boolean(row.pinned),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+async function handleListPlayerNotes(request, orgId, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  // Server-side min_rank filter mirrors the previous client logic: only return
+  // notes the caller's rank in this org is allowed to see.
+  const rank = sessionRankForOrg(session, orgId);
+  const { rows } = await pool.query(
+    `SELECT id, subject_steam_id, body, author_user_id, author_name,
+            min_rank, pinned, created_at, updated_at
+     FROM player_notes
+     WHERE org_id = $1 AND subject_steam_id = $2 AND min_rank <= $3
+     ORDER BY pinned DESC, created_at DESC`,
+    [orgId, steamId, rank],
+  );
+
+  return json({ notes: rows.map(serializePlayerNote) });
+}
+
+async function handleCreatePlayerNote(request, orgId, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const rl = await checkRateLimit(
+    `rl:player-note:${session.userId}`,
+    PLAYER_NOTE_WRITE_RATE_LIMIT_PER_MINUTE,
+    60,
+  );
+  if (rl) return rl;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const text = String(body?.body ?? "").trim();
+  if (!text) return json({ error: "body is required" }, 400);
+  if (text.length > PLAYER_NOTE_MAX_LEN)
+    return json(
+      { error: `body must be ${PLAYER_NOTE_MAX_LEN} characters or fewer` },
+      400,
+    );
+
+  const minRank = Number(body?.minRank ?? 1);
+  if (!Number.isInteger(minRank) || minRank < 1 || minRank > 4)
+    return json({ error: "minRank must be 1–4" }, 400);
+  // Can't create a note above your own rank (you'd lock yourself out).
+  if (minRank > sessionRankForOrg(session, orgId))
+    return json({ error: "Forbidden: minRank exceeds your rank" }, 403);
+
+  const { rows } = await pool.query(
+    `INSERT INTO player_notes
+       (org_id, subject_steam_id, body, author_user_id, author_name, min_rank, pinned)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, subject_steam_id, body, author_user_id, author_name,
+               min_rank, pinned, created_at, updated_at`,
+    [
+      orgId,
+      steamId,
+      text,
+      session.userId,
+      session.username ?? null,
+      minRank,
+      Boolean(body?.pinned),
+    ],
+  );
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "player_note",
+    resourceId: steamId,
+    actionType: "PLAYER_NOTE_CREATED",
+    actionCategory: "player_management",
+    severity: 1,
+    metadata: { noteId: String(rows[0].id) },
+    ipAddress: getClientIp(request),
+  });
+
+  return json({ note: serializePlayerNote(rows[0]) }, 201);
+}
+
+async function handleUpdatePlayerNote(request, orgId, steamId, noteId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const existing = await pool.query(
+    `SELECT author_user_id FROM player_notes
+     WHERE id = $1 AND org_id = $2 AND subject_steam_id = $3`,
+    [noteId, orgId, steamId],
+  );
+  if (!existing.rows[0]) return json({ error: "Note not found" }, 404);
+
+  // Author or management (rank ≥ 4) may edit/pin — matches the prior client rule.
+  const isAuthor = existing.rows[0].author_user_id === session.userId;
+  if (!isAuthor && sessionRankForOrg(session, orgId) < 4)
+    return json({ error: "Forbidden: not your note" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const setClauses = [];
+  const params = [];
+  if (body?.body !== undefined) {
+    const text = String(body.body).trim();
+    if (!text) return json({ error: "body is required" }, 400);
+    if (text.length > PLAYER_NOTE_MAX_LEN)
+      return json(
+        { error: `body must be ${PLAYER_NOTE_MAX_LEN} characters or fewer` },
+        400,
+      );
+    params.push(text);
+    setClauses.push(`body = $${params.length}`);
+  }
+  if (body?.pinned !== undefined) {
+    params.push(Boolean(body.pinned));
+    setClauses.push(`pinned = $${params.length}`);
+  }
+  if (body?.minRank !== undefined) {
+    const minRank = Number(body.minRank);
+    if (!Number.isInteger(minRank) || minRank < 1 || minRank > 4)
+      return json({ error: "minRank must be 1–4" }, 400);
+    if (minRank > sessionRankForOrg(session, orgId))
+      return json({ error: "Forbidden: minRank exceeds your rank" }, 403);
+    params.push(minRank);
+    setClauses.push(`min_rank = $${params.length}`);
+  }
+
+  if (setClauses.length === 0)
+    return json({ error: "No fields to update" }, 400);
+  setClauses.push(`updated_at = unix_now()`);
+
+  params.push(noteId);
+  const { rows } = await pool.query(
+    `UPDATE player_notes SET ${setClauses.join(", ")}
+     WHERE id = $${params.length}
+     RETURNING id, subject_steam_id, body, author_user_id, author_name,
+               min_rank, pinned, created_at, updated_at`,
+    params,
+  );
+
+  return json({ note: serializePlayerNote(rows[0]) });
+}
+
+async function handleDeletePlayerNote(request, orgId, steamId, noteId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const existing = await pool.query(
+    `SELECT author_user_id FROM player_notes
+     WHERE id = $1 AND org_id = $2 AND subject_steam_id = $3`,
+    [noteId, orgId, steamId],
+  );
+  if (!existing.rows[0]) return json({ error: "Note not found" }, 404);
+
+  const isAuthor = existing.rows[0].author_user_id === session.userId;
+  if (!isAuthor && sessionRankForOrg(session, orgId) < 4)
+    return json({ error: "Forbidden: not your note" }, 403);
+
+  await pool.query(`DELETE FROM player_notes WHERE id = $1`, [noteId]);
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "player_note",
+    resourceId: steamId,
+    actionType: "PLAYER_NOTE_DELETED",
+    actionCategory: "player_management",
+    severity: 1,
+    metadata: { noteId: String(noteId) },
+    ipAddress: getClientIp(request),
+  });
+
+  return json({ ok: true });
 }
 
 // ── Org player search (ticket submission) ────────────────────────────────────
@@ -13663,6 +14067,41 @@ async function _handleApiRequest(request) {
     if (playerReportsMatch && request.method === "GET")
       return handleGetPlayerReports(request, playerReportsMatch[1]);
 
+    // Player notes (org-scoped, rank-gated)
+    const playerNotesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/(\d+)\/notes$/,
+    );
+    if (playerNotesMatch && request.method === "GET")
+      return handleListPlayerNotes(
+        request,
+        playerNotesMatch[1],
+        playerNotesMatch[2],
+      );
+    if (playerNotesMatch && request.method === "POST")
+      return handleCreatePlayerNote(
+        request,
+        playerNotesMatch[1],
+        playerNotesMatch[2],
+      );
+
+    const playerNoteDetailMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/(\d+)\/notes\/(\d+)$/,
+    );
+    if (playerNoteDetailMatch && request.method === "PATCH")
+      return handleUpdatePlayerNote(
+        request,
+        playerNoteDetailMatch[1],
+        playerNoteDetailMatch[2],
+        playerNoteDetailMatch[3],
+      );
+    if (playerNoteDetailMatch && request.method === "DELETE")
+      return handleDeletePlayerNote(
+        request,
+        playerNoteDetailMatch[1],
+        playerNoteDetailMatch[2],
+        playerNoteDetailMatch[3],
+      );
+
     return json({ error: "Not found" }, 404);
   });
 }
@@ -14262,13 +14701,7 @@ async function handleDiscordModAction(request, orgId) {
     }
   );
 
-  console.log("UNBAN STATUS:", discordRes.status);
-
-  try {
-    console.log("UNBAN BODY:", await discordRes.clone().text());
-  } catch (e) {
-    console.log("UNBAN BODY ERROR:", e);
-  }
+  console.log("[discord] unban HTTP status:", discordRes.status);
 
   break;
 }

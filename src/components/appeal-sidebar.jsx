@@ -506,7 +506,10 @@ function AppealSidebar({ ticket, team }) {
           />
         )}
 
-        <PinnedPlayerNotesSection subjectId={appellant.steamId} />
+        <PinnedPlayerNotesSection
+          subjectId={appellant.steamId}
+          orgId={ticket.orgId}
+        />
       </div>
     </aside>
   );

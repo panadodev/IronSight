@@ -24,6 +24,8 @@ import { Button } from "@/components/ui/button";
 import { PlayerNotesSection } from "@/components/player-notes";
 import { ExternalBansSection } from "@/components/external-bans";
 import { LinkedAccountsSection } from "@/components/linked-accounts";
+import { PlayerFriendsSection } from "@/components/player-friends";
+import { SessionTimeline } from "@/components/session-timeline";
 
 const LENGTH_MINUTES = {
   "1h": 60,
@@ -438,6 +440,20 @@ function PlayerLookupPage() {
 
   const country = playerData?.ipHistory?.[0]?.country ?? null;
 
+  // Steam VAC / game bans (GetPlayerBans). vacBanned is null until first fetched.
+  const vacSummary = (() => {
+    const s = playerData?.steam;
+    if (!s || s.vacBanned == null) return { value: "—", tone: undefined };
+    const vac = s.vacCount ?? 0;
+    const game = s.gameBanCount ?? 0;
+    const total = vac + game;
+    if (total === 0) return { value: "Clean", tone: "success" };
+    const parts = [];
+    if (vac > 0) parts.push(`${vac} VAC`);
+    if (game > 0) parts.push(`${game} game`);
+    return { value: parts.join(" · "), tone: "danger" };
+  })();
+
   const lastSeen = (() => {
     const s = playerData?.bmSessions?.[0];
     if (!s?.lastSeen) return null;
@@ -466,6 +482,63 @@ function PlayerLookupPage() {
   const visibleOffenseRows = isSupportOnly
     ? offenseRows.filter((o) => o.type === "Mute")
     : offenseRows;
+
+  // Consolidated risk flags shown as a banner under the profile header. Built
+  // entirely from data already on playerData / offenses — no extra fetches.
+  const alerts = (() => {
+    if (!playerData) return [];
+    const out = [];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const s = playerData.steam;
+    const bm = playerData.bm;
+
+    if (s?.vacBanned && (s.vacCount ?? 0) > 0)
+      out.push({ key: "vac", label: `VAC Banned (${s.vacCount})`, tone: "danger" });
+    if ((s?.gameBanCount ?? 0) > 0)
+      out.push({ key: "game", label: `Game Banned (${s.gameBanCount})`, tone: "danger" });
+    if (s?.communityBanned)
+      out.push({ key: "community", label: "Community Banned", tone: "warning" });
+    if (s?.economyBan && s.economyBan !== "none")
+      out.push({ key: "economy", label: "Trade Banned", tone: "warning" });
+    if (bm?.rustBansBanned)
+      out.push({ key: "eac", label: "EAC Banned", tone: "danger" });
+    else if ((bm?.rustBansCount ?? 0) > 0)
+      out.push({
+        key: "priorbm",
+        label: `${bm.rustBansCount} Prior EAC Ban${bm.rustBansCount !== 1 ? "s" : ""}`,
+        tone: "warning",
+      });
+    if (isProxy)
+      out.push({ key: "vpn", label: "VPN / Proxy", tone: "warning" });
+    if (s?.profileCreatedAt && nowSec - s.profileCreatedAt < 30 * 86400)
+      out.push({ key: "young", label: "New Steam Account", tone: "warning" });
+
+    const reportSum =
+      (bm?.cheatingReports ?? 0) +
+      (bm?.teamingReports ?? 0) +
+      (bm?.otherReports ?? 0);
+    if (reportSum > 10)
+      out.push({ key: "reports", label: `${reportSum} BM Reports`, tone: "warning" });
+
+    const hasActiveBan = offenses.some(
+      (o) =>
+        o.actionType === "ban" &&
+        !o.revoked &&
+        (!o.expiresAt || o.expiresAt > nowSec),
+    );
+    const hasActiveMute = offenses.some(
+      (o) =>
+        o.actionType === "mute" &&
+        !o.revoked &&
+        (!o.expiresAt || o.expiresAt > nowSec),
+    );
+    if (hasActiveBan)
+      out.push({ key: "orgban", label: "Active Ban", tone: "danger" });
+    if (hasActiveMute)
+      out.push({ key: "orgmute", label: "Active Mute", tone: "warning" });
+
+    return out;
+  })();
 
   const loaded = !playerLoading && playerData;
 
@@ -686,6 +759,11 @@ function PlayerLookupPage() {
                           }
                         />
                         <Field label="K.D" value={kd ?? "—"} />
+                        <Field
+                          label="VAC / Game"
+                          value={vacSummary.value}
+                          tone={vacSummary.tone}
+                        />
                         {playerData.bm && (
                           <Field
                             label="BM Reports"
@@ -717,6 +795,9 @@ function PlayerLookupPage() {
                     )}
                   </div>
                 </section>
+
+                {/* Risk alerts */}
+                {!isSupportOnly && <PlayerAlertsBanner alerts={alerts} />}
 
                 {/* Notes */}
                 <PlayerNotesSection
@@ -771,6 +852,11 @@ function PlayerLookupPage() {
                   />
                 )}
 
+                {/* Steam Friends */}
+                {!isSupportOnly && (
+                  <PlayerFriendsSection friends={playerData.friends} />
+                )}
+
                 {/* Server History */}
                 {!isSupportOnly && (
                   <ServerHistorySection
@@ -782,6 +868,11 @@ function PlayerLookupPage() {
                     }
                     bmSessions={playerData.bmSessions}
                   />
+                )}
+
+                {/* Session Timeline */}
+                {!isSupportOnly && (
+                  <SessionTimeline sessionWindows={playerData.sessionWindows} />
                 )}
 
               </div>
@@ -834,6 +925,27 @@ function PlayerLookupPage() {
         )}
       </div>
     </SteamRequiredGate>
+  );
+}
+
+const ALERT_TONE = {
+  danger: "text-danger bg-danger/10 ring-danger/40",
+  warning: "text-warning bg-warning/10 ring-warning/40",
+};
+
+function PlayerAlertsBanner({ alerts }) {
+  if (!alerts?.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {alerts.map((a) => (
+        <span
+          key={a.key}
+          className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-1 rounded ring-1 ${ALERT_TONE[a.tone] ?? ALERT_TONE.warning}`}
+        >
+          {a.label}
+        </span>
+      ))}
+    </div>
   );
 }
 

@@ -11,7 +11,15 @@ import {
 } from "@/components/ui/select";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
-import { ExternalLink, KeyRound, Trash2 } from "lucide-react";
+import {
+  Coins,
+  ExternalLink,
+  Globe,
+  KeyRound,
+  Radar,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   Line,
@@ -715,234 +723,267 @@ function RipeAtlasSection({ orgId }) {
   const estimatedDailyCredits = countries.length * probesPerCountry * 3 * cyclesPerDay;
 
   return (
-    <div className="space-y-4 border-t border-border pt-6">
-      <div>
-        <h2 className="text-sm font-semibold">RIPE Atlas Network Monitoring</h2>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          Ping your game servers from probes in major countries via the RIPE
-          Atlas network. Requires a RIPE Atlas account with measurement credits.
-        </p>
-      </div>
-
-      {error && (
-        <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-          {error}
+    <div className="border-t border-border pt-6">
+      <div className="rounded-xl ring-1 ring-border bg-surface/40 overflow-hidden max-w-2xl">
+        {/* Card header */}
+        <div className="flex items-start gap-3 p-5 border-b border-border bg-surface/60">
+          <div className="grid size-10 place-items-center rounded-lg ring-1 ring-border bg-background shrink-0">
+            <Radar className="size-5 text-brand" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold leading-tight">
+              RIPE Atlas Network Monitoring
+            </h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Ping your game servers from probes in major countries via the RIPE
+              Atlas network. Requires a RIPE Atlas account with measurement
+              credits.
+            </p>
+          </div>
         </div>
-      )}
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : (
-        <form onSubmit={handleSave} className="space-y-4 max-w-xl">
-          {/* Credit balance — shown when already configured */}
-          {config && (
-            <div className="rounded-lg ring-1 ring-border bg-surface/40 p-3 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs font-medium">Credit balance</p>
-                {credits ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    {credits.currentBalance?.toLocaleString() ?? "—"} credits
-                    {credits.estimatedDailyIncome != null &&
-                      ` · +${credits.estimatedDailyIncome.toLocaleString()}/day earned`}
-                    {credits.maxDailyIncome != null &&
-                      ` (cap ${credits.maxDailyIncome.toLocaleString()}/day)`}
+        {error && (
+          <div className="mx-5 mt-4 rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <p className="p-5 text-sm text-muted-foreground">Loading…</p>
+        ) : (
+          <form onSubmit={handleSave} className="divide-y divide-border">
+            {/* Credit balance — shown when already configured */}
+            {config && (
+              <div className="flex items-center justify-between gap-4 p-5">
+                <div className="flex items-center gap-3">
+                  <Coins className="size-5 text-muted-foreground shrink-0" />
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-semibold">Credit balance</p>
+                    {credits ? (
+                      <p className="text-sm text-muted-foreground">
+                        {credits.currentBalance?.toLocaleString() ?? "—"} credits
+                        {credits.estimatedDailyIncome != null &&
+                          ` · +${credits.estimatedDailyIncome.toLocaleString()}/day earned`}
+                        {credits.maxDailyIncome != null &&
+                          ` (cap ${credits.maxDailyIncome.toLocaleString()}/day)`}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Could not fetch credits — check your API key.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Est. usage
                   </p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">
-                    Could not fetch credits — check your API key.
+                  <p className="text-sm font-mono font-medium">
+                    ~{estimatedDailyCredits.toLocaleString()}/day
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* API key input */}
+            <div className="p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="size-4 text-muted-foreground" />
+                <p className="text-sm font-semibold">API key</p>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="ripe-api-key" className="text-sm">
+                    RIPE Atlas API key{" "}
+                    {config && (
+                      <span className="text-muted-foreground font-normal">
+                        (leave blank to keep existing)
+                      </span>
+                    )}
+                  </Label>
+                  <a
+                    href="https://atlas.ripe.net/keys/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    New token
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                </div>
+                <Input
+                  id="ripe-api-key"
+                  type="password"
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  required={!config}
+                />
+                {config?.keyPrefix && (
+                  <p className="text-xs text-muted-foreground font-mono">
+                    Current key:{" "}
+                    <span className="text-foreground">{config.keyPrefix}…</span>
                   </p>
                 )}
-              </div>
-              <div className="text-right shrink-0">
-                <p className="text-[10px] text-muted-foreground">Est. usage</p>
-                <p className="text-[11px] font-mono">
-                  ~{estimatedDailyCredits.toLocaleString()}/day
-                </p>
+                <div className="rounded-md ring-1 ring-border bg-background/60 p-3 space-y-2">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    This is a{" "}
+                    <span className="font-semibold text-foreground">
+                      RIPE Atlas API key
+                    </span>{" "}
+                    — not a RIPE NCC Maintainer, My Resources, or IP Analyser
+                    key. Create it at{" "}
+                    <span className="font-mono text-foreground">
+                      atlas.ripe.net
+                    </span>{" "}
+                    → your account → API Keys → Create a new key.
+                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-foreground">
+                      Required permissions
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-medium text-foreground/80">
+                        credits:
+                      </span>{" "}
+                      Get information about your credits
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-medium text-foreground/80">
+                        measurements:
+                      </span>{" "}
+                      Schedule a new measurement · List your measurements · Get
+                      results from a non-public measurement · Stop a running
+                      measurement
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
 
-          {/* API key input */}
-          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
-            <p className="text-sm font-medium">API Key</p>
-            <div className="space-y-1">
+            {/* Country selection */}
+            <div className="p-5 space-y-3">
               <div className="flex items-center gap-2">
-                <Label htmlFor="ripe-api-key">
-                  RIPE Atlas API key{" "}
-                  {config && (
-                    <span className="text-muted-foreground font-normal">
-                      (leave blank to keep existing)
-                    </span>
-                  )}
-                </Label>
-                <a
-                  href="https://atlas.ripe.net/keys/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  New token
-                  <ExternalLink className="size-2.5" />
-                </a>
+                <Globe className="size-4 text-muted-foreground" />
+                <p className="text-sm font-semibold">Probe countries</p>
               </div>
-              <Input
-                id="ripe-api-key"
-                type="password"
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                required={!config}
-              />
-              {config?.keyPrefix && (
-                <p className="text-[10px] text-muted-foreground font-mono">
-                  Current key:{" "}
-                  <span className="text-foreground">{config.keyPrefix}…</span>
-                </p>
-              )}
-              <div className="space-y-1 pt-0.5">
-                <p className="text-[10px] text-muted-foreground">
-                  This is a{" "}
-                  <span className="font-semibold text-foreground">
-                    RIPE Atlas API key
-                  </span>{" "}
-                  — not a RIPE NCC Maintainer, My Resources, or IP Analyser
-                  key. Create it at{" "}
-                  <span className="font-mono">atlas.ripe.net</span> → your
-                  account → API Keys → Create a new key.
-                </p>
-                <p className="text-[10px] font-medium text-muted-foreground">
-                  Required permissions:
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  <span className="text-foreground/60 font-medium">
-                    credits:
-                  </span>{" "}
-                  Get information about your credits
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  <span className="text-foreground/60 font-medium">
-                    measurements:
-                  </span>{" "}
-                  Schedule a new measurement · List your measurements · Get
-                  results from a non-public measurement · Stop a running
-                  measurement
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Country selection */}
-          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-medium">Probe countries</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-sm text-muted-foreground">
                 Servers are pinged from each selected country each check cycle.
                 Fewer countries = lower credit usage.
               </p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {RIPE_ATLAS_COUNTRIES.map((c) => {
-                const active = countries.includes(c.code);
-                return (
-                  <button
-                    key={c.code}
-                    type="button"
-                    onClick={() => toggleCountry(c.code)}
-                    className={`text-[11px] px-2 py-1 rounded-md ring-1 transition-colors ${
-                      active
-                        ? "ring-brand/60 bg-brand/15 text-brand font-medium"
-                        : "ring-border bg-transparent text-muted-foreground hover:text-foreground hover:ring-border/80"
-                    }`}
-                  >
-                    {c.code} · {c.name}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              {countries.length} countr{countries.length === 1 ? "y" : "ies"}{" "}
-              selected
-            </p>
-          </div>
-
-          {/* Probes per country */}
-          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2">
-            <div className="space-y-1">
-              <Label htmlFor="probes-per-country">Probes per country</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="probes-per-country"
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={probesPerCountry}
-                  onChange={(e) => setProbesPerCountry(Number(e.target.value))}
-                  className="w-20"
-                />
-                <span className="text-[11px] text-muted-foreground">
-                  probe{probesPerCountry === 1 ? "" : "s"} per country per cycle
-                </span>
+              <div className="flex flex-wrap gap-2">
+                {RIPE_ATLAS_COUNTRIES.map((c) => {
+                  const active = countries.includes(c.code);
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => toggleCountry(c.code)}
+                      className={`text-xs px-2.5 py-1.5 rounded-md ring-1 transition-colors ${
+                        active
+                          ? "ring-brand/60 bg-brand/15 text-brand font-medium"
+                          : "ring-border bg-transparent text-muted-foreground hover:text-foreground hover:ring-border/80"
+                      }`}
+                    >
+                      {c.code} · {c.name}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                Estimated credit usage: ~{estimatedDailyCredits.toLocaleString()}{" "}
-                credits/day (3 packets × {probesPerCountry} probe
-                {probesPerCountry === 1 ? "" : "s"} × {countries.length} countr
-                {countries.length === 1 ? "y" : "ies"} × {cyclesPerDay} cycles).
+              <p className="text-xs text-muted-foreground">
+                {countries.length} countr{countries.length === 1 ? "y" : "ies"}{" "}
+                selected
               </p>
             </div>
-          </div>
 
-          {/* Check interval */}
-          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2">
-            <div className="space-y-1">
-              <Label htmlFor="check-interval">Check interval</Label>
-              <select
-                id="check-interval"
-                value={checkIntervalMinutes}
-                onChange={(e) => setCheckIntervalMinutes(Number(e.target.value))}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground"
-              >
-                <option value={5}>Every 5 minutes</option>
-                <option value={10}>Every 10 minutes</option>
-                <option value={25}>Every 25 minutes</option>
-              </select>
-              <p className="text-[10px] text-muted-foreground">
-                How often IronSight triggers a new RIPE Atlas measurement cycle.
-                Longer intervals use fewer credits.
+            {/* Measurement settings */}
+            <div className="p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="size-4 text-muted-foreground" />
+                <p className="text-sm font-semibold">Measurement settings</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="probes-per-country" className="text-sm">
+                    Probes per country
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="probes-per-country"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={probesPerCountry}
+                      onChange={(e) =>
+                        setProbesPerCountry(Number(e.target.value))
+                      }
+                      className="w-24"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      per cycle
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="check-interval" className="text-sm">
+                    Check interval
+                  </Label>
+                  <select
+                    id="check-interval"
+                    value={checkIntervalMinutes}
+                    onChange={(e) =>
+                      setCheckIntervalMinutes(Number(e.target.value))
+                    }
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground"
+                  >
+                    <option value={5}>Every 5 minutes</option>
+                    <option value={10}>Every 10 minutes</option>
+                    <option value={25}>Every 25 minutes</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Estimated credit usage: ~
+                {estimatedDailyCredits.toLocaleString()} credits/day (3 packets ×{" "}
+                {probesPerCountry} probe{probesPerCountry === 1 ? "" : "s"} ×{" "}
+                {countries.length} countr{countries.length === 1 ? "y" : "ies"} ×{" "}
+                {cyclesPerDay} cycles). Longer intervals use fewer credits.
               </p>
             </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            <Button
-              type="submit"
-              disabled={
-                saving ||
-                removing ||
-                (!config && !apiKey.trim()) ||
-                countries.length === 0
-              }
-            >
-              {saving
-                ? "Saving…"
-                : config
-                  ? "Update config"
-                  : "Enable monitoring"}
-            </Button>
-            {config && (
+            {/* Actions */}
+            <div className="flex items-center gap-3 p-5 bg-surface/30">
               <Button
-                type="button"
-                variant="ghost"
-                className="text-danger hover:text-danger"
-                disabled={removing || saving}
-                onClick={handleRemove}
+                type="submit"
+                disabled={
+                  saving ||
+                  removing ||
+                  (!config && !apiKey.trim()) ||
+                  countries.length === 0
+                }
               >
-                {removing ? "Removing…" : "Disable & remove"}
+                {saving
+                  ? "Saving…"
+                  : config
+                    ? "Update config"
+                    : "Enable monitoring"}
               </Button>
-            )}
-          </div>
-        </form>
-      )}
+              {config && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-danger hover:text-danger"
+                  disabled={removing || saving}
+                  onClick={handleRemove}
+                >
+                  <Trash2 className="size-4" />
+                  {removing ? "Removing…" : "Disable & remove"}
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

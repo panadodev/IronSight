@@ -69,6 +69,7 @@ function PlayerListPage() {
   const [sortKey, setSortKey] = useState("susScore");
   const [sortDir, setSortDir] = useState("desc");
   const [query, setQuery] = useState("");
+  const [onlineOnly, setOnlineOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [copiedId, setCopiedId] = useState(null);
   const [cacheClearBusy, setCacheClearBusy] = useState(false);
@@ -138,6 +139,9 @@ function PlayerListPage() {
     let list = players.filter(
       (p) => !p.isOnline || effectiveServerIds.has(p.serverId),
     );
+    if (onlineOnly) {
+      list = list.filter((p) => p.isOnline);
+    }
     if (q) {
       list = list.filter(
         (p) => p.name.toLowerCase().includes(q) || p.steamId.includes(q),
@@ -157,11 +161,11 @@ function PlayerListPage() {
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return list;
-  }, [players, effectiveServerIds, query, sortKey, sortDir]);
+  }, [players, effectiveServerIds, query, onlineOnly, sortKey, sortDir]);
 
   useEffect(() => {
     setPage(1);
-  }, [serverIds, query, sortKey, sortDir, selectedOrgIds]);
+  }, [serverIds, query, onlineOnly, sortKey, sortDir, selectedOrgIds]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -332,6 +336,25 @@ function PlayerListPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 className="h-9 max-w-xs"
               />
+              <button
+                onClick={() => setOnlineOnly((v) => !v)}
+                aria-pressed={onlineOnly}
+                className={
+                  "flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 text-xs transition-colors " +
+                  (onlineOnly
+                    ? "ring-success/40 bg-success/10 text-success"
+                    : "ring-border bg-surface/40 hover:bg-surface text-muted-foreground")
+                }
+                title="Show only players currently online"
+              >
+                <span
+                  className={
+                    "size-1.5 rounded-full " +
+                    (onlineOnly ? "bg-success" : "bg-muted-foreground/50")
+                  }
+                />
+                Online only
+              </button>
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
                 Sorted by {SORT_LABEL[sortKey]} {sortDir === "desc" ? "↓" : "↑"}{" "}
                 \xB7 click a column to change
