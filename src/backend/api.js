@@ -9765,12 +9765,14 @@ async function ripeAtlasCreateMeasurement(apiKey, targetIp, country, probesPerCo
     probes: [{ type: "country", value: country, requested: probesPerCountry }],
     is_oneoff: true,
   };
+  console.log("[ripe-atlas] creating measurement:", JSON.stringify(body));
   const res = await ripeAtlasFetch(apiKey, "/measurements/", {
     method: "POST",
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    console.error("[ripe-atlas] create measurement error body:", JSON.stringify(err));
     const detail = err?.error?.detail ?? err?.detail ?? `HTTP ${res.status}`;
     throw new Error(detail);
   }

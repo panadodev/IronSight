@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
-import { KeyRound, Trash2 } from "lucide-react";
+import { ExternalLink, KeyRound, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   Line,
@@ -58,6 +58,12 @@ const SERVICE_LABELS = {
   proxycheck: "Proxycheck.io",
 };
 
+const SERVICE_LINKS = {
+  battlemetrics: "https://www.battlemetrics.com/developers/token",
+  steam: "https://steamcommunity.com/dev/apikey",
+  proxycheck: "https://proxycheck.io/dashboard/",
+};
+
 const SERVICE_HINTS = {
   battlemetrics:
     "Used to look up players, issue bans, and sync ban history via the BattleMetrics API.",
@@ -65,6 +71,24 @@ const SERVICE_HINTS = {
     "Used to fetch Steam profile data, friends lists, and game hours during player lookup.",
   proxycheck:
     "Used to flag VPN / proxy connections on new player joins and during lookups.",
+};
+
+const SERVICE_PERMISSIONS = {
+  battlemetrics: [
+    {
+      group: "Bans",
+      items: [
+        "View, search, and list bans",
+        "Add new bans",
+        "Edit existing bans",
+        "Allow exporting bans",
+      ],
+    },
+    { group: "RCON", items: ["View RCON information"] },
+    { group: "Organizations", items: ["View organization information"] },
+  ],
+  steam: null,
+  proxycheck: null,
 };
 
 const STEAM_DAILY_LIMIT = 100_000;
@@ -368,10 +392,36 @@ function ApiKeysSection({ orgId }) {
               className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2 max-w-xl"
             >
               <div>
-                <p className="text-sm font-medium">{SERVICE_LABELS[svc]}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">{SERVICE_LABELS[svc]}</p>
+                  <a
+                    href={SERVICE_LINKS[svc]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    New token
+                    <ExternalLink className="size-2.5" />
+                  </a>
+                </div>
                 <p className="text-[11px] text-muted-foreground">
                   {SERVICE_HINTS[svc]}
                 </p>
+                {SERVICE_PERMISSIONS[svc] && (
+                  <div className="mt-1.5 space-y-0.5">
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      Required permissions:
+                    </p>
+                    {SERVICE_PERMISSIONS[svc].map(({ group, items }) => (
+                      <p key={group} className="text-[10px] text-muted-foreground">
+                        <span className="text-foreground/60 font-medium">
+                          {group}:
+                        </span>{" "}
+                        {items.join(" · ")}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {keysByService[svc].length === 0 ? (
@@ -455,7 +505,18 @@ function ApiKeysSection({ orgId }) {
         )}
 
         <div className="space-y-1">
-          <Label htmlFor="add-service">Service</Label>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="add-service">Service</Label>
+            <a
+              href={SERVICE_LINKS[addService]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              New token
+              <ExternalLink className="size-2.5" />
+            </a>
+          </div>
           <Select value={addService} onValueChange={setAddService}>
             <SelectTrigger id="add-service">
               <SelectValue />
@@ -478,6 +539,21 @@ function ApiKeysSection({ orgId }) {
             onChange={(e) => setAddKey(e.target.value)}
             required
           />
+          {SERVICE_PERMISSIONS[addService] && (
+            <div className="space-y-0.5 pt-0.5">
+              <p className="text-[10px] font-medium text-muted-foreground">
+                Required permissions:
+              </p>
+              {SERVICE_PERMISSIONS[addService].map(({ group, items }) => (
+                <p key={group} className="text-[10px] text-muted-foreground">
+                  <span className="text-foreground/60 font-medium">
+                    {group}:
+                  </span>{" "}
+                  {items.join(" · ")}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="space-y-1">
@@ -687,14 +763,25 @@ function RipeAtlasSection({ orgId }) {
           <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
             <p className="text-sm font-medium">API Key</p>
             <div className="space-y-1">
-              <Label htmlFor="ripe-api-key">
-                RIPE Atlas API key{" "}
-                {config && (
-                  <span className="text-muted-foreground font-normal">
-                    (leave blank to keep existing)
-                  </span>
-                )}
-              </Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="ripe-api-key">
+                  RIPE Atlas API key{" "}
+                  {config && (
+                    <span className="text-muted-foreground font-normal">
+                      (leave blank to keep existing)
+                    </span>
+                  )}
+                </Label>
+                <a
+                  href="https://atlas.ripe.net/keys/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  New token
+                  <ExternalLink className="size-2.5" />
+                </a>
+              </div>
               <Input
                 id="ripe-api-key"
                 type="password"
@@ -703,10 +790,35 @@ function RipeAtlasSection({ orgId }) {
                 onChange={(e) => setApiKey(e.target.value)}
                 required={!config}
               />
-              <p className="text-[10px] text-muted-foreground">
-                Create a key at atlas.ripe.net → API Keys. Enable the
-                "Create user-defined measurements" permission.
-              </p>
+              <div className="space-y-1 pt-0.5">
+                <p className="text-[10px] text-muted-foreground">
+                  This is a{" "}
+                  <span className="font-semibold text-foreground">
+                    RIPE Atlas API key
+                  </span>{" "}
+                  — not a RIPE NCC Maintainer, My Resources, or IP Analyser
+                  key. Create it at{" "}
+                  <span className="font-mono">atlas.ripe.net</span> → your
+                  account → API Keys → Create a new key.
+                </p>
+                <p className="text-[10px] font-medium text-muted-foreground">
+                  Required permissions:
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  <span className="text-foreground/60 font-medium">
+                    credits:
+                  </span>{" "}
+                  Get information about your credits
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  <span className="text-foreground/60 font-medium">
+                    measurements:
+                  </span>{" "}
+                  Schedule a new measurement · List your measurements · Get
+                  results from a non-public measurement · Stop a running
+                  measurement
+                </p>
+              </div>
             </div>
           </div>
 
