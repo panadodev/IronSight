@@ -184,12 +184,21 @@ function DiscordModPage() {
   const [banSyncing, setBanSyncing] = useState(false);
   const [banSyncResult, setBanSyncResult] = useState(null);
   const [banFilter, setBanFilter] = useState("");
+  const [bansDisplayCount, setBansDisplayCount] = useState(50);
   const [unbanBusy, setUnbanBusy] = useState({});
   const [unbanError, setUnbanError] = useState(null);
+  const bansSentinelRef = useRef(null);
+  const bansScrollRef = useRef(null);
 
   // ── Mod Log tab ───────────────────────────────────────────────────────────
   const [modLog, setModLog] = useState([]);
   const [loadingModLog, setLoadingModLog] = useState(false);
+  const [modLogOffset, setModLogOffset] = useState(0);
+  const [modLogHasMore, setModLogHasMore] = useState(false);
+  const [loadingMoreModLog, setLoadingMoreModLog] = useState(false);
+  const loadingMoreModLogRef = useRef(false);
+  const modLogSentinelRef = useRef(null);
+  const modLogScrollRef = useRef(null);
 
   // ── Shared action dialog ──────────────────────────────────────────────────
   const [actionTarget, setActionTarget] = useState(null);
@@ -222,13 +231,13 @@ function DiscordModPage() {
     if (!orgId || !selectedChannel) return;
     setLoadingMessages(true);
     try {
-      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=30`;
+      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=50`;
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
       const msgs = data.messages ?? [];
       setMessages(msgs);
-      setHasMore(msgs.length === 30);
+      setHasMore(msgs.length === 50);
     } finally {
       setLoadingMessages(false);
     }
@@ -241,13 +250,13 @@ function DiscordModPage() {
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=30&before=${encodeURIComponent(oldest)}`;
+      const url = `/api/orgs/${encodeURIComponent(orgId)}/discord/messages?channel_id=${encodeURIComponent(selectedChannel)}&limit=50&before=${encodeURIComponent(oldest)}`;
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
       const more = data.messages ?? [];
       setMessages((prev) => [...prev, ...more]);
-      setHasMore(more.length === 30);
+      setHasMore(more.length === 50);
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
@@ -275,18 +284,43 @@ function DiscordModPage() {
   const fetchModLog = useCallback(async () => {
     if (!orgId) return;
     setLoadingModLog(true);
+    setModLogOffset(0);
     try {
       const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/discord/mod-log?limit=100`,
+        `/api/orgs/${encodeURIComponent(orgId)}/discord/mod-log?limit=50&offset=0`,
         { credentials: "include" },
       );
       if (!res.ok) return;
       const data = await res.json();
-      setModLog(data.entries ?? []);
+      const entries = data.entries ?? [];
+      setModLog(entries);
+      setModLogHasMore(entries.length === 50);
+      setModLogOffset(entries.length);
     } finally {
       setLoadingModLog(false);
     }
   }, [orgId]);
+
+  const loadMoreModLog = useCallback(async () => {
+    if (!orgId || loadingMoreModLogRef.current || !modLogHasMore) return;
+    loadingMoreModLogRef.current = true;
+    setLoadingMoreModLog(true);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/discord/mod-log?limit=50&offset=${modLogOffset}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const entries = data.entries ?? [];
+      setModLog((prev) => [...prev, ...entries]);
+      setModLogHasMore(entries.length === 50);
+      setModLogOffset((prev) => prev + entries.length);
+    } finally {
+      loadingMoreModLogRef.current = false;
+      setLoadingMoreModLog(false);
+    }
+  }, [orgId, modLogOffset, modLogHasMore]);
 
   const fetchBans = useCallback(async () => {
     if (!orgId) return;
@@ -330,7 +364,10 @@ function DiscordModPage() {
       setHasMore(false);
       setMembers([]);
       setBans([]);
+      setBansDisplayCount(50);
       setModLog([]);
+      setModLogOffset(0);
+      setModLogHasMore(false);
       setSyncResult(null);
       setBanSyncResult(null);
       setUnbanError(null);
@@ -375,9 +412,40 @@ function DiscordModPage() {
 
   useEffect(() => {
     if (tab === "modlog") fetchModLog();
-    if (tab === "bans") fetchBans();
+    if (tab === "bans") { setBansDisplayCount(50); fetchBans(); }
     if (tab === "members") memberSearchRef.current?.focus();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Infinite scroll: bans (client-side, data already loaded)
+  useEffect(() => {
+    if (tab !== "bans") return;
+    const sentinel = bansSentinelRef.current;
+    const container = bansScrollRef.current;
+    if (!sentinel || !container) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setBansDisplayCount((prev) => prev + 50);
+        }
+      },
+      { root: container, threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [tab, bans.length, banFilter, bansDisplayCount]);
+
+  // Infinite scroll: mod log (server-side)
+  useEffect(() => {
+    const sentinel = modLogSentinelRef.current;
+    const container = modLogScrollRef.current;
+    if (!sentinel || !container || !modLogHasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMoreModLog(); },
+      { root: container, threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [modLogHasMore, loadMoreModLog]);
 
   // ── Action handlers ───────────────────────────────────────────────────────
   const handleSync = async () => {
@@ -518,6 +586,11 @@ function DiscordModPage() {
         b.reason?.toLowerCase().includes(q),
     );
   }, [bans, banFilter]);
+
+  // Reset display count when filter changes
+  useEffect(() => {
+    setBansDisplayCount(50);
+  }, [banFilter]);
 
   if (adminOrgs.length === 0) {
     return (
@@ -875,7 +948,7 @@ function DiscordModPage() {
                 </p>
               </div>
             ) : (
-              <div className="rounded-md ring-1 ring-border overflow-hidden overflow-y-auto">
+              <div ref={bansScrollRef} className="rounded-md ring-1 ring-border overflow-hidden overflow-y-auto flex-1">
                 <div className="grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border sticky top-0">
                   <span>User</span>
                   <span>Discord ID</span>
@@ -883,7 +956,7 @@ function DiscordModPage() {
                   <span>Source</span>
                   <span></span>
                 </div>
-                {filteredBans.map((b) => (
+                {filteredBans.slice(0, bansDisplayCount).map((b) => (
                   <div
                     key={b.discordUserId}
                     className="grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
@@ -927,6 +1000,11 @@ function DiscordModPage() {
                     </div>
                   </div>
                 ))}
+                <div ref={bansSentinelRef} className="py-3 flex items-center justify-center">
+                  {bansDisplayCount < filteredBans.length && (
+                    <span className="text-xs text-muted-foreground">Loading more…</span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -935,10 +1013,10 @@ function DiscordModPage() {
             )}
 
             {!bansLoading && bans.length > 0 && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground shrink-0">
                 {filteredBans.length !== bans.length
-                  ? `${filteredBans.length} of ${bans.length} bans shown`
-                  : `${bans.length} active ban${bans.length !== 1 ? "s" : ""}`}
+                  ? `${Math.min(bansDisplayCount, filteredBans.length)} of ${filteredBans.length} shown (${bans.length} total)`
+                  : `${Math.min(bansDisplayCount, bans.length)} of ${bans.length} ban${bans.length !== 1 ? "s" : ""} shown`}
                 {" · "}
                 Use "Sync from Discord" to import bans not made through this panel.
               </p>
@@ -948,7 +1026,7 @@ function DiscordModPage() {
 
         {/* ── Mod Log ── */}
         {tab === "modlog" && (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div ref={modLogScrollRef} className="flex-1 overflow-y-auto p-6">
             {loadingModLog ? (
               <div className="flex items-center justify-center h-32">
                 <span className="text-xs text-muted-foreground">Loading…</span>
@@ -1017,6 +1095,13 @@ function DiscordModPage() {
                     </div>
                   </div>
                 ))}
+                <div ref={modLogSentinelRef} className="py-3 flex items-center justify-center">
+                  {loadingMoreModLog ? (
+                    <span className="text-xs text-muted-foreground">Loading more…</span>
+                  ) : !modLogHasMore && modLog.length > 0 ? (
+                    <span className="text-[10px] text-muted-foreground/40">All entries loaded</span>
+                  ) : null}
+                </div>
               </div>
             )}
           </div>

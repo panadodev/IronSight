@@ -8386,7 +8386,13 @@ async function handleGetChatLogs(request) {
   const serverId = (url.searchParams.get("serverId") ?? "").trim();
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
-  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
+  const limit = parseLimit(url.searchParams.get("limit"), 100, 200);
+  // before: exclusive upper timestamp cursor (for loading older messages)
+  // after: exclusive lower timestamp cursor (for polling new messages)
+  const beforeParam = url.searchParams.get("before");
+  const afterParam = url.searchParams.get("after");
+  const before = beforeParam != null ? Math.floor(Number(beforeParam)) : null;
+  const after = afterParam != null ? Math.floor(Number(afterParam)) : null;
 
   if (!serverId) return json({ error: "serverId is required" }, 400);
 
@@ -8414,35 +8420,40 @@ async function handleGetChatLogs(request) {
     return json({ error: "start must not be after end" }, 400);
   }
 
+  const fetch_limit = limit + 1; // fetch one extra to determine hasMore
+
   const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
   const cacheKey = `chat:server:${serverId}`;
 
   // Serve from Redis cache if the entire window falls within the last 7 days
-  // Only trust the cache when it actually has entries — if empty, fall through to
-  // Postgres so a partially-repopulated cache (e.g. after a flush) doesn't hide data.
   if (startUnix >= sevenDaysAgoUnix) {
     try {
       const cacheExists = await redis.exists(cacheKey);
       if (cacheExists) {
-        const rawEntries = await redis.zrangebyscore(
-          cacheKey,
-          startUnix,
-          endUnix,
-          "LIMIT",
-          0,
-          limit,
-        );
+        let rawEntries;
+        if (after != null) {
+          // Poll for new messages: ascending from (after to endUnix
+          rawEntries = await redis.zrangebyscore(
+            cacheKey, `(${after}`, endUnix, "LIMIT", 0, fetch_limit,
+          );
+        } else {
+          // Initial load or "before" cursor: descending newest-first
+          const scoreMax = before != null ? `(${before}` : endUnix;
+          rawEntries = await redis.zrevrangebyscore(
+            cacheKey, scoreMax, startUnix, "LIMIT", 0, fetch_limit,
+          );
+        }
         if (rawEntries.length > 0) {
+          const hasMore = rawEntries.length > limit;
           const lines = rawEntries
+            .slice(0, limit)
             .map((raw) => {
-              try {
-                return JSON.parse(raw);
-              } catch {
-                return null;
-              }
+              try { return JSON.parse(raw); } catch { return null; }
             })
             .filter(Boolean);
-          return json({ lines });
+          // after-poll returns ASC; normalize to DESC for consistency
+          if (after != null) lines.reverse();
+          return json({ lines, hasMore });
         }
       }
     } catch {
@@ -8450,19 +8461,38 @@ async function handleGetChatLogs(request) {
     }
   }
 
+  // PostgreSQL fallback
+  const conditions = [
+    "server_id = $1",
+    "created_at >= $2",
+    "created_at <= $3",
+  ];
+  const params = [serverId, startUnix, endUnix];
+  let idx = 4;
+
+  if (before != null) {
+    conditions.push(`created_at < $${idx++}`);
+    params.push(before);
+  }
+  if (after != null) {
+    conditions.push(`created_at > $${idx++}`);
+    params.push(after);
+  }
+
+  const order = after != null ? "ASC" : "DESC";
+  params.push(fetch_limit);
+
   const { rows } = await pool.query(
-    `SELECT id, message, steam_id, player_name, team_message,
-            created_at AS ts
+    `SELECT id, message, steam_id, player_name, team_message, created_at AS ts
      FROM text_chat_log
-     WHERE server_id = $1
-       AND created_at >= $2
-       AND created_at <= $3
-     ORDER BY created_at ASC
-     LIMIT $4`,
-    [serverId, startUnix, endUnix, limit],
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY created_at ${order}
+     LIMIT $${idx}`,
+    params,
   );
 
-  const lines = rows.map((row) => ({
+  const hasMore = rows.length > limit;
+  let lines = rows.slice(0, limit).map((row) => ({
     id: String(row.id),
     message: String(row.message),
     steamId: String(row.steam_id),
@@ -8470,8 +8500,10 @@ async function handleGetChatLogs(request) {
     teamMessage: Boolean(row.team_message),
     ts: Number(row.ts),
   }));
+  // after-poll returns ASC; normalize to DESC for consistency
+  if (after != null) lines.reverse();
 
-  return json({ lines });
+  return json({ lines, hasMore });
 }
 
 const PVP_INGEST_RATE_LIMIT_PER_MINUTE = 120;

@@ -368,8 +368,15 @@ function RconTab({ servers, orgId }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ command }),
     });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        if (data?.error) errMsg = data.error;
+      } catch {}
+      throw new Error(errMsg);
+    }
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.error ?? "RCON error");
     return {
       response: String(data.response ?? ""),
       consoleLogs: Array.isArray(data.consoleLogs) ? data.consoleLogs : [],
@@ -655,13 +662,17 @@ function ScriptPickerButton({ scripts, onPick }) {
   );
 }
 function ScriptsTab({ servers, orgId }) {
-  const { rankOf } = useAuth();
+  const { rankOf, hasOrgPermission } = useAuth();
   const userRank = rankOf(orgId);
+  const canManage = hasOrgPermission(orgId, "scripts_manage");
+  const canRcon = hasOrgPermission(orgId, "rcon_access");
   const [scripts, setScripts] = useState([]);
   const [scriptsLoading, setScriptsLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [pendingRun, setPendingRun] = useState(null);
+  const [runResults, setRunResults] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -739,20 +750,54 @@ function ScriptsTab({ servers, orgId }) {
       .map((c) => c.trim())
       .filter(Boolean);
     setPendingRun(null);
-    for (const serverId of targets) {
+    const serverMap = Object.fromEntries(servers.map((s) => [s.id, s.name]));
+    const initialResults = targets.map((id) => ({
+      serverId: id,
+      serverName: serverMap[id] ?? id,
+      status: "pending",
+      outputs: [],
+    }));
+    setRunResults({ scriptName: script.name, results: initialResults });
+    for (let i = 0; i < targets.length; i++) {
+      const serverId = targets[i];
+      setRunResults((prev) => {
+        if (!prev) return prev;
+        const next = prev.results.map((r) =>
+          r.serverId === serverId ? { ...r, status: "running" } : r,
+        );
+        return { ...prev, results: next };
+      });
+      const outputs = [];
       for (const cmd of cmds) {
-        await fetch(`/api/servers/${serverId}/rcon/exec`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ command: cmd }),
-        }).catch(() => null);
+        try {
+          const res = await fetch(`/api/servers/${serverId}/rcon/exec`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ command: cmd }),
+          });
+          const data = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
+          outputs.push({ cmd, ok: !data.error, response: data.response ?? data.error ?? "" });
+        } catch {
+          outputs.push({ cmd, ok: false, response: "Network error" });
+        }
       }
+      const allOk = outputs.every((o) => o.ok);
+      setRunResults((prev) => {
+        if (!prev) return prev;
+        const next = prev.results.map((r) =>
+          r.serverId === serverId
+            ? { ...r, status: allOk ? "ok" : "error", outputs }
+            : r,
+        );
+        return { ...prev, results: next };
+      });
     }
   };
 
   const triggerRun = (script, targets, targetLabel) => {
     if (!targets.length) return;
+    if (!canRcon) return;
     if (userRank < script.minRank) return;
     const vars = extractVars(script.command);
     if (vars.length === 0) {
@@ -770,9 +815,11 @@ function ScriptsTab({ servers, orgId }) {
           prompted at run-time. Each script has a minimum rank required to
           execute.
         </p>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus className="size-3.5 mr-1" /> New script
-        </Button>
+        {canManage && (
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-3.5 mr-1" /> New script
+          </Button>
+        )}
       </div>
 
       {scriptsLoading && (
@@ -833,33 +880,40 @@ function ScriptsTab({ servers, orgId }) {
                     </p>
                   )}
                 </div>
-                <div className="flex gap-0.5">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7"
-                    onClick={() => setEditing(s)}
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7 text-destructive"
-                    onClick={() => deleteScript(s.id)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
+                {canManage && (
+                  <div className="flex gap-0.5">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      onClick={() => setEditing(s)}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 text-destructive"
+                      onClick={() => setConfirmDelete(s)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <pre className="text-[10px] font-mono text-brand bg-black/30 ring-1 ring-border rounded p-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
                 {s.command}
               </pre>
 
-              {!allowed && (
+              {canRcon && !allowed && (
                 <div className="text-[10px] font-mono text-destructive bg-destructive/5 ring-1 ring-destructive/30 rounded px-2 py-1">
                   Requires {rankLabel(s.minRank)} or higher to execute.
+                </div>
+              )}
+              {!canRcon && (
+                <div className="text-[10px] font-mono text-muted-foreground bg-muted/10 ring-1 ring-border rounded px-2 py-1">
+                  You don't have RCON access.
                 </div>
               )}
 
@@ -873,13 +927,13 @@ function ScriptsTab({ servers, orgId }) {
                       `all ${servers.length} servers`,
                     )
                   }
-                  disabled={!servers.length || !allowed}
+                  disabled={!servers.length || !allowed || !canRcon}
                 >
                   <Play className="size-3.5 mr-1" /> Run all
                 </Button>
                 <RunOnGroupButton
                   tags={allTags}
-                  disabled={!allowed}
+                  disabled={!allowed || !canRcon}
                   onPick={(tag) =>
                     triggerRun(
                       s,
@@ -892,7 +946,7 @@ function ScriptsTab({ servers, orgId }) {
                 />
                 <RunOnServerButton
                   servers={servers}
-                  disabled={!allowed}
+                  disabled={!allowed || !canRcon}
                   onPick={(srv) => triggerRun(s, [srv.id], srv.name)}
                 />
               </div>
@@ -906,6 +960,34 @@ function ScriptsTab({ servers, orgId }) {
         onClose={() => setPendingRun(null)}
         onRun={executeRun}
       />
+
+      <RunResultsDialog
+        results={runResults}
+        onClose={() => setRunResults(null)}
+      />
+
+      <Dialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete script?</DialogTitle>
+            <DialogDescription>
+              "{confirmDelete?.name}" will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                deleteScript(confirmDelete.id);
+                setConfirmDelete(null);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ScriptEditDialog
         open={creating || !!editing}
@@ -986,6 +1068,79 @@ function RunOnServerButton({ servers, onPick, disabled }) {
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+function RunResultsDialog({ results, onClose }) {
+  if (!results) return null;
+  const pending = results.results.some((r) => r.status === "pending" || r.status === "running");
+  const anyError = results.results.some((r) => r.status === "error");
+  return (
+    <Dialog open={!!results} onOpenChange={(o) => !o && !pending && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Terminal className="size-4" />
+            {results.scriptName}
+          </DialogTitle>
+          <DialogDescription>
+            Running on {results.results.length} server{results.results.length === 1 ? "" : "s"}
+            {pending ? " — in progress…" : anyError ? " — completed with errors" : " — completed"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto py-1">
+          {results.results.map((r) => (
+            <div key={r.serverId} className="ring-1 ring-border rounded-md bg-surface/40 p-2.5 space-y-1.5">
+              <div className="flex items-center gap-2">
+                {r.status === "pending" && (
+                  <div className="size-2 rounded-full bg-muted-foreground shrink-0" />
+                )}
+                {r.status === "running" && (
+                  <RefreshCw className="size-3 text-brand shrink-0 animate-spin" />
+                )}
+                {r.status === "ok" && (
+                  <Check className="size-3 text-success shrink-0" />
+                )}
+                {r.status === "error" && (
+                  <X className="size-3 text-destructive shrink-0" />
+                )}
+                <span className="text-xs font-medium truncate">{r.serverName}</span>
+                <span className={`text-[10px] font-mono ml-auto ${
+                  r.status === "running" ? "text-brand" :
+                  r.status === "ok" ? "text-success" :
+                  r.status === "error" ? "text-destructive" :
+                  "text-muted-foreground"
+                }`}>
+                  {r.status === "pending" ? "queued" : r.status === "running" ? "running…" : r.status === "ok" ? "done" : "error"}
+                </span>
+              </div>
+              {r.outputs.length > 0 && (
+                <div className="space-y-1">
+                  {r.outputs.map((o, i) => (
+                    <div key={i}>
+                      <div className="text-[9px] font-mono text-muted-foreground truncate">$ {o.cmd}</div>
+                      {o.response && (
+                        <pre className={`text-[10px] font-mono rounded p-1.5 whitespace-pre-wrap break-all ${
+                          o.ok ? "text-foreground bg-black/20" : "text-destructive bg-destructive/5"
+                        }`}>
+                          {o.response}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button onClick={onClose} disabled={pending}>
+            {pending ? "Running…" : "Close"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 function RunVarsDialog({ pending, onClose, onRun }) {

@@ -11,9 +11,9 @@ import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const Route = createFileRoute("/chat")({
-  head: () => ({ meta: [{ title: "Chat Logs \u2014 IronSight" }] }),
+  head: () => ({ meta: [{ title: "Chat Logs — IronSight" }] }),
   component: ChatPage,
 });
 
@@ -31,6 +31,7 @@ function fmtTime(ms, tz) {
 }
 
 const NOW = Date.now();
+const PAGE_SIZE = 100;
 
 function ChatPage() {
   const { selectedOrgIds, orgsLoaded, hasStaffAccount } = useAuth();
@@ -48,10 +49,17 @@ function ChatPage() {
   const [lines, setLines] = useState([]);
   const [linesLoading, setLinesLoading] = useState(false);
   const [linesError, setLinesError] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchAbortRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+  const oldestTsRef = useRef(null);
+  const newestTsRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const scrollRef = useRef(null);
 
-  // Fetch available servers (backend already scopes to user's org memberships)
+  // Fetch available servers
   useEffect(() => {
     let cancelled = false;
     setServersLoading(true);
@@ -66,15 +74,9 @@ function ChatPage() {
           return fetched[0]?.serverId ?? "";
         });
       })
-      .catch(() => {
-        if (!cancelled) setServers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setServersLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => { if (!cancelled) setServers([]); })
+      .finally(() => { if (!cancelled) setServersLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   // Filter servers to only those in currently selected orgs
@@ -98,10 +100,29 @@ function ChatPage() {
     }
   }, [availableServers, serverId]);
 
-  // Fetch chat logs whenever server/time window changes
+  const buildUrl = useCallback(
+    (extra = {}) => {
+      const startUnix = Math.floor(parseLocal(start) / 1000);
+      const endUnix = Math.floor(parseLocal(end) / 1000);
+      const params = new URLSearchParams({
+        serverId,
+        start: startUnix,
+        end: endUnix,
+        limit: PAGE_SIZE,
+        ...extra,
+      });
+      return `/api/chat/logs?${params}`;
+    },
+    [serverId, start, end],
+  );
+
+  // Initial fetch when server/time window changes
   useEffect(() => {
     if (!serverId) {
       setLines([]);
+      setHasMore(false);
+      oldestTsRef.current = null;
+      newestTsRef.current = null;
       return;
     }
 
@@ -109,23 +130,26 @@ function ChatPage() {
     const controller = new AbortController();
     fetchAbortRef.current = controller;
 
-    const startUnix = Math.floor(parseLocal(start) / 1000);
-    const endUnix = Math.floor(parseLocal(end) / 1000);
-
     setLinesLoading(true);
     setLinesError(null);
+    setLines([]);
+    setHasMore(false);
+    oldestTsRef.current = null;
+    newestTsRef.current = null;
 
-    fetch(
-      `/api/chat/logs?serverId=${encodeURIComponent(serverId)}&start=${startUnix}&end=${endUnix}&limit=500`,
-      { credentials: "include", signal: controller.signal },
-    )
+    fetch(buildUrl(), { credentials: "include", signal: controller.signal })
       .then((r) => {
-        if (!r.ok)
-          return r.json().then((b) => Promise.reject(b?.error ?? r.status));
+        if (!r.ok) return r.json().then((b) => Promise.reject(b?.error ?? r.status));
         return r.json();
       })
       .then((data) => {
-        setLines(data.lines ?? []);
+        const msgs = data.lines ?? [];
+        setLines(msgs);
+        setHasMore(data.hasMore ?? false);
+        if (msgs.length > 0) {
+          newestTsRef.current = msgs[0].ts;
+          oldestTsRef.current = msgs[msgs.length - 1].ts;
+        }
         setLinesError(null);
       })
       .catch((err) => {
@@ -133,12 +157,77 @@ function ChatPage() {
         setLinesError(String(err));
         setLines([]);
       })
-      .finally(() => {
-        setLinesLoading(false);
-      });
+      .finally(() => { setLinesLoading(false); });
 
     return () => controller.abort();
-  }, [serverId, start, end]);
+  }, [serverId, start, end]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load older messages when sentinel is visible
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    const oldest = oldestTsRef.current;
+    if (!oldest) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(buildUrl({ before: oldest }), { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const more = data.lines ?? [];
+      setLines((prev) => [...prev, ...more]);
+      setHasMore(data.hasMore ?? false);
+      if (more.length > 0) {
+        oldestTsRef.current = more[more.length - 1].ts;
+      }
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, buildUrl]);
+
+  // Infinite scroll sentinel
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = scrollRef.current;
+    if (!sentinel || !container || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { root: container, threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
+
+  // Poll for new messages every 10s
+  const pollNew = useCallback(async () => {
+    const newest = newestTsRef.current;
+    if (!serverId || newest == null) return;
+    try {
+      const res = await fetch(buildUrl({ after: newest }), { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const newMsgs = data.lines ?? [];
+      if (newMsgs.length > 0) {
+        setLines((prev) => [...newMsgs, ...prev]);
+        newestTsRef.current = newMsgs[0].ts;
+      }
+    } catch {
+      // ignore poll errors
+    }
+  }, [serverId, buildUrl]);
+
+  useEffect(() => {
+    if (!serverId) return;
+    const timer = setInterval(pollNew, 10000);
+    return () => clearInterval(timer);
+  }, [serverId, pollNew]);
+
+  // Update cursor refs as lines change
+  useEffect(() => {
+    if (lines.length > 0) {
+      if (newestTsRef.current == null) newestTsRef.current = lines[0].ts;
+    }
+  }, [lines]);
 
   const startMs = parseLocal(start);
   const endMs = parseLocal(end);
@@ -150,23 +239,16 @@ function ChatPage() {
         seen.set(l.steamId, l.playerName ?? l.steamId);
       }
     }
-    return Array.from(seen.entries()).map(([steamId, name]) => ({
-      steamId,
-      name,
-    }));
+    return Array.from(seen.entries()).map(([steamId, name]) => ({ steamId, name }));
   }, [lines]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return lines
-      .filter((l) => {
-        if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId))
-          return false;
-        if (q && !l.message.toLowerCase().includes(q)) return false;
-        return true;
-      })
-      .slice()
-      .sort((a, b) => b.ts - a.ts);
+    return lines.filter((l) => {
+      if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId)) return false;
+      if (q && !l.message.toLowerCase().includes(q)) return false;
+      return true;
+    });
   }, [lines, selectedPlayers, query]);
 
   const toggle = (id) => {
@@ -182,8 +264,7 @@ function ChatPage() {
     selectedPlayers.size === 0
       ? "All players"
       : selectedPlayers.size === 1
-        ? (playersInWindow.find((p) => selectedPlayers.has(p.steamId))?.name ??
-          "1 player")
+        ? (playersInWindow.find((p) => selectedPlayers.has(p.steamId))?.name ?? "1 player")
         : `${selectedPlayers.size} players`;
 
   const activeServer = availableServers.find((s) => s.serverId === serverId);
@@ -216,6 +297,7 @@ function ChatPage() {
               </h1>
               <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                 {filtered.length} / {lines.length} lines
+                {hasMore && " (more below)"}
               </span>
             </div>
 
@@ -240,9 +322,7 @@ function ChatPage() {
                   ))}
                   {availableServers.length === 0 && (
                     <option value="">
-                      {serversLoading
-                        ? "Loading…"
-                        : "No servers in selected orgs"}
+                      {serversLoading ? "Loading…" : "No servers in selected orgs"}
                     </option>
                   )}
                 </select>
@@ -278,9 +358,7 @@ function ChatPage() {
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="h-8 px-2.5 text-xs bg-background ring-1 ring-border rounded-md flex items-center gap-1.5 min-w-[160px]">
-                      <span className="flex-1 text-left truncate">
-                        {playersLabel}
-                      </span>
+                      <span className="flex-1 text-left truncate">{playersLabel}</span>
                       <ChevronDown className="size-3 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
@@ -354,15 +432,11 @@ function ChatPage() {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
             {linesLoading ? (
-              <p className="text-sm text-muted-foreground text-center py-12">
-                Loading…
-              </p>
+              <p className="text-sm text-muted-foreground text-center py-12">Loading…</p>
             ) : linesError ? (
-              <p className="text-sm text-destructive text-center py-12">
-                {linesError}
-              </p>
+              <p className="text-sm text-destructive text-center py-12">{linesError}</p>
             ) : filtered.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-12">
                 No chat lines match these filters.
@@ -390,11 +464,16 @@ function ChatPage() {
                     >
                       {l.playerName ?? l.steamId}
                     </Link>
-                    <span className="text-foreground/90 break-words">
-                      {l.message}
-                    </span>
+                    <span className="text-foreground/90 break-words">{l.message}</span>
                   </div>
                 ))}
+                <div ref={sentinelRef} className="py-3 flex items-center justify-center">
+                  {loadingMore ? (
+                    <span className="text-xs text-muted-foreground">Loading older messages…</span>
+                  ) : !hasMore && lines.length > 0 ? (
+                    <span className="text-[10px] text-muted-foreground/40">All messages loaded</span>
+                  ) : null}
+                </div>
               </div>
             )}
           </div>
