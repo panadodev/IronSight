@@ -7412,7 +7412,7 @@ function parseOxidePluginList(output) {
       map[failedMatch[1]] = { status: "failed", error: failedMatch[2].trim() };
       continue;
     }
-    const activeMatch = trimmed.match(/-\s+([\w.]+)\.cs\s*$/);
+    const activeMatch = trimmed.match(/-\s+([\w.]+)\.cs(?:\s*\([^)]*\))?\s*$/);
     if (activeMatch) {
       map[activeMatch[1]] = { status: "active" };
     }
