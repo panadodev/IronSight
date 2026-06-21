@@ -189,12 +189,12 @@ function diagRecordIncoming(method, pathname, status, ms) {
   }
 }
 
-function diagRecordOutgoing(service, url, status, ms) {
+function diagRecordOutgoing(service, url, status, ms, { expected = false } = {}) {
   let host;
   try { host = new URL(url).hostname; } catch { host = url.slice(0, 60); }
   const entry = { ts: Date.now(), service, host, status, ms };
   diagPush(diagOutgoing, entry);
-  if (status < 200 || status >= 300) {
+  if (!expected && (status < 200 || status >= 300)) {
     diagPush(diagErrors, { ...entry, direction: "outgoing" });
   }
 }
@@ -10329,7 +10329,9 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
       continue;
     }
 
-    diagRecordOutgoing(service, url, resp.status, Date.now() - t0ext);
+    diagRecordOutgoing(service, url, resp.status, Date.now() - t0ext, {
+      expected: service === "steam" && resp.status === 403,
+    });
 
     if (resp.status === 429) {
       const retryAfter = parseFloat(resp.headers.get("Retry-After") ?? "60");
@@ -10340,11 +10342,11 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
       continue;
     }
 
-    if (resp.status === 401 || resp.status === 403) {
+    if (resp.status === 401) {
       let body = "";
       try { body = await resp.text(); } catch {}
       console.warn(
-        `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP ${resp.status} — key may be invalid or missing permissions. body="${body.slice(0, 300)}". Trying next key.`,
+        `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP 401 — key is invalid or revoked. body="${body.slice(0, 300)}". Trying next key.`,
       );
       continue;
     }
@@ -10772,7 +10774,10 @@ async function fetchSteamFriends(steamId, orgId) {
     relationship: "friend",
   });
 
-  if (!resp?.ok) return { isPublic: false, friends: null };
+  if (!resp || resp.status === 401 || resp.status === 403) {
+    return { isPublic: false, friends: null };
+  }
+  if (!resp.ok) return { isPublic: false, friends: null };
 
   const json = await resp.json();
   const friends = json.friendslist?.friends;
