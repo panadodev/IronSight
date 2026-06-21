@@ -12,7 +12,7 @@ import {
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Line,
   LineChart,
@@ -503,6 +503,308 @@ function ApiKeysSection({ orgId }) {
   );
 }
 
+const RIPE_ATLAS_COUNTRIES = [
+  { code: "US", name: "United States" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "DE", name: "Germany" },
+  { code: "FR", name: "France" },
+  { code: "NL", name: "Netherlands" },
+  { code: "SG", name: "Singapore" },
+  { code: "AU", name: "Australia" },
+  { code: "JP", name: "Japan" },
+  { code: "BR", name: "Brazil" },
+  { code: "CA", name: "Canada" },
+  { code: "SE", name: "Sweden" },
+  { code: "PL", name: "Poland" },
+  { code: "RU", name: "Russia" },
+  { code: "ZA", name: "South Africa" },
+  { code: "IN", name: "India" },
+  { code: "KR", name: "South Korea" },
+  { code: "FI", name: "Finland" },
+  { code: "CH", name: "Switzerland" },
+];
+const DEFAULT_RIPE_COUNTRIES = ["US", "GB", "DE", "FR", "NL", "SG", "AU", "JP", "BR", "CA"];
+
+function RipeAtlasSection({ orgId }) {
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState(null);
+  const [credits, setCredits] = useState(null);
+  const [error, setError] = useState("");
+
+  const [apiKey, setApiKey] = useState("");
+  const [countries, setCountries] = useState(DEFAULT_RIPE_COUNTRIES);
+  const [probesPerCountry, setProbesPerCountry] = useState(3);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/config`,
+      );
+      if (!res.ok) {
+        const body = await safeJson(res);
+        setError(body?.error ?? "Failed to load RIPE Atlas config.");
+        return;
+      }
+      const body = await res.json();
+      setConfig(body.config ?? null);
+      setCredits(body.credits ?? null);
+      if (body.config) {
+        setCountries(body.config.countries ?? DEFAULT_RIPE_COUNTRIES);
+        setProbesPerCountry(body.config.probesPerCountry ?? 3);
+      }
+    } catch (err) {
+      if (err?.code !== "AUTH_EXPIRED")
+        setError("Failed to load RIPE Atlas config.");
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const payload = { countries, probesPerCountry: Number(probesPerCountry) };
+      if (!config) payload.apiKey = apiKey.trim();
+      else if (apiKey.trim()) payload.apiKey = apiKey.trim();
+
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/config`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!res.ok) {
+        const body = await safeJson(res);
+        setError(body?.error ?? "Failed to save.");
+        return;
+      }
+      const body = await res.json();
+      setConfig(body.config ?? null);
+      setCredits(body.credits ?? null);
+      setApiKey("");
+    } catch (err) {
+      if (err?.code !== "AUTH_EXPIRED") setError("Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    setRemoving(true);
+    setError("");
+    try {
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/config`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const body = await safeJson(res);
+        setError(body?.error ?? "Failed to remove config.");
+        return;
+      }
+      setConfig(null);
+      setCredits(null);
+      setApiKey("");
+      setCountries(DEFAULT_RIPE_COUNTRIES);
+      setProbesPerCountry(3);
+    } catch (err) {
+      if (err?.code !== "AUTH_EXPIRED") setError("Failed to remove.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  function toggleCountry(code) {
+    setCountries((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+  }
+
+  const estimatedDailyCredits = countries.length * probesPerCountry * 3 * 288;
+
+  return (
+    <div className="space-y-4 border-t border-border pt-6">
+      <div>
+        <h2 className="text-sm font-semibold">RIPE Atlas Network Monitoring</h2>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Ping your game servers every 5 minutes from probes in major countries
+          via the RIPE Atlas network. Requires a RIPE Atlas account with
+          measurement credits.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <form onSubmit={handleSave} className="space-y-4 max-w-xl">
+          {/* Credit balance — shown when already configured */}
+          {config && (
+            <div className="rounded-lg ring-1 ring-border bg-surface/40 p-3 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium">Credit balance</p>
+                {credits ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {credits.currentBalance?.toLocaleString() ?? "—"} credits
+                    {credits.estimatedDailyIncome != null &&
+                      ` · +${credits.estimatedDailyIncome.toLocaleString()}/day earned`}
+                    {credits.maxDailyIncome != null &&
+                      ` (cap ${credits.maxDailyIncome.toLocaleString()}/day)`}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Could not fetch credits — check your API key.
+                  </p>
+                )}
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-[10px] text-muted-foreground">Est. usage</p>
+                <p className="text-[11px] font-mono">
+                  ~{estimatedDailyCredits.toLocaleString()}/day
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* API key input */}
+          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
+            <p className="text-sm font-medium">API Key</p>
+            <div className="space-y-1">
+              <Label htmlFor="ripe-api-key">
+                RIPE Atlas API key{" "}
+                {config && (
+                  <span className="text-muted-foreground font-normal">
+                    (leave blank to keep existing)
+                  </span>
+                )}
+              </Label>
+              <Input
+                id="ripe-api-key"
+                type="password"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                required={!config}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Create a key at atlas.ripe.net → API Keys. Enable the
+                "Create user-defined measurements" permission.
+              </p>
+            </div>
+          </div>
+
+          {/* Country selection */}
+          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium">Probe countries</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Servers are pinged from each selected country every 5 minutes.
+                Fewer countries = lower credit usage.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {RIPE_ATLAS_COUNTRIES.map((c) => {
+                const active = countries.includes(c.code);
+                return (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => toggleCountry(c.code)}
+                    className={`text-[11px] px-2 py-1 rounded-md ring-1 transition-colors ${
+                      active
+                        ? "ring-brand/60 bg-brand/15 text-brand font-medium"
+                        : "ring-border bg-transparent text-muted-foreground hover:text-foreground hover:ring-border/80"
+                    }`}
+                  >
+                    {c.code} · {c.name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {countries.length} countr{countries.length === 1 ? "y" : "ies"}{" "}
+              selected
+            </p>
+          </div>
+
+          {/* Probes per country */}
+          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2">
+            <div className="space-y-1">
+              <Label htmlFor="probes-per-country">Probes per country</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="probes-per-country"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={probesPerCountry}
+                  onChange={(e) => setProbesPerCountry(Number(e.target.value))}
+                  className="w-20"
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  probe{probesPerCountry === 1 ? "" : "s"} per country per cycle
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Estimated credit usage: ~{estimatedDailyCredits.toLocaleString()}{" "}
+                credits/day (3 packets × {probesPerCountry} probe
+                {probesPerCountry === 1 ? "" : "s"} × {countries.length} countr
+                {countries.length === 1 ? "y" : "ies"} × 288 cycles).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              type="submit"
+              disabled={
+                saving ||
+                removing ||
+                (!config && !apiKey.trim()) ||
+                countries.length === 0
+              }
+            >
+              {saving
+                ? "Saving…"
+                : config
+                  ? "Update config"
+                  : "Enable monitoring"}
+            </Button>
+            {config && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-danger hover:text-danger"
+                disabled={removing || saving}
+                onClick={handleRemove}
+              >
+                {removing ? "Removing…" : "Disable & remove"}
+              </Button>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function ManageDetailsPage() {
   const orgId = useManageOrgId();
   const [loading, setLoading] = useState(true);
@@ -683,6 +985,8 @@ function ManageDetailsPage() {
       </div>
 
       <ApiKeysSection orgId={orgId} />
+
+      <RipeAtlasSection orgId={orgId} />
 
       {isSysAdmin && (
         <div className="space-y-2 border-t border-border pt-6">

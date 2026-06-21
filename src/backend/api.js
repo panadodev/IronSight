@@ -1597,6 +1597,65 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_org_blacklisted_words_org_id ON org_blacklisted_words(org_id)`,
   );
+
+  // ── RIPE Atlas network monitoring ─────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_ripe_atlas_config (
+      org_id              TEXT    PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
+      api_key_enc         TEXT    NOT NULL,
+      countries           TEXT[]  NOT NULL DEFAULT '{US,GB,DE,FR,NL,SG,AU,JP,BR,CA}',
+      probes_per_country  INTEGER NOT NULL DEFAULT 3,
+      created_at          BIGINT  NOT NULL DEFAULT unix_now(),
+      updated_at          BIGINT  NOT NULL DEFAULT unix_now()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_ripe_atlas_measurements (
+      id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id          TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      server_id       UUID    NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      atlas_msm_id    BIGINT  NOT NULL,
+      target_ip       TEXT    NOT NULL,
+      country         TEXT    NOT NULL,
+      status          TEXT    NOT NULL DEFAULT 'pending',
+      created_at      BIGINT  NOT NULL DEFAULT unix_now(),
+      results_fetched_at BIGINT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_msm_org_status
+     ON org_ripe_atlas_measurements(org_id, status, created_at DESC)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_msm_server
+     ON org_ripe_atlas_measurements(server_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_ripe_atlas_results (
+      id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id           TEXT         NOT NULL,
+      server_id        UUID         NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      country          TEXT         NOT NULL,
+      reachable        BOOLEAN      NOT NULL,
+      avg_rtt          NUMERIC(10,2),
+      min_rtt          NUMERIC(10,2),
+      max_rtt          NUMERIC(10,2),
+      probe_count      INTEGER      NOT NULL DEFAULT 0,
+      reachable_count  INTEGER      NOT NULL DEFAULT 0,
+      measured_at      BIGINT       NOT NULL
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_server_country
+     ON org_ripe_atlas_results(server_id, country, measured_at DESC)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_org
+     ON org_ripe_atlas_results(org_id, measured_at DESC)`,
+  );
 }
 
 async function migrateTimestampsToUnix() {
@@ -2047,6 +2106,17 @@ async function init() {
     initialized = true;
     initError = null;
     console.info("[startup] PostgreSQL, Redis, and BullMQ are reachable.");
+
+    setInterval(() => {
+      triggerRipeAtlasMeasurements().catch((e) =>
+        console.error("[ripe-atlas] measure job:", e.message),
+      );
+    }, 5 * 60 * 1000);
+    setInterval(() => {
+      fetchPendingRipeAtlasResults().catch((e) =>
+        console.error("[ripe-atlas] results job:", e.message),
+      );
+    }, 2 * 60 * 1000);
   })().catch((error) => {
     initError = error;
     console.error("[startup] dependency ping failed", error);
@@ -9653,6 +9723,207 @@ export async function initializeInfra() {
   }
 }
 
+// ── RIPE Atlas helpers and background jobs ────────────────────────────────────
+
+const RIPE_ATLAS_BASE = "https://atlas.ripe.net/api/v2";
+
+async function ripeAtlasFetch(apiKey, path, opts = {}) {
+  return fetch(`${RIPE_ATLAS_BASE}${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Key ${apiKey}`,
+      "Content-Type": "application/json",
+      ...(opts.headers ?? {}),
+    },
+    signal: opts.signal ?? AbortSignal.timeout(20000),
+  });
+}
+
+async function ripeAtlasGetCredits(apiKey) {
+  const res = await ripeAtlasFetch(apiKey, "/credits/");
+  if (!res.ok) throw new Error(`Credits API HTTP ${res.status}`);
+  const data = await res.json();
+  return {
+    currentBalance: data.current_balance ?? null,
+    estimatedDailyIncome: data.estimated_daily_income ?? null,
+    maxDailyIncome: data.max_daily_income ?? null,
+  };
+}
+
+async function ripeAtlasCreateMeasurement(apiKey, targetIp, country, probesPerCountry) {
+  const body = {
+    definitions: [
+      {
+        target: targetIp,
+        af: 4,
+        type: "ping",
+        description: `IronSight ping ${targetIp}`,
+        packets: 3,
+        packet_interval: 1000,
+      },
+    ],
+    probes: [{ type: "country", value: country, requested: probesPerCountry }],
+    is_oneoff: true,
+  };
+  const res = await ripeAtlasFetch(apiKey, "/measurements/", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err?.error?.detail ?? err?.detail ?? `HTTP ${res.status}`;
+    throw new Error(detail);
+  }
+  const data = await res.json();
+  const msmId = data.measurements?.[0];
+  if (!msmId) throw new Error("No measurement ID returned by RIPE Atlas");
+  return msmId;
+}
+
+async function triggerRipeAtlasMeasurements() {
+  const { rows: configs } = await pool.query(
+    `SELECT org_id, api_key_enc, countries, probes_per_country FROM org_ripe_atlas_config`,
+  );
+  if (!configs.length) return;
+
+  for (const cfg of configs) {
+    let apiKey;
+    try {
+      apiKey = decryptExternalApiKey(String(cfg.api_key_enc));
+    } catch {
+      continue;
+    }
+
+    const { rows: servers } = await pool.query(
+      `SELECT server_id, server_name, rcon_host FROM servers WHERE owner_org_id = $1 AND rcon_host IS NOT NULL`,
+      [cfg.org_id],
+    );
+    if (!servers.length) continue;
+
+    const countries = Array.isArray(cfg.countries) ? cfg.countries : [];
+    const probesPerCountry = Number(cfg.probes_per_country) || 3;
+
+    for (const server of servers) {
+      for (const country of countries) {
+        try {
+          const msmId = await ripeAtlasCreateMeasurement(
+            apiKey,
+            server.rcon_host,
+            country,
+            probesPerCountry,
+          );
+          await pool.query(
+            `INSERT INTO org_ripe_atlas_measurements
+             (org_id, server_id, atlas_msm_id, target_ip, country)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [cfg.org_id, server.server_id, msmId, server.rcon_host, country],
+          );
+        } catch (err) {
+          console.warn(
+            `[ripe-atlas] measurement failed org=${cfg.org_id} server=${server.server_name} country=${country}: ${err.message}`,
+          );
+        }
+      }
+    }
+  }
+}
+
+async function fetchPendingRipeAtlasResults() {
+  const { rows: pending } = await pool.query(
+    `SELECT id, org_id, server_id, atlas_msm_id, country, created_at
+     FROM org_ripe_atlas_measurements
+     WHERE status = 'pending'
+       AND created_at < unix_now() - 120
+       AND results_fetched_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT 50`,
+  );
+  if (!pending.length) return;
+
+  const orgIds = [...new Set(pending.map((m) => m.org_id))];
+  const { rows: cfgRows } = await pool.query(
+    `SELECT org_id, api_key_enc FROM org_ripe_atlas_config WHERE org_id = ANY($1::text[])`,
+    [orgIds],
+  );
+  const keysByOrg = new Map();
+  for (const cfg of cfgRows) {
+    try {
+      keysByOrg.set(cfg.org_id, decryptExternalApiKey(String(cfg.api_key_enc)));
+    } catch {
+      continue;
+    }
+  }
+
+  for (const msm of pending) {
+    const apiKey = keysByOrg.get(msm.org_id);
+    if (!apiKey) continue;
+
+    try {
+      const res = await ripeAtlasFetch(
+        apiKey,
+        `/measurements/${msm.atlas_msm_id}/results/?format=json`,
+      );
+      const results = res.ok ? await res.json().catch(() => []) : [];
+
+      await pool.query(
+        `UPDATE org_ripe_atlas_measurements
+         SET status = 'completed', results_fetched_at = unix_now()
+         WHERE id = $1`,
+        [msm.id],
+      );
+
+      if (!Array.isArray(results) || !results.length) continue;
+
+      let totalRtt = 0;
+      let minRtt = Infinity;
+      let maxRtt = -Infinity;
+      let reachableCount = 0;
+
+      for (const r of results) {
+        const avg = r.avg;
+        if (avg != null && Number(avg) > 0) {
+          reachableCount++;
+          totalRtt += Number(avg);
+          if (r.min != null && Number(r.min) < minRtt) minRtt = Number(r.min);
+          if (r.max != null && Number(r.max) > maxRtt) maxRtt = Number(r.max);
+        }
+      }
+
+      const reachable = reachableCount > 0;
+      const avgRtt = reachable ? totalRtt / reachableCount : null;
+
+      await pool.query(
+        `INSERT INTO org_ripe_atlas_results
+         (org_id, server_id, country, reachable, avg_rtt, min_rtt, max_rtt, probe_count, reachable_count, measured_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          msm.org_id,
+          msm.server_id,
+          msm.country,
+          reachable,
+          avgRtt != null ? avgRtt.toFixed(2) : null,
+          minRtt !== Infinity ? minRtt : null,
+          maxRtt !== -Infinity ? maxRtt : null,
+          results.length,
+          reachableCount,
+          Number(msm.created_at),
+        ],
+      );
+    } catch (err) {
+      console.warn(
+        `[ripe-atlas] results fetch failed msm=${msm.atlas_msm_id}: ${err.message}`,
+      );
+    }
+  }
+
+  await pool.query(
+    `DELETE FROM org_ripe_atlas_measurements WHERE created_at < unix_now() - 7200`,
+  );
+  await pool.query(
+    `DELETE FROM org_ripe_atlas_results WHERE measured_at < unix_now() - 86400`,
+  );
+}
+
 // ── External API key helpers (BM / Steam / Proxycheck) ───────────────────────
 
 function encryptExternalApiKey(apiKey) {
@@ -11431,6 +11702,197 @@ async function handleGetExternalKeyStats(request, orgId) {
   return json({ stats, proxycheckUsage });
 }
 
+// ── RIPE Atlas config and results handlers ────────────────────────────────────
+
+async function handleGetRipeAtlasConfig(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT api_key_enc, countries, probes_per_country, created_at, updated_at
+     FROM org_ripe_atlas_config WHERE org_id = $1`,
+    [orgId],
+  );
+
+  if (!rows[0]) return json({ config: null, credits: null });
+
+  const row = rows[0];
+  let credits = null;
+  try {
+    const apiKey = decryptExternalApiKey(String(row.api_key_enc));
+    credits = await ripeAtlasGetCredits(apiKey);
+  } catch {
+    // non-critical
+  }
+
+  return json({
+    config: {
+      countries: Array.isArray(row.countries) ? row.countries : [],
+      probesPerCountry: Number(row.probes_per_country),
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
+    },
+    credits,
+  });
+}
+
+async function handlePutRipeAtlasConfig(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+
+  if (!getPterodactylEncryptionKey())
+    return json({ error: "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)" }, 503);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const countries = Array.isArray(body?.countries)
+    ? body.countries
+        .filter((c) => typeof c === "string" && /^[A-Z]{2}$/.test(c))
+        .slice(0, 30)
+    : [];
+  if (!countries.length)
+    return json({ error: "At least one country code is required" }, 400);
+
+  const probesPerCountry = Math.min(Math.max(Number(body?.probesPerCountry ?? 3), 1), 10);
+
+  const { rows: existing } = await pool.query(
+    `SELECT org_id FROM org_ripe_atlas_config WHERE org_id = $1`,
+    [orgId],
+  );
+
+  if (existing[0]) {
+    const setClauses = [
+      `countries = $2`,
+      `probes_per_country = $3`,
+      `updated_at = unix_now()`,
+    ];
+    const params = [orgId, countries, probesPerCountry];
+    if (body?.apiKey?.trim()) {
+      setClauses.push(`api_key_enc = $${params.length + 1}`);
+      params.push(encryptExternalApiKey(body.apiKey.trim()));
+    }
+    await pool.query(
+      `UPDATE org_ripe_atlas_config SET ${setClauses.join(", ")} WHERE org_id = $1`,
+      params,
+    );
+  } else {
+    const rawKey = String(body?.apiKey ?? "").trim();
+    if (!rawKey) return json({ error: "API key is required when enabling monitoring" }, 400);
+    await pool.query(
+      `INSERT INTO org_ripe_atlas_config (org_id, api_key_enc, countries, probes_per_country)
+       VALUES ($1, $2, $3, $4)`,
+      [orgId, encryptExternalApiKey(rawKey), countries, probesPerCountry],
+    );
+  }
+
+  const { rows: updated } = await pool.query(
+    `SELECT api_key_enc, countries, probes_per_country, created_at, updated_at
+     FROM org_ripe_atlas_config WHERE org_id = $1`,
+    [orgId],
+  );
+  const row = updated[0];
+  let credits = null;
+  try {
+    credits = await ripeAtlasGetCredits(decryptExternalApiKey(String(row.api_key_enc)));
+  } catch {
+    // non-critical
+  }
+
+  return json({
+    config: {
+      countries: Array.isArray(row.countries) ? row.countries : [],
+      probesPerCountry: Number(row.probes_per_country),
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
+    },
+    credits,
+  });
+}
+
+async function handleDeleteRipeAtlasConfig(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+
+  await pool.query(`DELETE FROM org_ripe_atlas_config WHERE org_id = $1`, [orgId]);
+  await pool.query(`DELETE FROM org_ripe_atlas_measurements WHERE org_id = $1`, [orgId]);
+  await pool.query(`DELETE FROM org_ripe_atlas_results WHERE org_id = $1`, [orgId]);
+
+  return json({ ok: true });
+}
+
+async function handleGetRipeAtlasResults(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (
+    !orgHasPermission(session, orgId, "status_view") &&
+    !orgHasPermission(session, orgId, "servers_manage")
+  )
+    return json({ error: "Forbidden" }, 403);
+
+  const { rows: cfgRows } = await pool.query(
+    `SELECT countries, probes_per_country FROM org_ripe_atlas_config WHERE org_id = $1`,
+    [orgId],
+  );
+  if (!cfgRows[0]) return json({ configured: false });
+
+  const { rows: servers } = await pool.query(
+    `SELECT server_id, server_name, rcon_host
+     FROM servers WHERE owner_org_id = $1 AND rcon_host IS NOT NULL
+     ORDER BY server_name`,
+    [orgId],
+  );
+
+  const { rows: results } = await pool.query(
+    `SELECT DISTINCT ON (server_id, country)
+       server_id, country, reachable, avg_rtt, min_rtt, max_rtt,
+       probe_count, reachable_count, measured_at
+     FROM org_ripe_atlas_results
+     WHERE org_id = $1 AND measured_at > unix_now() - 3600
+     ORDER BY server_id, country, measured_at DESC`,
+    [orgId],
+  );
+
+  const { rows: pendingRows } = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM org_ripe_atlas_measurements
+     WHERE org_id = $1 AND status = 'pending' AND created_at > unix_now() - 600`,
+    [orgId],
+  );
+
+  return json({
+    configured: true,
+    countries: cfgRows[0].countries,
+    probesPerCountry: Number(cfgRows[0].probes_per_country),
+    servers: servers.map((s) => ({
+      serverId: String(s.server_id),
+      serverName: s.server_name,
+      rconHost: s.rcon_host,
+    })),
+    results: results.map((r) => ({
+      serverId: String(r.server_id),
+      country: r.country,
+      reachable: r.reachable,
+      avgRtt: r.avg_rtt != null ? Number(r.avg_rtt) : null,
+      minRtt: r.min_rtt != null ? Number(r.min_rtt) : null,
+      maxRtt: r.max_rtt != null ? Number(r.max_rtt) : null,
+      probeCount: Number(r.probe_count),
+      reachableCount: Number(r.reachable_count),
+      measuredAt: Number(r.measured_at),
+    })),
+    pendingCount: Number(pendingRows[0]?.cnt ?? 0),
+  });
+}
+
 // ── Player connect ingest ─────────────────────────────────────────────────────
 
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
@@ -12621,6 +13083,25 @@ async function _handleApiRequest(request) {
         orgExternalKeyDetailMatch[1],
         orgExternalKeyDetailMatch[2],
       );
+
+    // RIPE Atlas network monitoring
+    const orgRipeAtlasConfigMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/config$/,
+    );
+    if (orgRipeAtlasConfigMatch) {
+      if (request.method === "GET")
+        return handleGetRipeAtlasConfig(request, orgRipeAtlasConfigMatch[1]);
+      if (request.method === "PUT")
+        return handlePutRipeAtlasConfig(request, orgRipeAtlasConfigMatch[1]);
+      if (request.method === "DELETE")
+        return handleDeleteRipeAtlasConfig(request, orgRipeAtlasConfigMatch[1]);
+    }
+
+    const orgRipeAtlasResultsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/results$/,
+    );
+    if (orgRipeAtlasResultsMatch && request.method === "GET")
+      return handleGetRipeAtlasResults(request, orgRipeAtlasResultsMatch[1]);
 
     // Blacklisted words (management UI)
     const orgBlacklistedWordsMatch = pathname.match(

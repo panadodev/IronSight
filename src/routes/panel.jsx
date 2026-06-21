@@ -2037,6 +2037,242 @@ function ServerDetailPanel({ server, stream, logs }) {
     </div>
   );
 }
+const COUNTRY_NAMES = {
+  US: "United States",
+  GB: "United Kingdom",
+  DE: "Germany",
+  FR: "France",
+  NL: "Netherlands",
+  SG: "Singapore",
+  AU: "Australia",
+  JP: "Japan",
+  BR: "Brazil",
+  CA: "Canada",
+  SE: "Sweden",
+  PL: "Poland",
+  RU: "Russia",
+  ZA: "South Africa",
+  IN: "India",
+  KR: "South Korea",
+  FI: "Finland",
+  CH: "Switzerland",
+};
+
+function rttColor(rtt) {
+  if (rtt == null) return "bg-emerald-500/20 text-emerald-400";
+  if (rtt < 50) return "bg-emerald-500/25 text-emerald-400";
+  if (rtt < 150) return "bg-emerald-500/15 text-emerald-600";
+  if (rtt < 300) return "bg-amber-500/20 text-amber-500";
+  return "bg-orange-500/20 text-orange-400";
+}
+
+function RipeAtlasSection({ orgId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/results`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const body = await res.json();
+      setData(body);
+      setUpdatedAt(Date.now());
+    } catch {
+      // non-critical
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  if (loading) return null;
+  if (!data?.configured) {
+    return (
+      <div className="ring-1 ring-border rounded-md bg-surface/40 p-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold">Network Reachability</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            RIPE Atlas monitoring is not configured for this org. Add your API
+            key in Manage → Details to enable it.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const { servers = [], results = [], countries = [], pendingCount = 0 } = data;
+
+  if (!servers.length) {
+    return (
+      <div className="ring-1 ring-border rounded-md bg-surface/40 p-4">
+        <p className="text-xs font-semibold mb-1">Network Reachability</p>
+        <p className="text-[11px] text-muted-foreground">
+          No servers with RCON/IP configured. Set an RCON host on your servers
+          to enable network monitoring.
+        </p>
+      </div>
+    );
+  }
+
+  const resultMap = new Map();
+  for (const r of results) {
+    resultMap.set(`${r.serverId}:${r.country}`, r);
+  }
+
+  const hasAnyResult = results.length > 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          Network reachability · RIPE Atlas
+        </h4>
+        <div className="flex items-center gap-3">
+          {pendingCount > 0 && (
+            <span className="text-[10px] font-mono text-amber-500 flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+              {pendingCount} measurement{pendingCount === 1 ? "" : "s"} in
+              progress
+            </span>
+          )}
+          {updatedAt && (
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {new Date(updatedAt).toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={load}
+            className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
+          >
+            <RefreshCw className="size-3" /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {!hasAnyResult && !pendingCount ? (
+        <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[11px] text-muted-foreground">
+          Waiting for first measurement results. Measurements run every 5
+          minutes — check back shortly.
+        </div>
+      ) : (
+        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="border-b border-border bg-surface/60">
+                <th className="text-left px-3 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                  Server
+                </th>
+                {countries.map((cc) => (
+                  <th
+                    key={cc}
+                    className="px-2 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap text-center"
+                    title={COUNTRY_NAMES[cc] ?? cc}
+                  >
+                    {cc}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {servers.map((s, i) => (
+                <tr
+                  key={s.serverId}
+                  className={i < servers.length - 1 ? "border-b border-border" : ""}
+                >
+                  <td className="px-3 py-2 font-medium whitespace-nowrap">
+                    <div className="flex flex-col gap-0.5">
+                      <span>{s.serverName}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground">
+                        {s.rconHost}
+                      </span>
+                    </div>
+                  </td>
+                  {countries.map((cc) => {
+                    const r = resultMap.get(`${s.serverId}:${cc}`);
+                    if (!r) {
+                      return (
+                        <td key={cc} className="px-2 py-2 text-center">
+                          <span className="inline-block px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground/50 font-mono">
+                            —
+                          </span>
+                        </td>
+                      );
+                    }
+                    if (!r.reachable) {
+                      return (
+                        <td key={cc} className="px-2 py-2 text-center">
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded ring-1 ring-red-500/40 bg-red-500/15 text-red-400 font-mono"
+                            title={`Unreachable from ${COUNTRY_NAMES[cc] ?? cc} · ${r.probeCount} probe${r.probeCount === 1 ? "" : "s"} tried`}
+                          >
+                            ✕
+                          </span>
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={cc} className="px-2 py-2 text-center">
+                        <span
+                          className={`inline-block px-1.5 py-0.5 rounded ring-1 font-mono tabular-nums ${rttColor(r.avgRtt)} ring-current/20`}
+                          title={`${COUNTRY_NAMES[cc] ?? cc} · avg ${r.avgRtt?.toFixed(1)} ms · min ${r.minRtt?.toFixed(1)} ms · max ${r.maxRtt?.toFixed(1)} ms · ${r.reachableCount}/${r.probeCount} probes`}
+                        >
+                          {r.avgRtt != null ? `${Math.round(r.avgRtt)}ms` : "ok"}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 text-[10px] text-muted-foreground font-mono">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-emerald-500/25 ring-1 ring-emerald-500/30" />
+          &lt;50 ms
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-emerald-500/15 ring-1 ring-emerald-500/20" />
+          50–150 ms
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-amber-500/20 ring-1 ring-amber-500/30" />
+          150–300 ms
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-orange-500/20 ring-1 ring-orange-500/30" />
+          &gt;300 ms
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-red-500/15 ring-1 ring-red-500/40" />
+          unreachable
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded ring-1 ring-border" />
+          no data
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground/70 font-mono">
+        Results are averaged across {data.probesPerCountry ?? "multiple"} probe
+        {(data.probesPerCountry ?? 2) === 1 ? "" : "s"} per country.
+        Measurements run every 5 minutes via the RIPE Atlas network.
+        Hover a cell for per-probe detail.
+      </p>
+    </div>
+  );
+}
+
 function StatusTab({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2770,6 +3006,9 @@ function StatusTab({ orgId }) {
           shown against each server's configured limit.
         </div>
       </div>
+
+      {/* RIPE Atlas reachability */}
+      <RipeAtlasSection orgId={orgId} />
     </div>
   );
 }
