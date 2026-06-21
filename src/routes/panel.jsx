@@ -2663,7 +2663,6 @@ function StatusTab({ orgId }) {
               <div />
             </div>
             {servers.map((s) => {
-            {servers.map((s) => {
               const hist = historyRef.current.get(s.identifier) ?? [];
               const memLimitBytes = (s.limits?.memory ?? 0) * 1048576;
 
@@ -2772,8 +2771,6 @@ function StatusTab({ orgId }) {
                     <div />
                   </div>
                 </Fragment>
-              );
-            })}
               );
             })}
           </div>
