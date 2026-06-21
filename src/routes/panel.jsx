@@ -1,4 +1,4 @@
-import { SteamRequiredGate } from "@/components/steam-required-gate";
+﻿import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { SiteNav } from "@/components/site-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -745,10 +745,6 @@ function ScriptsTab({ servers, orgId }) {
   };
 
   const executeRun = async (script, targets, vars) => {
-    const cmds = applyVars(script.command, vars)
-      .split("\n")
-      .map((c) => c.trim())
-      .filter(Boolean);
     setPendingRun(null);
     const serverMap = Object.fromEntries(servers.map((s) => [s.id, s.name]));
     const initialResults = targets.map((id) => ({
@@ -767,20 +763,25 @@ function ScriptsTab({ servers, orgId }) {
         );
         return { ...prev, results: next };
       });
-      const outputs = [];
-      for (const cmd of cmds) {
-        try {
-          const res = await fetch(`/api/servers/${serverId}/rcon/exec`, {
+      let outputs = [];
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/scripts/${encodeURIComponent(script.id)}/exec`,
+          {
             method: "POST",
             credentials: "include",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ command: cmd }),
-          });
-          const data = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
-          outputs.push({ cmd, ok: !data.error, response: data.response ?? data.error ?? "" });
-        } catch {
-          outputs.push({ cmd, ok: false, response: "Network error" });
+            body: JSON.stringify({ serverId, vars }),
+          },
+        );
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          outputs = [{ cmd: script.name, ok: false, response: data?.error ?? `HTTP ${res.status}` }];
+        } else {
+          outputs = data?.outputs ?? [];
         }
+      } catch {
+        outputs = [{ cmd: script.name, ok: false, response: "Network error" }];
       }
       const allOk = outputs.every((o) => o.ok);
       setRunResults((prev) => {
@@ -2115,83 +2116,6 @@ function Spark({ data, dataKey, color }) {
     </div>
   );
 }
-function stripAnsi(s) {
-  // Strip ANSI escape sequences (CSI) so the console reads cleanly.
-  return String(s).replace(/\[[0-9;]*[A-Za-z]/g, "");
-}
-function ConsoleFeed({ lines, status, error }) {
-  const endRef = useRef(null);
-  useEffect(() => {
-    endRef.current?.scrollIntoView();
-  }, [lines]);
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[8px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-          <Terminal className="size-3" /> Console · read-only
-        </span>
-        <span className="text-[8px] font-mono uppercase tracking-widest text-muted-foreground">
-          {status === "live"
-            ? "streaming"
-            : status === "connecting"
-              ? "connecting…"
-              : status === "error"
-                ? "error"
-                : "idle"}
-        </span>
-      </div>
-      <div className="h-56 overflow-y-auto rounded ring-1 ring-border bg-black/60 p-2 font-mono text-[10px] leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">
-        {error ? (
-          <span className="text-destructive">{error}</span>
-        ) : lines.length === 0 ? (
-          <span className="text-muted-foreground italic">
-            {status === "connecting"
-              ? "Connecting to console…"
-              : "Waiting for console output…"}
-          </span>
-        ) : (
-          lines.map((l, i) => <div key={i}>{stripAnsi(l)}</div>)
-        )}
-        <div ref={endRef} />
-      </div>
-    </div>
-  );
-}
-function ServerDetailPanel({ server, stream, logs }) {
-  const live = stream?.status === "live" ? stream : null;
-  const info = [
-    ["Identifier", server.identifier ?? "—"],
-    ["UUID", server.uuid ?? "—"],
-    ["Node", server.nodeName ?? "—"],
-    ["Address", server.ip ? `${server.ip}:${server.port ?? ""}` : "—"],
-    ["CPU limit", server.limits?.cpu ? `${server.limits.cpu}%` : "∞"],
-    ["Memory limit", fmtMB(server.limits?.memory ?? 0)],
-    ["Disk limit", fmtMB(server.limits?.disk ?? 0)],
-    ["Install", server.installStatus ?? "—"],
-  ];
-  if (live) {
-    info.push(["Net in", fmtBytes(live.rx ?? 0)]);
-    info.push(["Net out", fmtBytes(live.tx ?? 0)]);
-    info.push(["Uptime", fmtUptime(live.uptime ?? 0)]);
-  }
-  return (
-    <div className="px-3 py-3 border-b border-border bg-background/60 space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5">
-        {info.map(([k, v]) => (
-          <div key={k} className="min-w-0">
-            <div className="text-[8px] font-mono uppercase tracking-widest text-muted-foreground">
-              {k}
-            </div>
-            <div className="text-[11px] font-mono truncate" title={String(v)}>
-              {v}
-            </div>
-          </div>
-        ))}
-      </div>
-      <ConsoleFeed lines={logs} status={stream?.status} error={stream?.error} />
-    </div>
-  );
-}
 const COUNTRY_NAMES = {
   US: "United States",
   GB: "United Kingdom",
@@ -2421,7 +2345,7 @@ function RipeAtlasSection({ orgId }) {
       <p className="text-[10px] text-muted-foreground/70 font-mono">
         Results are averaged across {data.probesPerCountry ?? "multiple"} probe
         {(data.probesPerCountry ?? 2) === 1 ? "" : "s"} per country.
-        Measurements run every 5 minutes via the RIPE Atlas network.
+        Measurements run periodically via the RIPE Atlas network.
         Hover a cell for per-probe detail.
       </p>
     </div>
@@ -2435,19 +2359,6 @@ function StatusTab({ orgId }) {
   const [updatedAt, setUpdatedAt] = useState(null);
   const historyRef = useRef(new Map());
 
-  // Live websocket streams, keyed by server identifier.
-  const socketsRef = useRef(new Map());
-  const [streams, setStreams] = useState({});
-
-  // Expanded row + its console log feed (only one server expanded at a time).
-  const [expandedId, setExpandedId] = useState(null);
-  const expandedRef = useRef(null);
-  const [logs, setLogs] = useState([]);
-  useEffect(() => {
-    expandedRef.current = expandedId;
-  }, [expandedId]);
-
-  // Append a sample to a server's rolling sparkline history.
   const pushHistory = useCallback((identifier, cpu, memPct) => {
     const hist = historyRef.current;
     const arr = hist.get(identifier) ?? [];
@@ -2458,215 +2369,6 @@ function StatusTab({ orgId }) {
       arr.map((p, i) => ({ ...p, i })),
     );
   }, []);
-
-  const fetchWsCreds = useCallback(
-    async (identifier) => {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ptero/servers/${encodeURIComponent(identifier)}/websocket`,
-        { credentials: "include" },
-      );
-      const body = await res.json().catch(() => null);
-      if (!res.ok)
-        throw new Error(body?.error ?? "Failed to get websocket token.");
-      return body; // { socket, token }
-    },
-    [orgId],
-  );
-
-  const stopStream = useCallback((identifier) => {
-    const entry = socketsRef.current.get(identifier);
-    if (entry?.ws) {
-      entry.ws.onclose = null;
-      try {
-        entry.ws.close();
-      } catch {
-        /* ignore */
-      }
-    }
-    socketsRef.current.delete(identifier);
-    setStreams((prev) => {
-      const next = { ...prev };
-      delete next[identifier];
-      return next;
-    });
-  }, []);
-
-  const startStream = useCallback(
-    async (server) => {
-      const identifier = server.identifier;
-      if (!identifier || socketsRef.current.has(identifier)) return;
-      const memLimitBytes = (server.limits?.memory ?? 0) * 1048576;
-
-      socketsRef.current.set(identifier, { ws: null });
-      setStreams((prev) => ({
-        ...prev,
-        [identifier]: { status: "connecting" },
-      }));
-
-      let creds;
-      try {
-        creds = await fetchWsCreds(identifier);
-      } catch (err) {
-        socketsRef.current.delete(identifier);
-        setStreams((prev) => ({
-          ...prev,
-          [identifier]: { status: "error", error: err.message },
-        }));
-        return;
-      }
-
-      let ws;
-      try {
-        ws = new WebSocket(creds.socket);
-      } catch {
-        socketsRef.current.delete(identifier);
-        setStreams((prev) => ({
-          ...prev,
-          [identifier]: { status: "error", error: "Could not open websocket." },
-        }));
-        return;
-      }
-
-      const entry = socketsRef.current.get(identifier);
-      if (!entry) {
-        // Stopped before the socket opened.
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
-        return;
-      }
-      entry.ws = ws;
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ event: "auth", args: [creds.token] }));
-      };
-      ws.onmessage = (ev) => {
-        let msg;
-        try {
-          msg = JSON.parse(ev.data);
-        } catch {
-          return;
-        }
-        switch (msg.event) {
-          case "auth success":
-            entry.authed = true;
-            ws.send(JSON.stringify({ event: "send stats", args: [null] }));
-            if (identifier === expandedRef.current) {
-              ws.send(JSON.stringify({ event: "send logs", args: [null] }));
-            }
-            break;
-          case "console output": {
-            if (identifier !== expandedRef.current) break;
-            const line = msg.args?.[0] ?? "";
-            setLogs((prev) => {
-              const next = prev.concat(
-                typeof line === "string" ? line : String(line),
-              );
-              return next.length > 250 ? next.slice(-250) : next;
-            });
-            break;
-          }
-          case "stats": {
-            let st;
-            try {
-              st = JSON.parse(msg.args?.[0] ?? "{}");
-            } catch {
-              return;
-            }
-            const memBytes = st.memory_bytes ?? 0;
-            const cpu = st.cpu_absolute ?? 0;
-            const memPct =
-              memLimitBytes > 0 ? (memBytes / memLimitBytes) * 100 : 0;
-            pushHistory(identifier, cpu, memPct);
-            setStreams((prev) => ({
-              ...prev,
-              [identifier]: {
-                status: "live",
-                state: st.state ?? null,
-                cpu,
-                mem: memBytes,
-                disk: st.disk_bytes ?? 0,
-                uptime: st.uptime ?? 0,
-                rx: st.network?.rx_bytes ?? 0,
-                tx: st.network?.tx_bytes ?? 0,
-              },
-            }));
-            break;
-          }
-          case "token expiring":
-          case "token expired":
-            fetchWsCreds(identifier)
-              .then((c) => {
-                ws.send(JSON.stringify({ event: "auth", args: [c.token] }));
-                if (identifier === expandedRef.current) {
-                  ws.send(JSON.stringify({ event: "send logs", args: [null] }));
-                }
-              })
-              .catch(() => {
-                /* will surface via close */
-              });
-            break;
-          default:
-            break;
-        }
-      };
-      ws.onerror = () => {
-        setStreams((prev) => ({
-          ...prev,
-          [identifier]: {
-            ...(prev[identifier] ?? {}),
-            status: "error",
-            error:
-              "WebSocket error — the panel may not allow this origin (Wings allowed_origins).",
-          },
-        }));
-      };
-      ws.onclose = () => {
-        socketsRef.current.delete(identifier);
-        setStreams((prev) => {
-          if (prev[identifier]?.status === "error") return prev;
-          const next = { ...prev };
-          delete next[identifier];
-          return next;
-        });
-      };
-    },
-    [fetchWsCreds, pushHistory],
-  );
-
-  // Expanding a row opens the live stream (stats + console); collapsing closes
-  // it. Only one server is expanded/streamed at a time.
-  const toggleExpand = useCallback(
-    (server) => {
-      const id = server.identifier;
-      if (!id) return;
-      const prev = expandedRef.current;
-      if (prev === id) {
-        expandedRef.current = null;
-        setExpandedId(null);
-        setLogs([]);
-        stopStream(id);
-        return;
-      }
-      if (prev) stopStream(prev);
-      expandedRef.current = id;
-      setExpandedId(id);
-      setLogs([]);
-      const entry = socketsRef.current.get(id);
-      if (!entry) {
-        startStream(server);
-      } else if (entry.authed && entry.ws?.readyState === 1) {
-        try {
-          entry.ws.send(JSON.stringify({ event: "send logs", args: [null] }));
-        } catch {
-          /* ignore */
-        }
-      }
-    },
-    [startStream, stopStream],
-  );
 
   const load = useCallback(async () => {
     try {
@@ -2719,24 +2421,8 @@ function StatusTab({ orgId }) {
     historyRef.current = new Map();
     load();
     const id = setInterval(load, 8000);
-    const sockets = socketsRef.current;
     return () => {
       clearInterval(id);
-      for (const entry of sockets.values()) {
-        if (entry?.ws) {
-          entry.ws.onclose = null;
-          try {
-            entry.ws.close();
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-      sockets.clear();
-      setStreams({});
-      expandedRef.current = null;
-      setExpandedId(null);
-      setLogs([]);
     };
   }, [load]);
 
@@ -2758,15 +2444,8 @@ function StatusTab({ orgId }) {
       agg.count += 1;
       agg.allocMem += s.limits?.memory ?? 0;
       agg.allocDisk += s.limits?.disk ?? 0;
-      const liveStream = streams[s.identifier];
-      const usedMem =
-        liveStream?.status === "live"
-          ? liveStream.mem
-          : s.live?.resources.memoryBytes;
-      const usedDisk =
-        liveStream?.status === "live"
-          ? liveStream.disk
-          : s.live?.resources.diskBytes;
+      const usedMem = s.live?.resources.memoryBytes;
+      const usedDisk = s.live?.resources.diskBytes;
       if (usedMem != null) {
         agg.usedMemBytes += usedMem;
         agg.hasUsage = true;
@@ -2777,7 +2456,7 @@ function StatusTab({ orgId }) {
       map.set(key, agg);
     }
     return map;
-  }, [servers, streams]);
+  }, [servers]);
 
   if (loading && !data) {
     return (
@@ -2984,61 +2663,27 @@ function StatusTab({ orgId }) {
               <div />
             </div>
             {servers.map((s) => {
-              const stream = streams[s.identifier];
-              const isLiveStream = stream?.status === "live";
-              const isExpanded = expandedId === s.identifier;
+            {servers.map((s) => {
               const hist = historyRef.current.get(s.identifier) ?? [];
               const memLimitBytes = (s.limits?.memory ?? 0) * 1048576;
 
-              // Prefer real-time websocket values, fall back to polled stats.
               const state =
-                stream?.state ??
                 s.live?.state ??
                 (s.suspended ? "offline" : "unknown");
-              const hasStats = isLiveStream || !!s.live;
-              const cpu = isLiveStream
-                ? stream.cpu
-                : s.live?.resources.cpuAbsolute;
-              const memBytes = isLiveStream
-                ? stream.mem
-                : s.live?.resources.memoryBytes;
-              const diskBytes = isLiveStream
-                ? stream.disk
-                : s.live?.resources.diskBytes;
-              const uptime = isLiveStream
-                ? stream.uptime
-                : s.live?.resources.uptime;
+              const hasStats = !!s.live;
+              const cpu = s.live?.resources.cpuAbsolute;
+              const memBytes = s.live?.resources.memoryBytes;
+              const diskBytes = s.live?.resources.diskBytes;
+              const uptime = s.live?.resources.uptime;
 
               return (
                 <Fragment key={s.uuid ?? s.identifier ?? s.pteroId}>
                   <div
-                    role="button"
-                    tabIndex={s.identifier ? 0 : -1}
-                    onClick={() => s.identifier && toggleExpand(s)}
-                    onKeyDown={(e) => {
-                      if (
-                        s.identifier &&
-                        (e.key === "Enter" || e.key === " ")
-                      ) {
-                        e.preventDefault();
-                        toggleExpand(s);
-                      }
-                    }}
-                    className={
-                      "grid grid-cols-[1.5fr_0.7fr_1.1fr_1.2fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] " +
-                      (s.identifier ? "cursor-pointer " : "") +
-                      (isExpanded ? "bg-surface/70" : "hover:bg-surface/40")
-                    }
+                    className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1.2fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <StateDot state={state} />
                       <span className="font-medium truncate">{s.name}</span>
-                      {isLiveStream && (
-                        <span className="flex items-center gap-1 text-[8px] font-mono uppercase tracking-widest text-success shrink-0">
-                          <span className="size-1.5 rounded-full bg-success animate-pulse" />
-                          live
-                        </span>
-                      )}
                       {s.suspended && (
                         <span className="text-[8px] font-mono uppercase tracking-widest text-destructive bg-destructive/10 px-1 rounded shrink-0">
                           suspended
@@ -3124,41 +2769,19 @@ function StatusTab({ orgId }) {
                       {hasStats ? fmtUptime(uptime) : "—"}
                     </div>
 
-                    <div className="flex justify-end items-center gap-1.5">
-                      {stream?.status === "error" && (
-                        <span title={stream.error}>
-                          <AlertTriangle className="size-3 text-destructive" />
-                        </span>
-                      )}
-                      {stream?.status === "connecting" && (
-                        <span className="text-[8px] font-mono text-muted-foreground">
-                          …
-                        </span>
-                      )}
-                      {s.identifier && (
-                        <ChevronDown
-                          className={
-                            "size-3.5 text-muted-foreground transition-transform " +
-                            (isExpanded ? "rotate-180" : "")
-                          }
-                        />
-                      )}
-                    </div>
+                    <div />
                   </div>
-
-                  {isExpanded && (
-                    <ServerDetailPanel server={s} stream={stream} logs={logs} />
-                  )}
                 </Fragment>
+              );
+            })}
               );
             })}
           </div>
         )}
         <div className="text-[10px] text-muted-foreground/70 font-mono mt-1.5">
           CPU, memory, disk and uptime come from the Pterodactyl client API and
-          refresh every 8s. Click a server to expand it — that opens a websocket
-          for real-time stats and a read-only console feed. Memory and disk are
-          shown against each server's configured limit.
+          refresh every 8s. Memory and disk are shown against each server's
+          configured limit.
         </div>
       </div>
 

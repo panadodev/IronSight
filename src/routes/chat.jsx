@@ -17,6 +17,12 @@ const Route = createFileRoute("/chat")({
   component: ChatPage,
 });
 
+const PRESETS = [
+  { label: "Last hour", ms: 60 * 60 * 1e3 },
+  { label: "Last 24h", ms: 24 * 60 * 60 * 1e3 },
+  { label: "Last Week", ms: 7 * 24 * 60 * 60 * 1e3 },
+];
+
 function fmtLocalInput(ms) {
   const d = new Date(ms);
   const pad = (n) => String(n).padStart(2, "0");
@@ -28,6 +34,14 @@ function parseLocal(v) {
 function fmtTime(ms, tz) {
   const d = new Date(ms);
   return d.toLocaleString(undefined, tz ? { timeZone: tz } : {});
+}
+function fmtRelative(ms) {
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)}d ago`;
+  return `${Math.floor(diff / (86400 * 30))}mo ago`;
 }
 
 const NOW = Date.now();
@@ -41,10 +55,13 @@ function ChatPage() {
   const [serversLoading, setServersLoading] = useState(true);
 
   const [serverId, setServerId] = useState("");
-  const [start, setStart] = useState(fmtLocalInput(NOW - 6 * 60 * 60 * 1e3));
+  const [start, setStart] = useState(fmtLocalInput(NOW - 60 * 60 * 1e3));
   const [end, setEnd] = useState(fmtLocalInput(NOW));
   const [query, setQuery] = useState("");
   const [selectedPlayers, setSelectedPlayers] = useState(new Set());
+  const [relativeTs, setRelativeTs] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState(0);
+  const [hideTeamMsg, setHideTeamMsg] = useState(false);
 
   const [lines, setLines] = useState([]);
   const [linesLoading, setLinesLoading] = useState(false);
@@ -242,14 +259,23 @@ function ChatPage() {
     return Array.from(seen.entries()).map(([steamId, name]) => ({ steamId, name }));
   }, [lines]);
 
+  // When relative preset changes, update start/end
+  useEffect(() => {
+    if (!relativeTs) return;
+    const now = Date.now();
+    setStart(fmtLocalInput(now - PRESETS[selectedPreset].ms));
+    setEnd(fmtLocalInput(now));
+  }, [relativeTs, selectedPreset]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return lines.filter((l) => {
+      if (hideTeamMsg && l.teamMessage) return false;
       if (selectedPlayers.size > 0 && !selectedPlayers.has(l.steamId)) return false;
       if (q && !l.message.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [lines, selectedPlayers, query]);
+  }, [lines, selectedPlayers, query, hideTeamMsg]);
 
   const toggle = (id) => {
     setSelectedPlayers((cur) => {
@@ -328,28 +354,53 @@ function ChatPage() {
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                  From
-                </Label>
-                <Input
-                  type="datetime-local"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                  className="h-8 w-[195px] text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                  To
-                </Label>
-                <Input
-                  type="datetime-local"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                  className="h-8 w-[195px] text-xs"
-                />
-              </div>
+              {relativeTs ? (
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    Timeframe
+                  </Label>
+                  <div className="flex ring-1 ring-border rounded-md overflow-hidden h-8">
+                    {PRESETS.map((p, i) => (
+                      <button
+                        key={p.label}
+                        onClick={() => setSelectedPreset(i)}
+                        className={`px-3 text-xs font-mono transition-colors ${
+                          selectedPreset === i
+                            ? "bg-brand text-brand-foreground"
+                            : "text-muted-foreground hover:text-foreground bg-background"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      From
+                    </Label>
+                    <Input
+                      type="datetime-local"
+                      value={start}
+                      onChange={(e) => setStart(e.target.value)}
+                      className="h-8 w-[195px] text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      To
+                    </Label>
+                    <Input
+                      type="datetime-local"
+                      value={end}
+                      onChange={(e) => setEnd(e.target.value)}
+                      className="h-8 w-[195px] text-xs"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="space-y-1">
                 <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
@@ -423,6 +474,33 @@ function ChatPage() {
                   className="h-8 text-xs"
                 />
               </div>
+
+              <div className="flex items-end gap-3 pb-0.5">
+                <button
+                  onClick={() => {
+                    const next = !relativeTs;
+                    setRelativeTs(next);
+                    if (next) setSelectedPreset(0);
+                  }}
+                  className={`h-8 px-3 text-xs font-mono rounded-md ring-1 transition-colors ${
+                    relativeTs
+                      ? "bg-brand text-brand-foreground ring-brand"
+                      : "bg-background text-muted-foreground ring-border hover:text-foreground"
+                  }`}
+                >
+                  Relative time
+                </button>
+                <button
+                  onClick={() => setHideTeamMsg((v) => !v)}
+                  className={`h-8 px-3 text-xs font-mono rounded-md ring-1 transition-colors ${
+                    hideTeamMsg
+                      ? "bg-brand text-brand-foreground ring-brand"
+                      : "bg-background text-muted-foreground ring-border hover:text-foreground"
+                  }`}
+                >
+                  Hide team chat
+                </button>
+              </div>
             </div>
 
             {activeServer && (
@@ -446,14 +524,16 @@ function ChatPage() {
                 {filtered.map((l) => (
                   <div
                     key={l.id}
-                    className="flex gap-3 px-2 py-1 hover:bg-surface/50 rounded"
+                    className={`flex gap-3 px-2 py-1 hover:bg-surface/50 rounded items-baseline ${
+                      l.teamMessage ? "border-l-2 border-yellow-500/40 pl-1.5" : ""
+                    }`}
                   >
-                    <span className="text-muted-foreground shrink-0 w-[140px]">
-                      {fmtTime(l.ts * 1000, tz)}
+                    <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
+                      {relativeTs ? fmtRelative(l.ts * 1000) : fmtTime(l.ts * 1000, tz)}
                     </span>
                     {l.teamMessage && (
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500 shrink-0 self-center">
-                        TEAM
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
+                        team
                       </span>
                     )}
                     <Link
@@ -464,7 +544,9 @@ function ChatPage() {
                     >
                       {l.playerName ?? l.steamId}
                     </Link>
-                    <span className="text-foreground/90 break-words">{l.message}</span>
+                    <span className={`break-words ${l.teamMessage ? "text-yellow-400/80" : "text-foreground/90"}`}>
+                      {l.message}
+                    </span>
                   </div>
                 ))}
                 <div ref={sentinelRef} className="py-3 flex items-center justify-center">

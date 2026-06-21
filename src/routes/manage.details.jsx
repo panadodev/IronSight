@@ -610,6 +610,7 @@ function RipeAtlasSection({ orgId }) {
   const [apiKey, setApiKey] = useState("");
   const [countries, setCountries] = useState(DEFAULT_RIPE_COUNTRIES);
   const [probesPerCountry, setProbesPerCountry] = useState(3);
+  const [checkIntervalMinutes, setCheckIntervalMinutes] = useState(5);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
 
@@ -631,6 +632,7 @@ function RipeAtlasSection({ orgId }) {
       if (body.config) {
         setCountries(body.config.countries ?? DEFAULT_RIPE_COUNTRIES);
         setProbesPerCountry(body.config.probesPerCountry ?? 3);
+        setCheckIntervalMinutes(body.config.checkIntervalMinutes ?? 5);
       }
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED")
@@ -649,7 +651,7 @@ function RipeAtlasSection({ orgId }) {
     setSaving(true);
     setError("");
     try {
-      const payload = { countries, probesPerCountry: Number(probesPerCountry) };
+      const payload = { countries, probesPerCountry: Number(probesPerCountry), checkIntervalMinutes: Number(checkIntervalMinutes) };
       if (!config) payload.apiKey = apiKey.trim();
       else if (apiKey.trim()) payload.apiKey = apiKey.trim();
 
@@ -695,6 +697,7 @@ function RipeAtlasSection({ orgId }) {
       setApiKey("");
       setCountries(DEFAULT_RIPE_COUNTRIES);
       setProbesPerCountry(3);
+      setCheckIntervalMinutes(5);
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") setError("Failed to remove.");
     } finally {
@@ -708,16 +711,16 @@ function RipeAtlasSection({ orgId }) {
     );
   }
 
-  const estimatedDailyCredits = countries.length * probesPerCountry * 3 * 288;
+  const cyclesPerDay = Math.floor((24 * 60) / checkIntervalMinutes);
+  const estimatedDailyCredits = countries.length * probesPerCountry * 3 * cyclesPerDay;
 
   return (
     <div className="space-y-4 border-t border-border pt-6">
       <div>
         <h2 className="text-sm font-semibold">RIPE Atlas Network Monitoring</h2>
         <p className="text-[11px] text-muted-foreground mt-0.5">
-          Ping your game servers every 5 minutes from probes in major countries
-          via the RIPE Atlas network. Requires a RIPE Atlas account with
-          measurement credits.
+          Ping your game servers from probes in major countries via the RIPE
+          Atlas network. Requires a RIPE Atlas account with measurement credits.
         </p>
       </div>
 
@@ -827,7 +830,7 @@ function RipeAtlasSection({ orgId }) {
             <div>
               <p className="text-sm font-medium">Probe countries</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                Servers are pinged from each selected country every 5 minutes.
+                Servers are pinged from each selected country each check cycle.
                 Fewer countries = lower credit usage.
               </p>
             </div>
@@ -878,7 +881,28 @@ function RipeAtlasSection({ orgId }) {
                 Estimated credit usage: ~{estimatedDailyCredits.toLocaleString()}{" "}
                 credits/day (3 packets × {probesPerCountry} probe
                 {probesPerCountry === 1 ? "" : "s"} × {countries.length} countr
-                {countries.length === 1 ? "y" : "ies"} × 288 cycles).
+                {countries.length === 1 ? "y" : "ies"} × {cyclesPerDay} cycles).
+              </p>
+            </div>
+          </div>
+
+          {/* Check interval */}
+          <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2">
+            <div className="space-y-1">
+              <Label htmlFor="check-interval">Check interval</Label>
+              <select
+                id="check-interval"
+                value={checkIntervalMinutes}
+                onChange={(e) => setCheckIntervalMinutes(Number(e.target.value))}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground"
+              >
+                <option value={5}>Every 5 minutes</option>
+                <option value={10}>Every 10 minutes</option>
+                <option value={25}>Every 25 minutes</option>
+              </select>
+              <p className="text-[10px] text-muted-foreground">
+                How often IronSight triggers a new RIPE Atlas measurement cycle.
+                Longer intervals use fewer credits.
               </p>
             </div>
           </div>

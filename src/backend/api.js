@@ -146,6 +146,59 @@ function nowUnix() {
   return Math.floor(Date.now() / 1000);
 }
 
+// ── Diagnostic ring buffers ───────────────────────────────────────────────────
+// In-memory only; reset on server restart. Max 1 000 entries each.
+const DIAG_MAX = 1000;
+const diagIncoming = []; // { ts, method, route, status, ms, isIngest }
+const diagOutgoing = []; // { ts, service, host, status, ms }
+const diagErrors   = []; // non-2xx from either direction (same shape + direction)
+
+function diagPush(arr, entry) {
+  arr.push(entry);
+  if (arr.length > DIAG_MAX) arr.shift();
+}
+
+// Normalise a raw pathname to a stable route pattern for grouping.
+function diagRoute(pathname) {
+  return pathname
+    // UUIDs
+    .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "/:uuid")
+    // Steam IDs (17-digit numbers) and other long numeric IDs
+    .replace(/\/\d{10,}/g, "/:id")
+    // Short numeric IDs (ticket IDs, etc.)
+    .replace(/\/\d+/g, "/:id")
+    // Likely opaque org/server slugs after known path segments
+    .replace(/(\/orgs\/)([^/]+)/, "$1:orgId")
+    .replace(/(\/servers\/)([^/]+)/, "$1:serverId")
+    .replace(/(\/players\/)([^/]+)/, "$1:playerId")
+    .replace(/(\/tickets\/)([^/]+)/, "$1:ticketId")
+    .replace(/(\/roles\/)([^/]+)/, "$1:roleId")
+    .replace(/(\/staff\/)([^/]+)/, "$1:userId");
+}
+
+function diagRecordIncoming(method, pathname, status, ms) {
+  const isIngest =
+    pathname.startsWith("/api/ingest/") ||
+    pathname === "/api/server-health-check" ||
+    pathname.startsWith("/api/internal/");
+  const route = diagRoute(pathname);
+  const entry = { ts: Date.now(), method, route, status, ms, isIngest };
+  diagPush(diagIncoming, entry);
+  if (status < 200 || status >= 300) {
+    diagPush(diagErrors, { ...entry, direction: "incoming" });
+  }
+}
+
+function diagRecordOutgoing(service, url, status, ms) {
+  let host;
+  try { host = new URL(url).hostname; } catch { host = url.slice(0, 60); }
+  const entry = { ts: Date.now(), service, host, status, ms };
+  diagPush(diagOutgoing, entry);
+  if (status < 200 || status >= 300) {
+    diagPush(diagErrors, { ...entry, direction: "outgoing" });
+  }
+}
+
 function getPterodactylEncryptionKey() {
   if (pterodactylEncryptionKey) return pterodactylEncryptionKey;
   const secret = String(env.pterodactylEncryptionSecret ?? "").trim();
@@ -458,6 +511,15 @@ function orgHasPermission(session, orgId, permissionId) {
     canManageOrg(session, orgId) ||
     (session.orgPermissions?.[orgId] ?? []).includes(permissionId)
   );
+}
+
+function sessionRankForOrg(session, orgId) {
+  if (session.globalAdmin) return 4;
+  if ((session.orgOwnerOrgIds ?? []).includes(orgId)) return 4;
+  if ((session.orgAdminOrgIds ?? []).includes(orgId)) return 4;
+  const perms = (session.orgPermissions ?? {})[orgId] ?? [];
+  if (perms.length > 0) return 3;
+  return 1;
 }
 
 // Permission IDs that may be assigned to a custom role via the role editor.
@@ -1611,10 +1673,14 @@ async function ensureSchema() {
       api_key_enc         TEXT    NOT NULL,
       countries           TEXT[]  NOT NULL DEFAULT '{US,GB,DE,FR,NL,SG,AU,JP,BR,CA}',
       probes_per_country  INTEGER NOT NULL DEFAULT 3,
+      check_interval_minutes INTEGER NOT NULL DEFAULT 5,
       created_at          BIGINT  NOT NULL DEFAULT unix_now(),
       updated_at          BIGINT  NOT NULL DEFAULT unix_now()
     )
   `);
+  await pool.query(
+    `ALTER TABLE org_ripe_atlas_config ADD COLUMN IF NOT EXISTS check_interval_minutes INTEGER NOT NULL DEFAULT 5`,
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS org_ripe_atlas_measurements (
@@ -5523,6 +5589,7 @@ async function handleListOrgTickets(request, orgId) {
             t.updated_at,
             t.closed_at,
             tt.ticket_type_name,
+            tt.ticket_type_category,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
             assignee.username AS assigned_to_username
      FROM tickets t
@@ -5541,6 +5608,7 @@ async function handleListOrgTickets(request, orgId) {
       org_id: String(row.org_id),
       ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
       ticket_type_name: row.ticket_type_name ?? null,
+      ticket_type_category: row.ticket_type_category ?? null,
       created_by: row.created_by ? String(row.created_by) : null,
       created_by_username: row.created_by_username ?? null,
       created_by_steam_id: row.created_by_steam_id ?? null,
@@ -5552,6 +5620,35 @@ async function handleListOrgTickets(request, orgId) {
       created_at: Number(row.created_at),
       updated_at: Number(row.updated_at),
       closed_at: row.closed_at ? Number(row.closed_at) : null,
+    })),
+  });
+}
+
+async function handleGetOrgTicketAssignees(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const canView =
+    isGlobalAdmin(session) ||
+    canManageOrg(session, orgId) ||
+    orgHasPermission(session, orgId, "tickets_view") ||
+    orgHasPermission(session, orgId, "tickets_manage");
+
+  if (!canView) return json({ error: "Forbidden" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT u.user_id, u.username
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1
+     ORDER BY u.username ASC`,
+    [orgId],
+  );
+
+  return json({
+    members: rows.map((row) => ({
+      userId: String(row.user_id),
+      username: String(row.username),
     })),
   });
 }
@@ -6654,6 +6751,114 @@ async function handleDeleteScript(request, orgId, scriptId) {
   if (res.rowCount === 0) return json({ error: "Script not found" }, 404);
 
   return json({ ok: true });
+}
+
+async function handleExecScriptRcon(request, orgId, scriptId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!orgHasPermission(session, orgId, "rcon_access"))
+    return json({ error: "Forbidden: rcon_access permission required" }, 403);
+
+  const scriptRes = await pool.query(
+    `SELECT name, command, min_rank FROM org_scripts WHERE script_id = $1 AND org_id = $2`,
+    [scriptId, orgId],
+  );
+  if (!scriptRes.rows[0]) return json({ error: "Script not found" }, 404);
+
+  const { name: scriptName, command: rawCommand, min_rank } = scriptRes.rows[0];
+  const userRank = sessionRankForOrg(session, orgId);
+  if (userRank < Number(min_rank))
+    return json({ error: "Forbidden: insufficient rank to execute this script" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const serverId = String(body?.serverId ?? "").trim();
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const rawVars = body?.vars && typeof body.vars === "object" ? body.vars : {};
+  const vars = {};
+  for (const [k, v] of Object.entries(rawVars)) {
+    if (/^[a-zA-Z0-9_]+$/.test(k))
+      vars[k] = String(v ?? "").replace(/[\r\n\x00-\x1f]/g, "");
+  }
+
+  const command = String(rawCommand).replace(
+    /\{([a-zA-Z0-9_]+)\}/g,
+    (_, k) => vars[k] ?? `{${k}}`,
+  );
+  const cmds = command
+    .split("\n")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const { owner_org_id, rcon_host, rcon_port, rcon_password_enc } =
+    serverRes.rows[0];
+  if (owner_org_id !== orgId) return json({ error: "Server not found" }, 404);
+
+  if (!rcon_host || !rcon_port || !rcon_password_enc)
+    return json({ error: "RCON not configured for this server" }, 400);
+
+  let rconPassword;
+  try {
+    rconPassword = decryptPterodactylApiKey(rcon_password_enc);
+  } catch {
+    return json({ error: "RCON credentials corrupted" }, 500);
+  }
+
+  const rl = await checkRateLimit(
+    `rl:rcon:${session.userId}:${serverId}`,
+    30,
+    60,
+  );
+  if (rl) return rl;
+
+  const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(rconPassword)}`;
+  const outputs = [];
+  for (const cmd of cmds) {
+    let rconResult = null;
+    let rconErr = null;
+    try {
+      rconResult = await executeRconCommand(rconUrl, cmd);
+    } catch (err) {
+      rconErr = String(err?.message ?? err);
+    }
+    outputs.push({
+      cmd,
+      ok: rconErr === null,
+      response: rconResult?.response ?? rconErr ?? "",
+    });
+  }
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "script",
+    resourceId: scriptId,
+    actionType: "SCRIPT_EXEC",
+    actionCategory: "server_management",
+    severity: 2,
+    metadata: {
+      scriptName,
+      serverId,
+      success: outputs.every((o) => o.ok),
+    },
+    ipAddress: getClientIp(request),
+  });
+
+  return json({ ok: true, outputs });
 }
 
 // ── Manage Org: Pre-defines ─────────────────────────────────────────────────
@@ -8113,12 +8318,12 @@ function executeRconCommand(rconUrl, command) {
       try {
         const msg = JSON.parse(String(event.data));
         if (msg.Identifier === requestId) {
+          settle(resolve, { response: String(msg.Message ?? ""), consoleLogs });
           try {
             ws.close(1000, "Done");
           } catch {
             /* noop */
           }
-          settle(resolve, { response: String(msg.Message ?? ""), consoleLogs });
         } else if (msg.Identifier === -1 && commandSent) {
           consoleLogs.push(String(msg.Message ?? ""));
         }
@@ -9805,7 +10010,9 @@ export async function initializeInfra() {
 const RIPE_ATLAS_BASE = "https://atlas.ripe.net/api/v2";
 
 async function ripeAtlasFetch(apiKey, path, opts = {}) {
-  return fetch(`${RIPE_ATLAS_BASE}${path}`, {
+  const t0ra = Date.now();
+  const url = `${RIPE_ATLAS_BASE}${path}`;
+  const res = await fetch(url, {
     ...opts,
     headers: {
       Authorization: `Key ${apiKey}`,
@@ -9814,6 +10021,8 @@ async function ripeAtlasFetch(apiKey, path, opts = {}) {
     },
     signal: opts.signal ?? AbortSignal.timeout(20000),
   });
+  diagRecordOutgoing("ripe-atlas", url, res.status, Date.now() - t0ra);
+  return res;
 }
 
 async function ripeAtlasGetCredits(apiKey) {
@@ -9861,11 +10070,19 @@ async function ripeAtlasCreateMeasurement(apiKey, targetIp, country, probesPerCo
 
 async function triggerRipeAtlasMeasurements() {
   const { rows: configs } = await pool.query(
-    `SELECT org_id, api_key_enc, countries, probes_per_country FROM org_ripe_atlas_config`,
+    `SELECT c.org_id, c.api_key_enc, c.countries, c.probes_per_country, c.check_interval_minutes,
+            MAX(m.created_at) AS last_triggered_at
+     FROM org_ripe_atlas_config c
+     LEFT JOIN org_ripe_atlas_measurements m ON m.org_id = c.org_id
+     GROUP BY c.org_id, c.api_key_enc, c.countries, c.probes_per_country, c.check_interval_minutes`,
   );
   if (!configs.length) return;
 
+  const nowSec = Math.floor(Date.now() / 1000);
   for (const cfg of configs) {
+    const intervalSec = (Number(cfg.check_interval_minutes) || 5) * 60;
+    const lastAt = cfg.last_triggered_at ? Number(cfg.last_triggered_at) : 0;
+    if (nowSec - lastAt < intervalSec) continue;
     let apiKey;
     try {
       apiKey = decryptExternalApiKey(String(cfg.api_key_enc));
@@ -10098,14 +10315,18 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
   for (const { keyId, key } of keys) {
     const { url, options } = buildRequest(key);
     let resp;
+    const t0ext = Date.now();
     try {
       resp = await fetch(url, options ?? {});
     } catch (err) {
       console.warn(
         `[ext-api:${service}] key=${keyId} network error: ${err.message}`,
       );
+      diagRecordOutgoing(service, url, 0, Date.now() - t0ext);
       continue;
     }
+
+    diagRecordOutgoing(service, url, resp.status, Date.now() - t0ext);
 
     if (resp.status === 429) {
       const retryAfter = parseFloat(resp.headers.get("Retry-After") ?? "60");
@@ -11790,7 +12011,7 @@ async function handleGetRipeAtlasConfig(request, orgId) {
     return json({ error: "Forbidden: servers_manage permission required" }, 403);
 
   const { rows } = await pool.query(
-    `SELECT api_key_enc, countries, probes_per_country, created_at, updated_at
+    `SELECT api_key_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
      FROM org_ripe_atlas_config WHERE org_id = $1`,
     [orgId],
   );
@@ -11810,6 +12031,7 @@ async function handleGetRipeAtlasConfig(request, orgId) {
     config: {
       countries: Array.isArray(row.countries) ? row.countries : [],
       probesPerCountry: Number(row.probes_per_country),
+      checkIntervalMinutes: Number(row.check_interval_minutes) || 5,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
     },
@@ -11842,6 +12064,10 @@ async function handlePutRipeAtlasConfig(request, orgId) {
     return json({ error: "At least one country code is required" }, 400);
 
   const probesPerCountry = Math.min(Math.max(Number(body?.probesPerCountry ?? 3), 1), 10);
+  const ALLOWED_INTERVALS = [5, 10, 25];
+  const checkIntervalMinutes = ALLOWED_INTERVALS.includes(Number(body?.checkIntervalMinutes))
+    ? Number(body.checkIntervalMinutes)
+    : 5;
 
   const { rows: existing } = await pool.query(
     `SELECT org_id FROM org_ripe_atlas_config WHERE org_id = $1`,
@@ -11852,9 +12078,10 @@ async function handlePutRipeAtlasConfig(request, orgId) {
     const setClauses = [
       `countries = $2`,
       `probes_per_country = $3`,
+      `check_interval_minutes = $4`,
       `updated_at = unix_now()`,
     ];
-    const params = [orgId, countries, probesPerCountry];
+    const params = [orgId, countries, probesPerCountry, checkIntervalMinutes];
     if (body?.apiKey?.trim()) {
       setClauses.push(`api_key_enc = $${params.length + 1}`);
       params.push(encryptExternalApiKey(body.apiKey.trim()));
@@ -11867,14 +12094,14 @@ async function handlePutRipeAtlasConfig(request, orgId) {
     const rawKey = String(body?.apiKey ?? "").trim();
     if (!rawKey) return json({ error: "API key is required when enabling monitoring" }, 400);
     await pool.query(
-      `INSERT INTO org_ripe_atlas_config (org_id, api_key_enc, countries, probes_per_country)
-       VALUES ($1, $2, $3, $4)`,
-      [orgId, encryptExternalApiKey(rawKey), countries, probesPerCountry],
+      `INSERT INTO org_ripe_atlas_config (org_id, api_key_enc, countries, probes_per_country, check_interval_minutes)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [orgId, encryptExternalApiKey(rawKey), countries, probesPerCountry, checkIntervalMinutes],
     );
   }
 
   const { rows: updated } = await pool.query(
-    `SELECT api_key_enc, countries, probes_per_country, created_at, updated_at
+    `SELECT api_key_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
      FROM org_ripe_atlas_config WHERE org_id = $1`,
     [orgId],
   );
@@ -11890,6 +12117,7 @@ async function handlePutRipeAtlasConfig(request, orgId) {
     config: {
       countries: Array.isArray(row.countries) ? row.countries : [],
       probesPerCountry: Number(row.probes_per_country),
+      checkIntervalMinutes: Number(row.check_interval_minutes) || 5,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
     },
@@ -12201,6 +12429,41 @@ async function handleClearAllPlayerCache(request) {
   const { rowCount } = await pool.query(`DELETE FROM player_cache`);
 
   return json({ ok: true, redisCleared, dbCleared: rowCount ?? 0 });
+}
+
+// ── Sysadmin: diagnostic metrics ─────────────────────────────────────────────
+
+async function handleGetSysMetrics(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  // Compute per-route aggregates from the incoming buffer
+  const routeStats = new Map();
+  for (const e of diagIncoming) {
+    const key = `${e.method} ${e.route}`;
+    const s = routeStats.get(key) ?? { method: e.method, route: e.route, count: 0, totalMs: 0, errors: 0, latencies: [] };
+    s.count++;
+    s.totalMs += e.ms;
+    s.latencies.push(e.ms);
+    if (e.status < 200 || e.status >= 300) s.errors++;
+    routeStats.set(key, s);
+  }
+  const routes = [...routeStats.values()].map((s) => {
+    const sorted = [...s.latencies].sort((a, b) => a - b);
+    const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
+    const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+    const avg = s.count ? Math.round(s.totalMs / s.count) : 0;
+    return { method: s.method, route: s.route, count: s.count, avg, p50, p95, errors: s.errors };
+  }).sort((a, b) => b.count - a.count);
+
+  return json({
+    incoming: [...diagIncoming].reverse().slice(0, 500),
+    outgoing: [...diagOutgoing].reverse().slice(0, 500),
+    errors: [...diagErrors].reverse().slice(0, 500),
+    routes,
+  });
 }
 
 // ── Player reports by Steam ID ────────────────────────────────────────────────
@@ -12517,7 +12780,8 @@ async function handleGetOrgPlayerList(request, orgId) {
   const result = { players: enriched, servers };
 
   try {
-    await redis.set(cacheKey, JSON.stringify(result), "EX", 30);
+    const hasRconErrors = servers.some((s) => s.rconError);
+    await redis.set(cacheKey, JSON.stringify(result), "EX", hasRconErrors ? 5 : 30);
   } catch {}
 
   return json(result);
@@ -12654,6 +12918,13 @@ async function _handleApiRequest(request) {
     }
     if (orgMembersMatch && request.method === "GET") {
       return handleGetOrgMembers(request, orgMembersMatch[1]);
+    }
+
+    const orgTicketAssigneesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-assignees$/,
+    );
+    if (orgTicketAssigneesMatch && request.method === "GET") {
+      return handleGetOrgTicketAssignees(request, orgTicketAssigneesMatch[1]);
     }
 
     const orgStaffStatsMatch = pathname.match(
@@ -12964,6 +13235,16 @@ async function _handleApiRequest(request) {
     if (orgScriptMatch && request.method === "DELETE")
       return handleDeleteScript(request, orgScriptMatch[1], orgScriptMatch[2]);
 
+    const orgScriptExecMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/scripts\/([a-f0-9-]+)\/exec$/,
+    );
+    if (orgScriptExecMatch && request.method === "POST")
+      return handleExecScriptRcon(
+        request,
+        orgScriptExecMatch[1],
+        orgScriptExecMatch[2],
+      );
+
     // Plugin presets CRUD
     const orgPluginsMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins$/,
@@ -13266,6 +13547,10 @@ async function _handleApiRequest(request) {
     // Sysadmin: clear all player cache
     if (pathname === "/api/admin/player-cache" && request.method === "DELETE")
       return handleClearAllPlayerCache(request);
+
+    // Sysadmin: diagnostic metrics
+    if (pathname === "/api/sys/metrics" && request.method === "GET")
+      return handleGetSysMetrics(request);
 
     // Player reports
     const playerReportsMatch = pathname.match(
@@ -14202,8 +14487,8 @@ export async function handleApiRequest(request) {
     console.error(`[api] ${method} ${pathname} — unhandled error:`, error);
     response = json({ error: "Internal server error" }, 500);
   }
-  console.log(
-    `[api] ${method} ${pathname} → ${response.status} (${Date.now() - t0}ms)`,
-  );
+  const ms = Date.now() - t0;
+  console.log(`[api] ${method} ${pathname} → ${response.status} (${ms}ms)`);
+  diagRecordIncoming(method, pathname, response.status, ms);
   return response;
 }

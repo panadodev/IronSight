@@ -203,10 +203,6 @@ function MyTicketsPage() {
               Player Portal
             </p>
             <h1 className="text-lg font-semibold">My Tickets</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {session.username}
-              {session.steamId && <> \u00b7 {session.steamId}</>}
-            </p>
           </div>
 
           <div className="flex-1 overflow-y-auto">

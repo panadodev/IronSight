@@ -36,6 +36,7 @@ import { Route as ManageRolesRouteImport } from './routes/manage.roles'
 import { Route as ManagePredefinesRouteImport } from './routes/manage.predefines'
 import { Route as ManageDetailsRouteImport } from './routes/manage.details'
 import { Route as ManageBanConfigsRouteImport } from './routes/manage.ban-configs'
+import { Route as SysMetricsRouteImport } from './routes/sys-metrics'
 
 const TosRoute = TosRouteImport.update({
   id: '/tos',
@@ -137,6 +138,11 @@ const SysAdminRolesRoute = SysAdminRolesRouteImport.update({
   path: '/sys-admin/roles',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SysMetricsRoute = SysMetricsRouteImport.update({
+  id: '/sys-metrics',
+  path: '/sys-metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ManageToxicityRoute = ManageToxicityRouteImport.update({
   id: '/toxicity',
   path: '/toxicity',
@@ -201,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
   '/sys-admin/roles': typeof SysAdminRolesRoute
+  '/sys-metrics': typeof SysMetricsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -230,6 +237,7 @@ export interface FileRoutesByTo {
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
   '/sys-admin/roles': typeof SysAdminRolesRoute
+  '/sys-metrics': typeof SysMetricsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -260,6 +268,7 @@ export interface FileRoutesById {
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
   '/sys-admin/roles': typeof SysAdminRolesRoute
+  '/sys-metrics': typeof SysMetricsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/manage/tickets'
     | '/manage/toxicity'
     | '/sys-admin/roles'
+    | '/sys-metrics'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -320,6 +330,7 @@ export interface FileRouteTypes {
     | '/manage/tickets'
     | '/manage/toxicity'
     | '/sys-admin/roles'
+    | '/sys-metrics'
   id:
     | '__root__'
     | '/'
@@ -349,6 +360,7 @@ export interface FileRouteTypes {
     | '/manage/tickets'
     | '/manage/toxicity'
     | '/sys-admin/roles'
+    | '/sys-metrics'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -372,6 +384,7 @@ export interface RootRouteChildren {
   TodoRoute: typeof TodoRoute
   TosRoute: typeof TosRoute
   SysAdminRolesRoute: typeof SysAdminRolesRoute
+  SysMetricsRoute: typeof SysMetricsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -565,6 +578,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManageBanConfigsRouteImport
       parentRoute: typeof ManageRoute
     }
+    '/sys-metrics': {
+      id: '/sys-metrics'
+      path: '/sys-metrics'
+      fullPath: '/sys-metrics'
+      preLoaderRoute: typeof SysMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -612,6 +632,7 @@ const rootRouteChildren: RootRouteChildren = {
   TodoRoute: TodoRoute,
   TosRoute: TosRoute,
   SysAdminRolesRoute: SysAdminRolesRoute,
+  SysMetricsRoute: SysMetricsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

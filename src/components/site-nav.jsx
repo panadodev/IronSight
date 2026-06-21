@@ -432,6 +432,16 @@ function SiteNav() {
         },
       ],
     },
+    {
+      label: "Sysadmin",
+      links: [
+        {
+          to: "/sys-metrics",
+          label: "API Metrics",
+          show: isSysAdminSession,
+        },
+      ],
+    },
   ]
     .map((g) => ({ ...g, links: g.links.filter((l) => l.show !== false) }))
     .filter((g) => g.links.length > 0);

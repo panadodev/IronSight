@@ -13,7 +13,7 @@ import {
   Users,
   Wifi,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/tickets")({
   head: () => ({ meta: [{ title: "Ticket Queue - IronSight" }] }),
@@ -27,12 +27,18 @@ const TYPE_META = {
   general_support: { label: "Support", color: "text-green-400" },
 };
 
-function typeFromName(name) {
-  const n = (name ?? "").toLowerCase();
+function typeFromTicket(ticket) {
+  // Use the authoritative DB category first
+  const cat = ticket.ticket_type_category;
+  if (cat === "player_single" || cat === "player_multi") return "player_report";
+
+  // Fall back to name-based inference for generic category (appeal, vip, etc.)
+  const n = (ticket.ticket_type_name ?? "").toLowerCase();
   if (n.includes("ban appeal") || n.includes("appeal")) return "ban_appeal";
   if (n.includes("vip")) return "vip_issue";
   if (
     n.includes("cheating") ||
+    n.includes("cheat") ||
     n.includes("teaming") ||
     n.includes("toxicity") ||
     n.includes("player report") ||
@@ -141,7 +147,9 @@ function TicketsPage() {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [orgServers, setOrgServers] = useState([]);
+  const [orgStaff, setOrgStaff] = useState([]);
 
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;
@@ -152,7 +160,7 @@ function TicketsPage() {
         fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=200`, { credentials: "include" })
           .then((r) => (r.ok ? r.json() : { tickets: [] }))
           .then((data) =>
-            (data.tickets ?? []).map((t) => ({ ...t, type: typeFromName(t.ticket_type_name) })),
+            (data.tickets ?? []).map((t) => ({ ...t, type: typeFromTicket(t) })),
           )
           .catch(() => []),
       ),
@@ -198,6 +206,16 @@ function TicketsPage() {
       .catch(() => {});
   }, [selectedOrgId]);
 
+  useEffect(() => {
+    if (!selectedOrgId) return;
+    let cancelled = false;
+    fetch(`/api/orgs/${encodeURIComponent(selectedOrgId)}/ticket-assignees`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { members: [] }))
+      .then((data) => { if (!cancelled) setOrgStaff(data.members ?? []); })
+      .catch(() => { if (!cancelled) setOrgStaff([]); });
+    return () => { cancelled = true; };
+  }, [selectedOrgId]);
+
   const totalNonClosed = useMemo(
     () => tickets.filter((t) => NON_CLOSED.has(t.status)).length,
     [tickets],
@@ -222,37 +240,53 @@ function TicketsPage() {
 
   const selectedTicket = tickets.find((t) => t.ticket_id === selectedId) ?? null;
 
+  const refreshMessages = useCallback(async () => {
+    if (!selectedId) return;
+    const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
+    if (res.ok) setSelectedMessages((await res.json()).messages ?? []);
+  }, [selectedId]);
+
   const handlePostNote = useCallback(async () => {
     if (!noteText.trim() || !selectedId || submitting) return;
     setSubmitting(true);
+    setSubmitError("");
     try {
-      await fetch(`/api/tickets/${selectedId}/messages`, {
+      const res = await fetch(`/api/tickets/${selectedId}/messages`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: noteText.trim(), isInternal: true }),
       });
-      const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
-      if (res.ok) setSelectedMessages((await res.json()).messages ?? []);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSubmitError(data?.error ?? "Failed to post note.");
+        return;
+      }
       setNoteText("");
+      await refreshMessages();
     } finally { setSubmitting(false); }
-  }, [noteText, selectedId, submitting]);
+  }, [noteText, selectedId, submitting, refreshMessages]);
 
   const handlePostReply = useCallback(async () => {
     if (!replyText.trim() || !selectedId || submitting) return;
     setSubmitting(true);
+    setSubmitError("");
     try {
-      await fetch(`/api/tickets/${selectedId}/messages`, {
+      const res = await fetch(`/api/tickets/${selectedId}/messages`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: replyText.trim(), isInternal: false }),
       });
-      const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
-      if (res.ok) setSelectedMessages((await res.json()).messages ?? []);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSubmitError(data?.error ?? "Failed to send reply.");
+        return;
+      }
       setReplyText("");
+      await refreshMessages();
     } finally { setSubmitting(false); }
-  }, [replyText, selectedId, submitting]);
+  }, [replyText, selectedId, submitting, refreshMessages]);
 
   const handleClaim = useCallback(async () => {
     if (!selectedId || !sessionUser?.userId) return;
@@ -272,6 +306,25 @@ function TicketsPage() {
       );
     }
   }, [selectedId, sessionUser]);
+
+  const handleAssign = useCallback(async (userId, username) => {
+    if (!selectedId) return;
+    const res = await fetch(`/api/tickets/${selectedId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedTo: userId }),
+    });
+    if (res.ok) {
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.ticket_id === selectedId
+            ? { ...t, assigned_to: userId, assigned_to_username: username }
+            : t,
+        ),
+      );
+    }
+  }, [selectedId]);
 
   const handleUpdateStatus = useCallback(async (status) => {
     if (!selectedId) return;
@@ -380,10 +433,13 @@ function TicketsPage() {
               composerMode={composerMode}
               onComposerModeChange={setComposerMode}
               onClaim={handleClaim}
+              onAssign={handleAssign}
               onUpdateStatus={handleUpdateStatus}
               submitting={submitting}
+              submitError={submitError}
               detailLoading={detailLoading}
               sessionUser={sessionUser}
+              orgStaff={orgStaff}
             />
           </main>
         ) : (
@@ -455,6 +511,62 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
   );
 }
 
+function AssignDropdown({ ticket, orgStaff, onAssign }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors"
+      >
+        {ticket.assigned_to_username ?? "Assign"}
+        <ChevronDown size={9} className="text-muted-foreground" />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 z-20 min-w-[160px] bg-surface border border-border rounded-md shadow-lg overflow-hidden">
+          {orgStaff.length === 0 ? (
+            <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground">No staff</div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto">
+              {ticket.assigned_to && (
+                <button
+                  onClick={() => { onAssign(null, null); setOpen(false); }}
+                  className="w-full text-left px-3 py-1.5 text-[10px] font-mono text-muted-foreground hover:bg-surface-bright transition-colors"
+                >
+                  Unassign
+                </button>
+              )}
+              {orgStaff.map((m) => (
+                <button
+                  key={m.userId}
+                  onClick={() => { onAssign(m.userId, m.username); setOpen(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-[10px] font-mono hover:bg-surface-bright transition-colors ${
+                    ticket.assigned_to === m.userId ? "text-brand" : "text-foreground"
+                  }`}
+                >
+                  {m.username}
+                  {ticket.assigned_to === m.userId && " ✓"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TicketDetail({
   ticket,
   messages,
@@ -467,10 +579,13 @@ function TicketDetail({
   composerMode,
   onComposerModeChange,
   onClaim,
+  onAssign,
   onUpdateStatus,
   submitting,
+  submitError,
   detailLoading,
   sessionUser,
+  orgStaff,
 }) {
   const isClaimed = ticket.assigned_to === sessionUser?.userId;
   const isClosed = ticket.status === "closed";
@@ -488,10 +603,7 @@ function TicketDetail({
           <span className="text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5">
             {ticket.ticket_type_name ?? "Unknown type"}
           </span>
-          <button className="flex items-center gap-1 text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors">
-            {ticket.assigned_to_username ?? "Assign"}
-            <ChevronDown size={9} className="text-muted-foreground" />
-          </button>
+          <AssignDropdown ticket={ticket} orgStaff={orgStaff} onAssign={onAssign} />
           <button
             onClick={onClaim}
             className={`text-[10px] font-mono rounded px-2 py-0.5 hover:opacity-90 transition-colors ${
@@ -612,6 +724,9 @@ function TicketDetail({
             </span>
           )}
         </div>
+        {submitError && (
+          <p className="text-[10px] font-mono text-danger mb-2">{submitError}</p>
+        )}
         {composerMode === "reply" ? (
           <>
             <textarea
@@ -865,7 +980,6 @@ function OrgBansSection({ orgBans }) {
 
 function BmBansSection({ bmBans }) {
   const now = Math.floor(Date.now() / 1000);
-  const active = bmBans.filter((b) => !b.expiresAt || b.expiresAt > now);
   return (
     <section>
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
