@@ -12,7 +12,6 @@ import {
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Coins,
   ExternalLink,
   Globe,
   KeyRound,
@@ -588,7 +587,7 @@ function ApiKeysSection({ orgId }) {
   );
 }
 
-const RIPE_ATLAS_COUNTRIES = [
+const GLOBALPING_COUNTRIES = [
   { code: "US", name: "United States" },
   { code: "GB", name: "United Kingdom" },
   { code: "DE", name: "Germany" },
@@ -608,7 +607,7 @@ const RIPE_ATLAS_COUNTRIES = [
   { code: "FI", name: "Finland" },
   { code: "CH", name: "Switzerland" },
 ];
-const DEFAULT_RIPE_COUNTRIES = [
+const DEFAULT_GP_COUNTRIES = [
   "US",
   "GB",
   "DE",
@@ -621,14 +620,13 @@ const DEFAULT_RIPE_COUNTRIES = [
   "CA",
 ];
 
-function RipeAtlasSection({ orgId }) {
+function GlobalpingSection({ orgId }) {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState(null);
-  const [credits, setCredits] = useState(null);
   const [error, setError] = useState("");
 
-  const [apiKey, setApiKey] = useState("");
-  const [countries, setCountries] = useState(DEFAULT_RIPE_COUNTRIES);
+  const [apiToken, setApiToken] = useState("");
+  const [countries, setCountries] = useState(DEFAULT_GP_COUNTRIES);
   const [probesPerCountry, setProbesPerCountry] = useState(3);
   const [checkIntervalMinutes, setCheckIntervalMinutes] = useState(5);
   const [saving, setSaving] = useState(false);
@@ -639,24 +637,23 @@ function RipeAtlasSection({ orgId }) {
     setError("");
     try {
       const res = await authFetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/config`,
+        `/api/orgs/${encodeURIComponent(orgId)}/globalping/config`,
       );
       if (!res.ok) {
         const body = await safeJson(res);
-        setError(body?.error ?? "Failed to load RIPE Atlas config.");
+        setError(body?.error ?? "Failed to load Globalping config.");
         return;
       }
       const body = await res.json();
       setConfig(body.config ?? null);
-      setCredits(body.credits ?? null);
       if (body.config) {
-        setCountries(body.config.countries ?? DEFAULT_RIPE_COUNTRIES);
+        setCountries(body.config.countries ?? DEFAULT_GP_COUNTRIES);
         setProbesPerCountry(body.config.probesPerCountry ?? 3);
         setCheckIntervalMinutes(body.config.checkIntervalMinutes ?? 5);
       }
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED")
-        setError("Failed to load RIPE Atlas config.");
+        setError("Failed to load Globalping config.");
     } finally {
       setLoading(false);
     }
@@ -676,11 +673,10 @@ function RipeAtlasSection({ orgId }) {
         probesPerCountry: Number(probesPerCountry),
         checkIntervalMinutes: Number(checkIntervalMinutes),
       };
-      if (!config) payload.apiKey = apiKey.trim();
-      else if (apiKey.trim()) payload.apiKey = apiKey.trim();
+      if (apiToken.trim()) payload.apiToken = apiToken.trim();
 
       const res = await authFetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/config`,
+        `/api/orgs/${encodeURIComponent(orgId)}/globalping/config`,
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -694,8 +690,7 @@ function RipeAtlasSection({ orgId }) {
       }
       const body = await res.json();
       setConfig(body.config ?? null);
-      setCredits(body.credits ?? null);
-      setApiKey("");
+      setApiToken("");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") setError("Failed to save.");
     } finally {
@@ -708,7 +703,7 @@ function RipeAtlasSection({ orgId }) {
     setError("");
     try {
       const res = await authFetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/config`,
+        `/api/orgs/${encodeURIComponent(orgId)}/globalping/config`,
         { method: "DELETE" },
       );
       if (!res.ok) {
@@ -717,9 +712,8 @@ function RipeAtlasSection({ orgId }) {
         return;
       }
       setConfig(null);
-      setCredits(null);
-      setApiKey("");
-      setCountries(DEFAULT_RIPE_COUNTRIES);
+      setApiToken("");
+      setCountries(DEFAULT_GP_COUNTRIES);
       setProbesPerCountry(3);
       setCheckIntervalMinutes(5);
     } catch (err) {
@@ -736,8 +730,6 @@ function RipeAtlasSection({ orgId }) {
   }
 
   const cyclesPerDay = Math.floor((24 * 60) / checkIntervalMinutes);
-  const estimatedDailyCredits =
-    countries.length * probesPerCountry * 3 * cyclesPerDay;
 
   return (
     <div className="border-t border-border pt-6">
@@ -749,12 +741,12 @@ function RipeAtlasSection({ orgId }) {
           </div>
           <div className="space-y-1">
             <h2 className="text-base font-semibold leading-tight">
-              RIPE Atlas Network Monitoring
+              Globalping Network Monitoring
             </h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Ping your game servers from probes in major countries via the RIPE
-              Atlas network. Requires a RIPE Atlas account with measurement
-              credits.
+              Ping your game servers from probes in major countries via the
+              Globalping network. Free to use — an API token is optional and
+              only raises the request rate limits.
             </p>
           </div>
         </div>
@@ -769,58 +761,24 @@ function RipeAtlasSection({ orgId }) {
           <p className="p-5 text-sm text-muted-foreground">Loading…</p>
         ) : (
           <form onSubmit={handleSave} className="divide-y divide-border">
-            {/* Credit balance — shown when already configured */}
-            {config && (
-              <div className="flex items-center justify-between gap-4 p-5">
-                <div className="flex items-center gap-3">
-                  <Coins className="size-5 text-muted-foreground shrink-0" />
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-semibold">Credit balance</p>
-                    {credits ? (
-                      <p className="text-sm text-muted-foreground">
-                        {credits.currentBalance?.toLocaleString() ?? "—"}{" "}
-                        credits
-                        {credits.estimatedDailyIncome != null &&
-                          ` · +${credits.estimatedDailyIncome.toLocaleString()}/day earned`}
-                        {credits.maxDailyIncome != null &&
-                          ` (cap ${credits.maxDailyIncome.toLocaleString()}/day)`}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Could not fetch credits — check your API key.
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Est. usage
-                  </p>
-                  <p className="text-sm font-mono font-medium">
-                    ~{estimatedDailyCredits.toLocaleString()}/day
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* API key input */}
+            {/* API token input */}
             <div className="p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="size-4 text-muted-foreground" />
-                <p className="text-sm font-semibold">API key</p>
+                <p className="text-sm font-semibold">API token (optional)</p>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="ripe-api-key" className="text-sm">
-                    RIPE Atlas API key{" "}
-                    {config && (
+                  <Label htmlFor="gp-api-token" className="text-sm">
+                    Globalping API token{" "}
+                    {config?.hasToken && (
                       <span className="text-muted-foreground font-normal">
                         (leave blank to keep existing)
                       </span>
                     )}
                   </Label>
                   <a
-                    href="https://atlas.ripe.net/keys/"
+                    href="https://dashboard.globalping.io/tokens"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -830,51 +788,31 @@ function RipeAtlasSection({ orgId }) {
                   </a>
                 </div>
                 <Input
-                  id="ripe-api-key"
+                  id="gp-api-token"
                   type="password"
-                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  required={!config}
+                  placeholder="Leave blank to run unauthenticated"
+                  value={apiToken}
+                  onChange={(e) => setApiToken(e.target.value)}
                 />
-                {config?.keyPrefix && (
+                {config?.tokenPrefix && (
                   <p className="text-xs text-muted-foreground font-mono">
-                    Current key:{" "}
-                    <span className="text-foreground">{config.keyPrefix}…</span>
+                    Current token:{" "}
+                    <span className="text-foreground">
+                      {config.tokenPrefix}…
+                    </span>
                   </p>
                 )}
                 <div className="rounded-md ring-1 ring-border bg-background/60 p-3 space-y-2">
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    This is a{" "}
-                    <span className="font-semibold text-foreground">
-                      RIPE Atlas API key
-                    </span>{" "}
-                    — not a RIPE NCC Maintainer, My Resources, or IP Analyser
-                    key. Create it at{" "}
+                    Globalping works without an account, but unauthenticated
+                    requests share a lower rate limit (250 measurements/hour).
+                    Sign in at{" "}
                     <span className="font-mono text-foreground">
-                      atlas.ripe.net
+                      dashboard.globalping.io
                     </span>{" "}
-                    → your account → API Keys → Create a new key.
+                    and create a token to raise it to 500/hour and use up to 500
+                    probes per measurement.
                   </p>
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-foreground">
-                      Required permissions
-                    </p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      <span className="font-medium text-foreground/80">
-                        credits:
-                      </span>{" "}
-                      Get information about your credits
-                    </p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      <span className="font-medium text-foreground/80">
-                        measurements:
-                      </span>{" "}
-                      Schedule a new measurement · List your measurements · Get
-                      results from a non-public measurement · Stop a running
-                      measurement
-                    </p>
-                  </div>
                 </div>
               </div>
             </div>
@@ -887,10 +825,10 @@ function RipeAtlasSection({ orgId }) {
               </div>
               <p className="text-sm text-muted-foreground">
                 Servers are pinged from each selected country each check cycle.
-                Fewer countries = lower credit usage.
+                Fewer countries = fewer probes per measurement.
               </p>
               <div className="flex flex-wrap gap-2">
-                {RIPE_ATLAS_COUNTRIES.map((c) => {
+                {GLOBALPING_COUNTRIES.map((c) => {
                   const active = countries.includes(c.code);
                   return (
                     <button
@@ -961,11 +899,12 @@ function RipeAtlasSection({ orgId }) {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Estimated credit usage: ~
-                {estimatedDailyCredits.toLocaleString()} credits/day (3 packets
-                × {probesPerCountry} probe{probesPerCountry === 1 ? "" : "s"} ×{" "}
-                {countries.length} countr{countries.length === 1 ? "y" : "ies"}{" "}
-                × {cyclesPerDay} cycles). Longer intervals use fewer credits.
+                Each cycle runs one measurement per server covering{" "}
+                {countries.length} countr
+                {countries.length === 1 ? "y" : "ies"} ({probesPerCountry} probe
+                {probesPerCountry === 1 ? "" : "s"} each), ~
+                {cyclesPerDay.toLocaleString()} cycles/day. Longer intervals stay
+                further under Globalping's rate limit.
               </p>
             </div>
 
@@ -973,12 +912,7 @@ function RipeAtlasSection({ orgId }) {
             <div className="flex items-center gap-3 p-5 bg-surface/30">
               <Button
                 type="submit"
-                disabled={
-                  saving ||
-                  removing ||
-                  (!config && !apiKey.trim()) ||
-                  countries.length === 0
-                }
+                disabled={saving || removing || countries.length === 0}
               >
                 {saving
                   ? "Saving…"
@@ -1273,7 +1207,7 @@ function ManageDetailsPage() {
 
       <ApiKeysSection orgId={orgId} />
 
-      <RipeAtlasSection orgId={orgId} />
+      <GlobalpingSection orgId={orgId} />
     </div>
   );
 }

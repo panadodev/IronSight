@@ -1387,7 +1387,8 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
           onChange={(e) => setSteamId(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleLookup()}
           placeholder="Steam ID..."
-          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+          disabled={loading}
+          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
         />
         {servers.length > 1 && (
           <select
@@ -1664,7 +1665,8 @@ function TeamInfoPanel({ servers }) {
           onChange={(e) => setSteamId(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleLookup()}
           placeholder="Steam ID..."
-          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+          disabled={loading}
+          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
         />
         {servers.length > 1 && (
           <select

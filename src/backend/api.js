@@ -530,20 +530,17 @@ async function init() {
 
     setInterval(
       () => {
-        triggerRipeAtlasMeasurements().catch((e) =>
-          console.error("[ripe-atlas] measure job:", e.message),
+        triggerGlobalpingMeasurements().catch((e) =>
+          console.error("[globalping] measure job:", e.message),
         );
       },
       5 * 60 * 1000,
     );
-    setInterval(
-      () => {
-        fetchPendingRipeAtlasResults().catch((e) =>
-          console.error("[ripe-atlas] results job:", e.message),
-        );
-      },
-      2 * 60 * 1000,
-    );
+    setInterval(() => {
+      fetchPendingGlobalpingResults().catch((e) =>
+        console.error("[globalping] results job:", e.message),
+      );
+    }, 60 * 1000);
   })().catch((error) => {
     initError = error;
     console.error("[startup] dependency ping failed", error);
@@ -7468,84 +7465,76 @@ export async function initializeInfra() {
   }
 }
 
-// ── RIPE Atlas helpers and background jobs ────────────────────────────────────
+// ── Globalping helpers and background jobs ────────────────────────────────────
+// https://globalping.io/docs/api.globalping.io — Globalping is a free, globally
+// distributed network measurement platform. Requests are rate-limited; an
+// optional per-org API token raises the limits but is not required.
 
-const RIPE_ATLAS_BASE = "https://atlas.ripe.net/api/v2";
+const GLOBALPING_BASE = "https://api.globalping.io/v1";
 
-async function ripeAtlasFetch(apiKey, path, opts = {}) {
-  const t0ra = Date.now();
-  const url = `${RIPE_ATLAS_BASE}${path}`;
+async function globalpingFetch(path, opts = {}, apiToken = null) {
+  const t0gp = Date.now();
+  const url = `${GLOBALPING_BASE}${path}`;
   const res = await fetch(url, {
     ...opts,
     headers: {
-      Authorization: `Key ${apiKey}`,
       "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
       ...(opts.headers ?? {}),
     },
     signal: opts.signal ?? AbortSignal.timeout(20000),
   });
-  diagRecordOutgoing("ripe-atlas", url, res.status, Date.now() - t0ra);
+  diagRecordOutgoing("globalping", url, res.status, Date.now() - t0gp);
   return res;
 }
 
-async function ripeAtlasGetCredits(apiKey) {
-  const res = await ripeAtlasFetch(apiKey, "/credits/");
-  if (!res.ok) throw new Error(`Credits API HTTP ${res.status}`);
-  const data = await res.json();
-  return {
-    currentBalance: data.current_balance ?? null,
-    estimatedDailyIncome: data.estimated_daily_income ?? null,
-    maxDailyIncome: data.max_daily_income ?? null,
-  };
-}
-
-async function ripeAtlasCreateMeasurement(
-  apiKey,
+// Create a single ping measurement covering every requested country. Globalping
+// returns one result per probe (tagged with its country), so one measurement
+// per server is enough — no need to fan out per country like RIPE Atlas did.
+async function globalpingCreateMeasurement(
   targetIp,
-  country,
+  countries,
   probesPerCountry,
+  apiToken,
 ) {
   const body = {
-    definitions: [
-      {
-        target: targetIp,
-        af: 4,
-        type: "ping",
-        description: `IronSight ping ${targetIp}`,
-        packets: 3,
-        packet_interval: 1000,
-      },
-    ],
-    probes: [{ type: "country", value: country, requested: probesPerCountry }],
-    is_oneoff: true,
+    type: "ping",
+    target: targetIp,
+    measurementOptions: { packets: 3 },
+    locations: countries.map((country) => ({
+      country,
+      limit: probesPerCountry,
+    })),
   };
-  console.log("[ripe-atlas] creating measurement:", JSON.stringify(body));
-  const res = await ripeAtlasFetch(apiKey, "/measurements/", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  const res = await globalpingFetch(
+    "/measurements",
+    { method: "POST", body: JSON.stringify(body) },
+    apiToken,
+  );
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     console.error(
-      "[ripe-atlas] create measurement error body:",
+      "[globalping] create measurement error body:",
       JSON.stringify(err),
     );
-    const detail = err?.error?.detail ?? err?.detail ?? `HTTP ${res.status}`;
+    const detail =
+      err?.error?.message ?? err?.error?.detail ?? `HTTP ${res.status}`;
     throw new Error(detail);
   }
   const data = await res.json();
-  const msmId = data.measurements?.[0];
-  if (!msmId) throw new Error("No measurement ID returned by RIPE Atlas");
+  const msmId = data.id;
+  if (!msmId) throw new Error("No measurement ID returned by Globalping");
   return msmId;
 }
 
-async function triggerRipeAtlasMeasurements() {
+async function triggerGlobalpingMeasurements() {
   const { rows: configs } = await pool.query(
-    `SELECT c.org_id, c.api_key_enc, c.countries, c.probes_per_country, c.check_interval_minutes,
+    `SELECT c.org_id, c.api_token_enc, c.countries, c.probes_per_country, c.check_interval_minutes,
             MAX(m.created_at) AS last_triggered_at
-     FROM org_ripe_atlas_config c
-     LEFT JOIN org_ripe_atlas_measurements m ON m.org_id = c.org_id
-     GROUP BY c.org_id, c.api_key_enc, c.countries, c.probes_per_country, c.check_interval_minutes`,
+     FROM org_globalping_config c
+     LEFT JOIN org_globalping_measurements m ON m.org_id = c.org_id
+     GROUP BY c.org_id, c.api_token_enc, c.countries, c.probes_per_country, c.check_interval_minutes`,
   );
   if (!configs.length) return;
 
@@ -7554,11 +7543,14 @@ async function triggerRipeAtlasMeasurements() {
     const intervalSec = (Number(cfg.check_interval_minutes) || 5) * 60;
     const lastAt = cfg.last_triggered_at ? Number(cfg.last_triggered_at) : 0;
     if (nowSec - lastAt < intervalSec) continue;
-    let apiKey;
-    try {
-      apiKey = decryptExternalApiKey(String(cfg.api_key_enc));
-    } catch {
-      continue;
+
+    let apiToken = null;
+    if (cfg.api_token_enc) {
+      try {
+        apiToken = decryptExternalApiKey(String(cfg.api_token_enc));
+      } catch {
+        apiToken = null;
+      }
     }
 
     const { rows: servers } = await pool.query(
@@ -7568,39 +7560,37 @@ async function triggerRipeAtlasMeasurements() {
     if (!servers.length) continue;
 
     const countries = Array.isArray(cfg.countries) ? cfg.countries : [];
+    if (!countries.length) continue;
     const probesPerCountry = Number(cfg.probes_per_country) || 3;
 
     for (const server of servers) {
-      for (const country of countries) {
-        try {
-          const msmId = await ripeAtlasCreateMeasurement(
-            apiKey,
-            server.rcon_host,
-            country,
-            probesPerCountry,
-          );
-          await pool.query(
-            `INSERT INTO org_ripe_atlas_measurements
-             (org_id, server_id, atlas_msm_id, target_ip, country)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [cfg.org_id, server.server_id, msmId, server.rcon_host, country],
-          );
-        } catch (err) {
-          console.warn(
-            `[ripe-atlas] measurement failed org=${cfg.org_id} server=${server.server_name} country=${country}: ${err.message}`,
-          );
-        }
+      try {
+        const msmId = await globalpingCreateMeasurement(
+          server.rcon_host,
+          countries,
+          probesPerCountry,
+          apiToken,
+        );
+        await pool.query(
+          `INSERT INTO org_globalping_measurements
+           (org_id, server_id, gp_measurement_id, target_ip)
+           VALUES ($1, $2, $3, $4)`,
+          [cfg.org_id, server.server_id, msmId, server.rcon_host],
+        );
+      } catch (err) {
+        console.warn(
+          `[globalping] measurement failed org=${cfg.org_id} server=${server.server_name}: ${err.message}`,
+        );
       }
     }
   }
 }
 
-async function fetchPendingRipeAtlasResults() {
+async function fetchPendingGlobalpingResults() {
   const { rows: pending } = await pool.query(
-    `SELECT id, org_id, server_id, atlas_msm_id, country, created_at
-     FROM org_ripe_atlas_measurements
+    `SELECT id, org_id, server_id, gp_measurement_id, created_at
+     FROM org_globalping_measurements
      WHERE status = 'pending'
-       AND created_at < unix_now() - 120
        AND results_fetched_at IS NULL
      ORDER BY created_at ASC
      LIMIT 50`,
@@ -7609,85 +7599,123 @@ async function fetchPendingRipeAtlasResults() {
 
   const orgIds = [...new Set(pending.map((m) => m.org_id))];
   const { rows: cfgRows } = await pool.query(
-    `SELECT org_id, api_key_enc FROM org_ripe_atlas_config WHERE org_id = ANY($1::text[])`,
+    `SELECT org_id, api_token_enc FROM org_globalping_config WHERE org_id = ANY($1::text[])`,
     [orgIds],
   );
-  const keysByOrg = new Map();
+  const tokensByOrg = new Map();
   for (const cfg of cfgRows) {
+    if (!cfg.api_token_enc) continue;
     try {
-      keysByOrg.set(cfg.org_id, decryptExternalApiKey(String(cfg.api_key_enc)));
+      tokensByOrg.set(
+        cfg.org_id,
+        decryptExternalApiKey(String(cfg.api_token_enc)),
+      );
     } catch {
       continue;
     }
   }
 
   for (const msm of pending) {
-    const apiKey = keysByOrg.get(msm.org_id);
-    if (!apiKey) continue;
+    const apiToken = tokensByOrg.get(msm.org_id) ?? null;
 
     try {
-      const res = await ripeAtlasFetch(
-        apiKey,
-        `/measurements/${msm.atlas_msm_id}/results/?format=json`,
+      const res = await globalpingFetch(
+        `/measurements/${msm.gp_measurement_id}`,
+        {},
+        apiToken,
       );
-      const results = res.ok ? await res.json().catch(() => []) : [];
+      if (!res.ok) {
+        // 404/expired — stop tracking this measurement.
+        await pool.query(
+          `UPDATE org_globalping_measurements
+           SET status = 'completed', results_fetched_at = unix_now()
+           WHERE id = $1`,
+          [msm.id],
+        );
+        continue;
+      }
+
+      const data = await res.json().catch(() => null);
+      // Still running — leave it pending and re-check next cycle.
+      if (!data || data.status === "in-progress") continue;
 
       await pool.query(
-        `UPDATE org_ripe_atlas_measurements
+        `UPDATE org_globalping_measurements
          SET status = 'completed', results_fetched_at = unix_now()
          WHERE id = $1`,
         [msm.id],
       );
 
-      if (!Array.isArray(results) || !results.length) continue;
+      const results = Array.isArray(data.results) ? data.results : [];
+      if (!results.length) continue;
 
-      let totalRtt = 0;
-      let minRtt = Infinity;
-      let maxRtt = -Infinity;
-      let reachableCount = 0;
-
-      for (const r of results) {
-        const avg = r.avg;
-        if (avg != null && Number(avg) > 0) {
-          reachableCount++;
-          totalRtt += Number(avg);
-          if (r.min != null && Number(r.min) < minRtt) minRtt = Number(r.min);
-          if (r.max != null && Number(r.max) > maxRtt) maxRtt = Number(r.max);
+      // Globalping returns one entry per probe; aggregate them per country.
+      const byCountry = new Map();
+      for (const item of results) {
+        const country = item?.probe?.country;
+        if (!country) continue;
+        let agg = byCountry.get(country);
+        if (!agg) {
+          agg = {
+            totalAvg: 0,
+            minRtt: Infinity,
+            maxRtt: -Infinity,
+            reachableCount: 0,
+            probeCount: 0,
+          };
+          byCountry.set(country, agg);
+        }
+        agg.probeCount++;
+        const stats = item?.result?.stats ?? {};
+        const avg = stats.avg;
+        const loss = stats.loss;
+        const reachable =
+          avg != null &&
+          Number(avg) > 0 &&
+          (loss == null || Number(loss) < 100);
+        if (reachable) {
+          agg.reachableCount++;
+          agg.totalAvg += Number(avg);
+          if (stats.min != null && Number(stats.min) < agg.minRtt)
+            agg.minRtt = Number(stats.min);
+          if (stats.max != null && Number(stats.max) > agg.maxRtt)
+            agg.maxRtt = Number(stats.max);
         }
       }
 
-      const reachable = reachableCount > 0;
-      const avgRtt = reachable ? totalRtt / reachableCount : null;
-
-      await pool.query(
-        `INSERT INTO org_ripe_atlas_results
-         (org_id, server_id, country, reachable, avg_rtt, min_rtt, max_rtt, probe_count, reachable_count, measured_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          msm.org_id,
-          msm.server_id,
-          msm.country,
-          reachable,
-          avgRtt != null ? avgRtt.toFixed(2) : null,
-          minRtt !== Infinity ? minRtt : null,
-          maxRtt !== -Infinity ? maxRtt : null,
-          results.length,
-          reachableCount,
-          Number(msm.created_at),
-        ],
-      );
+      for (const [country, agg] of byCountry) {
+        const reachable = agg.reachableCount > 0;
+        const avgRtt = reachable ? agg.totalAvg / agg.reachableCount : null;
+        await pool.query(
+          `INSERT INTO org_globalping_results
+           (org_id, server_id, country, reachable, avg_rtt, min_rtt, max_rtt, probe_count, reachable_count, measured_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            msm.org_id,
+            msm.server_id,
+            country,
+            reachable,
+            avgRtt != null ? avgRtt.toFixed(2) : null,
+            agg.minRtt !== Infinity ? agg.minRtt : null,
+            agg.maxRtt !== -Infinity ? agg.maxRtt : null,
+            agg.probeCount,
+            agg.reachableCount,
+            Number(msm.created_at),
+          ],
+        );
+      }
     } catch (err) {
       console.warn(
-        `[ripe-atlas] results fetch failed msm=${msm.atlas_msm_id}: ${err.message}`,
+        `[globalping] results fetch failed msm=${msm.gp_measurement_id}: ${err.message}`,
       );
     }
   }
 
   await pool.query(
-    `DELETE FROM org_ripe_atlas_measurements WHERE created_at < unix_now() - 7200`,
+    `DELETE FROM org_globalping_measurements WHERE created_at < unix_now() - 7200`,
   );
   await pool.query(
-    `DELETE FROM org_ripe_atlas_results WHERE measured_at < unix_now() - 86400`,
+    `DELETE FROM org_globalping_results WHERE measured_at < unix_now() - 86400`,
   );
 }
 
@@ -7929,9 +7957,9 @@ async function handleGetExternalKeyStats(request, orgId) {
   return json({ stats, proxycheckUsage });
 }
 
-// ── RIPE Atlas config and results handlers ────────────────────────────────────
+// ── Globalping config and results handlers ────────────────────────────────────
 
-async function handleGetRipeAtlasConfig(request, orgId) {
+async function handleGetGlobalpingConfig(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
@@ -7941,22 +7969,24 @@ async function handleGetRipeAtlasConfig(request, orgId) {
     );
 
   const { rows } = await pool.query(
-    `SELECT api_key_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
-     FROM org_ripe_atlas_config WHERE org_id = $1`,
+    `SELECT api_token_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
+     FROM org_globalping_config WHERE org_id = $1`,
     [orgId],
   );
 
-  if (!rows[0]) return json({ config: null, credits: null });
+  if (!rows[0]) return json({ config: null });
 
   const row = rows[0];
-  let credits = null;
-  let keyPrefix = null;
-  try {
-    const apiKey = decryptExternalApiKey(String(row.api_key_enc));
-    keyPrefix = apiKey.slice(0, 8);
-    credits = await ripeAtlasGetCredits(apiKey);
-  } catch {
-    // non-critical
+  let tokenPrefix = null;
+  if (row.api_token_enc) {
+    try {
+      tokenPrefix = decryptExternalApiKey(String(row.api_token_enc)).slice(
+        0,
+        8,
+      );
+    } catch {
+      // non-critical
+    }
   }
 
   return json({
@@ -7966,28 +7996,19 @@ async function handleGetRipeAtlasConfig(request, orgId) {
       checkIntervalMinutes: Number(row.check_interval_minutes) || 5,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
-      keyPrefix,
+      hasToken: Boolean(row.api_token_enc),
+      tokenPrefix,
     },
-    credits,
   });
 }
 
-async function handlePutRipeAtlasConfig(request, orgId) {
+async function handlePutGlobalpingConfig(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
     return json(
       { error: "Forbidden: servers_manage permission required" },
       403,
-    );
-
-  if (!getPterodactylEncryptionKey())
-    return json(
-      {
-        error:
-          "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)",
-      },
-      503,
     );
 
   let body;
@@ -8016,8 +8037,20 @@ async function handlePutRipeAtlasConfig(request, orgId) {
     ? Number(body.checkIntervalMinutes)
     : 5;
 
+  // The API token is optional (Globalping works unauthenticated). Encryption is
+  // only required when we actually have a token to store.
+  const rawToken = String(body?.apiToken ?? "").trim();
+  if (rawToken && !getPterodactylEncryptionKey())
+    return json(
+      {
+        error:
+          "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)",
+      },
+      503,
+    );
+
   const { rows: existing } = await pool.query(
-    `SELECT org_id FROM org_ripe_atlas_config WHERE org_id = $1`,
+    `SELECT org_id FROM org_globalping_config WHERE org_id = $1`,
     [orgId],
   );
 
@@ -8029,27 +8062,23 @@ async function handlePutRipeAtlasConfig(request, orgId) {
       `updated_at = unix_now()`,
     ];
     const params = [orgId, countries, probesPerCountry, checkIntervalMinutes];
-    if (body?.apiKey?.trim()) {
-      setClauses.push(`api_key_enc = $${params.length + 1}`);
-      params.push(encryptExternalApiKey(body.apiKey.trim()));
+    if (rawToken) {
+      setClauses.push(`api_token_enc = $${params.length + 1}`);
+      params.push(encryptExternalApiKey(rawToken));
+    } else if (body?.clearToken === true) {
+      setClauses.push(`api_token_enc = NULL`);
     }
     await pool.query(
-      `UPDATE org_ripe_atlas_config SET ${setClauses.join(", ")} WHERE org_id = $1`,
+      `UPDATE org_globalping_config SET ${setClauses.join(", ")} WHERE org_id = $1`,
       params,
     );
   } else {
-    const rawKey = String(body?.apiKey ?? "").trim();
-    if (!rawKey)
-      return json(
-        { error: "API key is required when enabling monitoring" },
-        400,
-      );
     await pool.query(
-      `INSERT INTO org_ripe_atlas_config (org_id, api_key_enc, countries, probes_per_country, check_interval_minutes)
+      `INSERT INTO org_globalping_config (org_id, api_token_enc, countries, probes_per_country, check_interval_minutes)
        VALUES ($1, $2, $3, $4, $5)`,
       [
         orgId,
-        encryptExternalApiKey(rawKey),
+        rawToken ? encryptExternalApiKey(rawToken) : null,
         countries,
         probesPerCountry,
         checkIntervalMinutes,
@@ -8058,19 +8087,21 @@ async function handlePutRipeAtlasConfig(request, orgId) {
   }
 
   const { rows: updated } = await pool.query(
-    `SELECT api_key_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
-     FROM org_ripe_atlas_config WHERE org_id = $1`,
+    `SELECT api_token_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
+     FROM org_globalping_config WHERE org_id = $1`,
     [orgId],
   );
   const row = updated[0];
-  let credits = null;
-  let keyPrefix = null;
-  try {
-    const apiKey = decryptExternalApiKey(String(row.api_key_enc));
-    keyPrefix = apiKey.slice(0, 8);
-    credits = await ripeAtlasGetCredits(apiKey);
-  } catch {
-    // non-critical
+  let tokenPrefix = null;
+  if (row.api_token_enc) {
+    try {
+      tokenPrefix = decryptExternalApiKey(String(row.api_token_enc)).slice(
+        0,
+        8,
+      );
+    } catch {
+      // non-critical
+    }
   }
 
   return json({
@@ -8080,13 +8111,13 @@ async function handlePutRipeAtlasConfig(request, orgId) {
       checkIntervalMinutes: Number(row.check_interval_minutes) || 5,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
-      keyPrefix,
+      hasToken: Boolean(row.api_token_enc),
+      tokenPrefix,
     },
-    credits,
   });
 }
 
-async function handleDeleteRipeAtlasConfig(request, orgId) {
+async function handleDeleteGlobalpingConfig(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
@@ -8095,21 +8126,21 @@ async function handleDeleteRipeAtlasConfig(request, orgId) {
       403,
     );
 
-  await pool.query(`DELETE FROM org_ripe_atlas_config WHERE org_id = $1`, [
+  await pool.query(`DELETE FROM org_globalping_config WHERE org_id = $1`, [
     orgId,
   ]);
   await pool.query(
-    `DELETE FROM org_ripe_atlas_measurements WHERE org_id = $1`,
+    `DELETE FROM org_globalping_measurements WHERE org_id = $1`,
     [orgId],
   );
-  await pool.query(`DELETE FROM org_ripe_atlas_results WHERE org_id = $1`, [
+  await pool.query(`DELETE FROM org_globalping_results WHERE org_id = $1`, [
     orgId,
   ]);
 
   return json({ ok: true });
 }
 
-async function handleGetRipeAtlasResults(request, orgId) {
+async function handleGetGlobalpingResults(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (
@@ -8119,7 +8150,7 @@ async function handleGetRipeAtlasResults(request, orgId) {
     return json({ error: "Forbidden" }, 403);
 
   const { rows: cfgRows } = await pool.query(
-    `SELECT countries, probes_per_country FROM org_ripe_atlas_config WHERE org_id = $1`,
+    `SELECT countries, probes_per_country FROM org_globalping_config WHERE org_id = $1`,
     [orgId],
   );
   if (!cfgRows[0]) return json({ configured: false });
@@ -8135,14 +8166,14 @@ async function handleGetRipeAtlasResults(request, orgId) {
     `SELECT DISTINCT ON (server_id, country)
        server_id, country, reachable, avg_rtt, min_rtt, max_rtt,
        probe_count, reachable_count, measured_at
-     FROM org_ripe_atlas_results
+     FROM org_globalping_results
      WHERE org_id = $1 AND measured_at > unix_now() - 3600
      ORDER BY server_id, country, measured_at DESC`,
     [orgId],
   );
 
   const { rows: pendingRows } = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM org_ripe_atlas_measurements
+    `SELECT COUNT(*) AS cnt FROM org_globalping_measurements
      WHERE org_id = $1 AND status = 'pending' AND created_at > unix_now() - 600`,
     [orgId],
   );
@@ -8171,22 +8202,24 @@ async function handleGetRipeAtlasResults(request, orgId) {
   });
 }
 
-async function handleTriggerRipeAtlasMeasurements(request, orgId) {
+async function handleTriggerGlobalpingMeasurements(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const { rows: cfgRows } = await pool.query(
-    `SELECT api_key_enc, countries, probes_per_country FROM org_ripe_atlas_config WHERE org_id = $1`,
+    `SELECT api_token_enc, countries, probes_per_country FROM org_globalping_config WHERE org_id = $1`,
     [orgId],
   );
-  if (!cfgRows[0]) return json({ error: "RIPE Atlas not configured" }, 404);
+  if (!cfgRows[0]) return json({ error: "Globalping not configured" }, 404);
 
-  let apiKey;
-  try {
-    apiKey = decryptExternalApiKey(String(cfgRows[0].api_key_enc));
-  } catch {
-    return json({ error: "Failed to decrypt API key" }, 500);
+  let apiToken = null;
+  if (cfgRows[0].api_token_enc) {
+    try {
+      apiToken = decryptExternalApiKey(String(cfgRows[0].api_token_enc));
+    } catch {
+      apiToken = null;
+    }
   }
 
   const { rows: servers } = await pool.query(
@@ -8199,28 +8232,27 @@ async function handleTriggerRipeAtlasMeasurements(request, orgId) {
   const countries = Array.isArray(cfgRows[0].countries)
     ? cfgRows[0].countries
     : [];
+  if (!countries.length) return json({ error: "No countries configured" }, 400);
   const probesPerCountry = Number(cfgRows[0].probes_per_country) || 3;
   let triggered = 0;
 
   for (const server of servers) {
-    for (const country of countries) {
-      try {
-        const msmId = await ripeAtlasCreateMeasurement(
-          apiKey,
-          server.rcon_host,
-          country,
-          probesPerCountry,
-        );
-        await pool.query(
-          `INSERT INTO org_ripe_atlas_measurements (org_id, server_id, atlas_msm_id, target_ip, country) VALUES ($1, $2, $3, $4, $5)`,
-          [orgId, server.server_id, msmId, server.rcon_host, country],
-        );
-        triggered++;
-      } catch (err) {
-        console.warn(
-          `[ripe-atlas] manual trigger failed org=${orgId} server=${server.server_name} country=${country}: ${err.message}`,
-        );
-      }
+    try {
+      const msmId = await globalpingCreateMeasurement(
+        server.rcon_host,
+        countries,
+        probesPerCountry,
+        apiToken,
+      );
+      await pool.query(
+        `INSERT INTO org_globalping_measurements (org_id, server_id, gp_measurement_id, target_ip) VALUES ($1, $2, $3, $4)`,
+        [orgId, server.server_id, msmId, server.rcon_host],
+      );
+      triggered++;
+    } catch (err) {
+      console.warn(
+        `[globalping] manual trigger failed org=${orgId} server=${server.server_name}: ${err.message}`,
+      );
     }
   }
 
@@ -9879,32 +9911,35 @@ async function _handleApiRequest(request) {
         orgExternalKeyDetailMatch[2],
       );
 
-    // RIPE Atlas network monitoring
-    const orgRipeAtlasConfigMatch = pathname.match(
-      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/config$/,
+    // Globalping network monitoring
+    const orgGlobalpingConfigMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/globalping\/config$/,
     );
-    if (orgRipeAtlasConfigMatch) {
+    if (orgGlobalpingConfigMatch) {
       if (request.method === "GET")
-        return handleGetRipeAtlasConfig(request, orgRipeAtlasConfigMatch[1]);
+        return handleGetGlobalpingConfig(request, orgGlobalpingConfigMatch[1]);
       if (request.method === "PUT")
-        return handlePutRipeAtlasConfig(request, orgRipeAtlasConfigMatch[1]);
+        return handlePutGlobalpingConfig(request, orgGlobalpingConfigMatch[1]);
       if (request.method === "DELETE")
-        return handleDeleteRipeAtlasConfig(request, orgRipeAtlasConfigMatch[1]);
+        return handleDeleteGlobalpingConfig(
+          request,
+          orgGlobalpingConfigMatch[1],
+        );
     }
 
-    const orgRipeAtlasResultsMatch = pathname.match(
-      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/results$/,
+    const orgGlobalpingResultsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/globalping\/results$/,
     );
-    if (orgRipeAtlasResultsMatch && request.method === "GET")
-      return handleGetRipeAtlasResults(request, orgRipeAtlasResultsMatch[1]);
+    if (orgGlobalpingResultsMatch && request.method === "GET")
+      return handleGetGlobalpingResults(request, orgGlobalpingResultsMatch[1]);
 
-    const orgRipeAtlasTriggerMatch = pathname.match(
-      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/trigger$/,
+    const orgGlobalpingTriggerMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/globalping\/trigger$/,
     );
-    if (orgRipeAtlasTriggerMatch && request.method === "POST")
-      return handleTriggerRipeAtlasMeasurements(
+    if (orgGlobalpingTriggerMatch && request.method === "POST")
+      return handleTriggerGlobalpingMeasurements(
         request,
-        orgRipeAtlasTriggerMatch[1],
+        orgGlobalpingTriggerMatch[1],
       );
 
     // Blacklisted words (management UI)
@@ -10514,7 +10549,11 @@ async function handleGetDiscordBotGuilds(request) {
           const guild = await guildRes.json();
 
           if (guild.owner_id === userId) {
-            return { id: String(g.id), name: String(g.name), icon: g.icon ?? null };
+            return {
+              id: String(g.id),
+              name: String(g.name),
+              icon: g.icon ?? null,
+            };
           }
 
           if (!memberRes.ok) return null;
@@ -10530,7 +10569,11 @@ async function handleGetDiscordBotGuilds(request) {
           }
 
           if ((perms & ADMINISTRATOR) !== 0n || (perms & MANAGE_GUILD) !== 0n) {
-            return { id: String(g.id), name: String(g.name), icon: g.icon ?? null };
+            return {
+              id: String(g.id),
+              name: String(g.name),
+              icon: g.icon ?? null,
+            };
           }
           return null;
         } catch {

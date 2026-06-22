@@ -2226,7 +2226,7 @@ function rttColor(rtt) {
   return "bg-orange-500/20 text-orange-400";
 }
 
-function RipeAtlasSection({ orgId }) {
+function GlobalpingSection({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
@@ -2235,7 +2235,7 @@ function RipeAtlasSection({ orgId }) {
   const load = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/results`,
+        `/api/orgs/${encodeURIComponent(orgId)}/globalping/results`,
         { credentials: "include" },
       );
       if (!res.ok) return;
@@ -2252,7 +2252,7 @@ function RipeAtlasSection({ orgId }) {
   const trigger = useCallback(async () => {
     setTriggering(true);
     try {
-      await fetch(`/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/trigger`, {
+      await fetch(`/api/orgs/${encodeURIComponent(orgId)}/globalping/trigger`, {
         method: "POST",
         credentials: "include",
       });
@@ -2277,8 +2277,8 @@ function RipeAtlasSection({ orgId }) {
         <div>
           <p className="text-xs font-semibold">Network Reachability</p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            RIPE Atlas monitoring is not configured for this org. Add your API
-            key in Manage → Details to enable it.
+            Globalping monitoring is not configured for this org. Enable it in
+            Manage → Details.
           </p>
         </div>
       </div>
@@ -2310,7 +2310,7 @@ function RipeAtlasSection({ orgId }) {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-          Network reachability · RIPE Atlas
+          Network reachability · Globalping
         </h4>
         <div className="flex items-center gap-3">
           {pendingCount > 0 && (
@@ -2453,7 +2453,7 @@ function RipeAtlasSection({ orgId }) {
       <p className="text-[10px] text-muted-foreground/70 font-mono">
         Results are averaged across {data.probesPerCountry ?? "multiple"} probe
         {(data.probesPerCountry ?? 2) === 1 ? "" : "s"} per country.
-        Measurements run periodically via the RIPE Atlas network. Hover a cell
+        Measurements run periodically via the Globalping network. Hover a cell
         for per-probe detail.
       </p>
     </div>
@@ -2899,8 +2899,8 @@ function StatusTab({ orgId }) {
         </div>
       </div>
 
-      {/* RIPE Atlas reachability */}
-      <RipeAtlasSection orgId={orgId} />
+      {/* Globalping reachability */}
+      <GlobalpingSection orgId={orgId} />
     </div>
   );
 }

@@ -1077,12 +1077,19 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_org_blacklisted_words_org_id ON org_blacklisted_words(org_id)`,
   );
 
-  // ── RIPE Atlas network monitoring ─────────────────────────────────────────
+  // ── Globalping network monitoring ─────────────────────────────────────────
+  // Replaces the former RIPE Atlas integration. The old tables stored a
+  // RIPE-specific API key and per-country measurement IDs that are useless for
+  // Globalping, so drop them — orgs reconfigure against Globalping instead.
+
+  await pool.query(`DROP TABLE IF EXISTS org_ripe_atlas_results`);
+  await pool.query(`DROP TABLE IF EXISTS org_ripe_atlas_measurements`);
+  await pool.query(`DROP TABLE IF EXISTS org_ripe_atlas_config`);
 
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ripe_atlas_config (
+    CREATE TABLE IF NOT EXISTS org_globalping_config (
       org_id              TEXT    PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
-      api_key_enc         TEXT    NOT NULL,
+      api_token_enc       TEXT,
       countries           TEXT[]  NOT NULL DEFAULT '{US,GB,DE,FR,NL,SG,AU,JP,BR,CA}',
       probes_per_country  INTEGER NOT NULL DEFAULT 3,
       check_interval_minutes INTEGER NOT NULL DEFAULT 5,
@@ -1090,34 +1097,30 @@ export async function ensureSchema(pool) {
       updated_at          BIGINT  NOT NULL DEFAULT unix_now()
     )
   `);
-  await pool.query(
-    `ALTER TABLE org_ripe_atlas_config ADD COLUMN IF NOT EXISTS check_interval_minutes INTEGER NOT NULL DEFAULT 5`,
-  );
 
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ripe_atlas_measurements (
-      id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id          TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      server_id       UUID    NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      atlas_msm_id    BIGINT  NOT NULL,
-      target_ip       TEXT    NOT NULL,
-      country         TEXT    NOT NULL,
-      status          TEXT    NOT NULL DEFAULT 'pending',
-      created_at      BIGINT  NOT NULL DEFAULT unix_now(),
+    CREATE TABLE IF NOT EXISTS org_globalping_measurements (
+      id                UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id            TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      server_id         UUID    NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      gp_measurement_id TEXT    NOT NULL,
+      target_ip         TEXT    NOT NULL,
+      status            TEXT    NOT NULL DEFAULT 'pending',
+      created_at        BIGINT  NOT NULL DEFAULT unix_now(),
       results_fetched_at BIGINT
     )
   `);
   await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_msm_org_status
-     ON org_ripe_atlas_measurements(org_id, status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_globalping_msm_org_status
+     ON org_globalping_measurements(org_id, status, created_at DESC)`,
   );
   await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_msm_server
-     ON org_ripe_atlas_measurements(server_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_globalping_msm_server
+     ON org_globalping_measurements(server_id)`,
   );
 
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ripe_atlas_results (
+    CREATE TABLE IF NOT EXISTS org_globalping_results (
       id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
       org_id           TEXT         NOT NULL,
       server_id        UUID         NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
@@ -1132,12 +1135,12 @@ export async function ensureSchema(pool) {
     )
   `);
   await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_server_country
-     ON org_ripe_atlas_results(server_id, country, measured_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_globalping_results_server_country
+     ON org_globalping_results(server_id, country, measured_at DESC)`,
   );
   await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_org
-     ON org_ripe_atlas_results(org_id, measured_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_globalping_results_org
+     ON org_globalping_results(org_id, measured_at DESC)`,
   );
 
   await pool.query(
