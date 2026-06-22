@@ -58,7 +58,10 @@ function buildDailyBuckets(logs, tz) {
   const todayStr = new Date().toLocaleDateString("en-CA", opts);
   const days = Array.from({ length: 30 }, () => 0);
   for (const log of logs) {
-    const dStr = new Date(log.createdAt * 1000).toLocaleDateString("en-CA", opts);
+    const dStr = new Date(log.createdAt * 1000).toLocaleDateString(
+      "en-CA",
+      opts,
+    );
     const diff = Math.round(
       (new Date(todayStr).getTime() - new Date(dStr).getTime()) / 86400000,
     );

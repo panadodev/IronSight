@@ -193,7 +193,14 @@ function PermCheckbox({ checked, onClick, label, desc, disabled }) {
   );
 }
 
-function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc, disabled }) {
+function ParentPermCheckbox({
+  allChecked,
+  someChecked,
+  onClick,
+  label,
+  desc,
+  disabled,
+}) {
   return (
     <button
       onClick={disabled ? undefined : onClick}
@@ -240,7 +247,8 @@ function ParentPermCheckbox({ allChecked, someChecked, onClick, label, desc, dis
 }
 
 function RolesPage() {
-  const { hasOrgPermission, sessionOrgAdminIds, sessionOrgPermissions } = useAuth();
+  const { hasOrgPermission, sessionOrgAdminIds, sessionOrgPermissions } =
+    useAuth();
   const orgId = useManageOrgId();
 
   const [roles, setRoles] = useState([]);
@@ -350,7 +358,9 @@ function RolesPage() {
     try {
       const role = roles.find((r) => r.roleId === roleId);
       const lockedPerms = (role?.permissions ?? []).filter((p) => !canGrant(p));
-      const editablePerms = (draftPerms[roleId] ?? []).filter((p) => canGrant(p));
+      const editablePerms = (draftPerms[roleId] ?? []).filter((p) =>
+        canGrant(p),
+      );
       const permissions = [...editablePerms, ...lockedPerms];
       const ticketTypeIds = draftTicketTypes[roleId] ?? [];
       const discordRoleIds = draftDiscordRoleIds[roleId] ?? [];
@@ -398,7 +408,12 @@ function RolesPage() {
     }
   }
 
-  function toggleExpand(roleId, currentPerms, currentTicketTypeIds, currentDiscordRoleIds) {
+  function toggleExpand(
+    roleId,
+    currentPerms,
+    currentTicketTypeIds,
+    currentDiscordRoleIds,
+  ) {
     if (expandedId === roleId) {
       setExpandedId(null);
     } else {
@@ -506,11 +521,15 @@ function RolesPage() {
             className={`flex items-center gap-3 rounded-md ring-1 px-3 py-2 ${r.className}`}
           >
             <div className="flex-1 min-w-0">
-              <p className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}>
+              <p
+                className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}
+              >
                 {r.icon}
                 {r.name}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{r.desc}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {r.desc}
+              </p>
             </div>
             <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 shrink-0">
               built-in
@@ -643,7 +662,9 @@ function RolesPage() {
                           {group.perms.map((perm) => {
                             if (perm.isParent) {
                               const childIds = perm.children.map((c) => c.id);
-                              const grantableChildIds = childIds.filter((id) => canGrant(id));
+                              const grantableChildIds = childIds.filter((id) =>
+                                canGrant(id),
+                              );
                               const checkedCount = childIds.filter((id) =>
                                 draft.includes(id),
                               ).length;
@@ -652,13 +673,16 @@ function RolesPage() {
                                 childIds.length > 0;
                               const someChecked =
                                 checkedCount > 0 && !allChecked;
-                              const grantableCheckedCount = grantableChildIds.filter((id) =>
-                                draft.includes(id),
-                              ).length;
+                              const grantableCheckedCount =
+                                grantableChildIds.filter((id) =>
+                                  draft.includes(id),
+                                ).length;
                               const allGrantableChecked =
                                 grantableChildIds.length > 0 &&
-                                grantableCheckedCount === grantableChildIds.length;
-                              const parentDisabled = grantableChildIds.length === 0;
+                                grantableCheckedCount ===
+                                  grantableChildIds.length;
+                              const parentDisabled =
+                                grantableChildIds.length === 0;
                               const ticketsActive =
                                 perm.showTicketTypes &&
                                 childIds.some((id) => draft.includes(id));
@@ -699,7 +723,8 @@ function RolesPage() {
                                         Ticket type access
                                       </p>
                                       <p className="text-[10px] text-muted-foreground mb-1 px-2">
-                                        Restrict to specific types, or keep "All types" for no restriction.
+                                        Restrict to specific types, or keep "All
+                                        types" for no restriction.
                                       </p>
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
                                         <PermCheckbox

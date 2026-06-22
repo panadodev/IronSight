@@ -183,8 +183,13 @@ function CacheStamp({ playerData, refreshing }) {
 }
 
 function PlayerLookupPage() {
-  const { selectedOrgIds, orgs, hasOrgPermission, orgsLoaded, adminableOrgIds } =
-    useAuth();
+  const {
+    selectedOrgIds,
+    orgs,
+    hasOrgPermission,
+    orgsLoaded,
+    adminableOrgIds,
+  } = useAuth();
   const tz = useTimezone();
   const search = Route.useSearch();
 
@@ -267,7 +272,9 @@ function PlayerLookupPage() {
           // Backend is still fetching — poll until data is ready
           if (pollAttemptsRef.current >= 10) {
             pollAttemptsRef.current = 0;
-            setPlayerError("Player data is taking too long to load. Try refreshing.");
+            setPlayerError(
+              "Player data is taking too long to load. Try refreshing.",
+            );
             setFirstFetch(false);
             return;
           }
@@ -333,9 +340,7 @@ function PlayerLookupPage() {
     Promise.all(fetches)
       .then((groups) => {
         if (!cancelled) {
-          setOffenses(
-            groups.flat().sort((a, b) => b.issuedAt - a.issuedAt),
-          );
+          setOffenses(groups.flat().sort((a, b) => b.issuedAt - a.issuedAt));
         }
       })
       .catch(() => {
@@ -493,11 +498,23 @@ function PlayerLookupPage() {
     const bm = playerData.bm;
 
     if (s?.vacBanned && (s.vacCount ?? 0) > 0)
-      out.push({ key: "vac", label: `VAC Banned (${s.vacCount})`, tone: "danger" });
+      out.push({
+        key: "vac",
+        label: `VAC Banned (${s.vacCount})`,
+        tone: "danger",
+      });
     if ((s?.gameBanCount ?? 0) > 0)
-      out.push({ key: "game", label: `Game Banned (${s.gameBanCount})`, tone: "danger" });
+      out.push({
+        key: "game",
+        label: `Game Banned (${s.gameBanCount})`,
+        tone: "danger",
+      });
     if (s?.communityBanned)
-      out.push({ key: "community", label: "Community Banned", tone: "warning" });
+      out.push({
+        key: "community",
+        label: "Community Banned",
+        tone: "warning",
+      });
     if (s?.economyBan && s.economyBan !== "none")
       out.push({ key: "economy", label: "Trade Banned", tone: "warning" });
     if (bm?.rustBansBanned)
@@ -518,7 +535,11 @@ function PlayerLookupPage() {
       (bm?.teamingReports ?? 0) +
       (bm?.otherReports ?? 0);
     if (reportSum > 10)
-      out.push({ key: "reports", label: `${reportSum} BM Reports`, tone: "warning" });
+      out.push({
+        key: "reports",
+        label: `${reportSum} BM Reports`,
+        tone: "warning",
+      });
 
     const hasActiveBan = offenses.some(
       (o) =>
@@ -769,13 +790,19 @@ function PlayerLookupPage() {
                             label="BM Reports"
                             value={fmtNum(
                               (playerData.bm.cheatingReports ?? 0) +
-                              (playerData.bm.teamingReports ?? 0) +
-                              (playerData.bm.otherReports ?? 0)
+                                (playerData.bm.teamingReports ?? 0) +
+                                (playerData.bm.otherReports ?? 0),
                             )}
                             tone={
-                              ((playerData.bm.cheatingReports ?? 0) + (playerData.bm.teamingReports ?? 0) + (playerData.bm.otherReports ?? 0)) > 10
+                              (playerData.bm.cheatingReports ?? 0) +
+                                (playerData.bm.teamingReports ?? 0) +
+                                (playerData.bm.otherReports ?? 0) >
+                              10
                                 ? "danger"
-                                : ((playerData.bm.cheatingReports ?? 0) + (playerData.bm.teamingReports ?? 0) + (playerData.bm.otherReports ?? 0)) > 0
+                                : (playerData.bm.cheatingReports ?? 0) +
+                                      (playerData.bm.teamingReports ?? 0) +
+                                      (playerData.bm.otherReports ?? 0) >
+                                    0
                                   ? "warning"
                                   : undefined
                             }
@@ -786,10 +813,7 @@ function PlayerLookupPage() {
                           value={isProxy ? "True" : "False"}
                           tone={isProxy ? "danger" : "success"}
                         />
-                        <Field
-                          label="Location"
-                          value={country ?? "—"}
-                        />
+                        <Field label="Location" value={country ?? "—"} />
                         <Field label="Last Seen" value={lastSeen ?? "Never"} />
                       </div>
                     )}
@@ -863,7 +887,9 @@ function PlayerLookupPage() {
                     subjectId={playerData.steamId}
                     isOnline={
                       playerData.bmSessions?.[0]?.lastSeen
-                        ? Date.now() / 1000 - playerData.bmSessions[0].lastSeen < 300
+                        ? Date.now() / 1000 -
+                            playerData.bmSessions[0].lastSeen <
+                          300
                         : false
                     }
                     bmSessions={playerData.bmSessions}
@@ -874,7 +900,6 @@ function PlayerLookupPage() {
                 {!isSupportOnly && (
                   <SessionTimeline sessionWindows={playerData.sessionWindows} />
                 )}
-
               </div>
             </div>
           )}
@@ -967,17 +992,29 @@ function PlayerReportsSection({ reports, loading, tz }) {
       {loading ? (
         <p className="text-xs text-muted-foreground italic">Loading…</p>
       ) : reports.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No reports on file.</p>
+        <p className="text-xs text-muted-foreground italic">
+          No reports on file.
+        </p>
       ) : (
         <div className="rounded-md ring-1 ring-border overflow-hidden">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border bg-surface/60">
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Type</th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Reason</th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Server</th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden md:table-cell">Reporter</th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">When</th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Type
+                </th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Reason
+                </th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">
+                  Server
+                </th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden md:table-cell">
+                  Reporter
+                </th>
+                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  When
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -994,13 +1031,27 @@ function PlayerReportsSection({ reports, loading, tz }) {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-foreground max-w-[200px]">
-                    <p className="truncate" title={r.reportReason}>{r.reportReason}</p>
+                    <p className="truncate" title={r.reportReason}>
+                      {r.reportReason}
+                    </p>
                     {r.reportDescription && (
-                      <p className="text-[10px] text-muted-foreground truncate" title={r.reportDescription}>{r.reportDescription}</p>
+                      <p
+                        className="text-[10px] text-muted-foreground truncate"
+                        title={r.reportDescription}
+                      >
+                        {r.reportDescription}
+                      </p>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground truncate max-w-[140px] hidden sm:table-cell" title={r.serverName}>{r.serverName}</td>
-                  <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{r.reporterName}</td>
+                  <td
+                    className="px-3 py-2 text-muted-foreground truncate max-w-[140px] hidden sm:table-cell"
+                    title={r.serverName}
+                  >
+                    {r.serverName}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">
+                    {r.reporterName}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                     {relativeTime(r.createdAt)}
                   </td>
@@ -1041,9 +1092,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
             .catch(() => []),
         ),
       );
-      setRecords(
-        groups.flat().sort((a, b) => b.issuedAt - a.issuedAt),
-      );
+      setRecords(groups.flat().sort((a, b) => b.issuedAt - a.issuedAt));
     } finally {
       setLoading(false);
     }
@@ -1067,7 +1116,10 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setActionError(body.error ?? `Failed to ${kind === "Ban" ? "unban" : "unmute"} (${res.status})`);
+        setActionError(
+          body.error ??
+            `Failed to ${kind === "Ban" ? "unban" : "unmute"} (${res.status})`,
+        );
         return;
       }
     } catch {
@@ -1096,7 +1148,9 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setActionError(body.error ?? `Failed to update duration (${res.status})`);
+        setActionError(
+          body.error ?? `Failed to update duration (${res.status})`,
+        );
         return;
       }
     } catch {
@@ -1149,8 +1203,11 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{r.reason}</p>
                       <p className="text-[10px] font-mono text-muted-foreground">
-                        {new Date(r.issuedAt * 1000).toLocaleDateString(undefined, tz ? { timeZone: tz } : {})} · by{" "}
-                        {r.issuedByName ?? "unknown"}
+                        {new Date(r.issuedAt * 1000).toLocaleDateString(
+                          undefined,
+                          tz ? { timeZone: tz } : {},
+                        )}{" "}
+                        · by {r.issuedByName ?? "unknown"}
                         {r.category ? ` · ${r.category}` : ""}
                       </p>
                     </div>

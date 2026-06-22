@@ -14,20 +14,36 @@ const Route = createFileRoute("/manage")({
 });
 
 const MANAGE_PERMS = [
-  "org_manage", "role_create", "ban_configs_manage",
-  "toxicity_manage", "predefines_manage", "tickets_manage",
+  "org_manage",
+  "role_create",
+  "ban_configs_manage",
+  "toxicity_manage",
+  "predefines_manage",
+  "tickets_manage",
 ];
 function ManageLayout() {
-  const { adminableOrgIds, orgs, sessionOrgAdminIds, sessionOrgPermissions, orgsLoaded } = useAuth();
+  const {
+    adminableOrgIds,
+    orgs,
+    sessionOrgAdminIds,
+    sessionOrgPermissions,
+    orgsLoaded,
+  } = useAuth();
   const orgId = useManageOrgId();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
 
   const manageableOrgIds = useMemo(() => {
     const permOrgIds = orgs
-      .filter((o) => MANAGE_PERMS.some((p) => (sessionOrgPermissions[o.id] ?? []).includes(p)))
+      .filter((o) =>
+        MANAGE_PERMS.some((p) =>
+          (sessionOrgPermissions[o.id] ?? []).includes(p),
+        ),
+      )
       .map((o) => o.id);
-    return Array.from(new Set([...sessionOrgAdminIds, ...permOrgIds, ...adminableOrgIds]));
+    return Array.from(
+      new Set([...sessionOrgAdminIds, ...permOrgIds, ...adminableOrgIds]),
+    );
   }, [sessionOrgPermissions, sessionOrgAdminIds, orgs, adminableOrgIds]);
 
   const manageable = useMemo(

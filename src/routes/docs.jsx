@@ -61,7 +61,15 @@ function timeAgo(unix) {
   return `${mo}mo ago`;
 }
 function DocsPage() {
-  const { orgs, selectedOrgIds, activeStaff, rankOf, isOwner, orgsLoaded, hasStaffAccount } = useAuth();
+  const {
+    orgs,
+    selectedOrgIds,
+    activeStaff,
+    rankOf,
+    isOwner,
+    orgsLoaded,
+    hasStaffAccount,
+  } = useAuth();
   const { articles, categories } = useDocs();
   const [orgId, setOrgId] = useState(
     () => selectedOrgIds[0] ?? orgs[0]?.id ?? "",

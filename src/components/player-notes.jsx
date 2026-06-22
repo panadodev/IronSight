@@ -291,7 +291,8 @@ function PlayerNotesSection({ subjectId, orgId }) {
 function PinnedPlayerNotesSection({ subjectId, orgId }) {
   const { notes } = usePlayerNotesApi(orgId, subjectId);
   const visible = useMemo(
-    () => notes.filter((n) => n.pinned).sort((a, b) => b.createdAt - a.createdAt),
+    () =>
+      notes.filter((n) => n.pinned).sort((a, b) => b.createdAt - a.createdAt),
     [notes],
   );
   if (!orgId || visible.length === 0) return null;

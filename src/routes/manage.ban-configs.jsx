@@ -10,13 +10,19 @@ const Route = createFileRoute("/manage/ban-configs")({
 });
 
 function BanConfigsPage() {
-  const { sessionUser, hasOrgPermission, orgBanConfigs, orgMuteConfigs, loadOrgBanConfigs } =
-    useAuth();
+  const {
+    sessionUser,
+    hasOrgPermission,
+    orgBanConfigs,
+    orgMuteConfigs,
+    loadOrgBanConfigs,
+  } = useAuth();
   const orgId = useManageOrgId();
   const [loading, setLoading] = useState(false);
 
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "ban_configs_manage");
+    Boolean(sessionUser?.isSysAdmin) ||
+    hasOrgPermission(orgId, "ban_configs_manage");
 
   useEffect(() => {
     if (!orgId) return;

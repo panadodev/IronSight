@@ -250,9 +250,11 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
                 <p className="text-[10px] text-danger leading-snug">
                   <span className="font-bold">{summary.strongBanned}</span>{" "}
                   banned{" "}
-                  {summary.strongBanned === 1 ? "account shares" : "accounts share"}{" "}
-                  a <span className="font-bold">non-proxy IP</span> (residential,
-                  business or mobile).
+                  {summary.strongBanned === 1
+                    ? "account shares"
+                    : "accounts share"}{" "}
+                  a <span className="font-bold">non-proxy IP</span>{" "}
+                  (residential, business or mobile).
                 </p>
               </div>
             ) : summary.total === 0 ? (
@@ -613,8 +615,8 @@ function LinkedAccountsSection({ subjectName, relatedAccounts, canSeeRealIp }) {
           }
           className="mt-2 w-full text-center text-[10px] font-mono uppercase tracking-widest text-brand hover:underline py-1.5 ring-1 ring-border rounded bg-surface/40"
         >
-          + {hiddenCount} more linked account{hiddenCount === 1 ? "" : "s"} hidden
-          — increase limit
+          + {hiddenCount} more linked account{hiddenCount === 1 ? "" : "s"}{" "}
+          hidden — increase limit
         </button>
       )}
 
@@ -629,7 +631,13 @@ function LinkedAccountsSection({ subjectName, relatedAccounts, canSeeRealIp }) {
   );
 }
 
-function ComparisonDialog({ open, onClose, subjectName, account, canSeeRealIp }) {
+function ComparisonDialog({
+  open,
+  onClose,
+  subjectName,
+  account,
+  canSeeRealIp,
+}) {
   const [copied, setCopied] = useState(false);
   if (!account) return null;
 
@@ -648,7 +656,7 @@ function ComparisonDialog({ open, onClose, subjectName, account, canSeeRealIp })
       lines.push(`Alt Steam ID: ${account.relatedSteamId}`);
     lines.push(`Alt BM ID: ${account.relatedBmId}`);
     lines.push(
-      `Confidence: ${(CONFIDENCE_META[account.altConfidence]?.label ?? "Unlikely")} (score ${account.altScore ?? 0})`,
+      `Confidence: ${CONFIDENCE_META[account.altConfidence]?.label ?? "Unlikely"} (score ${account.altScore ?? 0})`,
     );
     lines.push("");
 
@@ -852,7 +860,10 @@ function ComparisonDialog({ open, onClose, subjectName, account, canSeeRealIp })
 
           {/* Co-presence verdict */}
           {co && (
-            <Block icon={<Clock className="size-3" />} title="Session co-presence">
+            <Block
+              icon={<Clock className="size-3" />}
+              title="Session co-presence"
+            >
               <p className={`text-[11px] font-mono ${co.tone}`}>{co.label}</p>
               <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
                 {co.hint}
@@ -893,8 +904,7 @@ function ComparisonDialog({ open, onClose, subjectName, account, canSeeRealIp })
                   ? [...account.nameAliases]
                       .sort(
                         (a, b) =>
-                          bigramSim(b, subjectName) -
-                          bigramSim(a, subjectName),
+                          bigramSim(b, subjectName) - bigramSim(a, subjectName),
                       )
                       .slice(0, 5)
                   : [account.relatedName]
@@ -958,7 +968,10 @@ function Block({ icon, title, badge, children }) {
 
 function SmallStat({ icon, label, value, tone, hint }) {
   return (
-    <div className="px-3 py-2 rounded ring-1 ring-border bg-surface/40" title={hint}>
+    <div
+      className="px-3 py-2 rounded ring-1 ring-border bg-surface/40"
+      title={hint}
+    >
       <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
         {icon} {label}
       </p>

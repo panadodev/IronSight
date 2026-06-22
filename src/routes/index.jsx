@@ -1470,7 +1470,8 @@ function StaffDashboard() {
   );
 }
 function ReportsList({ reports, proofOnly, recencyDays }) {
-  const cutoff = recencyDays > 0 ? Math.floor(Date.now() / 1000) - recencyDays * 86400 : 0;
+  const cutoff =
+    recencyDays > 0 ? Math.floor(Date.now() / 1000) - recencyDays * 86400 : 0;
   const byProof = proofOnly
     ? reports.filter((r) => r.evidence.trim().length > 0)
     : reports;

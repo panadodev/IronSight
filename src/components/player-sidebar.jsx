@@ -864,23 +864,36 @@ function BmPlaytimeList({ sessions }) {
           className="text-[9px] font-mono bg-surface ring-1 ring-border rounded px-1 py-0.5 text-muted-foreground"
         >
           {["5", "10", "25", "50", "all"].map((v) => (
-            <option key={v} value={v}>{v === "all" ? "All" : `Top ${v}`}</option>
+            <option key={v} value={v}>
+              {v === "all" ? "All" : `Top ${v}`}
+            </option>
           ))}
         </select>
       </div>
       <ul className="space-y-1">
         {visible.map((s, i) => {
           const hrs = Number(s.hoursPlayed ?? 0);
-          const played = hrs >= 1 ? `${hrs.toFixed(2)} hrs` : `${Math.round(hrs * 60)}m`;
+          const played =
+            hrs >= 1 ? `${hrs.toFixed(2)} hrs` : `${Math.round(hrs * 60)}m`;
           const pct = maxHrs > 0 ? (hrs / maxHrs) * 100 : 0;
           const color = sessionRankColor(i, visible.length);
           return (
-            <li key={s.bmServerId} style={{ borderLeft: `3px solid ${color}` }} className="pl-2 py-0.5">
+            <li
+              key={s.bmServerId}
+              style={{ borderLeft: `3px solid ${color}` }}
+              className="pl-2 py-0.5"
+            >
               <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                <span className="text-[10px] font-medium truncate min-w-0 flex-1" title={s.serverName}>
+                <span
+                  className="text-[10px] font-medium truncate min-w-0 flex-1"
+                  title={s.serverName}
+                >
                   {s.serverName}
                 </span>
-                <span className="text-[10px] font-mono shrink-0" style={{ color }}>
+                <span
+                  className="text-[10px] font-mono shrink-0"
+                  style={{ color }}
+                >
                   {played}
                 </span>
               </div>
@@ -908,7 +921,9 @@ function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
           </span>
         </h2>
         {bmSessions.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">No server sessions on record.</p>
+          <p className="text-xs text-muted-foreground italic">
+            No server sessions on record.
+          </p>
         ) : (
           <BmPlaytimeList sessions={bmSessions} />
         )}

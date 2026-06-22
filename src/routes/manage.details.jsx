@@ -196,8 +196,8 @@ function UsageDayBar({ queriesDay, dailyLimit, label }) {
   return (
     <div className="mt-2 space-y-1">
       <p className="text-[10px] text-muted-foreground">
-        {label}: {queriesDay.toLocaleString()} / {dailyLimit.toLocaleString()}{" "}
-        ({pct}%)
+        {label}: {queriesDay.toLocaleString()} / {dailyLimit.toLocaleString()} (
+        {pct}%)
       </p>
       <div className="h-1 bg-muted rounded-full overflow-hidden">
         <div
@@ -421,7 +421,10 @@ function ApiKeysSection({ orgId }) {
                       Required permissions:
                     </p>
                     {SERVICE_PERMISSIONS[svc].map(({ group, items }) => (
-                      <p key={group} className="text-[10px] text-muted-foreground">
+                      <p
+                        key={group}
+                        className="text-[10px] text-muted-foreground"
+                      >
                         <span className="text-foreground/60 font-medium">
                           {group}:
                         </span>{" "}
@@ -484,9 +487,7 @@ function ApiKeysSection({ orgId }) {
                         <BmKeyGraph keyData={stats[k.keyId]} />
                       )}
                       {svc === "proxycheck" && (
-                        <ProxycheckKeyUsage
-                          usage={proxycheckUsage[k.keyId]}
-                        />
+                        <ProxycheckKeyUsage usage={proxycheckUsage[k.keyId]} />
                       )}
                       {svc === "steam" && (
                         <SteamKeyUsage keyData={stats[k.keyId]} />
@@ -607,7 +608,18 @@ const RIPE_ATLAS_COUNTRIES = [
   { code: "FI", name: "Finland" },
   { code: "CH", name: "Switzerland" },
 ];
-const DEFAULT_RIPE_COUNTRIES = ["US", "GB", "DE", "FR", "NL", "SG", "AU", "JP", "BR", "CA"];
+const DEFAULT_RIPE_COUNTRIES = [
+  "US",
+  "GB",
+  "DE",
+  "FR",
+  "NL",
+  "SG",
+  "AU",
+  "JP",
+  "BR",
+  "CA",
+];
 
 function RipeAtlasSection({ orgId }) {
   const [loading, setLoading] = useState(true);
@@ -659,7 +671,11 @@ function RipeAtlasSection({ orgId }) {
     setSaving(true);
     setError("");
     try {
-      const payload = { countries, probesPerCountry: Number(probesPerCountry), checkIntervalMinutes: Number(checkIntervalMinutes) };
+      const payload = {
+        countries,
+        probesPerCountry: Number(probesPerCountry),
+        checkIntervalMinutes: Number(checkIntervalMinutes),
+      };
       if (!config) payload.apiKey = apiKey.trim();
       else if (apiKey.trim()) payload.apiKey = apiKey.trim();
 
@@ -720,7 +736,8 @@ function RipeAtlasSection({ orgId }) {
   }
 
   const cyclesPerDay = Math.floor((24 * 60) / checkIntervalMinutes);
-  const estimatedDailyCredits = countries.length * probesPerCountry * 3 * cyclesPerDay;
+  const estimatedDailyCredits =
+    countries.length * probesPerCountry * 3 * cyclesPerDay;
 
   return (
     <div className="border-t border-border pt-6">
@@ -761,7 +778,8 @@ function RipeAtlasSection({ orgId }) {
                     <p className="text-sm font-semibold">Credit balance</p>
                     {credits ? (
                       <p className="text-sm text-muted-foreground">
-                        {credits.currentBalance?.toLocaleString() ?? "—"} credits
+                        {credits.currentBalance?.toLocaleString() ?? "—"}{" "}
+                        credits
                         {credits.estimatedDailyIncome != null &&
                           ` · +${credits.estimatedDailyIncome.toLocaleString()}/day earned`}
                         {credits.maxDailyIncome != null &&
@@ -944,10 +962,10 @@ function RipeAtlasSection({ orgId }) {
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Estimated credit usage: ~
-                {estimatedDailyCredits.toLocaleString()} credits/day (3 packets ×{" "}
-                {probesPerCountry} probe{probesPerCountry === 1 ? "" : "s"} ×{" "}
-                {countries.length} countr{countries.length === 1 ? "y" : "ies"} ×{" "}
-                {cyclesPerDay} cycles). Longer intervals use fewer credits.
+                {estimatedDailyCredits.toLocaleString()} credits/day (3 packets
+                × {probesPerCountry} probe{probesPerCountry === 1 ? "" : "s"} ×{" "}
+                {countries.length} countr{countries.length === 1 ? "y" : "ies"}{" "}
+                × {cyclesPerDay} cycles). Longer intervals use fewer credits.
               </p>
             </div>
 
@@ -1170,7 +1188,6 @@ function ManageDetailsPage() {
       <ApiKeysSection orgId={orgId} />
 
       <RipeAtlasSection orgId={orgId} />
-
     </div>
   );
 }

@@ -82,7 +82,9 @@ function computeExpiresAt(durationValue) {
 function BansMutesPage() {
   const { selectedOrgIds, hasOrgPermission, orgs } = useAuth();
   const canAccess = selectedOrgIds.some(
-    (id) => hasOrgPermission(id, "bans_manage") || hasOrgPermission(id, "bans_delete"),
+    (id) =>
+      hasOrgPermission(id, "bans_manage") ||
+      hasOrgPermission(id, "bans_delete"),
   );
 
   const [tab, setTab] = useState("bans");
@@ -97,7 +99,9 @@ function BansMutesPage() {
   const manageableOrgIds = useMemo(
     () =>
       selectedOrgIds.filter(
-        (id) => hasOrgPermission(id, "bans_manage") || hasOrgPermission(id, "bans_delete"),
+        (id) =>
+          hasOrgPermission(id, "bans_manage") ||
+          hasOrgPermission(id, "bans_delete"),
       ),
     [selectedOrgIds, hasOrgPermission],
   );

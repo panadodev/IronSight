@@ -30,7 +30,10 @@ function FriendAvatar({ steamId, displayName, avatarUrl }) {
       className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0 text-[10px]"
       style={{ background: steamIdColor(steamId) }}
     >
-      {(displayName ?? steamId).replace(/[\[\]]/g, "").slice(0, 2).toUpperCase()}
+      {(displayName ?? steamId)
+        .replace(/[\[\]]/g, "")
+        .slice(0, 2)
+        .toUpperCase()}
     </div>
   );
 }
@@ -122,7 +125,10 @@ function PlayerFriendsSection({ friends }) {
               avatarUrl={f.avatarUrl}
             />
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium truncate" title={f.displayName ?? f.steamId}>
+              <p
+                className="text-[11px] font-medium truncate"
+                title={f.displayName ?? f.steamId}
+              >
                 {f.displayName ?? f.steamId}
               </p>
               <p className="text-[9px] font-mono text-muted-foreground truncate flex items-center gap-1">

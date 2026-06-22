@@ -113,8 +113,26 @@ function SubmitPage() {
   const isPlayerReport =
     selectedType?.category === "player_single" ||
     selectedType?.category === "player_multi";
-  const isMultiPlayerReport = selectedType?.category === "player_multi";
+  // Teaming reports are inherently about multiple players, so allow selecting
+  // several even when the ticket type itself isn't configured as player_multi.
+  const isMultiPlayerReport =
+    selectedType?.category === "player_multi" ||
+    (isPlayerReport && reportCategory === "teaming");
   const showServerStep = isPlayerReport && servers.length > 0;
+
+  // When the report mode flips between single and multi (e.g. choosing the
+  // "Teaming" category), carry the existing selection across so it isn't lost.
+  useEffect(() => {
+    if (!isPlayerReport) return;
+    if (isMultiPlayerReport) {
+      setSelectedPlayers((cur) =>
+        cur.length === 0 && selectedPlayer ? [selectedPlayer] : cur,
+      );
+    } else {
+      setSelectedPlayer((cur) => cur ?? selectedPlayers[0] ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMultiPlayerReport, isPlayerReport]);
 
   useEffect(() => {
     if (!isPlayerReport) return;
@@ -166,10 +184,10 @@ function SubmitPage() {
       ticketTitle = ticketTitle || `${reportCategory} — ${steamIds}`;
       const evidenceText = evidence.trim();
       if (evidenceText) message = `${message}\n\nEvidence:\n${evidenceText}`;
-      const serverName =
-        selectedServerId
-          ? (servers.find((s) => s.serverId === selectedServerId)?.serverName ?? "")
-          : "";
+      const serverName = selectedServerId
+        ? (servers.find((s) => s.serverId === selectedServerId)?.serverName ??
+          "")
+        : "";
       const prefix = [
         serverName ? `Server: ${serverName}` : null,
         isMultiPlayerReport
@@ -435,6 +453,41 @@ function SubmitPage() {
 
           {selectedType && isPlayerReport && (
             <>
+              <section className="space-y-3">
+                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  Step {nextStep()} · What did they do?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {REPORT_CATEGORIES.map((c) => {
+                    const active = reportCategory === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => setReportCategory(c.id)}
+                        className={
+                          "text-left p-3 rounded-lg ring-1 transition-colors " +
+                          (active
+                            ? "bg-brand/10 ring-brand/30"
+                            : "bg-surface/40 ring-border hover:bg-surface/70")
+                        }
+                      >
+                        <p
+                          className={
+                            "text-sm font-semibold " +
+                            (active ? "text-brand" : "text-foreground")
+                          }
+                        >
+                          {c.label}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {c.blurb}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
               {showServerStep && (
                 <section className="space-y-3">
                   <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
@@ -535,10 +588,7 @@ function SubmitPage() {
                                     (sp) => sp.steamId === p.steamId,
                                   )
                                 ) {
-                                  setSelectedPlayers([
-                                    ...selectedPlayers,
-                                    p,
-                                  ]);
+                                  setSelectedPlayers([...selectedPlayers, p]);
                                 }
                                 setPlayerDropdownOpen(false);
                                 setPlayerQuery("");
@@ -566,8 +616,7 @@ function SubmitPage() {
                         playerResults.length === 0 && (
                           <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
                             <div className="p-3 text-xs text-muted-foreground">
-                              No players found matching "
-                              {playerQuery.trim()}".
+                              No players found matching "{playerQuery.trim()}".
                             </div>
                           </div>
                         )}
@@ -661,54 +710,18 @@ function SubmitPage() {
                           playerResults.length === 0 && (
                             <div className="absolute z-20 mt-1 w-full bg-background ring-1 ring-border rounded-md shadow-lg">
                               <div className="p-3 text-xs text-muted-foreground">
-                                No players found matching "
-                                {playerQuery.trim()}".
+                                No players found matching "{playerQuery.trim()}
+                                ".
                               </div>
                             </div>
                           )}
                       </div>
                     )}
                     <p className="text-[10px] text-muted-foreground">
-                      Search for the player by their in-game name or Steam64
-                      ID.
+                      Search for the player by their in-game name or Steam64 ID.
                     </p>
                   </>
                 )}
-              </section>
-
-              <section className="space-y-3">
-                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Step {nextStep()} · What did they do?
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {REPORT_CATEGORIES.map((c) => {
-                    const active = reportCategory === c.id;
-                    return (
-                      <button
-                        key={c.id}
-                        onClick={() => setReportCategory(c.id)}
-                        className={
-                          "text-left p-3 rounded-lg ring-1 transition-colors " +
-                          (active
-                            ? "bg-brand/10 ring-brand/30"
-                            : "bg-surface/40 ring-border hover:bg-surface/70")
-                        }
-                      >
-                        <p
-                          className={
-                            "text-sm font-semibold " +
-                            (active ? "text-brand" : "text-foreground")
-                          }
-                        >
-                          {c.label}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {c.blurb}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
               </section>
 
               <section className="space-y-3">

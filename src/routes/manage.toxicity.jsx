@@ -23,7 +23,8 @@ function ToxicityPage() {
   const fileInputRef = useRef(null);
 
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "toxicity_manage");
+    Boolean(sessionUser?.isSysAdmin) ||
+    hasOrgPermission(orgId, "toxicity_manage");
 
   const fetchWords = useCallback(async () => {
     if (!orgId) return;

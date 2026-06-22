@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { manageOrgStore } from "./manage-org-store";
 import { TEAM_META } from "./mock-data";
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
@@ -38,6 +45,8 @@ function AuthProvider({ children }) {
   const [sessionOrgOwnerIds, setSessionOrgOwnerIds] = useState([]);
   const [sessionOrgPermissions, setSessionOrgPermissions] = useState({});
   const [sessionUser, setSessionUser] = useState(null);
+  // Set by impersonate() to the target member's access; null when not active.
+  const [viewingAs, setViewingAs] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,13 +422,47 @@ function AuthProvider({ children }) {
   // owner/admin map to the management tier (full access); members holding any
   // org permission get a working staff rank; plain members of an org they
   // belong to get the support baseline. Server-side checks remain the real gate.
-  const rankFromSession = (orgId) => {
-    if (sessionOrgOwnerIds.includes(orgId)) return 4;
-    if (sessionOrgAdminIds.includes(orgId)) return 4;
-    if ((sessionOrgPermissions[orgId] ?? []).length > 0) return 3;
+  // ── View-only impersonation ────────────────────────────────────────────────
+  // When an org manager is "viewing as" another member, the UI permission
+  // surface is derived from that member's access (scoped to the impersonated
+  // org) instead of the real session. The server still authorizes every request
+  // by the real session, so this only changes what the UI reveals — it can
+  // never escalate privilege. The `real*` helpers below always reflect the true
+  // session (used to gate the impersonation entry point itself).
+  const isImpersonating = viewingAs != null;
+  const impersonatedOrgId = viewingAs?.orgId ?? null;
+  const effectiveOrgOwnerIds = isImpersonating
+    ? (viewingAs.access?.orgOwnerOrgIds ?? [])
+    : sessionOrgOwnerIds;
+  const effectiveOrgAdminIds = isImpersonating
+    ? (viewingAs.access?.orgAdminOrgIds ?? [])
+    : sessionOrgAdminIds;
+  const effectiveOrgPermissions =
+    isImpersonating && impersonatedOrgId
+      ? { [impersonatedOrgId]: viewingAs.access?.permissions ?? [] }
+      : sessionOrgPermissions;
+
+  const computeRank = (orgId, ownerIds, adminIds, perms) => {
+    if (ownerIds.includes(orgId)) return 4;
+    if (adminIds.includes(orgId)) return 4;
+    if ((perms[orgId] ?? []).length > 0) return 3;
     if (orgs.some((o) => o.id === orgId)) return 1;
     return 0;
   };
+  const rankFromSession = (orgId) =>
+    computeRank(
+      orgId,
+      effectiveOrgOwnerIds,
+      effectiveOrgAdminIds,
+      effectiveOrgPermissions,
+    );
+  const realRankFromSession = (orgId) =>
+    computeRank(
+      orgId,
+      sessionOrgOwnerIds,
+      sessionOrgAdminIds,
+      sessionOrgPermissions,
+    );
   const rankOf = (orgId) => (isOwner ? 4 : rankFromSession(orgId));
   const maxRankAcross = (orgIds) => {
     if (isOwner) return 4;
@@ -431,41 +474,43 @@ function AuthProvider({ children }) {
     return max;
   };
   const isOwner =
-    sessionUser != null && sessionOrgOwnerIds.length > 0
-      ? sessionOrgOwnerIds.some((id) => orgs.some((o) => o.id === id))
+    sessionUser != null && effectiveOrgOwnerIds.length > 0
+      ? effectiveOrgOwnerIds.some((id) => orgs.some((o) => o.id === id))
       : false;
   // The bootstrap only returns orgs the user is a member of, so every loaded
   // org is one of "my" orgs.
   const myOrgIds = useMemo(() => orgs.map((o) => o.id), [orgs]);
   const manageableOrgIds = useMemo(
-    () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
-    [sessionOrgOwnerIds, sessionOrgAdminIds],
+    () =>
+      Array.from(new Set([...effectiveOrgOwnerIds, ...effectiveOrgAdminIds])),
+    [effectiveOrgOwnerIds, effectiveOrgAdminIds],
   );
   const realStaff = useMemo(
     () => staff.find((s) => s.id === realStaffId) ?? null,
     [staff, realStaffId],
   );
   const realIsOwner = sessionOrgOwnerIds.length > 0;
-  const realManageableOrgIds = manageableOrgIds;
-  const realRankOf = (orgId) => (realIsOwner ? 4 : rankFromSession(orgId));
+  const realManageableOrgIds = useMemo(
+    () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
+    [sessionOrgOwnerIds, sessionOrgAdminIds],
+  );
+  const realRankOf = (orgId) => (realIsOwner ? 4 : realRankFromSession(orgId));
   const realAdminableOrgIds = useMemo(
     () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
     [sessionOrgOwnerIds, sessionOrgAdminIds],
   );
 
-  const [viewingAs, setViewingAs] = useState(null);
-
   const adminableOrgIds = useMemo(
-    () => Array.from(new Set([...sessionOrgOwnerIds, ...sessionOrgAdminIds])),
-    [sessionOrgOwnerIds, sessionOrgAdminIds],
+    () =>
+      Array.from(new Set([...effectiveOrgOwnerIds, ...effectiveOrgAdminIds])),
+    [effectiveOrgOwnerIds, effectiveOrgAdminIds],
   );
   const isMgmtOf = (orgId) => isOwner || manageableOrgIds.includes(orgId);
   const isSrOrMgmtOf = (orgId) => isOwner || adminableOrgIds.includes(orgId);
   const hasOrgPermission = (orgId, permissionId) =>
-    sessionOrgOwnerIds.includes(orgId) ||
-    sessionOrgAdminIds.includes(orgId) ||
-    (sessionOrgPermissions[orgId] ?? []).includes(permissionId);
-  const isImpersonating = false; // No longer using activeStaffId swapping
+    effectiveOrgOwnerIds.includes(orgId) ||
+    effectiveOrgAdminIds.includes(orgId) ||
+    (effectiveOrgPermissions[orgId] ?? []).includes(permissionId);
 
   const impersonate = async (orgId, memberId) => {
     try {
@@ -482,7 +527,7 @@ function AuthProvider({ children }) {
       }
       const data = await res.json();
       if (data.ok) {
-        setViewingAs(data);
+        setViewingAs({ ...data, orgId });
         return { ok: true };
       }
       return data;
@@ -643,6 +688,7 @@ function AuthProvider({ children }) {
       realIsOwner,
       hasStaffAccount,
       isImpersonating,
+      viewingAs,
       activeRank,
       sessionOrgAdminIds,
       sessionOrgOwnerIds,
@@ -665,6 +711,5 @@ export {
   BAN_CATEGORY_LABEL,
   TICKET_TYPE_KEYS,
   TICKET_TYPE_LABELS,
-  useAuth
+  useAuth,
 };
-

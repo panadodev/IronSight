@@ -71,7 +71,10 @@ function PlayerListPage() {
     "playerList.sortKey",
     "susScore",
   );
-  const [sortDir, setSortDir] = usePersistentState("playerList.sortDir", "desc");
+  const [sortDir, setSortDir] = usePersistentState(
+    "playerList.sortDir",
+    "desc",
+  );
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = usePersistentState(
     "playerList.onlineOnly",
@@ -223,13 +226,23 @@ function PlayerListPage() {
   const rconErrors = serverStatuses.filter((s) => s.rconError);
 
   const handleClearAllCache = async () => {
-    if (!window.confirm("Clear the entire player cache? All cached player data will be deleted and re-fetched on next lookup.")) return;
+    if (
+      !window.confirm(
+        "Clear the entire player cache? All cached player data will be deleted and re-fetched on next lookup.",
+      )
+    )
+      return;
     setCacheClearBusy(true);
     try {
-      const res = await fetch("/api/admin/player-cache", { method: "DELETE", credentials: "include" });
+      const res = await fetch("/api/admin/player-cache", {
+        method: "DELETE",
+        credentials: "include",
+      });
       const body = await res.json();
       if (res.ok) {
-        alert(`Cache cleared. Redis: ${body.redisCleared} keys, DB: ${body.dbCleared} rows deleted.`);
+        alert(
+          `Cache cleared. Redis: ${body.redisCleared} keys, DB: ${body.dbCleared} rows deleted.`,
+        );
       } else {
         alert(body.error ?? "Failed to clear cache.");
       }

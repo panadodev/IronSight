@@ -57,7 +57,9 @@ function MethodBadge({ method }) {
     DELETE: "text-red-400",
   };
   return (
-    <span className={`font-mono text-[10px] uppercase ${colors[method] ?? "text-muted-foreground"}`}>
+    <span
+      className={`font-mono text-[10px] uppercase ${colors[method] ?? "text-muted-foreground"}`}
+    >
       {method}
     </span>
   );
@@ -78,11 +80,18 @@ function DirectionBadge({ direction }) {
 function LatencyBar({ value, max }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   const color =
-    value > 2000 ? "bg-danger/60" : value > 500 ? "bg-warning/60" : "bg-success/50";
+    value > 2000
+      ? "bg-danger/60"
+      : value > 500
+        ? "bg-warning/60"
+        : "bg-success/50";
   return (
     <div className="flex items-center gap-1.5">
       <div className="w-16 h-1.5 rounded-full bg-border overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        <div
+          className={`h-full rounded-full ${color}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
       <span className="font-mono tabular-nums text-[10px] text-muted-foreground w-12 text-right">
         {value}ms
@@ -168,16 +177,18 @@ function SysMetricsPage() {
   const maxRouteCount = routes[0]?.count ?? 1;
 
   // Filtered incoming log
-  const filteredIncoming = incomingFilter === "all"
-    ? incoming
-    : incomingFilter === "ingest"
-      ? incoming.filter((e) => e.isIngest)
-      : incoming.filter((e) => !e.isIngest);
+  const filteredIncoming =
+    incomingFilter === "all"
+      ? incoming
+      : incomingFilter === "ingest"
+        ? incoming.filter((e) => e.isIngest)
+        : incoming.filter((e) => !e.isIngest);
 
   // Filtered errors
-  const filteredErrors = errorDirection === "all"
-    ? errors
-    : errors.filter((e) => e.direction === errorDirection);
+  const filteredErrors =
+    errorDirection === "all"
+      ? errors
+      : errors.filter((e) => e.direction === errorDirection);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -194,7 +205,8 @@ function SysMetricsPage() {
               API Diagnostics
             </h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              In-memory ring buffer — resets on server restart · max 1 000 entries each
+              In-memory ring buffer — resets on server restart · max 1 000
+              entries each
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -264,32 +276,66 @@ function SysMetricsPage() {
                 {/* Summary cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { label: "Incoming (buffered)", value: totalIn, sub: `${ingestCount} ingest` },
-                    { label: "Outgoing (buffered)", value: totalOut, sub: "external calls" },
-                    { label: "Incoming errors", value: errorsIn, danger: errorsIn > 0 },
-                    { label: "Outgoing errors", value: errorsOut, danger: errorsOut > 0 },
+                    {
+                      label: "Incoming (buffered)",
+                      value: totalIn,
+                      sub: `${ingestCount} ingest`,
+                    },
+                    {
+                      label: "Outgoing (buffered)",
+                      value: totalOut,
+                      sub: "external calls",
+                    },
+                    {
+                      label: "Incoming errors",
+                      value: errorsIn,
+                      danger: errorsIn > 0,
+                    },
+                    {
+                      label: "Outgoing errors",
+                      value: errorsOut,
+                      danger: errorsOut > 0,
+                    },
                   ].map((c) => (
-                    <div key={c.label} className="rounded-lg ring-1 ring-border bg-surface/40 p-3">
+                    <div
+                      key={c.label}
+                      className="rounded-lg ring-1 ring-border bg-surface/40 p-3"
+                    >
                       <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
                         {c.label}
                       </p>
-                      <p className={`text-2xl font-semibold tabular-nums mt-1 ${c.danger ? "text-danger" : ""}`}>
+                      <p
+                        className={`text-2xl font-semibold tabular-nums mt-1 ${c.danger ? "text-danger" : ""}`}
+                      >
                         {c.value}
                       </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{c.sub}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {c.sub}
+                      </p>
                     </div>
                   ))}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { label: "Avg latency (incoming)", value: `${avgLatency}ms` },
-                    { label: "p95 latency (incoming)", value: `${p95Latency}ms` },
+                    {
+                      label: "Avg latency (incoming)",
+                      value: `${avgLatency}ms`,
+                    },
+                    {
+                      label: "p95 latency (incoming)",
+                      value: `${p95Latency}ms`,
+                    },
                   ].map((c) => (
-                    <div key={c.label} className="rounded-lg ring-1 ring-border bg-surface/40 p-3">
+                    <div
+                      key={c.label}
+                      className="rounded-lg ring-1 ring-border bg-surface/40 p-3"
+                    >
                       <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
                         {c.label}
                       </p>
-                      <p className="text-2xl font-semibold tabular-nums mt-1 font-mono">{c.value}</p>
+                      <p className="text-2xl font-semibold tabular-nums mt-1 font-mono">
+                        {c.value}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -320,14 +366,27 @@ function SysMetricsPage() {
                           </span>
                           <div
                             className="h-1.5 rounded-full bg-brand/30 shrink-0"
-                            style={{ width: `${Math.round((r.count / maxRouteCount) * 64)}px`, minWidth: "2px" }}
+                            style={{
+                              width: `${Math.round((r.count / maxRouteCount) * 64)}px`,
+                              minWidth: "2px",
+                            }}
                           />
                         </div>
-                        <div className="text-right font-mono tabular-nums">{r.count}</div>
-                        <div className="text-right font-mono tabular-nums text-muted-foreground">{r.avg}ms</div>
-                        <div className="text-right font-mono tabular-nums text-muted-foreground">{r.p50}ms</div>
-                        <div className="text-right font-mono tabular-nums text-muted-foreground">{r.p95}ms</div>
-                        <div className={`text-right font-mono tabular-nums ${r.errors > 0 ? "text-danger" : "text-muted-foreground"}`}>
+                        <div className="text-right font-mono tabular-nums">
+                          {r.count}
+                        </div>
+                        <div className="text-right font-mono tabular-nums text-muted-foreground">
+                          {r.avg}ms
+                        </div>
+                        <div className="text-right font-mono tabular-nums text-muted-foreground">
+                          {r.p50}ms
+                        </div>
+                        <div className="text-right font-mono tabular-nums text-muted-foreground">
+                          {r.p95}ms
+                        </div>
+                        <div
+                          className={`text-right font-mono tabular-nums ${r.errors > 0 ? "text-danger" : "text-muted-foreground"}`}
+                        >
                           {r.errors}
                         </div>
                       </div>
@@ -354,12 +413,25 @@ function SysMetricsPage() {
                       <div className="text-right">Time</div>
                     </div>
                     {outgoing.slice(0, 15).map((e, i) => (
-                      <div key={i} className="grid grid-cols-[80px_1fr_60px_80px_100px] gap-2 px-3 py-1 border-b border-border last:border-0 text-[11px] items-center">
-                        <div className="font-mono text-[10px] text-muted-foreground truncate">{e.service}</div>
-                        <div className="font-mono text-[10px] truncate text-foreground/70">{e.host}</div>
-                        <div className="text-right"><StatusBadge status={e.status} /></div>
-                        <div className="text-right font-mono text-[10px] text-muted-foreground">{e.ms}ms</div>
-                        <div className="text-right font-mono text-[10px] text-muted-foreground">{fmtTime(e.ts)}</div>
+                      <div
+                        key={i}
+                        className="grid grid-cols-[80px_1fr_60px_80px_100px] gap-2 px-3 py-1 border-b border-border last:border-0 text-[11px] items-center"
+                      >
+                        <div className="font-mono text-[10px] text-muted-foreground truncate">
+                          {e.service}
+                        </div>
+                        <div className="font-mono text-[10px] truncate text-foreground/70">
+                          {e.host}
+                        </div>
+                        <div className="text-right">
+                          <StatusBadge status={e.status} />
+                        </div>
+                        <div className="text-right font-mono text-[10px] text-muted-foreground">
+                          {e.ms}ms
+                        </div>
+                        <div className="text-right font-mono text-[10px] text-muted-foreground">
+                          {fmtTime(e.ts)}
+                        </div>
                       </div>
                     ))}
                     {outgoing.length === 0 && (
@@ -396,25 +468,42 @@ function SysMetricsPage() {
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <MethodBadge method={r.method} />
-                          <span className="font-mono text-[10px] truncate text-foreground/80">{r.route}</span>
+                          <span className="font-mono text-[10px] truncate text-foreground/80">
+                            {r.route}
+                          </span>
                         </div>
-                        <div className="text-right font-mono tabular-nums">{r.count}</div>
-                        <div className="text-right">
-                          <LatencyBar value={r.avg} max={Math.max(...routes.map((x) => x.p95), 1)} />
-                        </div>
-                        <div className="text-right">
-                          <LatencyBar value={r.p50} max={Math.max(...routes.map((x) => x.p95), 1)} />
+                        <div className="text-right font-mono tabular-nums">
+                          {r.count}
                         </div>
                         <div className="text-right">
-                          <LatencyBar value={r.p95} max={Math.max(...routes.map((x) => x.p95), 1)} />
+                          <LatencyBar
+                            value={r.avg}
+                            max={Math.max(...routes.map((x) => x.p95), 1)}
+                          />
                         </div>
-                        <div className={`text-right font-mono tabular-nums ${r.errors > 0 ? "text-danger" : "text-muted-foreground"}`}>
+                        <div className="text-right">
+                          <LatencyBar
+                            value={r.p50}
+                            max={Math.max(...routes.map((x) => x.p95), 1)}
+                          />
+                        </div>
+                        <div className="text-right">
+                          <LatencyBar
+                            value={r.p95}
+                            max={Math.max(...routes.map((x) => x.p95), 1)}
+                          />
+                        </div>
+                        <div
+                          className={`text-right font-mono tabular-nums ${r.errors > 0 ? "text-danger" : "text-muted-foreground"}`}
+                        >
                           {r.errors}
                         </div>
                       </div>
                     ))}
                     {routes.length === 0 && (
-                      <div className="px-3 py-4 text-xs text-muted-foreground text-center">No data yet.</div>
+                      <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                        No data yet.
+                      </div>
                     )}
                   </div>
                 </div>
@@ -426,7 +515,11 @@ function SysMetricsPage() {
                       Recent incoming requests
                     </h2>
                     <div className="flex gap-1">
-                      {[["all", "All"], ["panel", "Panel"], ["ingest", "Ingest"]].map(([v, l]) => (
+                      {[
+                        ["all", "All"],
+                        ["panel", "Panel"],
+                        ["ingest", "Ingest"],
+                      ].map(([v, l]) => (
                         <button
                           key={v}
                           onClick={() => setIncomingFilter(v)}
@@ -457,24 +550,42 @@ function SysMetricsPage() {
                             e.isIngest ? "bg-surface/20" : ""
                           }`}
                         >
-                          <div><MethodBadge method={e.method} /></div>
+                          <div>
+                            <MethodBadge method={e.method} />
+                          </div>
                           <div className="font-mono text-[10px] truncate text-foreground/80">
                             {e.route}
                             {e.isIngest && (
-                              <span className="ml-1.5 text-[8px] font-mono text-amber-400/70 uppercase tracking-widest">ingest</span>
+                              <span className="ml-1.5 text-[8px] font-mono text-amber-400/70 uppercase tracking-widest">
+                                ingest
+                              </span>
                             )}
                           </div>
-                          <div className="text-right"><StatusBadge status={e.status} /></div>
+                          <div className="text-right">
+                            <StatusBadge status={e.status} />
+                          </div>
                           <div className="text-right font-mono tabular-nums text-[10px]">
-                            <span className={e.ms > 2000 ? "text-danger" : e.ms > 500 ? "text-warning" : "text-muted-foreground"}>
+                            <span
+                              className={
+                                e.ms > 2000
+                                  ? "text-danger"
+                                  : e.ms > 500
+                                    ? "text-warning"
+                                    : "text-muted-foreground"
+                              }
+                            >
                               {e.ms}ms
                             </span>
                           </div>
-                          <div className="text-right font-mono text-[10px] text-muted-foreground">{fmtTime(e.ts)}</div>
+                          <div className="text-right font-mono text-[10px] text-muted-foreground">
+                            {fmtTime(e.ts)}
+                          </div>
                         </div>
                       ))}
                       {filteredIncoming.length === 0 && (
-                        <div className="px-3 py-4 text-xs text-muted-foreground text-center">No requests yet.</div>
+                        <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                          No requests yet.
+                        </div>
                       )}
                     </div>
                   </div>
@@ -490,7 +601,11 @@ function SysMetricsPage() {
                     Non-2xx responses
                   </h2>
                   <div className="flex gap-1">
-                    {[["all", "All"], ["incoming", "Incoming"], ["outgoing", "Outgoing"]].map(([v, l]) => (
+                    {[
+                      ["all", "All"],
+                      ["incoming", "Incoming"],
+                      ["outgoing", "Outgoing"],
+                    ].map(([v, l]) => (
                       <button
                         key={v}
                         onClick={() => setErrorDirection(v)}
@@ -523,21 +638,29 @@ function SysMetricsPage() {
                           key={i}
                           className="grid grid-cols-[60px_60px_3fr_70px_90px_120px] gap-2 px-3 py-1.5 border-b border-border last:border-0 text-[11px] items-center"
                         >
-                          <div><DirectionBadge direction={e.direction} /></div>
+                          <div>
+                            <DirectionBadge direction={e.direction} />
+                          </div>
                           <div>
                             {isIn ? (
                               <MethodBadge method={e.method} />
                             ) : (
-                              <span className="text-[10px] font-mono text-muted-foreground">{e.service}</span>
+                              <span className="text-[10px] font-mono text-muted-foreground">
+                                {e.service}
+                              </span>
                             )}
                           </div>
                           <div className="font-mono text-[10px] truncate text-foreground/80">
                             {isIn ? e.route : e.host}
                             {isIn && e.isIngest && (
-                              <span className="ml-1.5 text-[8px] font-mono text-amber-400/70 uppercase tracking-widest">ingest</span>
+                              <span className="ml-1.5 text-[8px] font-mono text-amber-400/70 uppercase tracking-widest">
+                                ingest
+                              </span>
                             )}
                           </div>
-                          <div className="text-right"><StatusBadge status={e.status} /></div>
+                          <div className="text-right">
+                            <StatusBadge status={e.status} />
+                          </div>
                           <div className="text-right font-mono tabular-nums text-[10px] text-muted-foreground">
                             {e.ms}ms
                           </div>
@@ -578,10 +701,14 @@ function SysMetricsPage() {
                             key={code}
                             className="rounded ring-1 ring-border bg-surface/60 px-3 py-2 text-center"
                           >
-                            <p className={`text-lg font-mono font-semibold tabular-nums ${statusColor(Number(code) || 0)}`}>
+                            <p
+                              className={`text-lg font-mono font-semibold tabular-nums ${statusColor(Number(code) || 0)}`}
+                            >
                               {code}
                             </p>
-                            <p className="text-[10px] text-muted-foreground">{count}×</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {count}×
+                            </p>
                           </div>
                         ))}
                     </div>

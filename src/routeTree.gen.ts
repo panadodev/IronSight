@@ -26,6 +26,7 @@ import { Route as ManageRouteImport } from './routes/manage'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DiscordModRouteImport } from './routes/discord-mod'
+import { Route as DbUsageRouteImport } from './routes/db-usage'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BansMutesRouteImport } from './routes/bans-mutes'
 import { Route as IndexRouteImport } from './routes/index'
@@ -123,6 +124,11 @@ const DiscordModRoute = DiscordModRouteImport.update({
   path: '/discord-mod',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DbUsageRoute = DbUsageRouteImport.update({
+  id: '/db-usage',
+  path: '/db-usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
   '/chat': typeof ChatRoute
+  '/db-usage': typeof DbUsageRoute
   '/discord-mod': typeof DiscordModRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -213,6 +220,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
   '/chat': typeof ChatRoute
+  '/db-usage': typeof DbUsageRoute
   '/discord-mod': typeof DiscordModRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
   '/chat': typeof ChatRoute
+  '/db-usage': typeof DbUsageRoute
   '/discord-mod': typeof DiscordModRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
@@ -276,6 +285,7 @@ export interface FileRouteTypes {
     | '/'
     | '/bans-mutes'
     | '/chat'
+    | '/db-usage'
     | '/discord-mod'
     | '/docs'
     | '/login'
@@ -306,6 +316,7 @@ export interface FileRouteTypes {
     | '/'
     | '/bans-mutes'
     | '/chat'
+    | '/db-usage'
     | '/discord-mod'
     | '/docs'
     | '/login'
@@ -336,6 +347,7 @@ export interface FileRouteTypes {
     | '/'
     | '/bans-mutes'
     | '/chat'
+    | '/db-usage'
     | '/discord-mod'
     | '/docs'
     | '/login'
@@ -367,6 +379,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BansMutesRoute: typeof BansMutesRoute
   ChatRoute: typeof ChatRoute
+  DbUsageRoute: typeof DbUsageRoute
   DiscordModRoute: typeof DiscordModRoute
   DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
@@ -508,6 +521,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DiscordModRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/db-usage': {
+      id: '/db-usage'
+      path: '/db-usage'
+      fullPath: '/db-usage'
+      preLoaderRoute: typeof DbUsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/chat': {
       id: '/chat'
       path: '/chat'
@@ -615,6 +635,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BansMutesRoute: BansMutesRoute,
   ChatRoute: ChatRoute,
+  DbUsageRoute: DbUsageRoute,
   DiscordModRoute: DiscordModRoute,
   DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,

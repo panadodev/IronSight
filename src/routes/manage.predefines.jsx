@@ -15,7 +15,8 @@ function PredefinesPage() {
   const [items, setItems] = useState([]);
 
   const isAdmin =
-    Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "predefines_manage");
+    Boolean(sessionUser?.isSysAdmin) ||
+    hasOrgPermission(orgId, "predefines_manage");
 
   const load = useCallback(async () => {
     if (!orgId) return;

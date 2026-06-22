@@ -278,7 +278,11 @@ function PanelPage() {
               <StatusTab key={activeOrg.id} orgId={activeOrg.id} />
             )}
             {tab === "servers" && (
-              <ServersTab key={activeOrg.id} orgId={activeOrg.id} onServerUpdate={setAllServers} />
+              <ServersTab
+                key={activeOrg.id}
+                orgId={activeOrg.id}
+                onServerUpdate={setAllServers}
+              />
             )}
           </div>
         </main>
@@ -512,7 +516,11 @@ function RconTab({ servers, orgId }) {
             )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <ScriptPickerButton scripts={scripts} onPick={onPickScript} disabled={sending} />
+            <ScriptPickerButton
+              scripts={scripts}
+              onPick={onPickScript}
+              disabled={sending}
+            />
             <Button size="sm" variant="ghost" onClick={() => setLines([])}>
               Clear
             </Button>
@@ -782,7 +790,13 @@ function ScriptsTab({ servers, orgId }) {
         );
         const data = await res.json().catch(() => null);
         if (!res.ok) {
-          outputs = [{ cmd: script.name, ok: false, response: data?.error ?? `HTTP ${res.status}` }];
+          outputs = [
+            {
+              cmd: script.name,
+              ok: false,
+              response: data?.error ?? `HTTP ${res.status}`,
+            },
+          ];
         } else {
           outputs = data?.outputs ?? [];
         }
@@ -973,7 +987,10 @@ function ScriptsTab({ servers, orgId }) {
         onClose={() => setRunResults(null)}
       />
 
-      <Dialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+      <Dialog
+        open={!!confirmDelete}
+        onOpenChange={(o) => !o && setConfirmDelete(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete script?</DialogTitle>
@@ -982,7 +999,9 @@ function ScriptsTab({ servers, orgId }) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+              Cancel
+            </Button>
             <Button
               variant="destructive"
               onClick={() => {
@@ -1079,7 +1098,9 @@ function RunOnServerButton({ servers, onPick, disabled }) {
 }
 function RunResultsDialog({ results, onClose }) {
   if (!results) return null;
-  const pending = results.results.some((r) => r.status === "pending" || r.status === "running");
+  const pending = results.results.some(
+    (r) => r.status === "pending" || r.status === "running",
+  );
   const anyError = results.results.some((r) => r.status === "error");
   return (
     <Dialog open={!!results} onOpenChange={(o) => !o && !pending && onClose()}>
@@ -1090,14 +1111,22 @@ function RunResultsDialog({ results, onClose }) {
             {results.scriptName}
           </DialogTitle>
           <DialogDescription>
-            Running on {results.results.length} server{results.results.length === 1 ? "" : "s"}
-            {pending ? " — in progress…" : anyError ? " — completed with errors" : " — completed"}
+            Running on {results.results.length} server
+            {results.results.length === 1 ? "" : "s"}
+            {pending
+              ? " — in progress…"
+              : anyError
+                ? " — completed with errors"
+                : " — completed"}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2 max-h-[60vh] overflow-y-auto py-1">
           {results.results.map((r) => (
-            <div key={r.serverId} className="ring-1 ring-border rounded-md bg-surface/40 p-2.5 space-y-1.5">
+            <div
+              key={r.serverId}
+              className="ring-1 ring-border rounded-md bg-surface/40 p-2.5 space-y-1.5"
+            >
               <div className="flex items-center gap-2">
                 {r.status === "pending" && (
                   <div className="size-2 rounded-full bg-muted-foreground shrink-0" />
@@ -1111,25 +1140,44 @@ function RunResultsDialog({ results, onClose }) {
                 {r.status === "error" && (
                   <X className="size-3 text-destructive shrink-0" />
                 )}
-                <span className="text-xs font-medium truncate">{r.serverName}</span>
-                <span className={`text-[10px] font-mono ml-auto ${
-                  r.status === "running" ? "text-brand" :
-                  r.status === "ok" ? "text-success" :
-                  r.status === "error" ? "text-destructive" :
-                  "text-muted-foreground"
-                }`}>
-                  {r.status === "pending" ? "queued" : r.status === "running" ? "running…" : r.status === "ok" ? "done" : "error"}
+                <span className="text-xs font-medium truncate">
+                  {r.serverName}
+                </span>
+                <span
+                  className={`text-[10px] font-mono ml-auto ${
+                    r.status === "running"
+                      ? "text-brand"
+                      : r.status === "ok"
+                        ? "text-success"
+                        : r.status === "error"
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                  }`}
+                >
+                  {r.status === "pending"
+                    ? "queued"
+                    : r.status === "running"
+                      ? "running…"
+                      : r.status === "ok"
+                        ? "done"
+                        : "error"}
                 </span>
               </div>
               {r.outputs.length > 0 && (
                 <div className="space-y-1">
                   {r.outputs.map((o, i) => (
                     <div key={i}>
-                      <div className="text-[9px] font-mono text-muted-foreground truncate">$ {o.cmd}</div>
+                      <div className="text-[9px] font-mono text-muted-foreground truncate">
+                        $ {o.cmd}
+                      </div>
                       {o.response && (
-                        <pre className={`text-[10px] font-mono rounded p-1.5 whitespace-pre-wrap break-all ${
-                          o.ok ? "text-foreground bg-black/20" : "text-destructive bg-destructive/5"
-                        }`}>
+                        <pre
+                          className={`text-[10px] font-mono rounded p-1.5 whitespace-pre-wrap break-all ${
+                            o.ok
+                              ? "text-foreground bg-black/20"
+                              : "text-destructive bg-destructive/5"
+                          }`}
+                        >
                           {o.response}
                         </pre>
                       )}
@@ -1539,134 +1587,147 @@ function PresetsTab({ servers, orgId }) {
               </span>
             </p>
           )}
-        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-          <div className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            <div>Plugin</div>
-            <div>Version</div>
-            <div>Description</div>
-            <div />
-          </div>
-          {plugins.map((p) => {
-            const rKey = `${p.pluginName}:reload`;
-            const uKey = `${p.pluginName}:unload`;
-            const rState = cmdState[rKey];
-            const uState = cmdState[uKey];
-            return (
-              <div
-                key={p.fileName}
-                className={
-                  "grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center " +
-                  (p.status === "failed" ? "bg-destructive/5" : "")
-                }
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    {p.status === "active" && (
-                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-success" title="Active" />
-                    )}
-                    {p.status === "failed" && (
-                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-destructive" title="Failed to compile" />
-                    )}
-                    {p.status === null && rconAvailable && (
-                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/40" title="Not loaded" />
-                    )}
-                    <span className="text-sm font-semibold truncate">{p.name}</span>
-                  </div>
-                  {p.author && (
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">
-                      {p.author}
-                    </div>
-                  )}
-                  {p.status === "failed" && p.compileError && (
-                    <div
-                      className="text-[10px] text-destructive truncate"
-                      title={p.compileError}
-                    >
-                      {p.compileError}
-                    </div>
-                  )}
-                </div>
-                <div className="text-xs font-mono text-muted-foreground">
-                  {p.version ?? "—"}
-                </div>
+          <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+            <div className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div>Plugin</div>
+              <div>Version</div>
+              <div>Description</div>
+              <div />
+            </div>
+            {plugins.map((p) => {
+              const rKey = `${p.pluginName}:reload`;
+              const uKey = `${p.pluginName}:unload`;
+              const rState = cmdState[rKey];
+              const uState = cmdState[uKey];
+              return (
                 <div
-                  className="text-xs text-muted-foreground truncate"
-                  title={p.description ?? ""}
+                  key={p.fileName}
+                  className={
+                    "grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center " +
+                    (p.status === "failed" ? "bg-destructive/5" : "")
+                  }
                 >
-                  {p.description ?? "—"}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7"
-                    disabled={rState === "loading"}
-                    onClick={() => runCmd(p.pluginName, "reload")}
-                    title="Reload plugin (o.reload)"
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      {p.status === "active" && (
+                        <span
+                          className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-success"
+                          title="Active"
+                        />
+                      )}
+                      {p.status === "failed" && (
+                        <span
+                          className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-destructive"
+                          title="Failed to compile"
+                        />
+                      )}
+                      {p.status === null && rconAvailable && (
+                        <span
+                          className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/40"
+                          title="Not loaded"
+                        />
+                      )}
+                      <span className="text-sm font-semibold truncate">
+                        {p.name}
+                      </span>
+                    </div>
+                    {p.author && (
+                      <div className="text-[10px] font-mono text-muted-foreground truncate">
+                        {p.author}
+                      </div>
+                    )}
+                    {p.status === "failed" && p.compileError && (
+                      <div
+                        className="text-[10px] text-destructive truncate"
+                        title={p.compileError}
+                      >
+                        {p.compileError}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs font-mono text-muted-foreground">
+                    {p.version ?? "—"}
+                  </div>
+                  <div
+                    className="text-xs text-muted-foreground truncate"
+                    title={p.description ?? ""}
                   >
-                    <RefreshCw
-                      className={
-                        "size-3.5 " +
-                        (rState === "loading"
-                          ? "animate-spin text-muted-foreground"
-                          : rState?.output !== undefined
-                            ? "text-success"
-                            : rState?.error
-                              ? "text-destructive"
-                              : "")
+                    {p.description ?? "—"}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      disabled={rState === "loading"}
+                      onClick={() => runCmd(p.pluginName, "reload")}
+                      title="Reload plugin (o.reload)"
+                    >
+                      <RefreshCw
+                        className={
+                          "size-3.5 " +
+                          (rState === "loading"
+                            ? "animate-spin text-muted-foreground"
+                            : rState?.output !== undefined
+                              ? "text-success"
+                              : rState?.error
+                                ? "text-destructive"
+                                : "")
+                        }
+                      />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      disabled={uState === "loading"}
+                      onClick={() => runCmd(p.pluginName, "unload")}
+                      title="Unload plugin (o.unload)"
+                    >
+                      <Power
+                        className={
+                          "size-3.5 " +
+                          (uState === "loading"
+                            ? "text-muted-foreground animate-pulse"
+                            : uState?.output !== undefined
+                              ? "text-muted-foreground"
+                              : uState?.error
+                                ? "text-destructive"
+                                : "text-success")
+                        }
+                      />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      onClick={() =>
+                        setConfigDialog({
+                          serverId: selectedServerId,
+                          pluginName: p.pluginName,
+                          serverName: selectedServer?.name ?? "",
+                        })
                       }
-                    />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7"
-                    disabled={uState === "loading"}
-                    onClick={() => runCmd(p.pluginName, "unload")}
-                    title="Unload plugin (o.unload)"
-                  >
-                    <Power
-                      className={
-                        "size-3.5 " +
-                        (uState === "loading"
-                          ? "text-muted-foreground animate-pulse"
-                          : uState?.output !== undefined
-                            ? "text-muted-foreground"
-                            : uState?.error
-                              ? "text-destructive"
-                              : "text-success")
+                      title="Edit config"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() =>
+                        setDeleteDialog({ pluginName: p.pluginName })
                       }
-                    />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7"
-                    onClick={() =>
-                      setConfigDialog({
-                        serverId: selectedServerId,
-                        pluginName: p.pluginName,
-                        serverName: selectedServer?.name ?? "",
-                      })
-                    }
-                    title="Edit config"
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => setDeleteDialog({ pluginName: p.pluginName })}
-                    title="Remove from all servers"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
+                      title="Remove from all servers"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
         </>
       )}
 
@@ -1766,7 +1827,13 @@ function BulkOpResults({ results }) {
     </div>
   );
 }
-function BulkDeleteDialog({ pluginName, pteroServers, orgId, onClose, onSuccess }) {
+function BulkDeleteDialog({
+  pluginName,
+  pteroServers,
+  orgId,
+  onClose,
+  onSuccess,
+}) {
   const [selected, setSelected] = useState(
     () => new Set(pteroServers.map((s) => s.id)),
   );
@@ -1792,7 +1859,9 @@ function BulkDeleteDialog({ pluginName, pteroServers, orgId, onClose, onSuccess 
       setPhase("done");
       if (data.results?.every((r) => r.ok)) onSuccess?.(pluginName);
     } catch (err) {
-      setResults([{ serverName: "Request failed", ok: false, error: err.message }]);
+      setResults([
+        { serverName: "Request failed", ok: false, error: err.message },
+      ]);
       setPhase("done");
     }
   };
@@ -1883,13 +1952,17 @@ function BulkUploadDialog({ fileName, content, pteroServers, orgId, onClose }) {
       );
       const data = await res.json();
       if (!res.ok) {
-        setResults([{ serverName: data.error ?? `HTTP ${res.status}`, ok: false }]);
+        setResults([
+          { serverName: data.error ?? `HTTP ${res.status}`, ok: false },
+        ]);
       } else {
         setResults(data.results ?? []);
       }
       setPhase("done");
     } catch (err) {
-      setResults([{ serverName: "Request failed", ok: false, error: err.message }]);
+      setResults([
+        { serverName: "Request failed", ok: false, error: err.message },
+      ]);
       setPhase("done");
     }
   };
@@ -1997,9 +2070,7 @@ function PluginConfigDialog({ serverId, pluginName, serverName, onClose }) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="font-mono">
-            {pluginName}.json
-          </DialogTitle>
+          <DialogTitle className="font-mono">{pluginName}.json</DialogTitle>
           <DialogDescription>{serverName}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
@@ -2177,10 +2248,10 @@ function RipeAtlasSection({ orgId }) {
   const trigger = useCallback(async () => {
     setTriggering(true);
     try {
-      await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/trigger`,
-        { method: "POST", credentials: "include" },
-      );
+      await fetch(`/api/orgs/${encodeURIComponent(orgId)}/ripe-atlas/trigger`, {
+        method: "POST",
+        credentials: "include",
+      });
       await load();
     } catch {
       // non-critical
@@ -2294,7 +2365,9 @@ function RipeAtlasSection({ orgId }) {
               {servers.map((s, i) => (
                 <tr
                   key={s.serverId}
-                  className={i < servers.length - 1 ? "border-b border-border" : ""}
+                  className={
+                    i < servers.length - 1 ? "border-b border-border" : ""
+                  }
                 >
                   <td className="px-3 py-2 font-medium whitespace-nowrap">
                     <div className="flex flex-col gap-0.5">
@@ -2333,7 +2406,9 @@ function RipeAtlasSection({ orgId }) {
                           className={`inline-block px-1.5 py-0.5 rounded ring-1 font-mono tabular-nums ${rttColor(r.avgRtt)} ring-current/20`}
                           title={`${COUNTRY_NAMES[cc] ?? cc} · avg ${r.avgRtt?.toFixed(1)} ms · min ${r.minRtt?.toFixed(1)} ms · max ${r.maxRtt?.toFixed(1)} ms · ${r.reachableCount}/${r.probeCount} probes`}
                         >
-                          {r.avgRtt != null ? `${Math.round(r.avgRtt)}ms` : "ok"}
+                          {r.avgRtt != null
+                            ? `${Math.round(r.avgRtt)}ms`
+                            : "ok"}
                         </span>
                       </td>
                     );
@@ -2374,8 +2449,8 @@ function RipeAtlasSection({ orgId }) {
       <p className="text-[10px] text-muted-foreground/70 font-mono">
         Results are averaged across {data.probesPerCountry ?? "multiple"} probe
         {(data.probesPerCountry ?? 2) === 1 ? "" : "s"} per country.
-        Measurements run periodically via the RIPE Atlas network.
-        Hover a cell for per-probe detail.
+        Measurements run periodically via the RIPE Atlas network. Hover a cell
+        for per-probe detail.
       </p>
     </div>
   );
@@ -2708,8 +2783,7 @@ function StatusTab({ orgId }) {
               const memLimitBytes = (s.limits?.memory ?? 0) * 1048576;
 
               const state =
-                s.live?.state ??
-                (s.suspended ? "offline" : "unknown");
+                s.live?.state ?? (s.suspended ? "offline" : "unknown");
               const hasStats = !!s.live;
               const cpu = s.live?.resources.cpuAbsolute;
               const memBytes = s.live?.resources.memoryBytes;
@@ -2718,9 +2792,7 @@ function StatusTab({ orgId }) {
 
               return (
                 <Fragment key={s.uuid ?? s.identifier ?? s.pteroId}>
-                  <div
-                    className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1.2fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40"
-                  >
+                  <div className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1.2fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40">
                     <div className="flex items-center gap-2 min-w-0">
                       <StateDot state={state} />
                       <span className="font-medium truncate">{s.name}</span>

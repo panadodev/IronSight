@@ -288,8 +288,9 @@ function ThreatTriggersPage() {
               <span className="font-mono text-foreground">
                 Manage Threat Triggers
               </span>{" "}
-              permission. Switch to an org you have it in using the selector next
-              to <span className="font-mono text-foreground">MANAGE ORG</span> in
+              permission. Switch to an org you have it in using the selector
+              next to{" "}
+              <span className="font-mono text-foreground">MANAGE ORG</span> in
               the sidebar.
             </p>
           </div>
@@ -567,7 +568,6 @@ function ThreatTriggersPage() {
               .
             </span>
           </div>
-
         </div>
       </div>
     </div>

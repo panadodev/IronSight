@@ -104,13 +104,13 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 
 ### Servers & Chat
 
-| Table            | Purpose                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------ |
-| `servers`        | Game servers registered to an org. Authenticated by `api_key_hash`.                              |
-| `text_chat_log`  | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`.            |
-| `pvp_log`        | Ingested PVP kill events. Indexed by `server_id`, `killer_steam_id`, and `created_at`.           |
-| `player_reports` | Player-submitted in-game reports. Indexed by `server_id`, `reported_steam_id`, and `created_at`. |
-| `team_events`    | Team lifecycle events (`created`/`joined`/`left`/`invited`). Indexed by `server_id` and `created_at`.      |
+| Table            | Purpose                                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `servers`        | Game servers registered to an org. Authenticated by `api_key_hash`.                                   |
+| `text_chat_log`  | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`.                 |
+| `pvp_log`        | Ingested PVP kill events. Indexed by `server_id`, `killer_steam_id`, and `created_at`.                |
+| `player_reports` | Player-submitted in-game reports. Indexed by `server_id`, `reported_steam_id`, and `created_at`.      |
+| `team_events`    | Team lifecycle events (`created`/`joined`/`left`/`invited`). Indexed by `server_id` and `created_at`. |
 
 ### Integrations
 
@@ -362,13 +362,13 @@ Uses server API key auth (`Authorization: Bearer <server key>` or `x-api-key: <s
 }
 ```
 
-| Field           | Type             | Required                  | Description                                                                                              |
-| --------------- | ---------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `event_type`    | string           | yes                       | One of `created`, `joined`, `left`, `invited`.                                                           |
-| `team_leader`   | string           | yes                       | SteamID64 of the team leader. For `invited` events this is the **inviter**. Max 128 chars.              |
-| `team_members`  | string[]         | yes                       | Current team roster (SteamID64s). May be empty `[]`. Max 100 entries.                                    |
-| `target_player` | string \| null   | only for `invited`        | SteamID64 of the **invitee** (the player invited to the team). Ignored for other event types. Max 128.  |
-| `event_time`    | string \| number | no                        | When the event occurred. ISO 8601 string or Unix seconds. Defaults to server receive time.              |
+| Field           | Type             | Required           | Description                                                                                            |
+| --------------- | ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `event_type`    | string           | yes                | One of `created`, `joined`, `left`, `invited`.                                                         |
+| `team_leader`   | string           | yes                | SteamID64 of the team leader. For `invited` events this is the **inviter**. Max 128 chars.             |
+| `team_members`  | string[]         | yes                | Current team roster (SteamID64s). May be empty `[]`. Max 100 entries.                                  |
+| `target_player` | string \| null   | only for `invited` | SteamID64 of the **invitee** (the player invited to the team). Ignored for other event types. Max 128. |
+| `event_time`    | string \| number | no                 | When the event occurred. ISO 8601 string or Unix seconds. Defaults to server receive time.             |
 
 **Example — an invite:**
 
@@ -390,14 +390,14 @@ Uses server API key auth (`Authorization: Bearer <server key>` or `x-api-key: <s
 
 **Errors:**
 
-| Status | Body                                                              | Reason                          |
-| ------ | ---------------------------------------------------------------- | ------------------------------- |
-| `400`  | `{ "error": "Invalid JSON body" }`                               | Body is not valid JSON          |
-| `400`  | `{ "error": "event_type and team_leader are required" }`         | Missing required field          |
-| `400`  | `{ "error": "event_type must be one of: created, joined, left, invited" }` | Unknown event type    |
-| `400`  | `{ "error": "target_player is required for 'invited' events" }`  | Invite without an invitee       |
-| `401`  | `{ "error": "Missing API key …" }` / `{ "error": "Invalid API key" }` | Bad/missing server key    |
-| `429`  | `{ "error": "Rate limit exceeded" }`                             | > 120 req/min per server        |
+| Status | Body                                                                       | Reason                    |
+| ------ | -------------------------------------------------------------------------- | ------------------------- |
+| `400`  | `{ "error": "Invalid JSON body" }`                                         | Body is not valid JSON    |
+| `400`  | `{ "error": "event_type and team_leader are required" }`                   | Missing required field    |
+| `400`  | `{ "error": "event_type must be one of: created, joined, left, invited" }` | Unknown event type        |
+| `400`  | `{ "error": "target_player is required for 'invited' events" }`            | Invite without an invitee |
+| `401`  | `{ "error": "Missing API key …" }` / `{ "error": "Invalid API key" }`      | Bad/missing server key    |
+| `429`  | `{ "error": "Rate limit exceeded" }`                                       | > 120 req/min per server  |
 
 #### GET /api/teaminfo
 
@@ -464,4 +464,3 @@ Authenticated with the server API key (same headers as ingest endpoints). The or
 | `401`  | `{ "error": "Missing API key …" }`                    | No auth header          |
 | `401`  | `{ "error": "Invalid API key" }`                      | Key not found           |
 | `429`  | `{ "error": "Rate limit exceeded" }`                  | > 60 req/min per server |
-

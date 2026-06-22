@@ -94,7 +94,12 @@ function connect(resume = false) {
   socket.addEventListener("open", () => {
     if (resume && sessionId) {
       console.log("[IronSight Bot] Sending RESUME");
-      socket.send(JSON.stringify({ op: 6, d: { token: TOKEN, session_id: sessionId, seq } }));
+      socket.send(
+        JSON.stringify({
+          op: 6,
+          d: { token: TOKEN, session_id: sessionId, seq },
+        }),
+      );
     }
   });
 
@@ -178,11 +183,19 @@ function connect(resume = false) {
                 attachments: d.attachments ?? [],
                 timestamp: d.timestamp,
               }),
-            }).then((r) => {
-              if (!r.ok) console.warn(`[IronSight Bot] Ingest failed (${r.status}) for message ${d.id}`);
-            }).catch((err) =>
-              console.error(`[IronSight Bot] Ingest error for message ${d.id}:`, err.message),
-            );
+            })
+              .then((r) => {
+                if (!r.ok)
+                  console.warn(
+                    `[IronSight Bot] Ingest failed (${r.status}) for message ${d.id}`,
+                  );
+              })
+              .catch((err) =>
+                console.error(
+                  `[IronSight Bot] Ingest error for message ${d.id}:`,
+                  err.message,
+                ),
+              );
           }
         }
         break;

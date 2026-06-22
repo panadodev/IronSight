@@ -50,13 +50,17 @@ function SiteNav() {
     adminableOrgIds,
     isImpersonating,
     stopImpersonating,
+    viewingAs,
     hasOrgPermission,
   } = useAuth();
   void realManageableOrgIds;
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [draft, setDraft] = useState({ ...profile, timezone: timezoneStore.get() });
+  const [draft, setDraft] = useState({
+    ...profile,
+    timezone: timezoneStore.get(),
+  });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [createdOrgs, setCreatedOrgs] = useState([]);
@@ -78,11 +82,13 @@ function SiteNav() {
   }, [isSysAdminSession, orgs, hasOrgPermission]);
 
   const canRcon = anyOrgHas("rcon_access");
-  const canScriptsView = anyOrgHas("scripts_view") || anyOrgHas("scripts_manage");
+  const canScriptsView =
+    anyOrgHas("scripts_view") || anyOrgHas("scripts_manage");
   const canPresets = anyOrgHas("presets_manage");
   const canStatus = anyOrgHas("status_view");
   const canServers = anyOrgHas("servers_manage");
-  const canTicketsView = anyOrgHas("tickets_view") || anyOrgHas("tickets_manage");
+  const canTicketsView =
+    anyOrgHas("tickets_view") || anyOrgHas("tickets_manage");
   const canOrgManage = anyOrgHas("org_manage");
   const canRoleManage = anyOrgHas("role_create");
   const canPredefines = anyOrgHas("predefines_manage");
@@ -216,7 +222,8 @@ function SiteNav() {
       ? sessionUser.orgAdminOrgIds
       : [];
     const orgPerms =
-      sessionUser?.orgPermissions && typeof sessionUser.orgPermissions === "object"
+      sessionUser?.orgPermissions &&
+      typeof sessionUser.orgPermissions === "object"
         ? sessionUser.orgPermissions
         : {};
 
@@ -438,6 +445,11 @@ function SiteNav() {
         {
           to: "/sys-metrics",
           label: "API Metrics",
+          show: isSysAdminSession,
+        },
+        {
+          to: "/db-usage",
+          label: "Database",
           show: isSysAdminSession,
         },
       ],
@@ -788,9 +800,9 @@ function SiteNav() {
             <button
               onClick={stopImpersonating}
               className="w-full flex items-center gap-1.5 px-2.5 py-1.5 ring-1 ring-warning/40 bg-warning/10 text-warning rounded-md hover:bg-warning/20 transition-colors text-[10px] font-mono uppercase tracking-widest"
-              title="Stop impersonating"
+              title="Stop viewing as this member"
             >
-              Stop: {activeStaff?.name}
+              Stop viewing as {viewingAs?.member?.username ?? "member"}
             </button>
           )}
 
@@ -964,31 +976,64 @@ function SiteNav() {
               <Select
                 value={draft.timezone || "__browser_default__"}
                 onValueChange={(v) =>
-                  setDraft({ ...draft, timezone: v === "__browser_default__" ? null : v })
+                  setDraft({
+                    ...draft,
+                    timezone: v === "__browser_default__" ? null : v,
+                  })
                 }
               >
                 <SelectTrigger id="timezone">
                   <SelectValue placeholder="Browser default" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__browser_default__">Browser default</SelectItem>
+                  <SelectItem value="__browser_default__">
+                    Browser default
+                  </SelectItem>
                   <SelectItem value="UTC">UTC</SelectItem>
-                  <SelectItem value="America/Los_Angeles">America/Los_Angeles (PT)</SelectItem>
-                  <SelectItem value="America/Denver">America/Denver (MT)</SelectItem>
-                  <SelectItem value="America/Chicago">America/Chicago (CT)</SelectItem>
-                  <SelectItem value="America/New_York">America/New_York (ET)</SelectItem>
-                  <SelectItem value="America/Halifax">America/Halifax (AT)</SelectItem>
-                  <SelectItem value="America/Sao_Paulo">America/Sao_Paulo (BRT)</SelectItem>
-                  <SelectItem value="Europe/London">Europe/London (GMT/BST)</SelectItem>
-                  <SelectItem value="Europe/Paris">Europe/Paris (CET/CEST)</SelectItem>
-                  <SelectItem value="Europe/Helsinki">Europe/Helsinki (EET/EEST)</SelectItem>
-                  <SelectItem value="Europe/Moscow">Europe/Moscow (MSK)</SelectItem>
+                  <SelectItem value="America/Los_Angeles">
+                    America/Los_Angeles (PT)
+                  </SelectItem>
+                  <SelectItem value="America/Denver">
+                    America/Denver (MT)
+                  </SelectItem>
+                  <SelectItem value="America/Chicago">
+                    America/Chicago (CT)
+                  </SelectItem>
+                  <SelectItem value="America/New_York">
+                    America/New_York (ET)
+                  </SelectItem>
+                  <SelectItem value="America/Halifax">
+                    America/Halifax (AT)
+                  </SelectItem>
+                  <SelectItem value="America/Sao_Paulo">
+                    America/Sao_Paulo (BRT)
+                  </SelectItem>
+                  <SelectItem value="Europe/London">
+                    Europe/London (GMT/BST)
+                  </SelectItem>
+                  <SelectItem value="Europe/Paris">
+                    Europe/Paris (CET/CEST)
+                  </SelectItem>
+                  <SelectItem value="Europe/Helsinki">
+                    Europe/Helsinki (EET/EEST)
+                  </SelectItem>
+                  <SelectItem value="Europe/Moscow">
+                    Europe/Moscow (MSK)
+                  </SelectItem>
                   <SelectItem value="Asia/Dubai">Asia/Dubai (GST)</SelectItem>
-                  <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST)</SelectItem>
-                  <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
+                  <SelectItem value="Asia/Kolkata">
+                    Asia/Kolkata (IST)
+                  </SelectItem>
+                  <SelectItem value="Asia/Singapore">
+                    Asia/Singapore (SGT)
+                  </SelectItem>
                   <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
-                  <SelectItem value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</SelectItem>
-                  <SelectItem value="Pacific/Auckland">Pacific/Auckland (NZST/NZDT)</SelectItem>
+                  <SelectItem value="Australia/Sydney">
+                    Australia/Sydney (AEST/AEDT)
+                  </SelectItem>
+                  <SelectItem value="Pacific/Auckland">
+                    Pacific/Auckland (NZST/NZDT)
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">

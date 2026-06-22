@@ -101,9 +101,20 @@ function parseTeamInfoResponse(raw) {
       const tokens = segment.split(/\s+/).filter(Boolean);
       let leader = false;
       let online = false;
-      if (tokens[tokens.length - 1] === "x") { leader = true; tokens.pop(); }
-      if (tokens[tokens.length - 1] === "x") { online = true; tokens.pop(); }
-      return { steamId, username: tokens.join(" ") || "Unknown", online, leader };
+      if (tokens[tokens.length - 1] === "x") {
+        leader = true;
+        tokens.pop();
+      }
+      if (tokens[tokens.length - 1] === "x") {
+        online = true;
+        tokens.pop();
+      }
+      return {
+        steamId,
+        username: tokens.join(" ") || "Unknown",
+        online,
+        leader,
+      };
     }),
   };
 }
@@ -124,13 +135,20 @@ const TYPE_FILTER_MAP = {
 };
 
 function TicketsPage() {
-  const { adminableOrgIds, orgs, sessionUser, orgsLoaded, sessionOrgPermissions } = useAuth();
+  const {
+    adminableOrgIds,
+    orgs,
+    sessionUser,
+    orgsLoaded,
+    sessionOrgPermissions,
+  } = useAuth();
 
   const ticketOrgIds = useMemo(() => {
     const ids = new Set(adminableOrgIds);
     for (const org of orgs) {
       const perms = sessionOrgPermissions[org.id] ?? [];
-      if (perms.includes("tickets_view") || perms.includes("tickets_manage")) ids.add(org.id);
+      if (perms.includes("tickets_view") || perms.includes("tickets_manage"))
+        ids.add(org.id);
     }
     return Array.from(ids);
   }, [adminableOrgIds, orgs, sessionOrgPermissions]);
@@ -157,10 +175,15 @@ function TicketsPage() {
     setLoading(true);
     Promise.all(
       ticketOrgIds.map((orgId) =>
-        fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=200`, { credentials: "include" })
+        fetch(`/api/orgs/${encodeURIComponent(orgId)}/tickets?limit=200`, {
+          credentials: "include",
+        })
           .then((r) => (r.ok ? r.json() : { tickets: [] }))
           .then((data) =>
-            (data.tickets ?? []).map((t) => ({ ...t, type: typeFromTicket(t) })),
+            (data.tickets ?? []).map((t) => ({
+              ...t,
+              type: typeFromTicket(t),
+            })),
           )
           .catch(() => []),
       ),
@@ -171,7 +194,9 @@ function TicketsPage() {
       if (all.length > 0) setSelectedId((prev) => prev ?? all[0].ticket_id);
       setLoading(false);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [orgsLoaded, ticketOrgIds]);
 
   useEffect(() => {
@@ -187,11 +212,16 @@ function TicketsPage() {
           setDetailLoading(false);
         }
       })
-      .catch(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedId]);
 
-  const selectedOrgId = tickets.find((t) => t.ticket_id === selectedId)?.org_id ?? null;
+  const selectedOrgId =
+    tickets.find((t) => t.ticket_id === selectedId)?.org_id ?? null;
 
   useEffect(() => {
     if (!selectedOrgId) return;
@@ -209,11 +239,19 @@ function TicketsPage() {
   useEffect(() => {
     if (!selectedOrgId) return;
     let cancelled = false;
-    fetch(`/api/orgs/${encodeURIComponent(selectedOrgId)}/ticket-assignees`, { credentials: "include" })
+    fetch(`/api/orgs/${encodeURIComponent(selectedOrgId)}/ticket-assignees`, {
+      credentials: "include",
+    })
       .then((r) => (r.ok ? r.json() : { members: [] }))
-      .then((data) => { if (!cancelled) setOrgStaff(data.members ?? []); })
-      .catch(() => { if (!cancelled) setOrgStaff([]); });
-    return () => { cancelled = true; };
+      .then((data) => {
+        if (!cancelled) setOrgStaff(data.members ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgStaff([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedOrgId]);
 
   const totalNonClosed = useMemo(
@@ -231,18 +269,25 @@ function TicketsPage() {
       if (q) {
         const name = (t.created_by_username ?? "").toLowerCase();
         const steamId = t.created_by_steam_id ?? "";
-        if (!t.title.toLowerCase().includes(q) && !name.includes(q) && !steamId.includes(q))
+        if (
+          !t.title.toLowerCase().includes(q) &&
+          !name.includes(q) &&
+          !steamId.includes(q)
+        )
           return false;
       }
       return true;
     });
   }, [tab, typeFilter, search, tickets]);
 
-  const selectedTicket = tickets.find((t) => t.ticket_id === selectedId) ?? null;
+  const selectedTicket =
+    tickets.find((t) => t.ticket_id === selectedId) ?? null;
 
   const refreshMessages = useCallback(async () => {
     if (!selectedId) return;
-    const res = await fetch(`/api/tickets/${selectedId}`, { credentials: "include" });
+    const res = await fetch(`/api/tickets/${selectedId}`, {
+      credentials: "include",
+    });
     if (res.ok) setSelectedMessages((await res.json()).messages ?? []);
   }, [selectedId]);
 
@@ -264,7 +309,9 @@ function TicketsPage() {
       }
       setNoteText("");
       await refreshMessages();
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   }, [noteText, selectedId, submitting, refreshMessages]);
 
   const handlePostReply = useCallback(async () => {
@@ -285,7 +332,9 @@ function TicketsPage() {
       }
       setReplyText("");
       await refreshMessages();
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   }, [replyText, selectedId, submitting, refreshMessages]);
 
   const handleClaim = useCallback(async () => {
@@ -300,49 +349,63 @@ function TicketsPage() {
       setTickets((prev) =>
         prev.map((t) =>
           t.ticket_id === selectedId
-            ? { ...t, assigned_to: sessionUser.userId, assigned_to_username: sessionUser.username }
+            ? {
+                ...t,
+                assigned_to: sessionUser.userId,
+                assigned_to_username: sessionUser.username,
+              }
             : t,
         ),
       );
     }
   }, [selectedId, sessionUser]);
 
-  const handleAssign = useCallback(async (userId, username) => {
-    if (!selectedId) return;
-    const res = await fetch(`/api/tickets/${selectedId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignedTo: userId }),
-    });
-    if (res.ok) {
-      setTickets((prev) =>
-        prev.map((t) =>
-          t.ticket_id === selectedId
-            ? { ...t, assigned_to: userId, assigned_to_username: username }
-            : t,
-        ),
-      );
-    }
-  }, [selectedId]);
-
-  const handleUpdateStatus = useCallback(async (status) => {
-    if (!selectedId) return;
-    const res = await fetch(`/api/tickets/${selectedId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) {
-      setTickets((prev) => prev.map((t) => (t.ticket_id === selectedId ? { ...t, status } : t)));
-    }
-  }, [selectedId]);
-
-  const hasPlayerIntelAccess = selectedOrgId && (
-    adminableOrgIds.includes(selectedOrgId) ||
-    (sessionOrgPermissions[selectedOrgId] ?? []).includes("tickets_player_intel")
+  const handleAssign = useCallback(
+    async (userId, username) => {
+      if (!selectedId) return;
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedTo: userId }),
+      });
+      if (res.ok) {
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.ticket_id === selectedId
+              ? { ...t, assigned_to: userId, assigned_to_username: username }
+              : t,
+          ),
+        );
+      }
+    },
+    [selectedId],
   );
+
+  const handleUpdateStatus = useCallback(
+    async (status) => {
+      if (!selectedId) return;
+      const res = await fetch(`/api/tickets/${selectedId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        setTickets((prev) =>
+          prev.map((t) => (t.ticket_id === selectedId ? { ...t, status } : t)),
+        );
+      }
+    },
+    [selectedId],
+  );
+
+  const hasPlayerIntelAccess =
+    selectedOrgId &&
+    (adminableOrgIds.includes(selectedOrgId) ||
+      (sessionOrgPermissions[selectedOrgId] ?? []).includes(
+        "tickets_player_intel",
+      ));
 
   return (
     <div className="h-screen w-full flex flex-col bg-background">
@@ -355,7 +418,9 @@ function TicketsPage() {
               <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
                 Active Queue
               </span>
-              <span className="text-[10px] font-mono text-muted-foreground">{totalNonClosed}</span>
+              <span className="text-[10px] font-mono text-muted-foreground">
+                {totalNonClosed}
+              </span>
             </div>
             <div className="flex ring-1 ring-border rounded overflow-hidden">
               {["active", "waiting", "closed"].map((t) => (
@@ -368,7 +433,11 @@ function TicketsPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {t === "active" ? "Active" : t === "waiting" ? "Waiting" : "Closed"}
+                  {t === "active"
+                    ? "Active"
+                    : t === "waiting"
+                      ? "Waiting"
+                      : "Closed"}
                 </button>
               ))}
             </div>
@@ -401,9 +470,13 @@ function TicketsPage() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {loading ? (
-              <div className="text-[10px] text-muted-foreground text-center py-10">Loading...</div>
+              <div className="text-[10px] text-muted-foreground text-center py-10">
+                Loading...
+              </div>
             ) : filtered.length === 0 ? (
-              <div className="text-[10px] text-muted-foreground text-center py-10">No tickets</div>
+              <div className="text-[10px] text-muted-foreground text-center py-10">
+                No tickets
+              </div>
             ) : (
               filtered.map((ticket) => (
                 <TicketListItem
@@ -451,8 +524,8 @@ function TicketsPage() {
         )}
 
         {/* Right: player intel / team info panel */}
-        {selectedTicket && (
-          hasPlayerIntelAccess ? (
+        {selectedTicket &&
+          (hasPlayerIntelAccess ? (
             <PlayerIntelSidebar
               ticketId={selectedId}
               orgId={selectedOrgId}
@@ -463,8 +536,7 @@ function TicketsPage() {
             />
           ) : (
             <TeamInfoPanel servers={orgServers} />
-          )
-        )}
+          ))}
       </div>
     </div>
   );
@@ -490,7 +562,9 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 min-w-0">
-          <span className={`text-[10px] font-mono font-bold shrink-0 ${meta.color}`}>
+          <span
+            className={`text-[10px] font-mono font-bold shrink-0 ${meta.color}`}
+          >
             {meta.label}
           </span>
           <span className="text-[9px] text-muted-foreground shrink-0">·</span>
@@ -536,12 +610,17 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
       {open && (
         <div className="absolute top-full left-0 mt-1 z-20 min-w-[160px] bg-surface border border-border rounded-md shadow-lg overflow-hidden">
           {orgStaff.length === 0 ? (
-            <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground">No staff</div>
+            <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground">
+              No staff
+            </div>
           ) : (
             <div className="max-h-48 overflow-y-auto">
               {ticket.assigned_to && (
                 <button
-                  onClick={() => { onAssign(null, null); setOpen(false); }}
+                  onClick={() => {
+                    onAssign(null, null);
+                    setOpen(false);
+                  }}
                   className="w-full text-left px-3 py-1.5 text-[10px] font-mono text-muted-foreground hover:bg-surface-bright transition-colors"
                 >
                   Unassign
@@ -550,9 +629,14 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
               {orgStaff.map((m) => (
                 <button
                   key={m.userId}
-                  onClick={() => { onAssign(m.userId, m.username); setOpen(false); }}
+                  onClick={() => {
+                    onAssign(m.userId, m.username);
+                    setOpen(false);
+                  }}
                   className={`w-full text-left px-3 py-1.5 text-[10px] font-mono hover:bg-surface-bright transition-colors ${
-                    ticket.assigned_to === m.userId ? "text-brand" : "text-foreground"
+                    ticket.assigned_to === m.userId
+                      ? "text-brand"
+                      : "text-foreground"
                   }`}
                 >
                   {m.username}
@@ -596,14 +680,20 @@ function TicketDetail({
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border shrink-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] font-mono text-brand shrink-0">#{ticket.ticket_id}</span>
+          <span className="text-[10px] font-mono text-brand shrink-0">
+            #{ticket.ticket_id}
+          </span>
           <h2 className="text-sm font-bold truncate">{ticket.title}</h2>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5">
             {ticket.ticket_type_name ?? "Unknown type"}
           </span>
-          <AssignDropdown ticket={ticket} orgStaff={orgStaff} onAssign={onAssign} />
+          <AssignDropdown
+            ticket={ticket}
+            orgStaff={orgStaff}
+            onAssign={onAssign}
+          />
           <button
             onClick={onClaim}
             className={`text-[10px] font-mono rounded px-2 py-0.5 hover:opacity-90 transition-colors ${
@@ -664,7 +754,9 @@ function TicketDetail({
 
       <div className="flex-1 overflow-y-auto">
         {detailLoading ? (
-          <div className="text-[10px] text-muted-foreground text-center py-10">Loading...</div>
+          <div className="text-[10px] text-muted-foreground text-center py-10">
+            Loading...
+          </div>
         ) : (
           <>
             {publicMessages.length > 0 && (
@@ -725,7 +817,9 @@ function TicketDetail({
           )}
         </div>
         {submitError && (
-          <p className="text-[10px] font-mono text-danger mb-2">{submitError}</p>
+          <p className="text-[10px] font-mono text-danger mb-2">
+            {submitError}
+          </p>
         )}
         {composerMode === "reply" ? (
           <>
@@ -779,7 +873,9 @@ function MessageBubble({ msg, internal }) {
       }`}
     >
       <div className="flex items-center gap-2 mb-0.5">
-        <span className="font-semibold text-[10px]">{msg.username ?? "Unknown"}</span>
+        <span className="font-semibold text-[10px]">
+          {msg.username ?? "Unknown"}
+        </span>
         <span className="font-mono text-[9px] text-muted-foreground">
           {formatRelativeTime(msg.createdAt)}
         </span>
@@ -884,15 +980,25 @@ function PlayerCard({ player }) {
       <div className="grid grid-cols-2 gap-y-3">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase">S-Hours</p>
-          <p className="text-sm font-mono text-foreground">{formatHours(player.steam?.rustHours)}</p>
+          <p className="text-sm font-mono text-foreground">
+            {formatHours(player.steam?.rustHours)}
+          </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">BM-Hours</p>
-          <p className="text-sm font-mono text-foreground">{formatHours(player.bm?.rustHours)}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">
+            BM-Hours
+          </p>
+          <p className="text-sm font-mono text-foreground">
+            {formatHours(player.bm?.rustHours)}
+          </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">AT-Hours</p>
-          <p className="text-sm font-mono text-foreground">{formatHours(player.bm?.aimtrainHours)}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">
+            AT-Hours
+          </p>
+          <p className="text-sm font-mono text-foreground">
+            {formatHours(player.bm?.aimtrainHours)}
+          </p>
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase">K.D</p>
@@ -900,12 +1006,16 @@ function PlayerCard({ player }) {
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase">Proxy</p>
-          <p className={`text-sm font-mono ${isProxy === null ? "text-muted-foreground" : isProxy ? "text-danger" : "text-success"}`}>
+          <p
+            className={`text-sm font-mono ${isProxy === null ? "text-muted-foreground" : isProxy ? "text-danger" : "text-success"}`}
+          >
             {isProxy === null ? "—" : isProxy ? "True" : "False"}
           </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">Location</p>
+          <p className="text-[10px] text-muted-foreground uppercase">
+            Location
+          </p>
           <p className="text-sm font-mono text-foreground">{country ?? "—"}</p>
         </div>
       </div>
@@ -919,10 +1029,14 @@ function OrgBansSection({ orgBans }) {
     <section>
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Previous Offenses</span>
-        <span className="font-mono normal-case tracking-normal text-muted-foreground">{orgBans.length}</span>
+        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+          {orgBans.length}
+        </span>
       </h2>
       {orgBans.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No offenses on record.</p>
+        <p className="text-xs text-muted-foreground italic">
+          No offenses on record.
+        </p>
       ) : (
         <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
           <table className="w-full text-[10px] font-mono">
@@ -938,7 +1052,8 @@ function OrgBansSection({ orgBans }) {
             <tbody>
               {orgBans.map((b) => {
                 const expired = b.expiresAt && b.expiresAt < now;
-                const active = !b.revoked && (!b.expiresAt || b.expiresAt > now);
+                const active =
+                  !b.revoked && (!b.expiresAt || b.expiresAt > now);
                 let statusText = "—";
                 let statusColor = "text-muted-foreground";
                 if (b.revoked) {
@@ -960,13 +1075,23 @@ function OrgBansSection({ orgBans }) {
                 }
                 return (
                   <tr key={b.banId} className="border-t border-border">
-                    <td className={`px-1.5 py-1 font-bold uppercase ${b.actionType === "ban" ? "text-danger" : "text-warning"}`}>
+                    <td
+                      className={`px-1.5 py-1 font-bold uppercase ${b.actionType === "ban" ? "text-danger" : "text-warning"}`}
+                    >
                       {b.actionType === "ban" ? "Ban" : "Mute"}
                     </td>
-                    <td className={`px-1.5 py-1 ${statusColor}`}>{statusText}</td>
-                    <td className="px-1.5 py-1 text-foreground truncate max-w-[80px]">{b.reason || b.category || "—"}</td>
-                    <td className="px-1.5 py-1 text-muted-foreground truncate">{b.issuedByUsername ?? "—"}</td>
-                    <td className="px-1.5 py-1 text-right text-muted-foreground">{formatRelativeTime(b.issuedAt)}</td>
+                    <td className={`px-1.5 py-1 ${statusColor}`}>
+                      {statusText}
+                    </td>
+                    <td className="px-1.5 py-1 text-foreground truncate max-w-[80px]">
+                      {b.reason || b.category || "—"}
+                    </td>
+                    <td className="px-1.5 py-1 text-muted-foreground truncate">
+                      {b.issuedByUsername ?? "—"}
+                    </td>
+                    <td className="px-1.5 py-1 text-right text-muted-foreground">
+                      {formatRelativeTime(b.issuedAt)}
+                    </td>
                   </tr>
                 );
               })}
@@ -989,28 +1114,43 @@ function BmBansSection({ bmBans }) {
             (read-only · BattleMetrics)
           </span>
         </span>
-        <span className="font-mono normal-case tracking-normal text-muted-foreground">{bmBans.length}</span>
+        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+          {bmBans.length}
+        </span>
       </h2>
       {bmBans.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No BattleMetrics bans on record.</p>
+        <p className="text-xs text-muted-foreground italic">
+          No BattleMetrics bans on record.
+        </p>
       ) : (
         <div className="space-y-1.5">
           {bmBans.slice(0, 5).map((b) => {
             const expired = b.expiresAt && b.expiresAt < now;
             return (
-              <div key={b.bmBanId} className="bg-surface/40 ring-1 ring-border rounded px-2 py-1.5 flex items-start gap-2">
+              <div
+                key={b.bmBanId}
+                className="bg-surface/40 ring-1 ring-border rounded px-2 py-1.5 flex items-start gap-2"
+              >
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-medium truncate">{b.bmOrgName ?? "Unknown org"}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground truncate">{b.reason ?? "No reason"}</p>
+                  <p className="text-[10px] font-medium truncate">
+                    {b.bmOrgName ?? "Unknown org"}
+                  </p>
+                  <p className="text-[9px] font-mono text-muted-foreground truncate">
+                    {b.reason ?? "No reason"}
+                  </p>
                 </div>
-                <span className={`text-[9px] font-mono font-bold uppercase shrink-0 ${expired ? "text-muted-foreground" : "text-danger"}`}>
+                <span
+                  className={`text-[9px] font-mono font-bold uppercase shrink-0 ${expired ? "text-muted-foreground" : "text-danger"}`}
+                >
                   {b.permanent ? "Perm" : expired ? "Exp" : "Active"}
                 </span>
               </div>
             );
           })}
           {bmBans.length > 5 && (
-            <p className="text-[9px] font-mono text-muted-foreground text-center">+{bmBans.length - 5} more</p>
+            <p className="text-[9px] font-mono text-muted-foreground text-center">
+              +{bmBans.length - 5} more
+            </p>
           )}
         </div>
       )}
@@ -1040,34 +1180,53 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
         </a>
       </h2>
       {linked === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No linked accounts found.</p>
+        <p className="text-xs text-muted-foreground italic">
+          No linked accounts found.
+        </p>
       ) : (
         <div className="bg-surface/40 ring-1 ring-border rounded-lg p-3 space-y-2">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-lg font-mono font-bold text-foreground">{linked}</p>
-              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">Linked</p>
+              <p className="text-lg font-mono font-bold text-foreground">
+                {linked}
+              </p>
+              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                Linked
+              </p>
             </div>
             <div>
-              <p className={`text-lg font-mono font-bold ${withBmBans > 0 ? "text-danger" : "text-foreground"}`}>
+              <p
+                className={`text-lg font-mono font-bold ${withBmBans > 0 ? "text-danger" : "text-foreground"}`}
+              >
                 {withBmBans}
               </p>
-              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">BM Bans</p>
+              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                BM Bans
+              </p>
             </div>
             <div>
-              <p className={`text-lg font-mono font-bold ${withEacBans > 0 ? "text-warning" : "text-foreground"}`}>
+              <p
+                className={`text-lg font-mono font-bold ${withEacBans > 0 ? "text-warning" : "text-foreground"}`}
+              >
                 {withEacBans}
               </p>
-              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">EAC Bans</p>
+              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                EAC Bans
+              </p>
             </div>
           </div>
           {hasResidentialIps && (withBmBans > 0 || withEacBans > 0) && (
             <div className="flex items-start gap-2 bg-danger/10 ring-1 ring-danger/40 rounded p-2">
-              <Shield className="size-3.5 text-danger shrink-0 mt-0.5" aria-hidden />
+              <Shield
+                className="size-3.5 text-danger shrink-0 mt-0.5"
+                aria-hidden
+              />
               <p className="text-[10px] text-danger leading-snug">
-                <span className="font-bold">{withBmBans + withEacBans}</span> linked account
+                <span className="font-bold">{withBmBans + withEacBans}</span>{" "}
+                linked account
                 {withBmBans + withEacBans !== 1 ? "s" : ""} share a{" "}
-                <span className="font-bold">residential IP</span> and have a ban record.
+                <span className="font-bold">residential IP</span> and have a ban
+                record.
               </p>
             </div>
           )}
@@ -1095,10 +1254,14 @@ function ServerHistorySection({ bmSessions }) {
     <section>
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
         <span>Server History</span>
-        <span className="font-mono normal-case tracking-normal text-muted-foreground">{sessions.length}</span>
+        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+          {sessions.length}
+        </span>
       </h2>
       {sessions.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No server history available.</p>
+        <p className="text-xs text-muted-foreground italic">
+          No server history available.
+        </p>
       ) : (
         <ul className="space-y-1.5">
           {sessions.map((s) => (
@@ -1157,7 +1320,9 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
         .then((data) => {
           if (!data) return null;
           const parsed = parseTeamInfoResponse(data.response ?? "");
-          return parsed && parsed.members.length > 0 ? { server, parsed } : null;
+          return parsed && parsed.members.length > 0
+            ? { server, parsed }
+            : null;
         })
         .catch(() => null);
     Promise.all(servers.map(tryServer)).then((results) => {
@@ -1171,7 +1336,9 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
       }
       setLoading(false);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [initialSteamId, servers]);
 
   const handleLookup = async () => {
@@ -1191,7 +1358,10 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
         },
       );
       const data = await res.json();
-      if (!res.ok) { setError(data?.error ?? "RCON command failed"); return; }
+      if (!res.ok) {
+        setError(data?.error ?? "RCON command failed");
+        return;
+      }
       const parsed = parseTeamInfoResponse(data.response ?? "");
       if (parsed && parsed.members.length > 0) {
         setResult(parsed);
@@ -1226,35 +1396,57 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
             className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           >
             {servers.map((s) => (
-              <option key={s.serverId} value={s.serverId}>{s.serverName}</option>
+              <option key={s.serverId} value={s.serverId}>
+                {s.serverName}
+              </option>
             ))}
           </select>
         )}
         {servers.length === 0 && (
-          <p className="text-[10px] font-mono text-muted-foreground">No RCON servers configured.</p>
+          <p className="text-[10px] font-mono text-muted-foreground">
+            No RCON servers configured.
+          </p>
         )}
         <button
           onClick={handleLookup}
-          disabled={!steamId.trim() || !serverId || loading || servers.length === 0}
+          disabled={
+            !steamId.trim() || !serverId || loading || servers.length === 0
+          }
           className="w-full text-[10px] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
         >
           {loading ? "Looking up..." : "Lookup"}
         </button>
-        {error && <p className="text-[10px] font-mono text-danger leading-snug">{error}</p>}
+        {error && (
+          <p className="text-[10px] font-mono text-danger leading-snug">
+            {error}
+          </p>
+        )}
         {result && (
           <div>
             <div className="text-[9px] font-mono text-muted-foreground mb-1.5">
-              Team #{result.teamId} · {result.members.length} member{result.members.length !== 1 ? "s" : ""}
+              Team #{result.teamId} · {result.members.length} member
+              {result.members.length !== 1 ? "s" : ""}
             </div>
             <div className="space-y-1">
               {result.members.map((member) => (
-                <div key={member.steamId} className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30">
+                <div
+                  key={member.steamId}
+                  className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30"
+                >
                   <div className="flex items-center gap-1 min-w-0">
-                    {member.online && <span className="text-[8px] text-green-400 shrink-0">●</span>}
-                    {member.leader && (
-                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">Lead</span>
+                    {member.online && (
+                      <span className="text-[8px] text-green-400 shrink-0">
+                        ●
+                      </span>
                     )}
-                    <span className="text-[10px] font-medium truncate">{member.username}</span>
+                    {member.leader && (
+                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">
+                        Lead
+                      </span>
+                    )}
+                    <span className="text-[10px] font-medium truncate">
+                      {member.username}
+                    </span>
                     <ExternalLinks steamId={member.steamId} size={9} />
                   </div>
                   <div className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate flex items-center gap-1">
@@ -1271,7 +1463,14 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
   );
 }
 
-function PlayerIntelSidebar({ ticketId, orgId, servers, submitterUsername, submitterSteamId, ticketCreatedAt }) {
+function PlayerIntelSidebar({
+  ticketId,
+  orgId,
+  servers,
+  submitterUsername,
+  submitterSteamId,
+  ticketCreatedAt,
+}) {
   const [intelData, setIntelData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -1284,9 +1483,18 @@ function PlayerIntelSidebar({ ticketId, orgId, servers, submitterUsername, submi
     setSelectedIdx(0);
     fetch(`/api/tickets/${ticketId}/player-intel`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { players: [] }))
-      .then((data) => { if (!cancelled) { setIntelData(data); setLoading(false); } })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .then((data) => {
+        if (!cancelled) {
+          setIntelData(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [ticketId]);
 
   const players = intelData?.players ?? [];
@@ -1359,7 +1567,10 @@ function PlayerIntelSidebar({ ticketId, orgId, servers, submitterUsername, submi
           </div>
         )}
 
-        <RconTeamSection servers={servers} initialSteamId={player?.steamId ?? ""} />
+        <RconTeamSection
+          servers={servers}
+          initialSteamId={player?.steamId ?? ""}
+        />
 
         {submitterUsername && (
           <section>
@@ -1374,7 +1585,9 @@ function PlayerIntelSidebar({ ticketId, orgId, servers, submitterUsername, submi
                 {initials(submitterUsername)}
               </div>
               <div className="min-w-0 flex-1 flex items-center gap-2">
-                <p className="text-xs font-medium truncate">{submitterUsername}</p>
+                <p className="text-xs font-medium truncate">
+                  {submitterUsername}
+                </p>
                 {submitterSteamId && (
                   <ExternalLinks steamId={submitterSteamId} size={10} />
                 )}
@@ -1420,7 +1633,10 @@ function TeamInfoPanel({ servers }) {
         },
       );
       const data = await res.json();
-      if (!res.ok) { setError(data?.error ?? "RCON command failed"); return; }
+      if (!res.ok) {
+        setError(data?.error ?? "RCON command failed");
+        return;
+      }
       const parsed = parseTeamInfoResponse(data.response ?? "");
       if (parsed && parsed.members.length > 0) {
         setResult(parsed);
@@ -1429,14 +1645,18 @@ function TeamInfoPanel({ servers }) {
       }
     } catch {
       setError("Failed to reach server.");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <aside className="w-[220px] shrink-0 flex flex-col bg-background overflow-hidden">
       <div className="px-3 py-2 border-b border-border shrink-0 flex items-center gap-1.5">
         <Users size={10} className="text-muted-foreground shrink-0" />
-        <span className="text-[10px] font-mono uppercase tracking-widest font-bold">Team Info</span>
+        <span className="text-[10px] font-mono uppercase tracking-widest font-bold">
+          Team Info
+        </span>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
         <input
@@ -1453,35 +1673,57 @@ function TeamInfoPanel({ servers }) {
             className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           >
             {servers.map((s) => (
-              <option key={s.serverId} value={s.serverId}>{s.serverName}</option>
+              <option key={s.serverId} value={s.serverId}>
+                {s.serverName}
+              </option>
             ))}
           </select>
         )}
         {servers.length === 0 && (
-          <p className="text-[10px] font-mono text-muted-foreground">No RCON servers configured for this org.</p>
+          <p className="text-[10px] font-mono text-muted-foreground">
+            No RCON servers configured for this org.
+          </p>
         )}
         <button
           onClick={handleLookup}
-          disabled={!steamId.trim() || !serverId || loading || servers.length === 0}
+          disabled={
+            !steamId.trim() || !serverId || loading || servers.length === 0
+          }
           className="w-full text-[10px] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
         >
           {loading ? "Looking up..." : "Lookup"}
         </button>
-        {error && <p className="text-[10px] font-mono text-danger leading-snug">{error}</p>}
+        {error && (
+          <p className="text-[10px] font-mono text-danger leading-snug">
+            {error}
+          </p>
+        )}
         {result && (
           <div>
             <div className="text-[9px] font-mono text-muted-foreground mb-1.5">
-              Team #{result.teamId} · {result.members.length} member{result.members.length !== 1 ? "s" : ""}
+              Team #{result.teamId} · {result.members.length} member
+              {result.members.length !== 1 ? "s" : ""}
             </div>
             <div className="space-y-1">
               {result.members.map((member) => (
-                <div key={member.steamId} className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30">
+                <div
+                  key={member.steamId}
+                  className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30"
+                >
                   <div className="flex items-center gap-1 min-w-0">
-                    {member.online && <span className="text-[8px] text-green-400 shrink-0">●</span>}
-                    {member.leader && (
-                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">Lead</span>
+                    {member.online && (
+                      <span className="text-[8px] text-green-400 shrink-0">
+                        ●
+                      </span>
                     )}
-                    <span className="text-[10px] font-medium truncate">{member.username}</span>
+                    {member.leader && (
+                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">
+                        Lead
+                      </span>
+                    )}
+                    <span className="text-[10px] font-medium truncate">
+                      {member.username}
+                    </span>
                   </div>
                   <div className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate">
                     {member.steamId}

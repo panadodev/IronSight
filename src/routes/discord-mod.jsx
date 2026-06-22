@@ -58,7 +58,10 @@ const TIMEOUT_PRESETS = [
 
 function fmtTs(unix, tz) {
   if (!unix) return "";
-  return new Date(unix * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {});
+  return new Date(unix * 1000).toLocaleString(
+    undefined,
+    tz ? { timeZone: tz } : {},
+  );
 }
 
 function fmtAgo(unix) {
@@ -412,7 +415,10 @@ function DiscordModPage() {
 
   useEffect(() => {
     if (tab === "modlog") fetchModLog();
-    if (tab === "bans") { setBansDisplayCount(50); fetchBans(); }
+    if (tab === "bans") {
+      setBansDisplayCount(50);
+      fetchBans();
+    }
     if (tab === "members") memberSearchRef.current?.focus();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -440,7 +446,9 @@ function DiscordModPage() {
     const container = modLogScrollRef.current;
     if (!sentinel || !container || !modLogHasMore) return;
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadMoreModLog(); },
+      (entries) => {
+        if (entries[0].isIntersecting) loadMoreModLog();
+      },
       { root: container, threshold: 0.1 },
     );
     observer.observe(sentinel);
@@ -650,7 +658,9 @@ function DiscordModPage() {
               disabled={syncing || !orgId}
               className="gap-1.5 h-8"
             >
-              <RefreshCw className={`size-3.5 ${syncing ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`size-3.5 ${syncing ? "animate-spin" : ""}`}
+              />
               {syncing ? "Syncing…" : "Sync Messages"}
             </Button>
           )}
@@ -663,7 +673,9 @@ function DiscordModPage() {
               disabled={banSyncing || !orgId}
               className="gap-1.5 h-8"
             >
-              <Download className={`size-3.5 ${banSyncing ? "animate-spin" : ""}`} />
+              <Download
+                className={`size-3.5 ${banSyncing ? "animate-spin" : ""}`}
+              />
               {banSyncing ? "Syncing…" : "Sync from Discord"}
             </Button>
           )}
@@ -758,7 +770,9 @@ function DiscordModPage() {
             <div ref={messagesScrollRef} className="flex-1 overflow-y-auto">
               {loadingMessages ? (
                 <div className="flex items-center justify-center h-32">
-                  <span className="text-xs text-muted-foreground">Loading…</span>
+                  <span className="text-xs text-muted-foreground">
+                    Loading…
+                  </span>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex items-center justify-center h-32">
@@ -790,7 +804,9 @@ function DiscordModPage() {
                           </div>
                           <p className="text-sm text-foreground/90 mt-0.5 break-words whitespace-pre-wrap">
                             {msg.content || (
-                              <em className="text-muted-foreground">[no text]</em>
+                              <em className="text-muted-foreground">
+                                [no text]
+                              </em>
                             )}
                           </p>
                           {Array.isArray(msg.attachments) &&
@@ -817,9 +833,13 @@ function DiscordModPage() {
                     className="py-4 flex items-center justify-center"
                   >
                     {loadingMore ? (
-                      <span className="text-xs text-muted-foreground">Loading…</span>
+                      <span className="text-xs text-muted-foreground">
+                        Loading…
+                      </span>
                     ) : !hasMore && messages.length > 0 ? (
-                      <span className="text-[10px] text-muted-foreground/40">All messages loaded</span>
+                      <span className="text-[10px] text-muted-foreground/40">
+                        All messages loaded
+                      </span>
                     ) : null}
                   </div>
                 </div>
@@ -928,7 +948,9 @@ function DiscordModPage() {
                 disabled={bansLoading}
                 className="gap-1.5 h-9 shrink-0"
               >
-                <RefreshCw className={`size-3.5 ${bansLoading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`size-3.5 ${bansLoading ? "animate-spin" : ""}`}
+                />
                 Refresh
               </Button>
             </div>
@@ -948,7 +970,10 @@ function DiscordModPage() {
                 </p>
               </div>
             ) : (
-              <div ref={bansScrollRef} className="rounded-md ring-1 ring-border overflow-hidden overflow-y-auto flex-1">
+              <div
+                ref={bansScrollRef}
+                className="rounded-md ring-1 ring-border overflow-hidden overflow-y-auto flex-1"
+              >
                 <div className="grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border sticky top-0">
                   <span>User</span>
                   <span>Discord ID</span>
@@ -1000,17 +1025,20 @@ function DiscordModPage() {
                     </div>
                   </div>
                 ))}
-                <div ref={bansSentinelRef} className="py-3 flex items-center justify-center">
+                <div
+                  ref={bansSentinelRef}
+                  className="py-3 flex items-center justify-center"
+                >
                   {bansDisplayCount < filteredBans.length && (
-                    <span className="text-xs text-muted-foreground">Loading more…</span>
+                    <span className="text-xs text-muted-foreground">
+                      Loading more…
+                    </span>
                   )}
                 </div>
               </div>
             )}
 
-            {unbanError && (
-              <p className="text-xs text-danger">{unbanError}</p>
-            )}
+            {unbanError && <p className="text-xs text-danger">{unbanError}</p>}
 
             {!bansLoading && bans.length > 0 && (
               <p className="text-[11px] text-muted-foreground shrink-0">
@@ -1018,7 +1046,8 @@ function DiscordModPage() {
                   ? `${Math.min(bansDisplayCount, filteredBans.length)} of ${filteredBans.length} shown (${bans.length} total)`
                   : `${Math.min(bansDisplayCount, bans.length)} of ${bans.length} ban${bans.length !== 1 ? "s" : ""} shown`}
                 {" · "}
-                Use "Sync from Discord" to import bans not made through this panel.
+                Use "Sync from Discord" to import bans not made through this
+                panel.
               </p>
             )}
           </div>
@@ -1095,11 +1124,18 @@ function DiscordModPage() {
                     </div>
                   </div>
                 ))}
-                <div ref={modLogSentinelRef} className="py-3 flex items-center justify-center">
+                <div
+                  ref={modLogSentinelRef}
+                  className="py-3 flex items-center justify-center"
+                >
                   {loadingMoreModLog ? (
-                    <span className="text-xs text-muted-foreground">Loading more…</span>
+                    <span className="text-xs text-muted-foreground">
+                      Loading more…
+                    </span>
                   ) : !modLogHasMore && modLog.length > 0 ? (
-                    <span className="text-[10px] text-muted-foreground/40">All entries loaded</span>
+                    <span className="text-[10px] text-muted-foreground/40">
+                      All entries loaded
+                    </span>
                   ) : null}
                 </div>
               </div>
@@ -1186,7 +1222,9 @@ function DiscordModPage() {
               />
             </div>
 
-            {actionError && <p className="text-xs text-danger">{actionError}</p>}
+            {actionError && (
+              <p className="text-xs text-danger">{actionError}</p>
+            )}
           </div>
 
           <DialogFooter>

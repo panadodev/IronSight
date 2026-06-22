@@ -1,11 +1,15 @@
 import { useMemo, useState } from "react";
 function bmBanStatusLabel(ban) {
-  if (ban.permanent || !ban.expiresAt) return { label: "Permanent", tone: "danger" };
+  if (ban.permanent || !ban.expiresAt)
+    return { label: "Permanent", tone: "danger" };
   const sec = ban.expiresAt - Math.floor(Date.now() / 1000);
   if (sec <= 0) return { label: "Expired", tone: "muted" };
   const days = Math.floor(sec / 86400);
   const hours = Math.floor((sec % 86400) / 3600);
-  return { label: days > 0 ? `Expires in ${days}d` : `Expires in ${hours}h`, tone: "warning" };
+  return {
+    label: days > 0 ? `Expires in ${days}d` : `Expires in ${hours}h`,
+    tone: "warning",
+  };
 }
 function bmBanWhen(bannedAt) {
   if (!bannedAt) return "—";

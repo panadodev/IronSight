@@ -16,12 +16,13 @@ import { useAuth } from "@/lib/auth-context";
 import { invalidateAuthMe } from "@/lib/auth-cache";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { usePersistentState } from "@/lib/persistent-prefs";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
   ArrowDown,
   ArrowUpDown,
   Crown,
+  Eye,
   Gavel,
   Search,
   ShieldCheck,
@@ -174,8 +175,18 @@ function SortTh({
 }
 
 function StaffPage() {
-  const { sessionOrgOwnerIds, sessionUser, hasOrgPermission } = useAuth();
+  const { sessionOrgOwnerIds, sessionUser, hasOrgPermission, impersonate } =
+    useAuth();
+  const navigate = useNavigate();
   const orgId = useManageOrgId();
+  const [viewAsErr, setViewAsErr] = useState(null);
+
+  async function handleViewAs(userId) {
+    setViewAsErr(null);
+    const res = await impersonate(orgId, userId);
+    if (res.ok) navigate({ to: "/" });
+    else setViewAsErr(res.error ?? "Failed to start view-as session.");
+  }
 
   const [members, setMembers] = useState([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -248,7 +259,7 @@ function StaffPage() {
     loadMembers();
     loadCustomRoles();
     loadStaffStats();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   if (!orgId) return null;
@@ -430,6 +441,7 @@ function StaffPage() {
       </div>
 
       {removeErr && <p className="text-[11px] text-danger px-1">{removeErr}</p>}
+      {viewAsErr && <p className="text-[11px] text-danger px-1">{viewAsErr}</p>}
 
       {/* Roster */}
       <div className="space-y-1.5">
@@ -500,6 +512,19 @@ function StaffPage() {
                       Audit
                     </Link>
                   </Button>
+
+                  {!isMe && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleViewAs(m.userId)}
+                      className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                      title="View the panel as this member sees it (read-only)"
+                    >
+                      <Eye className="size-3" />
+                      View as
+                    </Button>
+                  )}
 
                   {canChangeRole && (
                     <RoleSelect

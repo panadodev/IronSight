@@ -368,7 +368,10 @@ function BanConfigsPanel({
   const updateReason = async (id, label) => {
     const result = await onUpdateReason(tab, id, label);
     if (!result?.ok) setSaveError(result?.error ?? "Failed to save.");
-    else { setSaveError(null); setEditingId(null); }
+    else {
+      setSaveError(null);
+      setEditingId(null);
+    }
   };
   const removeReason = async (id) => {
     const result = await onRemoveReason(tab, id);
@@ -516,9 +519,7 @@ function BanConfigsPanel({
         />
       </div>
 
-      {saveError && (
-        <p className="text-[11px] text-destructive">{saveError}</p>
-      )}
+      {saveError && <p className="text-[11px] text-destructive">{saveError}</p>}
       <p className="text-[10px] text-muted-foreground font-mono">
         "Other" reports always use a custom reason and have no note template.
       </p>

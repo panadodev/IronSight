@@ -1,6 +1,29 @@
-﻿/* eslint-disable prettier/prettier */
-import { Queue } from "bullmq";
+﻿import { Queue } from "bullmq";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
+import {
+  isValidSteamId,
+  sanitizeNext,
+  sanitizeReportedPlayers,
+} from "./validation.js";
+import {
+  ensureSchema,
+  ensureRolePermissionSeed,
+  migrateLegacyData,
+  migrateTimestampsToUnix,
+} from "./schema.js";
+import { getClientIp, json, parseLimit, parseMaybeList } from "./http.js";
+import { pool, redis, queue, setPool, setRedis, setQueue } from "./runtime.js";
+import { authenticateServerKey, checkRateLimit } from "./core.js";
+import {
+  handleServerHealthCheck,
+  handleIngestChatMessage,
+  handleIngestPvp,
+  handleIngestReport,
+  handleIngestTeamEvent,
+  handleMuteCheck,
+  handleIngestMuteSync,
+  handleGetBlacklistedWordsForServer,
+} from "./handlers/ingest.js";
 import "dotenv/config";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
@@ -130,9 +153,6 @@ if (!env.pterodactylAllowedHosts.length) {
   );
 }
 
-let pool;
-let redis;
-let queue;
 let initError = null;
 let initialized = false;
 let initializationPromise = null;
@@ -151,7 +171,7 @@ function nowUnix() {
 const DIAG_MAX = 1000;
 const diagIncoming = []; // { ts, method, route, status, ms, isIngest }
 const diagOutgoing = []; // { ts, service, host, status, ms }
-const diagErrors   = []; // non-2xx from either direction (same shape + direction)
+const diagErrors = []; // non-2xx from either direction (same shape + direction)
 
 function diagPush(arr, entry) {
   arr.push(entry);
@@ -160,20 +180,25 @@ function diagPush(arr, entry) {
 
 // Normalise a raw pathname to a stable route pattern for grouping.
 function diagRoute(pathname) {
-  return pathname
-    // UUIDs
-    .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "/:uuid")
-    // Steam IDs (17-digit numbers) and other long numeric IDs
-    .replace(/\/\d{10,}/g, "/:id")
-    // Short numeric IDs (ticket IDs, etc.)
-    .replace(/\/\d+/g, "/:id")
-    // Likely opaque org/server slugs after known path segments
-    .replace(/(\/orgs\/)([^/]+)/, "$1:orgId")
-    .replace(/(\/servers\/)([^/]+)/, "$1:serverId")
-    .replace(/(\/players\/)([^/]+)/, "$1:playerId")
-    .replace(/(\/tickets\/)([^/]+)/, "$1:ticketId")
-    .replace(/(\/roles\/)([^/]+)/, "$1:roleId")
-    .replace(/(\/staff\/)([^/]+)/, "$1:userId");
+  return (
+    pathname
+      // UUIDs
+      .replace(
+        /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+        "/:uuid",
+      )
+      // Steam IDs (17-digit numbers) and other long numeric IDs
+      .replace(/\/\d{10,}/g, "/:id")
+      // Short numeric IDs (ticket IDs, etc.)
+      .replace(/\/\d+/g, "/:id")
+      // Likely opaque org/server slugs after known path segments
+      .replace(/(\/orgs\/)([^/]+)/, "$1:orgId")
+      .replace(/(\/servers\/)([^/]+)/, "$1:serverId")
+      .replace(/(\/players\/)([^/]+)/, "$1:playerId")
+      .replace(/(\/tickets\/)([^/]+)/, "$1:ticketId")
+      .replace(/(\/roles\/)([^/]+)/, "$1:roleId")
+      .replace(/(\/staff\/)([^/]+)/, "$1:userId")
+  );
 }
 
 function diagRecordIncoming(method, pathname, status, ms) {
@@ -189,9 +214,19 @@ function diagRecordIncoming(method, pathname, status, ms) {
   }
 }
 
-function diagRecordOutgoing(service, url, status, ms, { expected = false } = {}) {
+function diagRecordOutgoing(
+  service,
+  url,
+  status,
+  ms,
+  { expected = false } = {},
+) {
   let host;
-  try { host = new URL(url).hostname; } catch { host = url.slice(0, 60); }
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    host = url.slice(0, 60);
+  }
   const entry = { ts: Date.now(), service, host, status, ms };
   diagPush(diagOutgoing, entry);
   if (!expected && (status < 200 || status >= 300)) {
@@ -334,21 +369,9 @@ function getPterodactylSecurityConfigError() {
   return null;
 }
 
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
-}
-
 // Parse a user-supplied pagination limit safely: a missing, non-numeric, or
 // non-positive value falls back to `fallback` rather than producing NaN, which
 // would otherwise blow up the Redis/SQL query with `LIMIT NaN`.
-function parseLimit(raw, fallback, max) {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(max, Math.floor(n));
-}
 
 async function auditLog({
   orgId,
@@ -400,60 +423,6 @@ async function auditLog({
 function redirect(location, headers = new Headers()) {
   headers.set("location", location);
   return new Response(null, { status: 302, headers });
-}
-
-function getClientIp(request) {
-  // Prefer the edge-provided client IP (Cloudflare), which a client cannot
-  // forge. Fall back to the right-most x-forwarded-for hop (closest to our
-  // edge) rather than the left-most, which is fully client-controlled.
-  const cf = request.headers.get("cf-connecting-ip");
-  if (cf) return cf.trim();
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) {
-    const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
-    if (hops.length) return hops[hops.length - 1];
-  }
-  return "unknown";
-}
-
-// Generic Redis sliding-window-ish limiter. Returns a 429 response when the
-// caller exceeds `limit` actions within `windowSeconds`, otherwise null.
-// Fails open (returns null) if Redis is unavailable, matching rateLimitLogin.
-async function checkRateLimit(key, limit, windowSeconds = 60) {
-  if (!redis) return null;
-  try {
-    const n = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1, key, String(windowSeconds),
-    );
-    if (n > limit) {
-      return json({ error: "Too many requests. Slow down." }, 429);
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function parseMaybeList(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value.filter(Boolean).map(String);
-  const str = String(value).trim();
-  if (!str) return [];
-  if (str.startsWith("[") && str.endsWith("]")) {
-    try {
-      const arr = JSON.parse(str);
-      if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
-    } catch {
-      // fall back to csv
-    }
-  }
-  return str
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 function canWriteTodos(session) {
@@ -568,12 +537,6 @@ function getSteamReturnUrl(request) {
   return env.steamReturnUrl ?? `${getBaseUrl(request)}/api/auth/steam/callback`;
 }
 
-function sanitizeNext(nextValue) {
-  const next = String(nextValue ?? "/todo").trim();
-  if (!next.startsWith("/") || next.startsWith("//")) return "/todo";
-  return next;
-}
-
 function sessionCookie(value, maxAgeSeconds) {
   return serializeCookie(SESSION_COOKIE, value, {
     httpOnly: true,
@@ -642,1184 +605,6 @@ function getPendingLink(request) {
   }
 }
 
-async function ensureSchema() {
-  await pool.query(`
-    CREATE OR REPLACE FUNCTION unix_now()
-    RETURNS BIGINT LANGUAGE SQL STABLE AS $$
-      SELECT EXTRACT(EPOCH FROM NOW())::BIGINT
-    $$
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      user_id UUID PRIMARY KEY,
-      username TEXT NOT NULL,
-      email TEXT,
-      discord_id TEXT UNIQUE,
-      steam_id TEXT UNIQUE,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now(),
-      CONSTRAINT chk_users_identity_present CHECK (discord_id IS NOT NULL OR steam_id IS NOT NULL)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      session_id UUID PRIMARY KEY,
-      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-      token_hash TEXT NOT NULL UNIQUE,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      expires_at BIGINT NOT NULL,
-      ip_address TEXT,
-      user_agent TEXT,
-      revoked BOOLEAN NOT NULL DEFAULT FALSE
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS organizations (
-      org_id TEXT PRIMARY KEY,
-      guild_id TEXT UNIQUE,
-      name TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS roles (
-      role_id TEXT PRIMARY KEY,
-      role_name TEXT NOT NULL UNIQUE
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS permissions (
-      permission_id TEXT PRIMARY KEY,
-      permission_name TEXT NOT NULL UNIQUE
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS role_permissions (
-      role_id TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
-      permission_id TEXT NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
-      PRIMARY KEY (role_id, permission_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS role_discord_roles (
-      role_id TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
-      discord_role_id TEXT NOT NULL,
-      PRIMARY KEY (role_id, discord_role_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS organization_members (
-      org_id TEXT NOT NULL,
-      user_id UUID NOT NULL,
-      role_id TEXT NOT NULL,
-      PRIMARY KEY (org_id, user_id),
-      CONSTRAINT fk_org_members_org FOREIGN KEY (org_id) REFERENCES organizations(org_id) ON DELETE CASCADE,
-      CONSTRAINT fk_org_members_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-      CONSTRAINT fk_org_members_role FOREIGN KEY (role_id) REFERENCES roles(role_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS api_keys (
-      key_id UUID PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      key_hash TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      last_used_at BIGINT,
-      revoked BOOLEAN NOT NULL DEFAULT FALSE
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS todos (
-      todo_id UUID PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'todo',
-      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      assigned_to UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now(),
-      completed_at BIGINT,
-      CONSTRAINT chk_todos_status CHECK (status IN ('todo', 'in_progress', 'completed', 'blocked'))
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_users_steam_id ON users(steam_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_members_org_id ON organization_members(org_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON organization_members(user_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_todos_org_id ON todos(org_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_todos_assigned_to ON todos(assigned_to)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)`,
-  );
-
-  // ── Ticket system ──────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ticket_types (
-      ticket_type_id SERIAL PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      ticket_type_name TEXT NOT NULL,
-      ticket_type_description TEXT NOT NULL DEFAULT '',
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ticket_type_roles (
-      ticket_type_id INTEGER NOT NULL REFERENCES ticket_types(ticket_type_id) ON DELETE CASCADE,
-      role_id TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
-      PRIMARY KEY (ticket_type_id, role_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS tickets (
-      ticket_id SERIAL PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      ticket_type_id INTEGER REFERENCES ticket_types(ticket_type_id) ON DELETE SET NULL,
-      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      assigned_to UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      status TEXT NOT NULL DEFAULT 'open',
-      priority TEXT NOT NULL DEFAULT 'normal',
-      category TEXT,
-      title TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now(),
-      closed_at BIGINT,
-      CONSTRAINT chk_tickets_status CHECK (status IN ('open', 'waiting_response', 'closed')),
-      CONSTRAINT chk_tickets_priority CHECK (priority IN ('urgent', 'high', 'normal', 'low'))
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ticket_messages (
-      message_id SERIAL PRIMARY KEY,
-      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
-      user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      message TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ticket_audit_log (
-      audit_id SERIAL PRIMARY KEY,
-      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
-      user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      action TEXT NOT NULL,
-      details JSONB,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ticket_types_org_id ON ticket_types(org_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_tickets_org_id ON tickets(org_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_tickets_created_by ON tickets(created_by)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON ticket_messages(ticket_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ticket_audit_ticket_id ON ticket_audit_log(ticket_id)`,
-  );
-
-  // Additive migrations
-  await pool.query(
-    `ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`,
-  );
-
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'uq_ticket_types_org_name'
-      ) THEN
-        ALTER TABLE ticket_types ADD CONSTRAINT uq_ticket_types_org_name
-          UNIQUE (org_id, ticket_type_name);
-      END IF;
-    END $$
-  `);
-
-  // Add ticket_type_category column for differentiating player report types
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'ticket_types' AND column_name = 'ticket_type_category'
-      ) THEN
-        ALTER TABLE ticket_types ADD COLUMN ticket_type_category TEXT NOT NULL DEFAULT 'generic'
-          CHECK (ticket_type_category IN ('generic', 'player_single', 'player_multi'));
-      END IF;
-    END $$
-  `);
-
-  // Fix categories for ticket types seeded before the category column existed.
-  // "Player Report" and cheating/toxicity names → player_single; teaming → player_multi.
-  await pool.query(`
-    UPDATE ticket_types
-    SET ticket_type_category = 'player_single'
-    WHERE ticket_type_category = 'generic'
-      AND (
-        LOWER(ticket_type_name) LIKE '%player report%'
-        OR LOWER(ticket_type_name) IN ('cheating', 'toxicity')
-      )
-  `);
-  await pool.query(`
-    UPDATE ticket_types
-    SET ticket_type_category = 'player_multi'
-    WHERE ticket_type_category = 'generic'
-      AND LOWER(ticket_type_name) IN ('teaming')
-  `);
-
-  // Add is_enabled column to track which ticket types are active for an org
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'ticket_types' AND column_name = 'is_enabled'
-      ) THEN
-        ALTER TABLE ticket_types ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT true;
-      END IF;
-    END $$
-  `);
-
-  // Add reported_players column to tickets for structured player Steam ID references
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'tickets' AND column_name = 'reported_players'
-      ) THEN
-        ALTER TABLE tickets ADD COLUMN reported_players TEXT[] NOT NULL DEFAULT '{}';
-      END IF;
-    END $$
-  `);
-
-  // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
-  // Guard: table may not exist yet on first migration pass
-  await pool.query(`
-    DO $$ BEGIN
-      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'discord_mod_log') THEN
-        ALTER TABLE discord_mod_log ALTER COLUMN actor_user_id DROP NOT NULL;
-      END IF;
-    END $$
-  `);
-
-  // ── Public identity links (Discord + Steam for portal ticket submitters) ──
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS public_identity_links (
-      link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      discord_id TEXT NOT NULL UNIQUE,
-      discord_username TEXT NOT NULL,
-      steam_id TEXT NOT NULL,
-      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_public_identity_links_discord_id ON public_identity_links(discord_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_public_identity_links_steam_id ON public_identity_links(steam_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_public_identity_links_user_id ON public_identity_links(user_id)`,
-  );
-
-  // Audit logs for staff actions
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id BIGSERIAL PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      actor_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
-      target_user_id UUID NULL REFERENCES users(user_id) ON DELETE SET NULL,
-      resource_type TEXT NULL,
-      resource_id TEXT NULL,
-      action_type TEXT NOT NULL,
-      action_category TEXT NULL,
-      severity SMALLINT NOT NULL DEFAULT 1,
-      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-      before_state JSONB NULL,
-      after_state JSONB NULL,
-      ip_address INET NULL,
-      user_agent TEXT NULL,
-      session_id TEXT NULL,
-      correlation_id UUID NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_audit_logs_org_id ON audit_logs(org_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs(actor_user_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_audit_logs_target_user_id ON audit_logs(target_user_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`,
-  );
-
-  // ── Servers ──────────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS servers (
-      server_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      server_name TEXT NOT NULL,
-      owner_org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      api_key_hash TEXT NOT NULL UNIQUE,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      added_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_servers_owner_org_id ON servers(owner_org_id)`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS ptero_identifier TEXT`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS rcon_host TEXT`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS rcon_port INTEGER`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS rcon_password_enc TEXT`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS game_port INTEGER`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
-  );
-  await pool.query(
-    `ALTER TABLE servers ADD COLUMN IF NOT EXISTS last_health_ping BIGINT`,
-  );
-
-  // ── Text chat log ─────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS text_chat_log (
-      id BIGSERIAL PRIMARY KEY,
-      message TEXT NOT NULL,
-      steam_id TEXT NOT NULL,
-      player_name TEXT,
-      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      server_name TEXT NOT NULL,
-      team_message BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_server_id ON text_chat_log(server_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_created_at ON text_chat_log(created_at)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_steam_id ON text_chat_log(steam_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_text_chat_log_server_created ON text_chat_log(server_id, created_at)`,
-  );
-
-  // ── PVP log ─────────────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS pvp_log (
-      id BIGSERIAL PRIMARY KEY,
-      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      server_name TEXT NOT NULL,
-      killer_steam_id TEXT NOT NULL,
-      victim_name TEXT NOT NULL,
-      combatlog_cache JSONB NOT NULL DEFAULT '{}',
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_pvp_log_server_id ON pvp_log(server_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_pvp_log_created_at ON pvp_log(created_at)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_pvp_log_killer_steam_id ON pvp_log(killer_steam_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_pvp_log_server_created ON pvp_log(server_id, created_at)`,
-  );
-
-  // ── Player reports ───────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_reports (
-      id BIGSERIAL PRIMARY KEY,
-      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      server_name TEXT NOT NULL,
-      report_type TEXT NOT NULL,
-      report_reason TEXT NOT NULL,
-      report_description TEXT NOT NULL DEFAULT '',
-      reporter_name TEXT NOT NULL,
-      reporter_steam_id TEXT NOT NULL,
-      reported_steam_id TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_reports_server_id ON player_reports(server_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_reports_created_at ON player_reports(created_at)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_reports_reported_steam_id ON player_reports(reported_steam_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_reports_server_created ON player_reports(server_id, created_at)`,
-  );
-
-  // ── Team events ──────────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS team_events (
-      id BIGSERIAL PRIMARY KEY,
-      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      server_name TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      team_members JSONB NOT NULL DEFAULT '[]',
-      team_leader TEXT NOT NULL,
-      target_player TEXT,
-      event_time BIGINT NOT NULL DEFAULT unix_now(),
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      CONSTRAINT chk_team_events_type CHECK (event_type IN ('created', 'joined', 'left', 'invited'))
-    )
-  `);
-
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_team_events_server_id ON team_events(server_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_team_events_created_at ON team_events(created_at)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_team_events_server_created ON team_events(server_id, created_at)`,
-  );
-
-  // Additive: invite events carry an invitee (target_player) and the 'invited'
-  // event type. Existing deployments created the table before these existed.
-  await pool.query(
-    `ALTER TABLE team_events ADD COLUMN IF NOT EXISTS target_player TEXT`,
-  );
-  await pool.query(
-    `ALTER TABLE team_events DROP CONSTRAINT IF EXISTS chk_team_events_type`,
-  );
-  await pool.query(
-    `ALTER TABLE team_events ADD CONSTRAINT chk_team_events_type
-       CHECK (event_type IN ('created', 'joined', 'left', 'invited'))`,
-  );
-
-  // -- Pterodactyl integration -----------------------------------------------
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ptero_api_keys (
-      org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
-      panel_url TEXT NOT NULL,
-      api_key TEXT,
-      api_key_encrypted TEXT,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now(),
-      last_used_at BIGINT,
-      created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
-    )
-  `);
-  await pool.query(
-    `ALTER TABLE ptero_api_keys ALTER COLUMN api_key DROP NOT NULL`,
-  );
-  await pool.query(
-    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS api_key_encrypted TEXT`,
-  );
-  await pool.query(
-    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
-  );
-  await pool.query(
-    `ALTER TABLE ptero_api_keys ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL`,
-  );
-
-  // ── RCON scripts ────────────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_scripts (
-      script_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      command TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      min_rank INTEGER NOT NULL DEFAULT 1,
-      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_scripts_org_id ON org_scripts(org_id)`,
-  );
-
-  // ── Manage Org configs: predefines, toxicity, ban/mute reasons ─────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_predefines (
-      predefine_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      keyword TEXT NOT NULL,
-      extra_keywords TEXT[] NOT NULL DEFAULT '{}',
-      content TEXT NOT NULL,
-      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_predefines_org_id ON org_predefines(org_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_toxicity_config (
-      org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
-      yellow TEXT[] NOT NULL DEFAULT '{}',
-      red TEXT[] NOT NULL DEFAULT '{}',
-      updated_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-
-  // Ban/mute reasons. category is one of: cheating, teaming, toxicity, mute.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ban_reasons (
-      reason_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      category TEXT NOT NULL,
-      label TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      CONSTRAINT chk_org_ban_reasons_category
-        CHECK (category IN ('cheating', 'teaming', 'toxicity', 'mute'))
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_ban_reasons_org_id ON org_ban_reasons(org_id)`,
-  );
-
-  // Per-category note format templates (one row per org+category).
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ban_note_formats (
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      category TEXT NOT NULL,
-      note_format TEXT NOT NULL DEFAULT '',
-      updated_at BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (org_id, category),
-      CONSTRAINT chk_org_ban_note_formats_category
-        CHECK (category IN ('cheating', 'teaming', 'toxicity', 'mute'))
-    )
-  `);
-
-  // ── Plugin presets ──────────────────────────────────────────────────────────
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_plugins (
-      plugin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'umod',
-      umod_slug TEXT,
-      installed_version TEXT,
-      latest_version TEXT,
-      latest_updated_at BIGINT,
-      assigned_tags JSONB NOT NULL DEFAULT '[]',
-      risk INTEGER NOT NULL DEFAULT 2 CHECK (risk IN (1,2,3)),
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      UNIQUE(org_id, name)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_plugins_org_id ON org_plugins(org_id)`,
-  );
-
-  // ── Player bans / mutes ──────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_bans (
-      ban_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      action_type TEXT NOT NULL DEFAULT 'ban',
-      identifier TEXT NOT NULL,
-      identifier_type TEXT NOT NULL,
-      category TEXT,
-      reason TEXT NOT NULL DEFAULT '',
-      note TEXT NOT NULL DEFAULT '',
-      expires_at BIGINT,
-      issued_at BIGINT NOT NULL DEFAULT unix_now(),
-      issued_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      revoked BOOLEAN NOT NULL DEFAULT FALSE,
-      revoked_at BIGINT,
-      revoked_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      CONSTRAINT chk_ban_action_type CHECK (action_type IN ('ban', 'mute')),
-      CONSTRAINT chk_ban_identifier_type CHECK (identifier_type IN ('steam_id', 'ip'))
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_bans_org_id ON player_bans(org_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_bans_identifier ON player_bans(identifier)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_bans_issued_at ON player_bans(issued_at)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ban_server_targets (
-      ban_id UUID NOT NULL REFERENCES player_bans(ban_id) ON DELETE CASCADE,
-      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      PRIMARY KEY (ban_id, server_id)
-    )
-  `);
-
-  // ── External API keys (BattleMetrics / Steam / Proxycheck) per org ─────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_external_api_keys (
-      key_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      service TEXT NOT NULL,
-      key_encrypted TEXT NOT NULL,
-      label TEXT NOT NULL DEFAULT '',
-      priority INT NOT NULL DEFAULT 0,
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      rate_limited_until BIGINT,
-      last_used_at BIGINT,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      CONSTRAINT chk_ext_api_key_service
-        CHECK (service IN ('battlemetrics', 'steam', 'proxycheck'))
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_external_api_keys_org_service
-     ON org_external_api_keys(org_id, service)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_external_api_key_stats (
-      key_id                   UUID   NOT NULL REFERENCES org_external_api_keys(key_id) ON DELETE CASCADE,
-      bucket_hour              BIGINT NOT NULL,
-      org_id                   TEXT   NOT NULL,
-      service                  TEXT   NOT NULL,
-      rate_limit_max           INT,
-      rate_limit_min_remaining INT,
-      sample_count             INT    NOT NULL DEFAULT 1,
-      PRIMARY KEY (key_id, bucket_hour)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ext_api_key_stats_org_bucket
-     ON org_external_api_key_stats(org_id, bucket_hour DESC)`,
-  );
-
-  // ── Player data cache tables ───────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_cache (
-      steam_id TEXT PRIMARY KEY,
-      display_name TEXT,
-      avatar_url TEXT,
-      steam_profile_visibility TEXT,
-      steam_profile_created_at BIGINT,
-      steam_rust_hours NUMERIC(10,1),
-      steam_data_public BOOLEAN NOT NULL DEFAULT TRUE,
-      bm_id TEXT,
-      bm_profile_created_at BIGINT,
-      bm_private BOOLEAN NOT NULL DEFAULT FALSE,
-      bm_rust_hours NUMERIC(10,1),
-      bm_aimtrain_hours NUMERIC(10,1),
-      bm_server_count INT NOT NULL DEFAULT 0,
-      bm_rust_bans_count INT NOT NULL DEFAULT 0,
-      bm_rust_bans_last_ban BIGINT,
-      bm_rust_bans_banned BOOLEAN NOT NULL DEFAULT FALSE,
-      bm_cheating_reports INT NOT NULL DEFAULT 0,
-      bm_teaming_reports INT NOT NULL DEFAULT 0,
-      bm_other_reports INT NOT NULL DEFAULT 0,
-      bm_kills INT NOT NULL DEFAULT 0,
-      bm_deaths INT NOT NULL DEFAULT 0,
-      steam_cached_at BIGINT,
-      bm_cached_at BIGINT,
-      activity_cached_at BIGINT,
-      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_cache_bm_id ON player_cache(bm_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_cache_expires ON player_cache(cache_expires_at)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_bm_sessions (
-      steam_id TEXT NOT NULL,
-      bm_server_id TEXT NOT NULL,
-      server_name TEXT,
-      hours_played NUMERIC(10,1) NOT NULL DEFAULT 0,
-      last_seen BIGINT,
-      cached_at BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (steam_id, bm_server_id)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_bm_sessions_steam_id
-     ON player_bm_sessions(steam_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_friends_meta (
-      steam_id TEXT PRIMARY KEY,
-      friends_public BOOLEAN NOT NULL DEFAULT TRUE,
-      friend_count INT NOT NULL DEFAULT 0,
-      cached_at BIGINT NOT NULL DEFAULT unix_now(),
-      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_friends (
-      steam_id TEXT NOT NULL,
-      friend_steam_id TEXT NOT NULL,
-      first_seen BIGINT NOT NULL DEFAULT unix_now(),
-      last_confirmed BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (steam_id, friend_steam_id)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_friends_steam_id
-     ON player_friends(steam_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_ip_history (
-      id BIGSERIAL PRIMARY KEY,
-      steam_id TEXT NOT NULL,
-      ip_address TEXT NOT NULL,
-      server_id UUID REFERENCES servers(server_id) ON DELETE SET NULL,
-      server_name TEXT,
-      is_vpn BOOLEAN,
-      first_seen BIGINT NOT NULL DEFAULT unix_now(),
-      last_seen BIGINT NOT NULL DEFAULT unix_now(),
-      UNIQUE(steam_id, ip_address)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_ip_history_steam_id
-     ON player_ip_history(steam_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_ip_history_ip_address
-     ON player_ip_history(ip_address)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ip_metadata (
-      ip_address TEXT PRIMARY KEY,
-      is_proxy BOOLEAN,
-      is_vpn BOOLEAN,
-      isp TEXT,
-      country TEXT,
-      asn TEXT,
-      cached_at BIGINT NOT NULL DEFAULT unix_now(),
-      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_related_accounts (
-      steam_id TEXT NOT NULL,
-      related_bm_id TEXT NOT NULL,
-      related_name TEXT,
-      match_count INT NOT NULL DEFAULT 1,
-      has_bm_bans BOOLEAN NOT NULL DEFAULT FALSE,
-      bm_ban_count INT NOT NULL DEFAULT 0,
-      has_eac_bans BOOLEAN NOT NULL DEFAULT FALSE,
-      eac_last_ban BIGINT,
-      cached_at BIGINT NOT NULL DEFAULT unix_now(),
-      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000,
-      PRIMARY KEY (steam_id, related_bm_id)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_related_accounts_steam_id
-     ON player_related_accounts(steam_id)`,
-  );
-
-  // ── Alt-detection enrichment (additive) ──────────────────────────────────────
-  // Connection classification from proxycheck (residential/business/mobile/
-  // proxy_vpn/hosting). Existing rows keep is_proxy/is_vpn; conn_type is finer.
-  await pool.query(
-    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS conn_type TEXT`,
-  );
-  // BattleMetrics name-identifier history for the subject (used for name matching).
-  await pool.query(
-    `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS bm_name_aliases JSONB`,
-  );
-  // Steam VAC/game/community/economy ban status (Steam GetPlayerBans). BM's
-  // rustBans only covers EAC; these are Steam-level bans across all of a player's
-  // games and are a strong independent signal.
-  for (const col of [
-    `steam_vac_banned BOOLEAN`,
-    `steam_vac_count INT`,
-    `steam_game_ban_count INT`,
-    `steam_days_since_last_ban INT`,
-    `steam_community_banned BOOLEAN`,
-    `steam_economy_ban TEXT`,
-  ]) {
-    await pool.query(
-      `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS ${col}`,
-    );
-  }
-  // Per-related-account evidence computed at refresh time.
-  for (const col of [
-    `related_steam_id TEXT`,
-    `name_aliases JSONB`,
-    `name_similarity INT`,
-    `shared_ips JSONB`,
-    `non_proxy_linked BOOLEAN`,
-    `mutual_friends JSONB`,
-    `shared_groups JSONB`,
-    `server_overlap JSONB`,
-    `co_presence JSONB`,
-    `alt_confidence TEXT`,
-  ]) {
-    await pool.query(
-      `ALTER TABLE player_related_accounts ADD COLUMN IF NOT EXISTS ${col}`,
-    );
-  }
-  // Raw BM session windows for subject + enriched alts, used to compute temporal
-  // co-presence (alt-switching vs co-play). Kept separate from the aggregate
-  // player_bm_sessions table which only stores per-server totals.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_session_windows (
-      steam_id TEXT NOT NULL,
-      bm_server_id TEXT NOT NULL,
-      started_at BIGINT NOT NULL,
-      stopped_at BIGINT,
-      PRIMARY KEY (steam_id, bm_server_id, started_at)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_session_windows_steam_id
-     ON player_session_windows(steam_id)`,
-  );
-
-  // Staff notes attached to a player, scoped per org and gated by min_rank so
-  // sensitive notes are only visible to higher ranks. Shared across staff/devices
-  // (previously a client-only localStorage store).
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_notes (
-      id BIGSERIAL PRIMARY KEY,
-      org_id TEXT NOT NULL,
-      subject_steam_id TEXT NOT NULL,
-      body TEXT NOT NULL,
-      author_user_id TEXT,
-      author_name TEXT,
-      min_rank INTEGER NOT NULL DEFAULT 1,
-      pinned BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      updated_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_notes_lookup
-     ON player_notes(org_id, subject_steam_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_bm_bans_cache (
-      id BIGSERIAL PRIMARY KEY,
-      steam_id TEXT NOT NULL,
-      bm_ban_id TEXT NOT NULL UNIQUE,
-      bm_org_id TEXT,
-      bm_org_name TEXT,
-      reason TEXT,
-      note TEXT,
-      expires_at BIGINT,
-      banned_at BIGINT,
-      permanent BOOLEAN NOT NULL DEFAULT TRUE,
-      cached_at BIGINT NOT NULL DEFAULT unix_now(),
-      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_bm_bans_cache_steam_id
-     ON player_bm_bans_cache(steam_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_player_sightings (
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      steam_id TEXT NOT NULL,
-      last_seen_at BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (org_id, steam_id)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_player_sightings_org_id
-     ON org_player_sightings(org_id)`,
-  );
-
-  // ── Discord Moderation ────────────────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS discord_messages (
-      message_id TEXT NOT NULL,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      guild_id TEXT NOT NULL,
-      channel_id TEXT NOT NULL,
-      channel_name TEXT NOT NULL DEFAULT '',
-      author_discord_id TEXT NOT NULL,
-      author_username TEXT NOT NULL DEFAULT '',
-      content TEXT NOT NULL DEFAULT '',
-      attachments JSONB NOT NULL DEFAULT '[]',
-      discord_created_at BIGINT NOT NULL,
-      indexed_at BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (org_id, message_id)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_discord_messages_org_channel
-     ON discord_messages(org_id, channel_id, discord_created_at DESC)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_discord_messages_author
-     ON discord_messages(org_id, author_discord_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_discord_messages_indexed_at
-     ON discord_messages(indexed_at)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS discord_mod_log (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      guild_id TEXT NOT NULL,
-      target_discord_id TEXT NOT NULL,
-      target_username TEXT NOT NULL DEFAULT '',
-      action_type TEXT NOT NULL,
-      reason TEXT,
-      duration_seconds INTEGER,
-      expires_at BIGINT,
-      actor_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now()
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_discord_mod_log_org_id
-     ON discord_mod_log(org_id, created_at DESC)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_discord_mod_log_target
-     ON discord_mod_log(org_id, target_discord_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS discord_channel_sync (
-      channel_id TEXT NOT NULL,
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      guild_id TEXT NOT NULL,
-      channel_name TEXT NOT NULL DEFAULT '',
-      last_message_id TEXT,
-      synced_at BIGINT,
-      PRIMARY KEY (org_id, channel_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS discord_member_notify_cursor (
-      org_id TEXT NOT NULL,
-      guild_id TEXT NOT NULL,
-      last_checked_at BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (org_id, guild_id)
-    )
-  `);
-
-  await pool.query(`
-    ALTER TABLE todos ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium'
-  `);
-
-  await pool.query(`
-    ALTER TABLE todos ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT false
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_blacklisted_words (
-      word_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      word TEXT NOT NULL,
-      created_at BIGINT NOT NULL DEFAULT unix_now(),
-      UNIQUE (org_id, word)
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_org_blacklisted_words_org_id ON org_blacklisted_words(org_id)`,
-  );
-
-  // ── RIPE Atlas network monitoring ─────────────────────────────────────────
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ripe_atlas_config (
-      org_id              TEXT    PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
-      api_key_enc         TEXT    NOT NULL,
-      countries           TEXT[]  NOT NULL DEFAULT '{US,GB,DE,FR,NL,SG,AU,JP,BR,CA}',
-      probes_per_country  INTEGER NOT NULL DEFAULT 3,
-      check_interval_minutes INTEGER NOT NULL DEFAULT 5,
-      created_at          BIGINT  NOT NULL DEFAULT unix_now(),
-      updated_at          BIGINT  NOT NULL DEFAULT unix_now()
-    )
-  `);
-  await pool.query(
-    `ALTER TABLE org_ripe_atlas_config ADD COLUMN IF NOT EXISTS check_interval_minutes INTEGER NOT NULL DEFAULT 5`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ripe_atlas_measurements (
-      id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id          TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      server_id       UUID    NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      atlas_msm_id    BIGINT  NOT NULL,
-      target_ip       TEXT    NOT NULL,
-      country         TEXT    NOT NULL,
-      status          TEXT    NOT NULL DEFAULT 'pending',
-      created_at      BIGINT  NOT NULL DEFAULT unix_now(),
-      results_fetched_at BIGINT
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_msm_org_status
-     ON org_ripe_atlas_measurements(org_id, status, created_at DESC)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_msm_server
-     ON org_ripe_atlas_measurements(server_id)`,
-  );
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_ripe_atlas_results (
-      id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-      org_id           TEXT         NOT NULL,
-      server_id        UUID         NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
-      country          TEXT         NOT NULL,
-      reachable        BOOLEAN      NOT NULL,
-      avg_rtt          NUMERIC(10,2),
-      min_rtt          NUMERIC(10,2),
-      max_rtt          NUMERIC(10,2),
-      probe_count      INTEGER      NOT NULL DEFAULT 0,
-      reachable_count  INTEGER      NOT NULL DEFAULT 0,
-      measured_at      BIGINT       NOT NULL
-    )
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_server_country
-     ON org_ripe_atlas_results(server_id, country, measured_at DESC)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_org
-     ON org_ripe_atlas_results(org_id, measured_at DESC)`,
-  );
-}
-
-async function migrateTimestampsToUnix() {
-  await pool.query(`
-    DO $$
-    DECLARE
-      r RECORD;
-    BEGIN
-      FOR r IN
-        SELECT c.table_name, c.column_name, c.column_default
-        FROM information_schema.columns c
-        WHERE c.table_schema = 'public'
-          AND c.data_type = 'timestamp with time zone'
-      LOOP
-        -- Drop the default first so PostgreSQL can change the type without
-        -- trying to cast a TIMESTAMPTZ expression (e.g. NOW()) to BIGINT.
-        IF r.column_default IS NOT NULL THEN
-          EXECUTE format(
-            'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-            r.table_name, r.column_name
-          );
-        END IF;
-        EXECUTE format(
-          'ALTER TABLE %I ALTER COLUMN %I TYPE BIGINT USING EXTRACT(EPOCH FROM %I)::BIGINT',
-          r.table_name, r.column_name, r.column_name
-        );
-        IF r.column_default LIKE '%interval%' OR r.column_default LIKE '%INTERVAL%' THEN
-          EXECUTE format(
-            'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT unix_now() + 2592000',
-            r.table_name, r.column_name
-          );
-        ELSIF r.column_default IS NOT NULL AND (r.column_default LIKE '%now()%' OR r.column_default LIKE '%NOW()%') THEN
-          EXECUTE format(
-            'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT unix_now()',
-            r.table_name, r.column_name
-          );
-        END IF;
-      END LOOP;
-    END $$
-  `);
-}
-
 async function migratePterodactylApiKeys() {
   const key = getPterodactylEncryptionKey();
   if (!key) return;
@@ -1878,178 +663,6 @@ async function loadPterodactylCredentials(orgId) {
     panelUrl: String(row.panel_url),
     apiKey,
   };
-}
-
-async function ensureRolePermissionSeed() {
-  await pool.query(
-    `INSERT INTO roles (role_id, role_name)
-     VALUES
-      ('org_member', 'Member'),
-      ('org_admin', 'Admin'),
-      ('org_owner', 'Owner'),
-      ('org_disabled', 'Disabled')
-     ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name`,
-  );
-
-  await pool.query(
-    `INSERT INTO permissions (permission_id, permission_name)
-     VALUES
-      ('todo_read',           'View todos'),
-      ('todo_write',          'Create and edit todos'),
-      ('todo_delete',         'Delete todos'),
-      ('org_manage',          'Manage organization members'),
-      ('role_create',         'Create and manage custom roles'),
-      ('rcon_access',         'Use RCON console'),
-      ('scripts_view',        'View RCON scripts'),
-      ('scripts_manage',      'Manage RCON scripts'),
-      ('presets_manage',      'Manage server presets'),
-      ('status_view',         'View server status'),
-      ('servers_manage',      'Manage server connections'),
-      ('tickets_view',        'View support tickets'),
-      ('tickets_manage',      'Manage and respond to tickets'),
-      ('tickets_player_intel','View player intelligence panel in tickets'),
-      ('ban_configs_manage',  'Manage ban and mute configurations'),
-      ('toxicity_manage',     'Manage toxicity filters'),
-      ('predefines_manage',   'Manage ticket pre-defines'),
-      ('bans_delete',         'Delete and revoke bans'),
-      ('players_view',        'View player lookup and player list'),
-      ('ip_read',             'View player IP addresses and location'),
-      ('bans_manage',         'Issue and manage bans and mutes'),
-      ('triggers_manage',     'Configure threat triggers'),
-      ('discord_mod',         'Use Discord moderation')
-     ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
-  );
-
-  await pool.query(
-    `INSERT INTO role_permissions (role_id, permission_id)
-     VALUES
-      ('org_member', 'todo_write'),
-      ('org_admin', 'todo_write'),
-      ('org_admin', 'todo_delete'),
-      ('org_admin', 'org_manage'),
-      ('org_owner', 'todo_write'),
-      ('org_owner', 'todo_delete'),
-      ('org_owner', 'org_manage'),
-      ('org_owner', 'role_create')
-     ON CONFLICT (role_id, permission_id) DO NOTHING`,
-  );
-}
-
-async function migrateLegacyData() {
-  const legacyOrgsExists = await pool.query(
-    `SELECT to_regclass('public.orgs') IS NOT NULL AS exists`,
-  );
-  if (!legacyOrgsExists.rows[0]?.exists) return;
-
-  const { rows: legacyOrgs } = await pool.query(
-    "SELECT org_id, guild_id, discord_ids FROM orgs",
-  );
-  for (const org of legacyOrgs) {
-    const orgId = String(org.org_id);
-    const guildId = org.guild_id == null ? null : String(org.guild_id);
-
-    await pool.query(
-      `INSERT INTO organizations (org_id, guild_id, name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (org_id)
-       DO UPDATE SET guild_id = COALESCE(EXCLUDED.guild_id, organizations.guild_id),
-                     name = COALESCE(organizations.name, EXCLUDED.name)`,
-      [orgId, guildId, orgId],
-    );
-
-    for (const discordId of parseMaybeList(org.discord_ids)) {
-      const existing = await getUserByDiscordId(discordId);
-      const userId = existing?.userId ?? crypto.randomUUID();
-
-      if (!existing) {
-        await pool.query(
-          `INSERT INTO users (user_id, username, discord_id)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (discord_id) DO NOTHING`,
-          [userId, `user_${discordId.slice(-6)}`, discordId],
-        );
-      }
-
-      const resolved = existing ?? (await getUserByDiscordId(discordId));
-      if (!resolved) continue;
-
-      await pool.query(
-        `INSERT INTO organization_members (org_id, user_id, role_id)
-         VALUES ($1, $2, 'org_member')
-         ON CONFLICT (org_id, user_id) DO NOTHING`,
-        [orgId, resolved.userId],
-      );
-    }
-  }
-
-  const legacyOrgAdminsExists = await pool.query(
-    `SELECT to_regclass('public.org_admins') IS NOT NULL AS exists`,
-  );
-  if (legacyOrgAdminsExists.rows[0]?.exists) {
-    const { rows } = await pool.query(
-      "SELECT org_id, discord_id FROM org_admins",
-    );
-    for (const row of rows) {
-      const orgId = String(row.org_id);
-      const discordId = String(row.discord_id);
-      const user = await getUserByDiscordId(discordId);
-      if (!user) continue;
-
-      await pool.query(
-        `INSERT INTO organization_members (org_id, user_id, role_id)
-         VALUES ($1, $2, 'org_admin')
-         ON CONFLICT (org_id, user_id)
-         DO UPDATE SET role_id = 'org_admin'`,
-        [orgId, user.userId],
-      );
-    }
-  }
-
-  const legacyTodoExists = await pool.query(
-    `SELECT to_regclass('public.todo') IS NOT NULL AS exists`,
-  );
-  if (legacyTodoExists.rows[0]?.exists) {
-    const { rows } = await pool.query(
-      `SELECT todo_id, todo_heading, todo_description, todo_status, assigned_to, org_id, created_unix, completed_unix, created_by
-       FROM todo`,
-    );
-
-    for (const row of rows) {
-      const todoId = String(row.todo_id);
-      if (!/^[0-9a-fA-F-]{36}$/.test(todoId)) continue;
-
-      const assignedUser = row.assigned_to
-        ? await getUserByDiscordId(String(row.assigned_to))
-        : null;
-      const createdByUser = row.created_by
-        ? await getUserByDiscordId(String(row.created_by))
-        : null;
-
-      const createdAt = Number.isFinite(Number(row.created_unix))
-        ? Number(row.created_unix)
-        : Math.floor(Date.now() / 1000);
-      const completedAt = Number.isFinite(Number(row.completed_unix))
-        ? Number(row.completed_unix)
-        : null;
-
-      await pool.query(
-        `INSERT INTO todos (todo_id, org_id, title, description, status, created_by, assigned_to, created_at, updated_at, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, unix_now(), $9)
-         ON CONFLICT (todo_id) DO NOTHING`,
-        [
-          todoId,
-          String(row.org_id),
-          String(row.todo_heading),
-          row.todo_description == null ? "" : String(row.todo_description),
-          row.todo_status == null ? "todo" : String(row.todo_status),
-          createdByUser?.userId ?? null,
-          assignedUser?.userId ?? null,
-          createdAt,
-          completedAt,
-        ],
-      );
-    }
-  }
 }
 
 async function ensureSysadminSeed() {
@@ -2164,7 +777,10 @@ async function loadUserAccess(userId) {
   ];
 
   const orgPermissions = Object.fromEntries(
-    Object.entries(orgPermissionsMap).map(([orgId, set]) => [orgId, Array.from(set)]),
+    Object.entries(orgPermissionsMap).map(([orgId, set]) => [
+      orgId,
+      Array.from(set),
+    ]),
   );
 
   return {
@@ -2194,52 +810,66 @@ async function init() {
       );
     }
 
-    pool = new Pool({
-      connectionString: env.databaseUrl,
-      max: Number(process.env.PG_POOL_MAX ?? 20),
-      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30000),
-      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 5000),
-    });
+    setPool(
+      new Pool({
+        connectionString: env.databaseUrl,
+        max: Number(process.env.PG_POOL_MAX ?? 20),
+        idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30000),
+        connectionTimeoutMillis: Number(
+          process.env.PG_CONNECT_TIMEOUT_MS ?? 5000,
+        ),
+      }),
+    );
 
-    redis = new Redis(env.redisUrl, {
-      maxRetriesPerRequest: 2,
-      enableReadyCheck: true,
-    });
+    setRedis(
+      new Redis(env.redisUrl, {
+        maxRetriesPerRequest: 2,
+        enableReadyCheck: true,
+      }),
+    );
 
     const bullRedis = new Redis(env.redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
     });
 
-    queue = new Queue("panel-jobs", {
-      connection: bullRedis,
-      defaultJobOptions: {
-        removeOnComplete: true,
-        removeOnFail: 100,
-      },
-    });
+    setQueue(
+      new Queue("panel-jobs", {
+        connection: bullRedis,
+        defaultJobOptions: {
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      }),
+    );
 
-    await ensureSchema();
-    await migrateTimestampsToUnix();
+    await ensureSchema(pool);
+    await migrateTimestampsToUnix(pool);
     await migratePterodactylApiKeys();
-    await ensureRolePermissionSeed();
-    await migrateLegacyData();
+    await ensureRolePermissionSeed(pool);
+    await migrateLegacyData(pool);
     await pingDependencies();
 
     initialized = true;
     initError = null;
     console.info("[startup] PostgreSQL, Redis, and BullMQ are reachable.");
 
-    setInterval(() => {
-      triggerRipeAtlasMeasurements().catch((e) =>
-        console.error("[ripe-atlas] measure job:", e.message),
-      );
-    }, 5 * 60 * 1000);
-    setInterval(() => {
-      fetchPendingRipeAtlasResults().catch((e) =>
-        console.error("[ripe-atlas] results job:", e.message),
-      );
-    }, 2 * 60 * 1000);
+    setInterval(
+      () => {
+        triggerRipeAtlasMeasurements().catch((e) =>
+          console.error("[ripe-atlas] measure job:", e.message),
+        );
+      },
+      5 * 60 * 1000,
+    );
+    setInterval(
+      () => {
+        fetchPendingRipeAtlasResults().catch((e) =>
+          console.error("[ripe-atlas] results job:", e.message),
+        );
+      },
+      2 * 60 * 1000,
+    );
   })().catch((error) => {
     initError = error;
     console.error("[startup] dependency ping failed", error);
@@ -2284,14 +914,7 @@ async function createSessionForUser(user, options = {}) {
   await pool.query(
     `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, revoked)
      VALUES ($1, $2, $3, unix_now(), $4, $5, $6, FALSE)`,
-    [
-      sid,
-      session.userId,
-      tokenHash,
-      expiresAt,
-      ipAddress,
-      userAgent,
-    ],
+    [sid, session.userId, tokenHash, expiresAt, ipAddress, userAgent],
   );
 
   if (options.redirectTo) {
@@ -2549,7 +1172,9 @@ async function rateLimitLogin(request) {
       `local n = redis.call('INCR', KEYS[1])
        if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
        return n`,
-      1, limiterKey, '60',
+      1,
+      limiterKey,
+      "60",
     );
     if (attempts > env.loginRateLimitPerMinute) {
       return json(
@@ -2890,7 +1515,10 @@ async function handleSteamCallback(request) {
       );
     } catch (err) {
       if (err.code === "23505")
-        return redirect("/login?error=steam_already_linked", clearPendingLinkHeaders(new Headers()));
+        return redirect(
+          "/login?error=steam_already_linked",
+          clearPendingLinkHeaders(new Headers()),
+        );
       throw err;
     }
 
@@ -3094,7 +1722,8 @@ async function handleCreateOrganization(request) {
       [derivedOrgId, guildId || null, name],
     );
   } catch (err) {
-    if (err.code === "23505") return json({ error: "Organization ID already exists" }, 409);
+    if (err.code === "23505")
+      return json({ error: "Organization ID already exists" }, 409);
     throw err;
   }
 
@@ -3289,7 +1918,16 @@ async function handleCreateTodo(request) {
   await pool.query(
     `INSERT INTO todos (todo_id, title, description, status, priority, is_public, assigned_to, org_id, created_by)
      VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7, $8)`,
-    [todoId, title, details, priority, isPublic, assignee.userId, orgId, session.userId],
+    [
+      todoId,
+      title,
+      details,
+      priority,
+      isPublic,
+      assignee.userId,
+      orgId,
+      session.userId,
+    ],
   );
 
   await queue.add("todo-created", {
@@ -3459,8 +2097,12 @@ async function handleAddOrgMember(request, orgId) {
   let wasNewUser = false;
   if (!member) {
     const userId = crypto.randomUUID();
-    const guildUsername = await fetchDiscordGuildMember(org.guild_id, discordId);
-    const resolvedName = username || guildUsername || `user_${discordId.slice(-6)}`;
+    const guildUsername = await fetchDiscordGuildMember(
+      org.guild_id,
+      discordId,
+    );
+    const resolvedName =
+      username || guildUsername || `user_${discordId.slice(-6)}`;
     await pool.query(
       `INSERT INTO users (user_id, username, discord_id)
        VALUES ($1, $2, $3)`,
@@ -3743,8 +2385,14 @@ async function handleCreateOrgRole(request, orgId) {
 async function handleListOrgRoles(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "role_create") && !orgHasPermission(session, orgId, "org_manage")) {
-    return json({ error: "Forbidden: role_create or org_manage permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "role_create") &&
+    !orgHasPermission(session, orgId, "org_manage")
+  ) {
+    return json(
+      { error: "Forbidden: role_create or org_manage permission required" },
+      403,
+    );
   }
 
   const orgRes = await pool.query(
@@ -3845,7 +2493,10 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
           (p) => !userPerms.has(p) && !currentPerms.has(p),
         );
         if (escalated.length > 0) {
-          return json({ error: "Cannot grant permissions you do not hold" }, 403);
+          return json(
+            { error: "Cannot grant permissions you do not hold" },
+            403,
+          );
         }
       }
     }
@@ -3894,9 +2545,10 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
         }
       }
       if (hasDiscordRoles) {
-        await client.query(`DELETE FROM role_discord_roles WHERE role_id = $1`, [
-          roleId,
-        ]);
+        await client.query(
+          `DELETE FROM role_discord_roles WHERE role_id = $1`,
+          [roleId],
+        );
         for (const discordRoleId of filteredDiscordRoleIds) {
           await client.query(
             `INSERT INTO role_discord_roles (role_id, discord_role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -4127,7 +2779,9 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
         .filter((p) => !userPerms.has(p));
       if (escalated.length > 0) {
         return json(
-          { error: "Cannot assign a role granting permissions you do not hold" },
+          {
+            error: "Cannot assign a role granting permissions you do not hold",
+          },
           403,
         );
       }
@@ -4364,7 +3018,10 @@ async function handleGetStaffAuditLog(request, orgId) {
   const url = new URL(request.url);
   const staffId = url.searchParams.get("staffId");
   const limit = parseLimit(url.searchParams.get("limit"), 50, 500);
-  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset"))) || 0);
+  const offset = Math.max(
+    0,
+    Math.trunc(Number(url.searchParams.get("offset"))) || 0,
+  );
 
   if (!staffId) {
     return json({ error: "staffId query parameter is required" }, 400);
@@ -4481,18 +3138,12 @@ async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
     },
     access: {
       orgAdminOrgIds: targetAccess.orgAdminOrgIds.filter((id) => id === orgId),
+      orgOwnerOrgIds: targetAccess.orgOwnerOrgIds.filter((id) => id === orgId),
       canWrite: targetAccess.canWrite,
       groups: targetAccess.groups,
-      permissions: Array.from(
-        new Set(
-          targetAccess.groups.flatMap((g) => {
-            const perms = [];
-            if (g.editUsers) perms.push("org_manage");
-            if (g.editGroups) perms.push("role_create");
-            return perms;
-          }),
-        ),
-      ),
+      // The member's real granular permission set for this org — mirrors the
+      // shape the session uses so the UI reflects exactly what they can see.
+      permissions: targetAccess.orgPermissions[orgId] ?? [],
     },
     viewOnly: true,
     viewedAt: Math.floor(Date.now() / 1000),
@@ -4518,8 +3169,7 @@ async function handleGetOrgDetails(request, orgId) {
       orgId: String(org.org_id),
       guildId: org.guild_id == null ? null : String(org.guild_id),
       name: String(org.name),
-      createdAt:
-        org.created_at == null ? null : Number(org.created_at),
+      createdAt: org.created_at == null ? null : Number(org.created_at),
     },
   });
 }
@@ -4542,12 +3192,20 @@ async function handleUpdateOrgDetails(request, orgId) {
   // guildId omitted (undefined) → don't touch it; explicit null → unlink; string → set/change
   const guildIdRaw = body?.guildId;
   const guildId =
-    guildIdRaw === undefined ? undefined : guildIdRaw === null ? null : String(guildIdRaw).trim() || null;
+    guildIdRaw === undefined
+      ? undefined
+      : guildIdRaw === null
+        ? null
+        : String(guildIdRaw).trim() || null;
 
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
   }
-  if (guildId !== undefined && guildId !== null && !/^\d{17,20}$/.test(guildId)) {
+  if (
+    guildId !== undefined &&
+    guildId !== null &&
+    !/^\d{17,20}$/.test(guildId)
+  ) {
     return json({ error: "guildId must be a valid Discord snowflake" }, 400);
   }
 
@@ -4584,10 +3242,7 @@ async function handleUpdateOrgDetails(request, orgId) {
       orgId: String(updated.org_id),
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       name: String(updated.name),
-      createdAt:
-        updated.created_at == null
-          ? null
-          : Number(updated.created_at),
+      createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
   });
 }
@@ -4866,7 +3521,9 @@ async function loadTicketFromDb(ticketId) {
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     closed_at: row.closed_at ? Number(row.closed_at) : null,
-    reported_players: Array.isArray(row.reported_players) ? row.reported_players.map(String) : [],
+    reported_players: Array.isArray(row.reported_players)
+      ? row.reported_players.map(String)
+      : [],
   };
 }
 
@@ -5197,10 +3854,7 @@ async function handleCreateTicket(request) {
     body?.ticketTypeId != null ? Number(body.ticketTypeId) : null;
   const title = String(body?.title ?? "").trim();
   const message = String(body?.message ?? "").trim();
-  const reportedPlayers = (Array.isArray(body?.reportedPlayers) ? body.reportedPlayers : [])
-    .map((s) => String(s).trim())
-    .filter((s) => /^7656119\d{10}$/.test(s))
-    .slice(0, 10);
+  const reportedPlayers = sanitizeReportedPlayers(body?.reportedPlayers);
 
   if (!orgId || !title || !message) {
     return json({ error: "orgId, title, and message are required" }, 400);
@@ -5245,7 +3899,12 @@ async function handleCreateTicket(request) {
     );
     await txClient.query(
       `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-      [ticketId, session.userId, "created", JSON.stringify({ title, orgId, ticketTypeId })],
+      [
+        ticketId,
+        session.userId,
+        "created",
+        JSON.stringify({ title, orgId, ticketTypeId }),
+      ],
     );
     await txClient.query(`COMMIT`);
   } catch (err) {
@@ -5283,7 +3942,8 @@ async function handleGetTicket(request, ticketIdStr) {
       // Org admin/owner can view all tickets
     } else {
       const perms = session.orgPermissions?.[ticket.org_id] ?? [];
-      const hasPermission = perms.includes("tickets_view") || perms.includes("tickets_manage");
+      const hasPermission =
+        perms.includes("tickets_view") || perms.includes("tickets_manage");
       if (!hasPermission) return json({ error: "Forbidden" }, 403);
 
       // Enforce ticket type restriction if the role has specific types assigned
@@ -5346,7 +4006,12 @@ function filterPlayerIpData(playerData, canSeeIp) {
     result.relatedAccounts = result.relatedAccounts.map((account) => ({
       ...account,
       sharedIps: Array.isArray(account.sharedIps)
-        ? account.sharedIps.map((s) => ({ ...s, ip: null, isp: null, country: null }))
+        ? account.sharedIps.map((s) => ({
+            ...s,
+            ip: null,
+            isp: null,
+            country: null,
+          }))
         : account.sharedIps,
     }));
   }
@@ -5358,7 +4023,8 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
   if (error) return error;
 
   const id = Number(ticketIdStr);
-  if (!Number.isInteger(id) || id <= 0) return json({ error: "Invalid ticket ID" }, 400);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
 
   let ticket = await getCachedTicket(id);
   if (!ticket) {
@@ -5366,9 +4032,20 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
     if (!ticket) return json({ error: "Ticket not found" }, 404);
   }
 
-  const hasIntelPerm = orgHasPermission(session, ticket.org_id, "tickets_player_intel");
-  if (!isGlobalAdmin(session) && !canManageOrg(session, ticket.org_id) && !hasIntelPerm) {
-    return json({ error: "Forbidden: tickets_player_intel permission required" }, 403);
+  const hasIntelPerm = orgHasPermission(
+    session,
+    ticket.org_id,
+    "tickets_player_intel",
+  );
+  if (
+    !isGlobalAdmin(session) &&
+    !canManageOrg(session, ticket.org_id) &&
+    !hasIntelPerm
+  ) {
+    return json(
+      { error: "Forbidden: tickets_player_intel permission required" },
+      403,
+    );
   }
 
   const canSeeIp = orgHasPermission(session, ticket.org_id, "ip_read");
@@ -5519,7 +4196,10 @@ async function handleUpdateTicket(request, ticketIdStr) {
       "tickets_manage",
     );
     if (!hasPermission) {
-      return json({ error: "Forbidden: tickets_manage permission required" }, 403);
+      return json(
+        { error: "Forbidden: tickets_manage permission required" },
+        403,
+      );
     }
   }
 
@@ -5609,7 +4289,8 @@ async function handleListOrgTickets(request, orgId) {
     // Org admin/owner sees all tickets
   } else {
     const perms = session.orgPermissions?.[orgId] ?? [];
-    const hasPermission = perms.includes("tickets_view") || perms.includes("tickets_manage");
+    const hasPermission =
+      perms.includes("tickets_view") || perms.includes("tickets_manage");
     if (!hasPermission) return json({ error: "Forbidden" }, 403);
 
     // Restrict to ticket types the role is explicitly assigned to (empty = no restriction)
@@ -5628,7 +4309,10 @@ async function handleListOrgTickets(request, orgId) {
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status");
   const limit = parseLimit(url.searchParams.get("limit"), 50, 200);
-  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset"))) || 0);
+  const offset = Math.max(
+    0,
+    Math.trunc(Number(url.searchParams.get("offset"))) || 0,
+  );
 
   const conditions = ["t.org_id = $1"];
   const values = [orgId];
@@ -5759,7 +4443,10 @@ async function handleSavePteroKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -5871,7 +4558,10 @@ async function handleGetPteroKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   const res = await pool.query(
@@ -5892,7 +4582,10 @@ async function handleDeletePteroKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   await pool.query("DELETE FROM ptero_api_keys WHERE org_id = $1", [orgId]);
@@ -5914,7 +4607,10 @@ async function handleListPteroServers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -6043,7 +4739,10 @@ async function handleImportPteroServer(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -6265,9 +4964,14 @@ async function fetchPteroServerResources(panelUrl, apiKey, identifier) {
 async function handleGetPteroStatus(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "status_view") &&
-      !orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: status_view or servers_manage permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "status_view") &&
+    !orgHasPermission(session, orgId, "servers_manage")
+  ) {
+    return json(
+      { error: "Forbidden: status_view or servers_manage permission required" },
+      403,
+    );
   }
 
   const securityConfigError = getPterodactylSecurityConfigError();
@@ -6370,9 +5074,14 @@ async function handleGetPteroStatus(request, orgId) {
 async function handleGetPteroServerWebsocket(request, orgId, identifier) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "rcon_access") &&
-      !orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: rcon_access or servers_manage permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "rcon_access") &&
+    !orgHasPermission(session, orgId, "servers_manage")
+  ) {
+    return json(
+      { error: "Forbidden: rcon_access or servers_manage permission required" },
+      403,
+    );
   }
 
   // Verify the requested identifier belongs to a server registered under this org.
@@ -6456,14 +5165,18 @@ async function handleDeleteServer(request, serverId) {
 
   const { owner_org_id } = serverRes.rows[0];
   if (!orgHasPermission(session, owner_org_id, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   await pool.query(`DELETE FROM servers WHERE server_id = $1`, [serverId]);
 
   try {
     const userOrgs = await listUserOrganizations(session.userId);
-    if (userOrgs.length) await invalidateServerListCache(userOrgs.map((o) => o.orgId));
+    if (userOrgs.length)
+      await invalidateServerListCache(userOrgs.map((o) => o.orgId));
   } catch {}
 
   return json({ ok: true });
@@ -6481,7 +5194,10 @@ async function handleRotateServerKey(request, serverId) {
 
   const { owner_org_id, server_name } = serverRes.rows[0];
   if (!orgHasPermission(session, owner_org_id, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   const plainApiKey = crypto.randomBytes(32).toString("hex");
@@ -6522,7 +5238,10 @@ async function handleRegisterServer(request) {
   }
 
   if (!orgHasPermission(session, orgId, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   const orgRes = await pool.query(
@@ -6546,7 +5265,8 @@ async function handleRegisterServer(request) {
 
   try {
     const userOrgs = await listUserOrganizations(session.userId);
-    if (userOrgs.length) await invalidateServerListCache(userOrgs.map((o) => o.orgId));
+    if (userOrgs.length)
+      await invalidateServerListCache(userOrgs.map((o) => o.orgId));
   } catch {}
 
   return json(
@@ -6683,7 +5403,10 @@ async function handleCreateScript(request, orgId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "scripts_manage")) {
-    return json({ error: "Forbidden: scripts_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: scripts_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -6734,7 +5457,10 @@ async function handleUpdateScript(request, orgId, scriptId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "scripts_manage")) {
-    return json({ error: "Forbidden: scripts_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: scripts_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -6812,7 +5538,10 @@ async function handleDeleteScript(request, orgId, scriptId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "scripts_manage")) {
-    return json({ error: "Forbidden: scripts_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: scripts_manage permission required" },
+      403,
+    );
   }
 
   const res = await pool.query(
@@ -6840,7 +5569,10 @@ async function handleExecScriptRcon(request, orgId, scriptId) {
   const { name: scriptName, command: rawCommand, min_rank } = scriptRes.rows[0];
   const userRank = sessionRankForOrg(session, orgId);
   if (userRank < Number(min_rank))
-    return json({ error: "Forbidden: insufficient rank to execute this script" }, 403);
+    return json(
+      { error: "Forbidden: insufficient rank to execute this script" },
+      403,
+    );
 
   let body;
   try {
@@ -6978,7 +5710,10 @@ async function handleCreateOrgPredefine(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "predefines_manage")) {
-    return json({ error: "Forbidden: predefines_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: predefines_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7009,7 +5744,10 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "predefines_manage")) {
-    return json({ error: "Forbidden: predefines_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: predefines_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7064,7 +5802,10 @@ async function handleDeleteOrgPredefine(request, orgId, predefineId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "predefines_manage")) {
-    return json({ error: "Forbidden: predefines_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: predefines_manage permission required" },
+      403,
+    );
   }
 
   const res = await pool.query(
@@ -7109,7 +5850,10 @@ async function handleSetOrgToxicity(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "toxicity_manage")) {
-    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: toxicity_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7152,7 +5896,9 @@ async function handleSetOrgToxicity(request, orgId) {
     [orgId],
   );
   const row = rows[0];
-  try { await redis.del(`org:toxicity:${orgId}`); } catch {}
+  try {
+    await redis.del(`org:toxicity:${orgId}`);
+  } catch {}
   return json({
     yellow: Array.isArray(row?.yellow) ? row.yellow : [],
     red: Array.isArray(row?.red) ? row.red : [],
@@ -7227,7 +5973,10 @@ async function handleCreateBanReason(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
-    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: ban_configs_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7251,7 +6000,9 @@ async function handleCreateBanReason(request, orgId) {
      RETURNING reason_id, label`,
     [orgId, category, label],
   );
-  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
+  try {
+    await redis.del(`org:ban-config:${orgId}`);
+  } catch {}
   return json(
     {
       reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
@@ -7264,7 +6015,10 @@ async function handleUpdateBanReason(request, orgId, reasonId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
-    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: ban_configs_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7286,7 +6040,9 @@ async function handleUpdateBanReason(request, orgId, reasonId) {
     [label, reasonId, orgId],
   );
   if (!rows[0]) return json({ error: "Reason not found" }, 404);
-  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
+  try {
+    await redis.del(`org:ban-config:${orgId}`);
+  } catch {}
   return json({
     reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
   });
@@ -7296,7 +6052,10 @@ async function handleDeleteBanReason(request, orgId, reasonId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
-    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: ban_configs_manage permission required" },
+      403,
+    );
   }
 
   const res = await pool.query(
@@ -7304,7 +6063,9 @@ async function handleDeleteBanReason(request, orgId, reasonId) {
     [reasonId, orgId],
   );
   if (res.rowCount === 0) return json({ error: "Reason not found" }, 404);
-  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
+  try {
+    await redis.del(`org:ban-config:${orgId}`);
+  } catch {}
   return json({ ok: true });
 }
 
@@ -7312,7 +6073,10 @@ async function handleSetBanNoteFormat(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "ban_configs_manage")) {
-    return json({ error: "Forbidden: ban_configs_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: ban_configs_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7334,7 +6098,9 @@ async function handleSetBanNoteFormat(request, orgId) {
        note_format = EXCLUDED.note_format, updated_at = unix_now()`,
     [orgId, category, noteFormat],
   );
-  try { await redis.del(`org:ban-config:${orgId}`); } catch {}
+  try {
+    await redis.del(`org:ban-config:${orgId}`);
+  } catch {}
   return json({ ok: true, category, noteFormat });
 }
 
@@ -7345,7 +6111,10 @@ async function handleListPlugins(request, orgId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "presets_manage")) {
-    return json({ error: "Forbidden: presets_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
   }
 
   const { rows } = await pool.query(
@@ -7377,7 +6146,10 @@ async function handleCreatePlugin(request, orgId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "presets_manage")) {
-    return json({ error: "Forbidden: presets_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7439,7 +6211,10 @@ async function handleUpdatePlugin(request, orgId, pluginId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "presets_manage")) {
-    return json({ error: "Forbidden: presets_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7509,7 +6284,10 @@ async function handleDeletePlugin(request, orgId, pluginId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "presets_manage")) {
-    return json({ error: "Forbidden: presets_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
   }
 
   const res = await pool.query(
@@ -7540,7 +6318,10 @@ async function handlePluginPush(request, orgId, pluginId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "presets_manage")) {
-    return json({ error: "Forbidden: presets_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
   }
 
   const pluginRes = await pool.query(
@@ -7594,7 +6375,10 @@ async function handleUnloadRisk(request, orgId) {
   if (error) return error;
 
   if (!orgHasPermission(session, orgId, "presets_manage")) {
-    return json({ error: "Forbidden: presets_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
   }
 
   let body;
@@ -7683,7 +6467,9 @@ function parseOxidePluginList(output) {
   for (const line of String(output ?? "").split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || !/^\d+\s/.test(trimmed)) continue;
-    const failedMatch = trimmed.match(/^\d+\s+(\S+)\s+-\s+Failed to compile:\s*(.*)/);
+    const failedMatch = trimmed.match(
+      /^\d+\s+(\S+)\s+-\s+Failed to compile:\s*(.*)/,
+    );
     if (failedMatch) {
       map[failedMatch[1]] = { status: "failed", error: failedMatch[2].trim() };
       continue;
@@ -7698,8 +6484,7 @@ function parseOxidePluginList(output) {
 
 function safePluginName(raw) {
   const name = String(raw ?? "").trim();
-  if (!/^[a-zA-Z0-9._-]{1,64}$/.test(name) || name.includes(".."))
-    return null;
+  if (!/^[a-zA-Z0-9._-]{1,64}$/.test(name) || name.includes("..")) return null;
   return name;
 }
 
@@ -7758,8 +6543,13 @@ async function handleListPteroPlugins(request, serverId) {
     [serverId],
   );
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const { owner_org_id, ptero_identifier, rcon_host, rcon_port, rcon_password_enc } =
-    serverRes.rows[0];
+  const {
+    owner_org_id,
+    ptero_identifier,
+    rcon_host,
+    rcon_port,
+    rcon_password_enc,
+  } = serverRes.rows[0];
 
   if (
     !orgHasPermission(session, owner_org_id, "presets_manage") &&
@@ -7851,7 +6641,8 @@ async function handleListPteroPlugins(request, serverId) {
       status: statusMap[p.pluginName]?.status ?? null,
       compileError: statusMap[p.pluginName]?.error ?? null,
     })),
-    rconAvailable: rcon_host != null && rcon_port != null && rcon_password_enc != null,
+    rconAvailable:
+      rcon_host != null && rcon_port != null && rcon_password_enc != null,
   });
 }
 
@@ -7919,8 +6710,13 @@ async function handleSavePteroPluginConfig(request, serverId, rawName) {
     [serverId],
   );
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const { owner_org_id, ptero_identifier, rcon_host, rcon_port, rcon_password_enc } =
-    serverRes.rows[0];
+  const {
+    owner_org_id,
+    ptero_identifier,
+    rcon_host,
+    rcon_port,
+    rcon_password_enc,
+  } = serverRes.rows[0];
 
   if (!orgHasPermission(session, owner_org_id, "presets_manage")) {
     return json(
@@ -8104,9 +6900,7 @@ async function handleBulkDeletePteroPlugin(request, orgId) {
 
   const requestedIds = Array.isArray(body?.serverIds) ? body.serverIds : null;
   const serverRows = requestedIds
-    ? allServerRows.filter(
-        (s) => requestedIds.includes(s.server_id),
-      )
+    ? allServerRows.filter((s) => requestedIds.includes(s.server_id))
     : allServerRows;
   if (serverRows.length === 0)
     return json({ error: "No matching servers found" }, 400);
@@ -8193,7 +6987,10 @@ async function handleBulkUploadPteroPlugin(request, orgId) {
 
   const rawServerIds = url.searchParams.get("serverIds");
   const requestedIds = rawServerIds
-    ? rawServerIds.split(",").map((s) => s.trim()).filter(Boolean)
+    ? rawServerIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
     : null;
 
   const serversRes = await pool.query(
@@ -8245,7 +7042,10 @@ async function handleSetServerRcon(request, serverId) {
 
   const { owner_org_id } = serverRes.rows[0];
   if (!orgHasPermission(session, owner_org_id, "servers_manage")) {
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
   }
 
   const encKey = getPterodactylEncryptionKey();
@@ -8335,9 +7135,14 @@ async function handleGetServerRconStatus(request, serverId) {
     game_port,
     tags,
   } = serverRes.rows[0];
-  if (!orgHasPermission(session, owner_org_id, "rcon_access") &&
-      !orgHasPermission(session, owner_org_id, "status_view")) {
-    return json({ error: "Forbidden: rcon_access or status_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, owner_org_id, "rcon_access") &&
+    !orgHasPermission(session, owner_org_id, "status_view")
+  ) {
+    return json(
+      { error: "Forbidden: rcon_access or status_view permission required" },
+      403,
+    );
   }
 
   return json({
@@ -8484,190 +7289,11 @@ async function handleExecRconCommand(request, serverId) {
   });
 
   if (rconErr) return json({ error: `RCON error: ${rconErr}` }, 502);
-  return json({ ok: true, response: rconResult.response, consoleLogs: rconResult.consoleLogs });
-}
-
-async function handleServerHealthCheck(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) {
-    return json(
-      {
-        error:
-          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
-      },
-      401,
-    );
-  }
-
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) {
-    return json({ error: "Invalid API key" }, 401);
-  }
-  const server = serverRes.rows[0];
-
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1,
-      `rl:health:${server.server_id}`,
-      "60",
-    );
-    if (attempts > HEALTH_CHECK_RATE_LIMIT_PER_MINUTE)
-      return json({ error: "Rate limit exceeded" }, 429);
-  } catch {
-    // fail-open
-  }
-
-  await pool.query(
-    `UPDATE servers SET last_health_ping = unix_now() WHERE server_id = $1`,
-    [server.server_id],
-  );
-
-  console.log(
-    `[health-check] ping from server=${server.server_name} (${server.server_id})`,
-  );
-  return json({ ok: true });
-}
-
-const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
-const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
-
-async function handleIngestChatMessage(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) {
-    console.log("[ingest:chat] rejected — missing API key");
-    return json(
-      {
-        error:
-          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
-      },
-      401,
-    );
-  }
-
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) {
-    console.log("[ingest:chat] rejected — invalid API key");
-    return json({ error: "Invalid API key" }, 401);
-  }
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:chat:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1,
-      rlKey,
-      "60",
-    );
-    if (attempts > CHAT_INGEST_RATE_LIMIT_PER_MINUTE) {
-      return json({ error: "Rate limit exceeded" }, 429);
-    }
-  } catch {
-    // fail-open
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    console.log(
-      `[ingest:chat] rejected — invalid JSON body (server=${server.server_name})`,
-    );
-    return json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const message = String(body?.message ?? "").trim();
-  const steamId = String(body?.steam_id ?? "").trim();
-  const teamMessage = body?.team_message === true || body?.team_message === 1;
-  const playerName =
-    body?.player_name == null ? null : String(body.player_name).trim();
-
-  if (!message || !steamId) {
-    console.log(
-      `[ingest:chat] rejected — missing message or steam_id (server=${server.server_name})`,
-    );
-    return json({ error: "message and steam_id are required" }, 400);
-  }
-  if (message.length > 1000) {
-    console.log(
-      `[ingest:chat] rejected — message too long (server=${server.server_name}, steamId=${steamId})`,
-    );
-    return json({ error: "message must be 1000 characters or fewer" }, 400);
-  }
-  if (steamId.length > 64)
-    return json({ error: "steam_id must be 64 characters or fewer" }, 400);
-  if (playerName && playerName.length > 128)
-    return json({ error: "player_name must be 128 characters or fewer" }, 400);
-
-  const insertRes = await pool.query(
-    `INSERT INTO text_chat_log (message, steam_id, player_name, server_id, server_name, team_message)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, created_at`,
-    [
-      message,
-      steamId,
-      playerName ?? null,
-      server.server_id,
-      server.server_name,
-      teamMessage,
-    ],
-  );
-  const row = insertRes.rows[0];
-  const createdUnix = Number(row.created_at);
-
-  console.log(
-    `[ingest:chat] stored — id=${row.id} server=${server.server_name} player=${playerName ?? steamId} team=${teamMessage} len=${message.length}`,
-  );
-
-  // Cache in Redis sorted set (last 7 days window)
-  const cacheKey = `chat:server:${server.server_id}`;
-  const cacheEntry = JSON.stringify({
-    id: String(row.id),
-    message,
-    steamId,
-    playerName: playerName ?? null,
-    teamMessage,
-    ts: createdUnix,
+  return json({
+    ok: true,
+    response: rconResult.response,
+    consoleLogs: rconResult.consoleLogs,
   });
-  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
-  try {
-    await redis.zadd(cacheKey, createdUnix, cacheEntry);
-    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
-    await redis.expire(cacheKey, 7 * 24 * 3600);
-  } catch {
-    // Redis caching is best-effort; message is already persisted in Postgres
-  }
-
-  return json({ ok: true, id: String(row.id) }, 201);
 }
 
 async function handleGetChatLogs(request) {
@@ -8695,7 +7321,10 @@ async function handleGetChatLogs(request) {
   if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
   const server = serverRes.rows[0];
 
-  if (!orgHasPermission(session, server.owner_org_id, "players_view") && !isConfiguredSysAdmin(session)) {
+  if (
+    !orgHasPermission(session, server.owner_org_id, "players_view") &&
+    !isConfiguredSysAdmin(session)
+  ) {
     return json({ error: "Forbidden: players_view permission required" }, 403);
   }
 
@@ -8726,13 +7355,23 @@ async function handleGetChatLogs(request) {
         if (after != null) {
           // Poll for new messages: ascending from (after to endUnix
           rawEntries = await redis.zrangebyscore(
-            cacheKey, `(${after}`, endUnix, "LIMIT", 0, fetch_limit,
+            cacheKey,
+            `(${after}`,
+            endUnix,
+            "LIMIT",
+            0,
+            fetch_limit,
           );
         } else {
           // Initial load or "before" cursor: descending newest-first
           const scoreMax = before != null ? `(${before}` : endUnix;
           rawEntries = await redis.zrevrangebyscore(
-            cacheKey, scoreMax, startUnix, "LIMIT", 0, fetch_limit,
+            cacheKey,
+            scoreMax,
+            startUnix,
+            "LIMIT",
+            0,
+            fetch_limit,
           );
         }
         if (rawEntries.length > 0) {
@@ -8740,7 +7379,11 @@ async function handleGetChatLogs(request) {
           const lines = rawEntries
             .slice(0, limit)
             .map((raw) => {
-              try { return JSON.parse(raw); } catch { return null; }
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
             })
             .filter(Boolean);
           // after-poll returns ASC; normalize to DESC for consistency
@@ -8754,11 +7397,7 @@ async function handleGetChatLogs(request) {
   }
 
   // PostgreSQL fallback
-  const conditions = [
-    "server_id = $1",
-    "created_at >= $2",
-    "created_at <= $3",
-  ];
+  const conditions = ["server_id = $1", "created_at >= $2", "created_at <= $3"];
   const params = [serverId, startUnix, endUnix];
   let idx = 4;
 
@@ -8796,111 +7435,6 @@ async function handleGetChatLogs(request) {
   if (after != null) lines.reverse();
 
   return json({ lines, hasMore });
-}
-
-const PVP_INGEST_RATE_LIMIT_PER_MINUTE = 120;
-
-async function handleIngestPvp(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) {
-    return json(
-      {
-        error:
-          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
-      },
-      401,
-    );
-  }
-
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:pvp:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1, rlKey, '60',
-    );
-    if (attempts > PVP_INGEST_RATE_LIMIT_PER_MINUTE) {
-      return json({ error: "Rate limit exceeded" }, 429);
-    }
-  } catch {
-    // fail-open
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const killerSteamId = String(body?.killer_steam_id ?? "").trim();
-  const victimName = String(body?.victim_name ?? "").trim();
-  const combatlogCache = body?.combatlog_cache ?? {};
-
-  if (!killerSteamId || !victimName) {
-    return json({ error: "killer_steam_id and victim_name are required" }, 400);
-  }
-  if (killerSteamId.length > 64)
-    return json(
-      { error: "killer_steam_id must be 64 characters or fewer" },
-      400,
-    );
-  if (victimName.length > 128)
-    return json({ error: "victim_name must be 128 characters or fewer" }, 400);
-  if (typeof combatlogCache !== "object" || Array.isArray(combatlogCache))
-    return json({ error: "combatlog_cache must be a JSON object" }, 400);
-  if (JSON.stringify(combatlogCache).length > 65536)
-    return json({ error: "combatlog_cache must be 64 KB or less" }, 400);
-
-  const insertRes = await pool.query(
-    `INSERT INTO pvp_log (server_id, server_name, killer_steam_id, victim_name, combatlog_cache)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, created_at`,
-    [
-      server.server_id,
-      server.server_name,
-      killerSteamId,
-      victimName,
-      JSON.stringify(combatlogCache),
-    ],
-  );
-  const row = insertRes.rows[0];
-  const createdUnix = Number(row.created_at);
-
-  const cacheKey = `pvp:server:${server.server_id}`;
-  const cacheEntry = JSON.stringify({
-    id: String(row.id),
-    killerSteamId,
-    victimName,
-    combatlogCache,
-    ts: createdUnix,
-  });
-  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
-  try {
-    await redis.zadd(cacheKey, createdUnix, cacheEntry);
-    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
-    await redis.expire(cacheKey, 7 * 24 * 3600);
-  } catch {
-    // best-effort cache; message already persisted in Postgres
-  }
-
-  return json({ ok: true, id: String(row.id) }, 201);
 }
 
 async function handleGetPvpLogs(request) {
@@ -8996,150 +7530,6 @@ async function handleGetPvpLogs(request) {
   }));
 
   return json({ lines });
-}
-
-const REPORTS_INGEST_RATE_LIMIT_PER_MINUTE = 60;
-
-async function handleIngestReport(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) {
-    return json(
-      {
-        error:
-          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
-      },
-      401,
-    );
-  }
-
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:reports:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1, rlKey, '60',
-    );
-    if (attempts > REPORTS_INGEST_RATE_LIMIT_PER_MINUTE) {
-      return json({ error: "Rate limit exceeded" }, 429);
-    }
-  } catch {
-    // fail-open
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const reportType = String(body?.report_type ?? "").trim();
-  const reportReason = String(body?.report_reason ?? "").trim();
-  const reportDescription = String(body?.report_description ?? "").trim();
-  const reporterName = String(body?.reporter_name ?? "").trim();
-  const reporterSteamId = String(body?.reporter_steam_id ?? "").trim();
-  const reportedSteamId = String(body?.reported_steam_id ?? "").trim();
-
-  if (
-    !reportType ||
-    !reportReason ||
-    !reporterName ||
-    !reporterSteamId ||
-    !reportedSteamId
-  ) {
-    return json(
-      {
-        error:
-          "report_type, report_reason, reporter_name, reporter_steam_id, and reported_steam_id are required",
-      },
-      400,
-    );
-  }
-  if (reportType.length > 64)
-    return json({ error: "report_type must be 64 characters or fewer" }, 400);
-  if (reportReason.length > 256)
-    return json(
-      { error: "report_reason must be 256 characters or fewer" },
-      400,
-    );
-  if (reportDescription.length > 2000)
-    return json(
-      { error: "report_description must be 2000 characters or fewer" },
-      400,
-    );
-  if (reporterName.length > 128)
-    return json(
-      { error: "reporter_name must be 128 characters or fewer" },
-      400,
-    );
-  if (reporterSteamId.length > 64)
-    return json(
-      { error: "reporter_steam_id must be 64 characters or fewer" },
-      400,
-    );
-  if (reportedSteamId.length > 64)
-    return json(
-      { error: "reported_steam_id must be 64 characters or fewer" },
-      400,
-    );
-
-  const insertRes = await pool.query(
-    `INSERT INTO player_reports
-       (server_id, server_name, report_type, report_reason, report_description,
-        reporter_name, reporter_steam_id, reported_steam_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, created_at`,
-    [
-      server.server_id,
-      server.server_name,
-      reportType,
-      reportReason,
-      reportDescription,
-      reporterName,
-      reporterSteamId,
-      reportedSteamId,
-    ],
-  );
-  const row = insertRes.rows[0];
-  const createdUnix = Number(row.created_at);
-
-  const cacheKey = `reports:server:${server.server_id}`;
-  const cacheEntry = JSON.stringify({
-    id: String(row.id),
-    reportType,
-    reportReason,
-    reportDescription,
-    reporterName,
-    reporterSteamId,
-    reportedSteamId,
-    ts: createdUnix,
-  });
-  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
-  try {
-    await redis.zadd(cacheKey, createdUnix, cacheEntry);
-    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
-    await redis.expire(cacheKey, 7 * 24 * 3600);
-  } catch {
-    // best-effort cache; report already persisted in Postgres
-  }
-
-  return json({ ok: true, id: String(row.id) }, 201);
 }
 
 async function handleGetReports(request) {
@@ -9240,150 +7630,6 @@ async function handleGetReports(request) {
   }));
 
   return json({ lines });
-}
-
-const TEAM_INGEST_RATE_LIMIT_PER_MINUTE = 120;
-
-async function handleIngestTeamEvent(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) {
-    return json(
-      {
-        error:
-          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
-      },
-      401,
-    );
-  }
-
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:team:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1, rlKey, '60',
-    );
-    if (attempts > TEAM_INGEST_RATE_LIMIT_PER_MINUTE) {
-      return json({ error: "Rate limit exceeded" }, 429);
-    }
-  } catch {
-    // fail-open
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const eventType = String(body?.event_type ?? "").trim();
-  const teamLeader = String(body?.team_leader ?? "").trim();
-  const teamMembers = body?.team_members;
-  const targetPlayerRaw = body?.target_player;
-  const eventTimeRaw = body?.event_time;
-
-  if (!eventType || !teamLeader) {
-    return json({ error: "event_type and team_leader are required" }, 400);
-  }
-  if (!["created", "joined", "left", "invited"].includes(eventType)) {
-    return json(
-      { error: "event_type must be one of: created, joined, left, invited" },
-      400,
-    );
-  }
-  if (!Array.isArray(teamMembers)) {
-    return json({ error: "team_members must be an array" }, 400);
-  }
-  if (teamLeader.length > 128)
-    return json({ error: "team_leader must be 128 characters or fewer" }, 400);
-  if (teamMembers.length > 100)
-    return json(
-      { error: "team_members must contain 100 entries or fewer" },
-      400,
-    );
-
-  // 'invited' events record who was invited (the invitee). For every other
-  // event type target_player is optional and ignored.
-  let targetPlayer = null;
-  if (targetPlayerRaw != null) {
-    targetPlayer = String(targetPlayerRaw).trim().slice(0, 128);
-  }
-  if (eventType === "invited" && !targetPlayer) {
-    return json(
-      { error: "target_player is required for 'invited' events" },
-      400,
-    );
-  }
-
-  let eventTime = new Date();
-  if (eventTimeRaw != null) {
-    const parsed = new Date(eventTimeRaw);
-    if (!Number.isFinite(parsed.getTime())) {
-      return json(
-        { error: "event_time must be a valid ISO timestamp or Unix seconds" },
-        400,
-      );
-    }
-    eventTime = parsed;
-  }
-
-  const safeMembers = teamMembers.map((m) => String(m).slice(0, 128));
-
-  const insertRes = await pool.query(
-    `INSERT INTO team_events (server_id, server_name, event_type, team_members, team_leader, target_player, event_time)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, created_at`,
-    [
-      server.server_id,
-      server.server_name,
-      eventType,
-      JSON.stringify(safeMembers),
-      teamLeader,
-      targetPlayer,
-      Math.floor(eventTime.getTime() / 1000),
-    ],
-  );
-  const row = insertRes.rows[0];
-  const createdUnix = Number(row.created_at);
-  const eventTimeUnix = Math.floor(eventTime.getTime() / 1000);
-
-  const cacheKey = `team:server:${server.server_id}`;
-  const cacheEntry = JSON.stringify({
-    id: String(row.id),
-    eventType,
-    teamLeader,
-    teamMembers: safeMembers,
-    targetPlayer,
-    eventTimeUnix,
-    ts: createdUnix,
-  });
-  const sevenDaysAgo = createdUnix - 7 * 24 * 3600;
-  try {
-    await redis.zadd(cacheKey, createdUnix, cacheEntry);
-    await redis.zremrangebyscore(cacheKey, "-inf", sevenDaysAgo);
-    await redis.expire(cacheKey, 7 * 24 * 3600);
-  } catch {
-    // best-effort cache; event already persisted in Postgres
-  }
-
-  return json({ ok: true, id: String(row.id) }, 201);
 }
 
 async function handleGetTeamEvents(request) {
@@ -9802,7 +8048,10 @@ async function handleRevokeBan(request, orgId, banId) {
     actionType: action_type === "mute" ? "MUTE_REVOKED" : "BAN_REVOKED",
     actionCategory: "moderation",
     severity: 3,
-    metadata: { identifier: String(identifier), identifierType: String(identifier_type) },
+    metadata: {
+      identifier: String(identifier),
+      identifierType: String(identifier_type),
+    },
     ipAddress: getClientIp(request),
   });
 
@@ -9821,7 +8070,9 @@ async function handleRevokeBan(request, orgId, banId) {
 
     for (const srv of targetServers.rows) {
       try {
-        const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+        const password = decryptPterodactylApiKey(
+          String(srv.rcon_password_enc),
+        );
         const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
         let command;
         if (identifier_type === "ip") {
@@ -9848,162 +8099,6 @@ async function handleRevokeBan(request, orgId, banId) {
   }
 
   return json({ ok: true, rconResults });
-}
-
-const MUTE_CHECK_RATE_LIMIT_PER_MINUTE = 60;
-
-async function handleMuteCheck(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) {
-    return json(
-      {
-        error:
-          "Missing API key (x-api-key header or Authorization: Bearer <key>)",
-      },
-      401,
-    );
-  }
-
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-
-  const serverRes = await pool.query(
-    "SELECT server_id, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) {
-    return json({ error: "Invalid API key" }, 401);
-  }
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:mute-check:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1, rlKey, '60',
-    );
-    if (attempts > MUTE_CHECK_RATE_LIMIT_PER_MINUTE) {
-      return json({ error: "Rate limit exceeded" }, 429);
-    }
-  } catch {
-    // fail-open on Redis errors
-  }
-
-  const url = new URL(request.url);
-  const steamId = (url.searchParams.get("steam_id") ?? "").trim();
-  if (!steamId) {
-    return json({ error: "steam_id query parameter is required" }, 400);
-  }
-  if (!/^\d{1,20}$/.test(steamId)) {
-    return json({ error: "Invalid steam_id" }, 400);
-  }
-
-  const { rows } = await pool.query(
-    `SELECT reason, expires_at
-     FROM player_bans
-     WHERE org_id = $1
-       AND identifier = $2
-       AND identifier_type = 'steam_id'
-       AND action_type = 'mute'
-       AND revoked = FALSE
-       AND (expires_at IS NULL OR expires_at > unix_now())
-     ORDER BY issued_at DESC
-     LIMIT 1`,
-    [server.owner_org_id, steamId],
-  );
-
-  if (!rows[0]) {
-    return json({ muted: false });
-  }
-
-  const row = rows[0];
-  const expiresUnix = row.expires_at ? Number(row.expires_at) : null;
-
-  return json({
-    muted: true,
-    permanent: expiresUnix === null,
-    reason: String(row.reason),
-    expiresAt: expiresUnix,
-    expiresUnix,
-  });
-}
-
-const MUTE_SYNC_RATE_LIMIT_PER_MINUTE = 120;
-
-async function handleIngestMuteSync(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw)
-    return json({ error: "Missing API key (x-api-key header or Authorization: Bearer <key>)" }, 401);
-
-  const apiKeyHash = crypto.createHash("sha256").update(apiKeyRaw).digest("hex");
-  const serverRes = await pool.query(
-    "SELECT server_id, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:mute-sync:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1,
-      rlKey,
-      "60",
-    );
-    if (attempts > MUTE_SYNC_RATE_LIMIT_PER_MINUTE)
-      return json({ error: "Rate limit exceeded" }, 429);
-  } catch {
-    // fail-open
-  }
-
-  const body = await request.json().catch(() => null);
-  if (!body || !Array.isArray(body.steam_ids))
-    return json({ error: "steam_ids array is required" }, 400);
-
-  const steamIds = body.steam_ids
-    .filter((id) => typeof id === "string" && /^765611\d{11}$/.test(id.trim()))
-    .map((id) => id.trim())
-    .slice(0, 350);
-
-  if (steamIds.length === 0) return json({ active_mutes: {} });
-
-  const { rows } = await pool.query(
-    `SELECT pb.identifier, pb.expires_at
-     FROM player_bans pb
-     WHERE pb.action_type = 'mute'
-       AND pb.revoked = FALSE
-       AND (pb.expires_at IS NULL OR pb.expires_at > unix_now())
-       AND pb.identifier = ANY($1)
-       AND pb.identifier_type = 'steam_id'
-       AND pb.org_id = $2
-       AND (
-         NOT EXISTS (SELECT 1 FROM ban_server_targets bst WHERE bst.ban_id = pb.ban_id)
-         OR EXISTS (SELECT 1 FROM ban_server_targets bst WHERE bst.ban_id = pb.ban_id AND bst.server_id = $3)
-       )`,
-    [steamIds, server.owner_org_id, server.server_id],
-  );
-
-  const active_mutes = {};
-  for (const row of rows) {
-    active_mutes[row.identifier] = row.expires_at ? Number(row.expires_at) : null;
-  }
-
-  return json({ active_mutes });
 }
 
 async function handleGetBlacklistedWords(request, orgId) {
@@ -10036,7 +8131,8 @@ async function handleAddBlacklistedWord(request, orgId) {
 
   const word = (body.word ?? "").trim().toLowerCase();
   if (!word) return json({ error: "word is required" }, 400);
-  if (word.length > 100) return json({ error: "word must be 100 characters or fewer" }, 400);
+  if (word.length > 100)
+    return json({ error: "word must be 100 characters or fewer" }, 400);
 
   const { rows } = await pool.query(
     `INSERT INTO org_blacklisted_words (org_id, word)
@@ -10052,11 +8148,17 @@ async function handleAddBlacklistedWord(request, orgId) {
       [orgId, word],
     );
     const r = existing.rows[0];
-    return json({ word_id: r.word_id, word: r.word, created_at: Number(r.created_at) }, 200);
+    return json(
+      { word_id: r.word_id, word: r.word, created_at: Number(r.created_at) },
+      200,
+    );
   }
 
   const r = rows[0];
-  return json({ word_id: r.word_id, word: r.word, created_at: Number(r.created_at) }, 201);
+  return json(
+    { word_id: r.word_id, word: r.word, created_at: Number(r.created_at) },
+    201,
+  );
 }
 
 async function handleDeleteBlacklistedWord(request, orgId, wordId) {
@@ -10072,33 +8174,6 @@ async function handleDeleteBlacklistedWord(request, orgId, wordId) {
 
   if (result.rowCount === 0) return json({ error: "Word not found" }, 404);
   return json({ ok: true });
-}
-
-async function handleGetBlacklistedWordsForServer(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) return json({ error: "Missing API key" }, 401);
-
-  const apiKeyHash = crypto.createHash("sha256").update(apiKeyRaw).digest("hex");
-  const serverRes = await pool.query(
-    "SELECT server_id, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
-  const server = serverRes.rows[0];
-
-  const { rows } = await pool.query(
-    `SELECT word FROM org_blacklisted_words WHERE org_id = $1 ORDER BY created_at ASC`,
-    [server.owner_org_id],
-  );
-
-  return new Response(rows.map((r) => r.word).join(";"), {
-    status: 200,
-    headers: { "Content-Type": "text/plain" },
-  });
 }
 
 export async function initializeInfra() {
@@ -10140,7 +8215,12 @@ async function ripeAtlasGetCredits(apiKey) {
   };
 }
 
-async function ripeAtlasCreateMeasurement(apiKey, targetIp, country, probesPerCountry) {
+async function ripeAtlasCreateMeasurement(
+  apiKey,
+  targetIp,
+  country,
+  probesPerCountry,
+) {
   const body = {
     definitions: [
       {
@@ -10162,7 +8242,10 @@ async function ripeAtlasCreateMeasurement(apiKey, targetIp, country, probesPerCo
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    console.error("[ripe-atlas] create measurement error body:", JSON.stringify(err));
+    console.error(
+      "[ripe-atlas] create measurement error body:",
+      JSON.stringify(err),
+    );
     const detail = err?.error?.detail ?? err?.detail ?? `HTTP ${res.status}`;
     throw new Error(detail);
   }
@@ -10348,9 +8431,14 @@ async function getAvailableExternalKeys(orgId, service) {
   const keys = [];
   for (const r of rows) {
     try {
-      keys.push({ keyId: String(r.key_id), key: decryptExternalApiKey(String(r.key_encrypted)) });
+      keys.push({
+        keyId: String(r.key_id),
+        key: decryptExternalApiKey(String(r.key_encrypted)),
+      });
     } catch {
-      console.warn(`[ext-api] key ${r.key_id} for org ${orgId}/${service} failed to decrypt, skipping`);
+      console.warn(
+        `[ext-api] key ${r.key_id} for org ${orgId}/${service} failed to decrypt, skipping`,
+      );
     }
   }
   return keys;
@@ -10415,7 +8503,9 @@ async function recordRateLimitStats(keyId, orgId, service, resp) {
 async function externalFetchWithRotation(orgId, service, buildRequest) {
   const keys = await getAvailableExternalKeys(orgId, service);
   if (!keys.length) {
-    console.warn(`[ext-api:${service}] org=${orgId} — no available keys (all disabled or rate-limited)`);
+    console.warn(
+      `[ext-api:${service}] org=${orgId} — no available keys (all disabled or rate-limited)`,
+    );
     return null;
   }
 
@@ -10448,7 +8538,9 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
 
     if (resp.status === 401) {
       let body = "";
-      try { body = await resp.text(); } catch {}
+      try {
+        body = await resp.text();
+      } catch {}
       console.warn(
         `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP 401 — key is invalid or revoked. body="${body.slice(0, 300)}". Disabling for 1h.`,
       );
@@ -10463,7 +8555,9 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
     return resp;
   }
 
-  console.warn(`[ext-api:${service}] org=${orgId} — all ${keys.length} key(s) exhausted, returning null`);
+  console.warn(
+    `[ext-api:${service}] org=${orgId} — all ${keys.length} key(s) exhausted, returning null`,
+  );
   return null;
 }
 
@@ -10483,7 +8577,9 @@ async function steamApiFetch(orgId, path, params = {}) {
     u.searchParams.set("key", key);
     for (const [k, v] of Object.entries(params))
       u.searchParams.set(k, String(v));
-    console.log(`[steam] org=${orgId} path=${path} key_len=${key.length} key_prefix=${key.slice(0, 4)}`);
+    console.log(
+      `[steam] org=${orgId} path=${path} key_len=${key.length} key_prefix=${key.slice(0, 4)}`,
+    );
     return { url: u.toString(), options: {} };
   });
 }
@@ -10685,7 +8781,9 @@ async function fetchBMPlayerData(bmId, orgId) {
       bmServerId: String(entry.id),
       serverName: entry.attributes?.name ?? null,
       hoursPlayed: Math.round(hours * 10) / 10,
-      lastSeen: entry.meta?.lastSeen ? Math.floor(new Date(entry.meta.lastSeen).getTime() / 1000) : null,
+      lastSeen: entry.meta?.lastSeen
+        ? Math.floor(new Date(entry.meta.lastSeen).getTime() / 1000)
+        : null,
     });
   }
 
@@ -10709,7 +8807,9 @@ async function fetchBMPlayerData(bmId, orgId) {
     bmAimtrainHours: Math.round(bmAimtrainHours * 10) / 10,
     bmServerCount: serverCount,
     bmRustBansCount: rustBans?.count ?? 0,
-    bmRustBansLastBan: rustBans?.lastBan ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000) : null,
+    bmRustBansLastBan: rustBans?.lastBan
+      ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000)
+      : null,
     bmRustBansBanned: rustBans?.banned ?? false,
     nameAliases,
     sessions,
@@ -10932,7 +9032,11 @@ async function fetchSteamGroups(steamId, orgId) {
 // Returns recent BM session windows [{bmServerId, startedAt, stoppedAt}] for a
 // player, used to compute temporal co-presence with the subject. Capped to avoid
 // pulling a player's entire history.
-async function fetchBMSessions(bmId, orgId, { maxPages = 5, sinceUnix = null } = {}) {
+async function fetchBMSessions(
+  bmId,
+  orgId,
+  { maxPages = 5, sinceUnix = null } = {},
+) {
   let url =
     `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}` +
     `/relationships/sessions?page[size]=100`;
@@ -11040,7 +9144,9 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
   return settled
     .filter((r) => {
       if (r.status === "rejected") {
-        console.warn(`[player] related account fetch error: ${r.reason?.message}`);
+        console.warn(
+          `[player] related account fetch error: ${r.reason?.message}`,
+        );
         return false;
       }
       return r.value !== null;
@@ -11098,7 +9204,13 @@ function computeCoPresence(subjectWindows, altWindows) {
     subjByServer.has(s),
   );
   if (!sharedServers.length)
-    return { verdict: "inconclusive", sharedServers: 0, altSessions: 0, overlapping: 0, ratio: 0 };
+    return {
+      verdict: "inconclusive",
+      sharedServers: 0,
+      altSessions: 0,
+      overlapping: 0,
+      ratio: 0,
+    };
 
   let altSessions = 0;
   let overlapping = 0;
@@ -11108,7 +9220,11 @@ function computeCoPresence(subjectWindows, altWindows) {
       altSessions++;
       const aStart = a.startedAt;
       const aStop = a.stoppedAt ?? a.startedAt;
-      if (sw.some((s) => s.startedAt <= aStop && aStart <= (s.stoppedAt ?? s.startedAt)))
+      if (
+        sw.some(
+          (s) => s.startedAt <= aStop && aStart <= (s.stoppedAt ?? s.startedAt),
+        )
+      )
         overlapping++;
     }
   }
@@ -11215,9 +9331,18 @@ function computeAltEvidence(subject, alt, ipMetaByIp) {
 // five connection classes the UI groups IPs by. Returns null when unknown.
 function classifyConnType(meta) {
   const t = (meta.type ?? "").toLowerCase();
-  if (meta.proxy === "yes" || t.includes("vpn") || t.includes("proxy") || t === "tor")
+  if (
+    meta.proxy === "yes" ||
+    t.includes("vpn") ||
+    t.includes("proxy") ||
+    t === "tor"
+  )
     return "proxy_vpn";
-  if (t.includes("hosting") || t.includes("data center") || t.includes("server"))
+  if (
+    t.includes("hosting") ||
+    t.includes("data center") ||
+    t.includes("server")
+  )
     return "hosting";
   if (t.includes("business")) return "business";
   if (t.includes("wireless") || t.includes("mobile") || t.includes("cellular"))
@@ -11490,11 +9615,7 @@ async function writeIpsToHistory(steamId, ips) {
      ON CONFLICT (steam_id, ip_address) DO UPDATE SET
        last_seen = unix_now(),
        is_vpn    = COALESCE(EXCLUDED.is_vpn, player_ip_history.is_vpn)`,
-    [
-      ips.map(() => steamId),
-      ips.map((x) => x.ip),
-      ips.map((x) => x.isProxy),
-    ],
+    [ips.map(() => steamId), ips.map((x) => x.ip), ips.map((x) => x.isProxy)],
   );
 }
 
@@ -11609,7 +9730,15 @@ async function writeProxycheckToCache(ipResults) {
          country   = $6, asn = $7,
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 2592000`,
-      [ip, meta.isProxy, meta.isVpn, meta.connType, meta.isp, meta.country, meta.asn],
+      [
+        ip,
+        meta.isProxy,
+        meta.isVpn,
+        meta.connType,
+        meta.isp,
+        meta.country,
+        meta.asn,
+      ],
     );
     await pool.query(
       `UPDATE player_ip_history SET is_vpn = $2 WHERE ip_address = $1`,
@@ -11717,7 +9846,9 @@ async function refreshPlayerData(steamId, orgId) {
             ? runProxycheckForIps(ipsOnly, orgId)
             : Promise.resolve({}),
           fetchSteamGroups(steamId, orgId),
-          bmId ? fetchBMSessions(bmId, orgId, { sinceUnix }) : Promise.resolve([]),
+          bmId
+            ? fetchBMSessions(bmId, orgId, { sinceUnix })
+            : Promise.resolve([]),
         ]);
 
       // Fallback classification: when proxycheck is unavailable (no key) or
@@ -11774,7 +9905,9 @@ async function refreshPlayerData(steamId, orgId) {
       );
     }
     await writePlayerDataToRedis(steamId);
-    console.log(`[player:refresh] ${steamId} — background tasks done, Redis updated`);
+    console.log(
+      `[player:refresh] ${steamId} — background tasks done, Redis updated`,
+    );
   } catch (err) {
     console.error(
       `[player:refresh] ${steamId} — refresh failed: ${err.message}`,
@@ -11907,7 +10040,8 @@ async function getPlayerCacheData(steamId) {
       profileCreatedAt: p.steam_profile_created_at ?? null,
       rustHours: p.steam_rust_hours != null ? Number(p.steam_rust_hours) : null,
       dataPublic: Boolean(p.steam_data_public),
-      vacBanned: p.steam_vac_banned != null ? Boolean(p.steam_vac_banned) : null,
+      vacBanned:
+        p.steam_vac_banned != null ? Boolean(p.steam_vac_banned) : null,
       vacCount: p.steam_vac_count != null ? Number(p.steam_vac_count) : null,
       gameBanCount:
         p.steam_game_ban_count != null ? Number(p.steam_game_ban_count) : null,
@@ -12018,7 +10152,10 @@ async function handleListExternalKeys(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   const { rows } = await pool.query(
     `SELECT key_id, org_id, service, label, priority, enabled,
@@ -12047,7 +10184,10 @@ async function handleAddExternalKey(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   if (!getPterodactylEncryptionKey())
     return json(
@@ -12116,7 +10256,10 @@ async function handleUpdateExternalKey(request, orgId, keyId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   let body;
   try {
@@ -12161,7 +10304,10 @@ async function handleDeleteExternalKey(request, orgId, keyId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   const { rowCount } = await pool.query(
     `DELETE FROM org_external_api_keys WHERE key_id = $1 AND org_id = $2`,
@@ -12176,7 +10322,10 @@ async function handleGetExternalKeyStats(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   const sinceHour = Math.floor(Date.now() / 1000 / 3600) * 3600 - 47 * 3600;
 
@@ -12203,7 +10352,10 @@ async function handleGetExternalKeyStats(request, orgId) {
     stats[r.key_id].push({
       bucket: Number(r.bucket_hour),
       rateMax: r.rate_limit_max != null ? Number(r.rate_limit_max) : null,
-      minRemaining: r.rate_limit_min_remaining != null ? Number(r.rate_limit_min_remaining) : null,
+      minRemaining:
+        r.rate_limit_min_remaining != null
+          ? Number(r.rate_limit_min_remaining)
+          : null,
       sampleCount: Number(r.sample_count),
     });
   }
@@ -12238,7 +10390,10 @@ async function handleGetRipeAtlasConfig(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   const { rows } = await pool.query(
     `SELECT api_key_enc, countries, probes_per_country, check_interval_minutes, created_at, updated_at
@@ -12276,10 +10431,19 @@ async function handlePutRipeAtlasConfig(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
   if (!getPterodactylEncryptionKey())
-    return json({ error: "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)" }, 503);
+    return json(
+      {
+        error:
+          "Encryption not configured (PTERODACTYL_ENCRYPTION_KEY or JWT_SECRET required)",
+      },
+      503,
+    );
 
   let body;
   try {
@@ -12296,9 +10460,14 @@ async function handlePutRipeAtlasConfig(request, orgId) {
   if (!countries.length)
     return json({ error: "At least one country code is required" }, 400);
 
-  const probesPerCountry = Math.min(Math.max(Number(body?.probesPerCountry ?? 3), 1), 10);
+  const probesPerCountry = Math.min(
+    Math.max(Number(body?.probesPerCountry ?? 3), 1),
+    10,
+  );
   const ALLOWED_INTERVALS = [5, 10, 25];
-  const checkIntervalMinutes = ALLOWED_INTERVALS.includes(Number(body?.checkIntervalMinutes))
+  const checkIntervalMinutes = ALLOWED_INTERVALS.includes(
+    Number(body?.checkIntervalMinutes),
+  )
     ? Number(body.checkIntervalMinutes)
     : 5;
 
@@ -12325,11 +10494,21 @@ async function handlePutRipeAtlasConfig(request, orgId) {
     );
   } else {
     const rawKey = String(body?.apiKey ?? "").trim();
-    if (!rawKey) return json({ error: "API key is required when enabling monitoring" }, 400);
+    if (!rawKey)
+      return json(
+        { error: "API key is required when enabling monitoring" },
+        400,
+      );
     await pool.query(
       `INSERT INTO org_ripe_atlas_config (org_id, api_key_enc, countries, probes_per_country, check_interval_minutes)
        VALUES ($1, $2, $3, $4, $5)`,
-      [orgId, encryptExternalApiKey(rawKey), countries, probesPerCountry, checkIntervalMinutes],
+      [
+        orgId,
+        encryptExternalApiKey(rawKey),
+        countries,
+        probesPerCountry,
+        checkIntervalMinutes,
+      ],
     );
   }
 
@@ -12366,11 +10545,21 @@ async function handleDeleteRipeAtlasConfig(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "servers_manage"))
-    return json({ error: "Forbidden: servers_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
 
-  await pool.query(`DELETE FROM org_ripe_atlas_config WHERE org_id = $1`, [orgId]);
-  await pool.query(`DELETE FROM org_ripe_atlas_measurements WHERE org_id = $1`, [orgId]);
-  await pool.query(`DELETE FROM org_ripe_atlas_results WHERE org_id = $1`, [orgId]);
+  await pool.query(`DELETE FROM org_ripe_atlas_config WHERE org_id = $1`, [
+    orgId,
+  ]);
+  await pool.query(
+    `DELETE FROM org_ripe_atlas_measurements WHERE org_id = $1`,
+    [orgId],
+  );
+  await pool.query(`DELETE FROM org_ripe_atlas_results WHERE org_id = $1`, [
+    orgId,
+  ]);
 
   return json({ ok: true });
 }
@@ -12440,8 +10629,7 @@ async function handleGetRipeAtlasResults(request, orgId) {
 async function handleTriggerRipeAtlasMeasurements(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const { rows: cfgRows } = await pool.query(
     `SELECT api_key_enc, countries, probes_per_country FROM org_ripe_atlas_config WHERE org_id = $1`,
@@ -12460,16 +10648,24 @@ async function handleTriggerRipeAtlasMeasurements(request, orgId) {
     `SELECT server_id, server_name, rcon_host FROM servers WHERE owner_org_id = $1 AND rcon_host IS NOT NULL`,
     [orgId],
   );
-  if (!servers.length) return json({ error: "No servers with RCON configured" }, 400);
+  if (!servers.length)
+    return json({ error: "No servers with RCON configured" }, 400);
 
-  const countries = Array.isArray(cfgRows[0].countries) ? cfgRows[0].countries : [];
+  const countries = Array.isArray(cfgRows[0].countries)
+    ? cfgRows[0].countries
+    : [];
   const probesPerCountry = Number(cfgRows[0].probes_per_country) || 3;
   let triggered = 0;
 
   for (const server of servers) {
     for (const country of countries) {
       try {
-        const msmId = await ripeAtlasCreateMeasurement(apiKey, server.rcon_host, country, probesPerCountry);
+        const msmId = await ripeAtlasCreateMeasurement(
+          apiKey,
+          server.rcon_host,
+          country,
+          probesPerCountry,
+        );
         await pool.query(
           `INSERT INTO org_ripe_atlas_measurements (org_id, server_id, atlas_msm_id, target_ip, country) VALUES ($1, $2, $3, $4, $5)`,
           [orgId, server.server_id, msmId, server.rcon_host, country],
@@ -12491,35 +10687,16 @@ async function handleTriggerRipeAtlasMeasurements(request, orgId) {
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
 
 async function handleIngestPlayerConnect(request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKeyRaw = (
-    bearerMatch ? bearerMatch[1] : (request.headers.get("x-api-key") ?? "")
-  ).trim();
-  if (!apiKeyRaw) return json({ error: "Missing API key" }, 401);
+  const { server, error } = await authenticateServerKey(request);
+  if (error) return error;
 
-  const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(apiKeyRaw)
-    .digest("hex");
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE api_key_hash = $1 LIMIT 1",
-    [apiKeyHash],
+  const rl = await checkRateLimit(
+    `rl:connect:${server.server_id}`,
+    CONNECT_INGEST_RATE_LIMIT_PER_MINUTE,
+    60,
+    "Rate limit exceeded",
   );
-  if (!serverRes.rows[0]) return json({ error: "Invalid API key" }, 401);
-  const server = serverRes.rows[0];
-
-  const rlKey = `rl:connect:${server.server_id}`;
-  try {
-    const attempts = await redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-       return n`,
-      1, rlKey, '60',
-    );
-    if (attempts > CONNECT_INGEST_RATE_LIMIT_PER_MINUTE)
-      return json({ error: "Rate limit exceeded" }, 429);
-  } catch {}
+  if (rl) return rl;
 
   let body;
   try {
@@ -12600,10 +10777,6 @@ async function handleIngestPlayerConnect(request) {
 }
 
 // ── Player lookup route handlers ──────────────────────────────────────────────
-
-function isValidSteamId(steamId) {
-  return /^765611\d{11}$/.test(String(steamId));
-}
 
 // Per-user caps for the player endpoints. Generous enough for normal staff
 // browsing (50 concurrent users), tight enough to blunt scripted abuse.
@@ -12764,26 +10937,136 @@ async function handleGetSysMetrics(request) {
   const routeStats = new Map();
   for (const e of diagIncoming) {
     const key = `${e.method} ${e.route}`;
-    const s = routeStats.get(key) ?? { method: e.method, route: e.route, count: 0, totalMs: 0, errors: 0, latencies: [] };
+    const s = routeStats.get(key) ?? {
+      method: e.method,
+      route: e.route,
+      count: 0,
+      totalMs: 0,
+      errors: 0,
+      latencies: [],
+    };
     s.count++;
     s.totalMs += e.ms;
     s.latencies.push(e.ms);
     if (e.status < 200 || e.status >= 300) s.errors++;
     routeStats.set(key, s);
   }
-  const routes = [...routeStats.values()].map((s) => {
-    const sorted = [...s.latencies].sort((a, b) => a - b);
-    const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
-    const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
-    const avg = s.count ? Math.round(s.totalMs / s.count) : 0;
-    return { method: s.method, route: s.route, count: s.count, avg, p50, p95, errors: s.errors };
-  }).sort((a, b) => b.count - a.count);
+  const routes = [...routeStats.values()]
+    .map((s) => {
+      const sorted = [...s.latencies].sort((a, b) => a - b);
+      const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
+      const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+      const avg = s.count ? Math.round(s.totalMs / s.count) : 0;
+      return {
+        method: s.method,
+        route: s.route,
+        count: s.count,
+        avg,
+        p50,
+        p95,
+        errors: s.errors,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
 
   return json({
     incoming: [...diagIncoming].reverse().slice(0, 500),
     outgoing: [...diagOutgoing].reverse().slice(0, 500),
     errors: [...diagErrors].reverse().slice(0, 500),
     routes,
+  });
+}
+
+// ── Database usage / storage summary (sysadmin) ──────────────────────────────
+
+async function handleGetDbUsage(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  // Per-table sizes + row estimates from the system catalogs. Row counts use
+  // the planner's live-tuple estimate (n_live_tup, falling back to reltuples)
+  // rather than COUNT(*) so the query stays cheap on large tables.
+  const tablesRes = await pool.query(`
+    SELECT
+      c.relname AS name,
+      GREATEST(
+        COALESCE(s.n_live_tup, 0),
+        CASE WHEN c.reltuples < 0 THEN 0 ELSE c.reltuples::bigint END
+      ) AS row_estimate,
+      COALESCE(s.n_dead_tup, 0) AS dead_tuples,
+      pg_total_relation_size(c.oid) AS total_bytes,
+      pg_table_size(c.oid) AS table_bytes,
+      pg_indexes_size(c.oid) AS index_bytes,
+      EXTRACT(EPOCH FROM GREATEST(s.last_vacuum, s.last_autovacuum))::bigint AS last_vacuum_unix,
+      EXTRACT(EPOCH FROM GREATEST(s.last_analyze, s.last_autoanalyze))::bigint AS last_analyze_unix
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+    WHERE c.relkind = 'r' AND n.nspname = 'public'
+    ORDER BY pg_total_relation_size(c.oid) DESC
+  `);
+
+  const tables = tablesRes.rows.map((r) => ({
+    name: String(r.name),
+    rowEstimate: Number(r.row_estimate) || 0,
+    deadTuples: Number(r.dead_tuples) || 0,
+    totalBytes: Number(r.total_bytes) || 0,
+    tableBytes: Number(r.table_bytes) || 0,
+    indexBytes: Number(r.index_bytes) || 0,
+    lastVacuumUnix:
+      r.last_vacuum_unix == null ? null : Number(r.last_vacuum_unix),
+    lastAnalyzeUnix:
+      r.last_analyze_unix == null ? null : Number(r.last_analyze_unix),
+  }));
+
+  let dbName = null;
+  let dbBytes = 0;
+  try {
+    const dbRes = await pool.query(
+      `SELECT current_database() AS name, pg_database_size(current_database()) AS bytes`,
+    );
+    dbName = dbRes.rows[0]?.name ?? null;
+    dbBytes = Number(dbRes.rows[0]?.bytes) || 0;
+  } catch {
+    // best-effort; per-table data is the important part
+  }
+
+  const poolStats = {
+    max: pool?.options?.max ?? null,
+    total: pool?.totalCount ?? null,
+    idle: pool?.idleCount ?? null,
+    waiting: pool?.waitingCount ?? null,
+  };
+
+  let redisStats = { available: false };
+  try {
+    const memInfo = await redis.info("memory");
+    const keyspaceInfo = await redis.info("keyspace");
+    const usedMemory = Number(/used_memory:(\d+)/.exec(memInfo)?.[1] ?? 0);
+    const usedMemoryHuman =
+      /used_memory_human:([^\r\n]+)/.exec(memInfo)?.[1]?.trim() ?? null;
+    const maxMemory = Number(/maxmemory:(\d+)/.exec(memInfo)?.[1] ?? 0);
+    let keys = 0;
+    for (const m of keyspaceInfo.matchAll(/keys=(\d+)/g)) keys += Number(m[1]);
+    redisStats = {
+      available: true,
+      usedMemory,
+      usedMemoryHuman,
+      maxMemory,
+      keys,
+    };
+  } catch {
+    redisStats = { available: false };
+  }
+
+  return json({
+    database: { name: dbName, totalBytes: dbBytes, tableCount: tables.length },
+    tables,
+    pool: poolStats,
+    redis: redisStats,
+    generatedAt: Math.floor(Date.now() / 1000),
   });
 }
 
@@ -13058,7 +11341,9 @@ async function handleSearchOrgPlayers(request, orgId) {
         `local n = redis.call('INCR', KEYS[1])
          if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
          return n`,
-        1, `rl:player-search:${session.userId}`, "60",
+        1,
+        `rl:player-search:${session.userId}`,
+        "60",
       );
       if (count > 60) return json({ error: "Too many requests" }, 429);
     } catch {}
@@ -13275,7 +11560,9 @@ async function handleGetOrgPlayerList(request, orgId) {
       Number(cache.bm_teaming_reports ?? 0) +
       Number(cache.bm_other_reports ?? 0);
     const accountAgeDays = cache.steam_profile_created_at
-      ? Math.floor((Date.now() / 1000 - Number(cache.steam_profile_created_at)) / 86400)
+      ? Math.floor(
+          (Date.now() / 1000 - Number(cache.steam_profile_created_at)) / 86400,
+        )
       : 0;
 
     // Weighted signal approach mirroring Trigger page specs
@@ -13314,7 +11601,12 @@ async function handleGetOrgPlayerList(request, orgId) {
 
   try {
     const hasRconErrors = servers.some((s) => s.rconError);
-    await redis.set(cacheKey, JSON.stringify(result), "EX", hasRconErrors ? 5 : 30);
+    await redis.set(
+      cacheKey,
+      JSON.stringify(result),
+      "EX",
+      hasRconErrors ? 5 : 30,
+    );
   } catch {}
 
   return json(result);
@@ -13370,7 +11662,10 @@ async function _handleApiRequest(request) {
       return handleUpdateAuthMe(request);
     }
 
-    if (pathname === "/api/internal/discord/message" && request.method === "POST") {
+    if (
+      pathname === "/api/internal/discord/message" &&
+      request.method === "POST"
+    ) {
       return handleIngestDiscordMessage(request);
     }
 
@@ -14030,7 +12325,10 @@ async function _handleApiRequest(request) {
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ripe-atlas\/trigger$/,
     );
     if (orgRipeAtlasTriggerMatch && request.method === "POST")
-      return handleTriggerRipeAtlasMeasurements(request, orgRipeAtlasTriggerMatch[1]);
+      return handleTriggerRipeAtlasMeasurements(
+        request,
+        orgRipeAtlasTriggerMatch[1],
+      );
 
     // Blacklisted words (management UI)
     const orgBlacklistedWordsMatch = pathname.match(
@@ -14090,6 +12388,10 @@ async function _handleApiRequest(request) {
     // Sysadmin: diagnostic metrics
     if (pathname === "/api/sys/metrics" && request.method === "GET")
       return handleGetSysMetrics(request);
+
+    // Sysadmin: database storage / usage summary
+    if (pathname === "/api/sys/db-usage" && request.method === "GET")
+      return handleGetDbUsage(request);
 
     // Player reports
     const playerReportsMatch = pathname.match(
@@ -14177,7 +12479,9 @@ async function getGuildRoles(guildId) {
     if (!res.ok) return [];
     const roles = await res.json();
     const result = Array.isArray(roles) ? roles : [];
-    try { await redis?.set(cacheKey, JSON.stringify(result), "EX", 300); } catch {}
+    try {
+      await redis?.set(cacheKey, JSON.stringify(result), "EX", 300);
+    } catch {}
     return result;
   } catch {
     return [];
@@ -14305,7 +12609,9 @@ async function getGuildTextChannels(guildId) {
         permission_overwrites: c.permission_overwrites ?? [],
       }))
       .sort((a, b) => a.position - b.position);
-    try { await redis?.set(cacheKey, JSON.stringify(result), "EX", 300); } catch {}
+    try {
+      await redis?.set(cacheKey, JSON.stringify(result), "EX", 300);
+    } catch {}
     return result;
   } catch {
     return [];
@@ -14359,7 +12665,10 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
   if (toInsert.length > 0) {
     const cols = 10;
     const valuePlaceholders = toInsert
-      .map((_, i) => `(${Array.from({ length: cols }, (__, c) => `$${i * cols + c + 1}`).join(",")})`)
+      .map(
+        (_, i) =>
+          `(${Array.from({ length: cols }, (__, c) => `$${i * cols + c + 1}`).join(",")})`,
+      )
       .join(",");
     const flatParams = toInsert.flatMap((msg) => [
       msg.id,
@@ -14437,7 +12746,12 @@ async function handleDiscordSync(request, orgId) {
   let totalSynced = 0;
   const results = [];
   for (const ch of channels) {
-    const count = await syncChannelMessages(orgId, org.guild_id, ch.id, ch.name);
+    const count = await syncChannelMessages(
+      orgId,
+      org.guild_id,
+      ch.id,
+      ch.name,
+    );
     totalSynced += count;
     results.push({ channelId: ch.id, channelName: ch.name, synced: count });
   }
@@ -14501,7 +12815,9 @@ async function handleGetDiscordChannels(request, orgId) {
     `SELECT channel_id, channel_name, synced_at FROM discord_channel_sync WHERE org_id = $1`,
     [orgId],
   );
-  const syncMap = Object.fromEntries(syncRes.rows.map((r) => [r.channel_id, r]));
+  const syncMap = Object.fromEntries(
+    syncRes.rows.map((r) => [r.channel_id, r]),
+  );
 
   return json({
     channels: channels.map((c) => ({
@@ -14514,10 +12830,7 @@ async function handleGetDiscordChannels(request, orgId) {
 
 async function handleIngestDiscordMessage(request) {
   const authHeader = request.headers.get("authorization") ?? "";
-  if (
-    !env.discordBotToken ||
-    authHeader !== `Bot ${env.discordBotToken}`
-  ) {
+  if (!env.discordBotToken || authHeader !== `Bot ${env.discordBotToken}`) {
     return json({ error: "Unauthorized" }, 401);
   }
 
@@ -14528,7 +12841,17 @@ async function handleIngestDiscordMessage(request) {
     return json({ error: "Invalid JSON" }, 400);
   }
 
-  const { messageId, guildId, channelId, channelName, authorId, authorUsername, content, attachments, timestamp } = body ?? {};
+  const {
+    messageId,
+    guildId,
+    channelId,
+    channelName,
+    authorId,
+    authorUsername,
+    content,
+    attachments,
+    timestamp,
+  } = body ?? {};
   if (!messageId || !guildId || !channelId || !authorId) {
     return json({ error: "Missing required fields" }, 400);
   }
@@ -14581,7 +12904,10 @@ async function handleGetDiscordMessages(request, orgId) {
   const authorId = url.searchParams.get("author_id") ?? null;
   const before = url.searchParams.get("before") ?? null;
   const after = url.searchParams.get("after") ?? null;
-  const limit = Math.min(100, parseInt(url.searchParams.get("limit") ?? "50", 10));
+  const limit = Math.min(
+    100,
+    parseInt(url.searchParams.get("limit") ?? "50", 10),
+  );
 
   const conditions = ["org_id = $1"];
   const params = [orgId];
@@ -14646,15 +12972,30 @@ async function handleDiscordModAction(request, orgId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const action = String(body?.action ?? "").trim().toLowerCase();
+  const action = String(body?.action ?? "")
+    .trim()
+    .toLowerCase();
   const targetDiscordId = String(body?.targetDiscordId ?? "").trim();
   const targetUsername = String(body?.targetUsername ?? "").trim();
   const reason = body?.reason ? String(body.reason).trim() : null;
-  const durationSeconds = body?.durationSeconds ? parseInt(body.durationSeconds, 10) : null;
+  const durationSeconds = body?.durationSeconds
+    ? parseInt(body.durationSeconds, 10)
+    : null;
 
-  const VALID_ACTIONS = ["timeout", "untimeout", "mute", "unmute", "kick", "ban", "unban"];
+  const VALID_ACTIONS = [
+    "timeout",
+    "untimeout",
+    "mute",
+    "unmute",
+    "kick",
+    "ban",
+    "unban",
+  ];
   if (!VALID_ACTIONS.includes(action)) {
-    return json({ error: `action must be one of: ${VALID_ACTIONS.join(", ")}` }, 400);
+    return json(
+      { error: `action must be one of: ${VALID_ACTIONS.join(", ")}` },
+      400,
+    );
   }
   if (!targetDiscordId) {
     return json({ error: "targetDiscordId is required" }, 400);
@@ -14678,64 +13019,84 @@ async function handleDiscordModAction(request, orgId) {
   switch (action) {
     case "timeout": {
       const until = new Date(Date.now() + durationSeconds * 1000).toISOString();
-      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ communication_disabled_until: until }),
-      });
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/members/${targetDiscordId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ communication_disabled_until: until }),
+        },
+      );
       break;
     }
     case "untimeout": {
-      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ communication_disabled_until: null }),
-      });
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/members/${targetDiscordId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ communication_disabled_until: null }),
+        },
+      );
       break;
     }
     case "mute": {
-      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ mute: true }),
-      });
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/members/${targetDiscordId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ mute: true }),
+        },
+      );
       break;
     }
     case "unmute": {
-      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ mute: false }),
-      });
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/members/${targetDiscordId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ mute: false }),
+        },
+      );
       break;
     }
     case "kick": {
-      discordRes = await discordFetch(`/guilds/${guildId}/members/${targetDiscordId}`, {
-        method: "DELETE",
-      });
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/members/${targetDiscordId}`,
+        {
+          method: "DELETE",
+        },
+      );
       break;
     }
     case "ban": {
-      discordRes = await discordFetch(`/guilds/${guildId}/bans/${targetDiscordId}`, {
-        method: "PUT",
-        body: JSON.stringify({ delete_message_seconds: 0 }),
-      });
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/bans/${targetDiscordId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ delete_message_seconds: 0 }),
+        },
+      );
       if (discordRes.ok || discordRes.status === 204) {
         // Delete messages from Discord (visible to others) but keep them in our DB
-        deleteUserDiscordMessagesFromGuild(guildId, orgId, targetDiscordId).catch(
-          () => {},
-        );
+        deleteUserDiscordMessagesFromGuild(
+          guildId,
+          orgId,
+          targetDiscordId,
+        ).catch(() => {});
       }
       break;
     }
     case "unban": {
-  discordRes = await discordFetch(
-    `/guilds/${guildId}/bans/${targetDiscordId}`,
-    {
-      method: "DELETE",
+      discordRes = await discordFetch(
+        `/guilds/${guildId}/bans/${targetDiscordId}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      console.log("[discord] unban HTTP status:", discordRes.status);
+
+      break;
     }
-  );
-
-  console.log("[discord] unban HTTP status:", discordRes.status);
-
-  break;
-}
   }
 
   if (discordRes && !discordRes.ok && discordRes.status !== 204) {
@@ -14746,9 +13107,15 @@ async function handleDiscordModAction(request, orgId) {
       let discordError = null;
       try {
         discordError = await discordRes.json();
-      } catch { /* empty */ }
+      } catch {
+        /* empty */
+      }
       return json(
-        { error: "Discord API error", details: discordError, status: discordRes.status },
+        {
+          error: "Discord API error",
+          details: discordError,
+          status: discordRes.status,
+        },
         502,
       );
     }
@@ -14791,7 +13158,11 @@ async function handleDiscordModAction(request, orgId) {
   return json({ ok: true, action, targetDiscordId });
 }
 
-async function deleteUserDiscordMessagesFromGuild(guildId, orgId, discordUserId) {
+async function deleteUserDiscordMessagesFromGuild(
+  guildId,
+  orgId,
+  discordUserId,
+) {
   if (!env.discordBotToken || !guildId || !discordUserId) return;
 
   const { rows } = await pool.query(
@@ -14868,14 +13239,16 @@ async function handleGetDiscordBans(request, orgId) {
   if (error) return error;
   if (!orgHasPermission(session, orgId, "discord_mod"))
     return json({ error: "Forbidden: discord_mod permission required" }, 403);
-  if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
+  if (!env.discordBotToken)
+    return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
   const orgRes = await pool.query(
     `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
     [orgId],
   );
   const org = orgRes.rows[0];
-  if (!org?.guild_id) return json({ error: "Organization has no guild_id configured" }, 400);
+  if (!org?.guild_id)
+    return json({ error: "Organization has no guild_id configured" }, 400);
 
   const allBans = await fetchAllDiscordBans(org.guild_id);
 
@@ -14908,14 +13281,16 @@ async function handleSyncDiscordBans(request, orgId) {
   if (error) return error;
   if (!orgHasPermission(session, orgId, "discord_mod"))
     return json({ error: "Forbidden: discord_mod permission required" }, 403);
-  if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
+  if (!env.discordBotToken)
+    return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
   const orgRes = await pool.query(
     `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
     [orgId],
   );
   const org = orgRes.rows[0];
-  if (!org?.guild_id) return json({ error: "Organization has no guild_id configured" }, 400);
+  if (!org?.guild_id)
+    return json({ error: "Organization has no guild_id configured" }, 400);
 
   const allBans = await fetchAllDiscordBans(org.guild_id);
 
@@ -14928,7 +13303,9 @@ async function handleSyncDiscordBans(request, orgId) {
      ORDER BY target_discord_id, created_at DESC`,
     [orgId],
   );
-  const latestAction = new Map(latest.map((r) => [r.target_discord_id, r.action_type]));
+  const latestAction = new Map(
+    latest.map((r) => [r.target_discord_id, r.action_type]),
+  );
 
   let synced = 0;
   for (const ban of allBans) {
@@ -14959,14 +13336,16 @@ async function handleSearchDiscordMembers(request, orgId) {
   if (error) return error;
   if (!orgHasPermission(session, orgId, "discord_mod"))
     return json({ error: "Forbidden: discord_mod permission required" }, 403);
-  if (!env.discordBotToken) return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
+  if (!env.discordBotToken)
+    return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
   const orgRes = await pool.query(
     `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
     [orgId],
   );
   const org = orgRes.rows[0];
-  if (!org?.guild_id) return json({ error: "Organization has no guild_id configured" }, 400);
+  if (!org?.guild_id)
+    return json({ error: "Organization has no guild_id configured" }, 400);
 
   const url = new URL(request.url);
   const query = (url.searchParams.get("query") ?? "").trim();
@@ -15001,8 +13380,14 @@ async function handleGetDiscordModLog(request, orgId) {
   }
 
   const url = new URL(request.url);
-  const limit = Math.min(100, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || 50));
-  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset"))) || 0);
+  const limit = Math.min(
+    100,
+    Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || 50),
+  );
+  const offset = Math.max(
+    0,
+    Math.trunc(Number(url.searchParams.get("offset"))) || 0,
+  );
   const targetId = url.searchParams.get("target_discord_id") ?? null;
 
   const conditions = ["ml.org_id = $1"];
