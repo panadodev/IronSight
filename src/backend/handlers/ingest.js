@@ -6,6 +6,7 @@ import { json } from "../http.js";
 import { authenticateServerKey, checkRateLimit } from "../core.js";
 
 const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
+const SERVER_LOG_RATE_LIMIT_PER_MINUTE = 120;
 const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
 const PVP_INGEST_RATE_LIMIT_PER_MINUTE = 120;
 const REPORTS_INGEST_RATE_LIMIT_PER_MINUTE = 60;
@@ -533,4 +534,107 @@ export async function handleGetBlacklistedWordsForServer(request) {
     status: 200,
     headers: { "Content-Type": "text/plain" },
   });
+}
+
+const VALID_SERVER_LOG_EVENT_TYPES = new Set([
+  "ADMIN_COMMAND",
+  "KICK",
+  "BAN",
+  "UNBAN",
+  "MUTE",
+  "UNMUTE",
+  "RCON_COMMAND",
+  "NOCLIP_TOGGLE",
+  "GODMODE_TOGGLE",
+]);
+
+export async function handleIngestServerLog(request) {
+  const { server, error } = await authenticateServerKey(request);
+  if (error) return error;
+
+  const rl = await checkRateLimit(
+    `rl:serverlog:${server.server_id}`,
+    SERVER_LOG_RATE_LIMIT_PER_MINUTE,
+    60,
+    "Rate limit exceeded",
+  );
+  if (rl) return rl;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const eventType = String(body?.event_type ?? "")
+    .trim()
+    .toUpperCase();
+  if (!VALID_SERVER_LOG_EVENT_TYPES.has(eventType)) {
+    return json(
+      {
+        error: `event_type must be one of: ${[...VALID_SERVER_LOG_EVENT_TYPES].join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  const adminSteamId =
+    body?.admin_steam_id != null
+      ? String(body.admin_steam_id).trim().slice(0, 64) || null
+      : null;
+  const adminName =
+    body?.admin_name != null
+      ? String(body.admin_name).trim().slice(0, 128) || null
+      : null;
+  const targetSteamId =
+    body?.target_steam_id != null
+      ? String(body.target_steam_id).trim().slice(0, 64) || null
+      : null;
+  const targetName =
+    body?.target_name != null
+      ? String(body.target_name).trim().slice(0, 128) || null
+      : null;
+  const command =
+    body?.command != null
+      ? String(body.command).trim().slice(0, 1000) || null
+      : null;
+
+  let details = {};
+  if (body?.details != null) {
+    if (typeof body.details !== "object" || Array.isArray(body.details)) {
+      return json({ error: "details must be a JSON object" }, 400);
+    }
+    if (JSON.stringify(body.details).length > 4096) {
+      return json({ error: "details must be 4 KB or less" }, 400);
+    }
+    details = body.details;
+  }
+
+  const insertRes = await pool.query(
+    `INSERT INTO server_logs
+       (org_id, server_id, server_name, event_type, admin_steam_id, admin_name,
+        target_steam_id, target_name, command, details)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id, created_at`,
+    [
+      server.owner_org_id,
+      server.server_id,
+      server.server_name,
+      eventType,
+      adminSteamId,
+      adminName,
+      targetSteamId,
+      targetName,
+      command,
+      JSON.stringify(details),
+    ],
+  );
+  const row = insertRes.rows[0];
+
+  console.log(
+    `[ingest:server-log] event=${eventType} admin=${adminSteamId ?? "?"} server=${server.server_name}`,
+  );
+
+  return json({ ok: true, id: String(row.id) }, 201);
 }

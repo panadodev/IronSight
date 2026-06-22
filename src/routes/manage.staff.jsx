@@ -24,6 +24,7 @@ import {
   Crown,
   Eye,
   Gavel,
+  ScrollText,
   Search,
   ShieldCheck,
   Ticket,
@@ -411,10 +412,26 @@ function StaffPage() {
 
   return (
     <GateRank rank={rank} required={4}>
-      <SectionHeader
-        title="Staff"
-        blurb="Staff roster, activity, and moderation stats."
-      />
+      <div className="flex items-start justify-between gap-4">
+        <SectionHeader
+          title="Staff"
+          blurb="Staff roster, activity, and moderation stats."
+        />
+        {(isAdmin || isOwner) && (
+          <Button
+            size="sm"
+            variant="outline"
+            asChild
+            className="h-7 shrink-0 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+            title="View server admin action logs"
+          >
+            <Link to="/server-logs" search={{ org: orgId }}>
+              <ScrollText className="size-3" />
+              Server Logs
+            </Link>
+          </Button>
+        )}
+      </div>
 
       {/* Add staff */}
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">

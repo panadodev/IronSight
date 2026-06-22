@@ -208,6 +208,58 @@ Logs a team/squad change event (member join, leave, team creation, or invite).
 
 ---
 
+## Server Admin Log
+
+**`POST /api/ingest/server-log`**
+
+Records an admin action taken on the server — commands, kicks, bans, mutes, noclip/godmode toggles, and RCON commands. Entries appear in the **Server Logs** page, visible to org admins and owners only.
+
+**Request body**
+
+```json
+{
+  "event_type": "KICK",
+  "admin_steam_id": "76561198000000001",
+  "admin_name": "AdminName",
+  "target_steam_id": "76561198000000002",
+  "target_name": "TargetName",
+  "command": "/kick 76561198000000002 cheating",
+  "details": {}
+}
+```
+
+| Field             | Type   | Required | Description                                                                                                                          |
+| ----------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `event_type`      | string | Yes      | One of: `ADMIN_COMMAND`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE`               |
+| `admin_steam_id`  | string | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                       |
+| `admin_name`      | string | No       | In-game display name of the admin (max 128 chars)                                                                                    |
+| `target_steam_id` | string | No       | SteamID64 of the affected player (max 64 chars)                                                                                      |
+| `target_name`     | string | No       | In-game display name of the affected player (max 128 chars)                                                                          |
+| `command`         | string | No       | The raw command string that was executed (max 1000 chars)                                                                            |
+| `details`         | object | No       | Any extra key/value context (e.g. `{ "duration": 3600, "reason": "cheating" }`). Max 4 KB when serialised as JSON.                  |
+
+**Response**
+
+```json
+{ "ok": true, "id": "101" }
+```
+
+**Suggested plugin hooks**
+
+| Hook / callback               | `event_type` to send  | Recommended fields                                         |
+| ----------------------------- | --------------------- | ---------------------------------------------------------- |
+| `OnUserCommand` (chat `/cmd`) | `ADMIN_COMMAND`       | `admin_steam_id`, `admin_name`, `command`                  |
+| `OnServerCommand` (console)   | `RCON_COMMAND`        | `command`                                                  |
+| `OnPlayerKicked`              | `KICK`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name` |
+| Ban issued (custom)           | `BAN`                 | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `details.reason`, `details.duration` |
+| Unban issued (custom)         | `UNBAN`               | `admin_steam_id`, `admin_name`, `target_steam_id`          |
+| Mute issued (custom)          | `MUTE`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name` |
+| Unmute issued (custom)        | `UNMUTE`              | `admin_steam_id`, `admin_name`, `target_steam_id`          |
+| Noclip toggled                | `NOCLIP_TOGGLE`       | `admin_steam_id`, `admin_name`, `details.enabled`          |
+| Godmode toggled               | `GODMODE_TOGGLE`      | `admin_steam_id`, `admin_name`, `details.enabled`          |
+
+---
+
 ## Bulk Mute Sync
 
 **`POST /api/ingest/mute-sync`**
@@ -253,5 +305,6 @@ All endpoints are rate-limited per server. Exceeding the limit returns `429 Too 
 | Reports              | 60 req/min  |
 | Team events          | 120 req/min |
 | Mute sync            | 120 req/min |
+| Server admin log     | 120 req/min |
 
 Rate limiters fail **open** — if Redis is unavailable, requests are passed through rather than rejected.

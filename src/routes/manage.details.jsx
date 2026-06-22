@@ -620,10 +620,38 @@ const DEFAULT_GP_COUNTRIES = [
   "CA",
 ];
 
+function RateLimitBadge({ limit }) {
+  const { remaining, limit: total, reset, type } = limit;
+  const pct = total > 0 ? Math.round((remaining / total) * 100) : 0;
+  const color =
+    pct > 50
+      ? "text-emerald-400 ring-emerald-500/30 bg-emerald-500/10"
+      : pct > 20
+        ? "text-amber-400 ring-amber-500/30 bg-amber-500/10"
+        : "text-danger ring-danger/30 bg-danger/10";
+  const resetMins = reset != null ? Math.ceil(reset / 60) : null;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono ring-1 ${color}`}
+      title={
+        resetMins != null
+          ? `Resets in ~${resetMins}m · ${type === "token" ? "authenticated" : "anonymous"}`
+          : undefined
+      }
+    >
+      {remaining.toLocaleString()} / {total.toLocaleString()} remaining
+      {resetMins != null && (
+        <span className="opacity-60">· {resetMins}m</span>
+      )}
+    </span>
+  );
+}
+
 function GlobalpingSection({ orgId }) {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState(null);
   const [error, setError] = useState("");
+  const [limits, setLimits] = useState(null);
 
   const [apiToken, setApiToken] = useState("");
   const [countries, setCountries] = useState(DEFAULT_GP_COUNTRIES);
@@ -631,6 +659,20 @@ function GlobalpingSection({ orgId }) {
   const [checkIntervalMinutes, setCheckIntervalMinutes] = useState(5);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
+
+  async function loadLimits() {
+    try {
+      const res = await authFetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/globalping/limits`,
+      );
+      if (res.ok) {
+        const body = await res.json();
+        setLimits(body.limits ?? null);
+      }
+    } catch {
+      // non-critical
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -661,6 +703,7 @@ function GlobalpingSection({ orgId }) {
 
   useEffect(() => {
     load();
+    loadLimits();
   }, [load]);
 
   async function handleSave(e) {
@@ -739,10 +782,15 @@ function GlobalpingSection({ orgId }) {
           <div className="grid size-10 place-items-center rounded-lg ring-1 ring-border bg-background shrink-0">
             <Radar className="size-5 text-brand" />
           </div>
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold leading-tight">
-              Globalping Network Monitoring
-            </h2>
+          <div className="space-y-1 flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-semibold leading-tight">
+                Globalping Network Monitoring
+              </h2>
+              {limits?.ratelimit?.measurements?.create != null && (
+                <RateLimitBadge limit={limits.ratelimit.measurements.create} />
+              )}
+            </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Ping your game servers from probes in major countries via the
               Globalping network. Free to use — an API token is optional and

@@ -44,12 +44,14 @@ import {
   handleMuteCheck,
   handleIngestMuteSync,
   handleGetBlacklistedWordsForServer,
+  handleIngestServerLog,
 } from "./handlers/ingest.js";
 import {
   handleGetChatLogs,
   handleGetPvpLogs,
   handleGetReports,
   handleGetTeamEvents,
+  handleGetServerLogs,
 } from "./handlers/logs.js";
 import {
   ticketCacheKey,
@@ -8341,6 +8343,39 @@ async function handleTriggerGlobalpingMeasurements(request, orgId) {
   return json({ triggered });
 }
 
+async function handleGetGlobalpingLimits(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "servers_manage"))
+    return json(
+      { error: "Forbidden: servers_manage permission required" },
+      403,
+    );
+
+  const { rows } = await pool.query(
+    `SELECT api_token_enc FROM org_globalping_config WHERE org_id = $1`,
+    [orgId],
+  );
+
+  let apiToken = null;
+  if (rows[0]?.api_token_enc) {
+    try {
+      apiToken = decryptExternalApiKey(String(rows[0].api_token_enc));
+    } catch {
+      // proceed unauthenticated
+    }
+  }
+
+  try {
+    const res = await globalpingFetch("/limits", {}, apiToken);
+    if (!res.ok) return json({ error: "Globalping API error" }, 502);
+    const data = await res.json();
+    return json({ limits: data });
+  } catch {
+    return json({ error: "Failed to reach Globalping" }, 502);
+  }
+}
+
 // ── Player connect ingest ─────────────────────────────────────────────────────
 
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
@@ -9518,6 +9553,13 @@ async function _handleApiRequest(request) {
       return handleGetStaffAuditLog(request, orgAuditLogsMatch[1]);
     }
 
+    const orgServerLogsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/server-logs$/,
+    );
+    if (orgServerLogsMatch && request.method === "GET") {
+      return handleGetServerLogs(request, orgServerLogsMatch[1]);
+    }
+
     // Discord moderation routes
     const discordSyncMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/sync$/,
@@ -9958,6 +10000,9 @@ async function _handleApiRequest(request) {
     if (pathname === "/api/ingest/mute-sync" && request.method === "POST")
       return handleIngestMuteSync(request);
 
+    if (pathname === "/api/ingest/server-log" && request.method === "POST")
+      return handleIngestServerLog(request);
+
     if (pathname === "/api/blacklisted-words" && request.method === "GET")
       return handleGetBlacklistedWordsForServer(request);
 
@@ -10029,6 +10074,12 @@ async function _handleApiRequest(request) {
         request,
         orgGlobalpingTriggerMatch[1],
       );
+
+    const orgGlobalpingLimitsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/globalping\/limits$/,
+    );
+    if (orgGlobalpingLimitsMatch && request.method === "GET")
+      return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
 
     // Blacklisted words (management UI)
     const orgBlacklistedWordsMatch = pathname.match(

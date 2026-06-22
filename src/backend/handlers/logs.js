@@ -6,6 +6,7 @@ import { json, parseLimit } from "../http.js";
 import {
   requireSession,
   orgHasPermission,
+  canManageOrg,
   isConfiguredSysAdmin,
 } from "../core.js";
 
@@ -442,4 +443,76 @@ export async function handleGetTeamEvents(request) {
   }));
 
   return json({ lines });
+}
+
+export async function handleGetServerLogs(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId) && !isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden" }, 403);
+
+  const url = new URL(request.url);
+  const serverId = url.searchParams.get("serverId") ?? null;
+  const eventType = url.searchParams.get("eventType") ?? null;
+  const adminSteamId = url.searchParams.get("adminSteamId") ?? null;
+  const limit = Math.min(
+    500,
+    Math.max(1, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100),
+  );
+  const offset = Math.max(
+    0,
+    parseInt(url.searchParams.get("offset") ?? "0", 10) || 0,
+  );
+
+  const conditions = ["sl.org_id = $1"];
+  const params = [orgId];
+
+  if (serverId) {
+    params.push(serverId);
+    conditions.push(`sl.server_id = $${params.length}`);
+  }
+  if (eventType) {
+    params.push(eventType.toUpperCase());
+    conditions.push(`sl.event_type = $${params.length}`);
+  }
+  if (adminSteamId) {
+    params.push(adminSteamId);
+    conditions.push(`sl.admin_steam_id = $${params.length}`);
+  }
+
+  const where = conditions.join(" AND ");
+
+  const [logsRes, countRes] = await Promise.all([
+    pool.query(
+      `SELECT id, server_id, server_name, event_type,
+              admin_steam_id, admin_name, target_steam_id, target_name,
+              command, details, created_at
+       FROM server_logs sl
+       WHERE ${where}
+       ORDER BY sl.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    ),
+    pool.query(
+      `SELECT COUNT(*) as total FROM server_logs sl WHERE ${where}`,
+      params,
+    ),
+  ]);
+
+  return json({
+    logs: logsRes.rows.map((r) => ({
+      id: String(r.id),
+      serverId: r.server_id,
+      serverName: r.server_name,
+      eventType: r.event_type,
+      adminSteamId: r.admin_steam_id,
+      adminName: r.admin_name,
+      targetSteamId: r.target_steam_id,
+      targetName: r.target_name,
+      command: r.command,
+      details: r.details ?? {},
+      createdAt: Number(r.created_at),
+    })),
+    total: parseInt(countRes.rows[0].total, 10),
+  });
 }

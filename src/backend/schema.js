@@ -527,6 +527,44 @@ export async function ensureSchema(pool) {
        CHECK (event_type IN ('created', 'joined', 'left', 'invited'))`,
   );
 
+  // ── Server admin action logs ─────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS server_logs (
+      id BIGSERIAL PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      server_name TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      admin_steam_id TEXT,
+      admin_name TEXT,
+      target_steam_id TEXT,
+      target_name TEXT,
+      command TEXT,
+      details JSONB NOT NULL DEFAULT '{}',
+      created_at BIGINT NOT NULL DEFAULT unix_now()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_server_logs_org_id ON server_logs(org_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_server_logs_server_id ON server_logs(server_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_server_logs_created_at ON server_logs(created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_server_logs_org_created ON server_logs(org_id, created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_server_logs_event_type ON server_logs(event_type)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_server_logs_admin_steam_id ON server_logs(admin_steam_id)`,
+  );
+
   // -- Pterodactyl integration -----------------------------------------------
 
   await pool.query(`
