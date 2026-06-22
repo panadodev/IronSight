@@ -64,6 +64,12 @@ import {
   useState,
 } from "react";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
+import {
+  COUNTRY_CENTROIDS,
+  WORLD_LAND_PATH,
+  WORLD_MAP_HEIGHT,
+  WORLD_MAP_WIDTH,
+} from "@/lib/world-map";
 const PANEL_TABS = ["rcon", "scripts", "presets", "status", "servers"];
 const Route = createFileRoute("/panel")({
   component: PanelPage,
@@ -2262,14 +2268,121 @@ function ReachabilityCell({ r, label }) {
   );
 }
 
+// SVG fill class for a latency dot, mirroring rttColor's thresholds.
+function rttDotColor(rtt) {
+  if (rtt == null) return "fill-emerald-400";
+  if (rtt < 50) return "fill-emerald-400";
+  if (rtt < 150) return "fill-emerald-500";
+  if (rtt < 300) return "fill-amber-500";
+  return "fill-orange-400";
+}
+
+// World map plotting per-country latency to one server at a single point in
+// time. Reachable probe origins get a latency-coloured dot (larger = slower);
+// origins where the server was unreachable are flagged red so you can see from
+// where the server may be inaccessible.
+function WorldLatencyMap({ snapshot, countries }) {
+  const cells = snapshot?.cells ?? {};
+  const points = countries
+    .map((cc) => {
+      const c = COUNTRY_CENTROIDS[cc];
+      if (!c) return null;
+      return {
+        cc,
+        x: c.x,
+        y: c.y,
+        name: COUNTRY_NAMES[cc] ?? c.name ?? cc,
+        r: cells[cc] ?? null,
+      };
+    })
+    .filter(Boolean);
+
+  return (
+    <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+      <svg
+        viewBox={`0 0 ${WORLD_MAP_WIDTH} ${WORLD_MAP_HEIGHT}`}
+        className="w-full h-auto block"
+        role="img"
+        aria-label="World map of server latency by probe country"
+      >
+        <path
+          d={WORLD_LAND_PATH}
+          className="fill-foreground/10 stroke-border"
+          strokeWidth={0.5}
+        />
+        {points.map((p) => {
+          if (!p.r) {
+            return (
+              <circle
+                key={p.cc}
+                cx={p.x}
+                cy={p.y}
+                r={3}
+                className="fill-muted-foreground/30 stroke-background"
+                strokeWidth={0.5}
+              >
+                <title>{`${p.name}: no data`}</title>
+              </circle>
+            );
+          }
+          if (!p.r.reachable) {
+            return (
+              <g key={p.cc}>
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={10}
+                  className="fill-red-500/25 animate-pulse"
+                />
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={5}
+                  className="fill-red-500 stroke-background"
+                  strokeWidth={0.8}
+                />
+                <path
+                  d={`M${p.x - 2.2} ${p.y - 2.2}L${p.x + 2.2} ${p.y + 2.2}M${p.x + 2.2} ${p.y - 2.2}L${p.x - 2.2} ${p.y + 2.2}`}
+                  className="stroke-white"
+                  strokeWidth={1}
+                  strokeLinecap="round"
+                />
+                <title>{`${p.name}: unreachable (${p.r.probeCount} probe${p.r.probeCount === 1 ? "" : "s"} tried)`}</title>
+              </g>
+            );
+          }
+          const radius =
+            p.r.avgRtt == null
+              ? 4
+              : Math.max(3.5, Math.min(8, 3.5 + p.r.avgRtt / 80));
+          return (
+            <g key={p.cc}>
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={radius}
+                className={`${rttDotColor(p.r.avgRtt)} stroke-background`}
+                strokeWidth={0.8}
+                opacity={0.9}
+              />
+              <title>{`${p.name}: ${p.r.avgRtt != null ? Math.round(p.r.avgRtt) + " ms avg" : "reachable"} (min ${p.r.minRtt != null ? p.r.minRtt.toFixed(0) : "—"} / max ${p.r.maxRtt != null ? p.r.maxRtt.toFixed(0) : "—"} ms, ${p.r.reachableCount}/${p.r.probeCount} probes)`}</title>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function GlobalpingSection({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
   const [triggering, setTriggering] = useState(false);
-  const [historyServerId, setHistoryServerId] = useState("");
+  const [mapServerId, setMapServerId] = useState("");
   const [history, setHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [snapIndex, setSnapIndex] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -2331,10 +2444,23 @@ function GlobalpingSection({ orgId }) {
     [orgId],
   );
 
-  // Refetch history whenever a server is picked or the live data refreshes.
+  // Default the map to the first server once data arrives.
   useEffect(() => {
-    loadHistory(historyServerId);
-  }, [historyServerId, loadHistory, updatedAt]);
+    if (data?.servers?.length && !mapServerId) {
+      setMapServerId(data.servers[0].serverId);
+    }
+  }, [data, mapServerId]);
+
+  // Refetch history for the mapped server, also when the live data refreshes.
+  useEffect(() => {
+    loadHistory(mapServerId);
+  }, [mapServerId, loadHistory, updatedAt]);
+
+  // Snap the time slider to the newest sample whenever history (re)loads.
+  useEffect(() => {
+    const n = history?.snapshots?.length ?? 0;
+    setSnapIndex(n > 0 ? n - 1 : 0);
+  }, [history]);
 
   if (loading) return null;
   if (!data?.configured) {
@@ -2372,6 +2498,18 @@ function GlobalpingSection({ orgId }) {
 
   const hasAnyResult = results.length > 0;
 
+  // Chronological snapshots (history is newest-first) for the time slider, only
+  // when they belong to the currently-selected server.
+  const snaps =
+    history && history.serverId === mapServerId
+      ? [...history.snapshots].reverse()
+      : [];
+  const safeIndex = Math.min(snapIndex, Math.max(0, snaps.length - 1));
+  const currentSnap = snaps[safeIndex] ?? null;
+  const mapCountries = history?.countries ?? countries;
+  const mapServerName =
+    servers.find((s) => s.serverId === mapServerId)?.serverName ?? "";
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -2392,12 +2530,11 @@ function GlobalpingSection({ orgId }) {
             </span>
           )}
           <select
-            value={historyServerId}
-            onChange={(e) => setHistoryServerId(e.target.value)}
-            title="Show measurement history for a server"
+            value={mapServerId || servers[0]?.serverId || ""}
+            onChange={(e) => setMapServerId(e.target.value)}
+            title="Server to plot on the map"
             className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
-            <option value="">History…</option>
             {servers.map((s) => (
               <option key={s.serverId} value={s.serverId}>
                 {s.serverName}
@@ -2418,6 +2555,48 @@ function GlobalpingSection({ orgId }) {
             <RefreshCw className="size-3" /> Refresh
           </button>
         </div>
+      </div>
+
+      {/* World latency map for the selected server + time scrubber */}
+      <div className="space-y-1.5">
+        <div className="relative">
+          <WorldLatencyMap snapshot={currentSnap} countries={mapCountries} />
+          {historyLoading && !snaps.length && (
+            <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
+              Loading history…
+            </div>
+          )}
+          {!historyLoading && !snaps.length && (
+            <div className="absolute inset-0 grid place-items-center text-center text-[11px] font-mono text-muted-foreground bg-background/40 px-4">
+              No measurement history yet for {mapServerName || "this server"}.
+              Measurements run every few minutes — check back shortly.
+            </div>
+          )}
+        </div>
+        {snaps.length > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
+              {currentSnap
+                ? new Date(currentSnap.measuredAt * 1000).toLocaleString()
+                : "—"}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, snaps.length - 1)}
+              value={safeIndex}
+              onChange={(e) => setSnapIndex(Number(e.target.value))}
+              disabled={snaps.length <= 1}
+              aria-label="Latency history time"
+              className="flex-1 accent-emerald-500 disabled:opacity-50"
+            />
+            <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+              {safeIndex >= snaps.length - 1
+                ? "Latest"
+                : `${snaps.length - 1 - safeIndex} step${snaps.length - 1 - safeIndex === 1 ? "" : "s"} back`}
+            </span>
+          </div>
+        )}
       </div>
 
       {!hasAnyResult && !pendingCount ? (
@@ -2471,80 +2650,6 @@ function GlobalpingSection({ orgId }) {
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {historyServerId && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <h5 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              History ·{" "}
-              {servers.find((s) => s.serverId === historyServerId)
-                ?.serverName ?? historyServerId}
-              <span className="ml-1 normal-case tracking-normal text-muted-foreground/60">
-                (last 24h)
-              </span>
-            </h5>
-            <button
-              onClick={() => setHistoryServerId("")}
-              className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
-            >
-              Close
-            </button>
-          </div>
-          {historyLoading && !history ? (
-            <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[11px] text-muted-foreground">
-              Loading history…
-            </div>
-          ) : !history?.snapshots?.length ? (
-            <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[11px] text-muted-foreground">
-              No measurement history in the last 24 hours.
-            </div>
-          ) : (
-            <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto max-h-72 overflow-y-auto">
-              <table className="w-full text-[10px]">
-                <thead className="sticky top-0">
-                  <tr className="border-b border-border bg-surface/90">
-                    <th className="text-left px-3 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                      Time
-                    </th>
-                    {history.countries.map((cc) => (
-                      <th
-                        key={cc}
-                        className="px-2 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap text-center"
-                        title={COUNTRY_NAMES[cc] ?? cc}
-                      >
-                        {cc}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.snapshots.map((snap, i) => (
-                    <tr
-                      key={snap.measuredAt}
-                      className={
-                        i < history.snapshots.length - 1
-                          ? "border-b border-border"
-                          : ""
-                      }
-                    >
-                      <td className="px-3 py-2 font-mono whitespace-nowrap text-muted-foreground">
-                        {new Date(snap.measuredAt * 1000).toLocaleString()}
-                      </td>
-                      {history.countries.map((cc) => (
-                        <ReachabilityCell
-                          key={cc}
-                          r={snap.cells[cc]}
-                          label={COUNTRY_NAMES[cc] ?? cc}
-                        />
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       )}
 
@@ -2738,6 +2843,9 @@ function StatusTab({ orgId }) {
 
   return (
     <div className="space-y-5">
+      {/* Globalping reachability — world latency map at the top of the page */}
+      <GlobalpingSection orgId={orgId} />
+
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
@@ -3022,9 +3130,6 @@ function StatusTab({ orgId }) {
           configured limit.
         </div>
       </div>
-
-      {/* Globalping reachability */}
-      <GlobalpingSection orgId={orgId} />
     </div>
   );
 }
