@@ -1146,6 +1146,23 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS bm_ban_id TEXT`,
   );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS server_player_sessions (
+      session_id      BIGSERIAL PRIMARY KEY,
+      org_id          TEXT   NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      server_id       UUID   NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      steam_id        TEXT   NOT NULL,
+      player_name     TEXT,
+      connected_at    BIGINT NOT NULL DEFAULT unix_now(),
+      disconnected_at BIGINT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_sps_org_online
+     ON server_player_sessions (org_id, server_id, steam_id)
+     WHERE disconnected_at IS NULL`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
