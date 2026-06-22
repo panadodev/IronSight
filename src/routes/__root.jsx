@@ -1,4 +1,5 @@
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
+import { fetchAuthStatus } from "@/lib/auth-guard";
 import { AuthProvider } from "@/lib/auth-context";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -82,17 +83,23 @@ const Route = createRootRouteWithContext()({
     ]);
     if (publicPaths.has(location.pathname)) return;
 
-    // Only run this guard in the browser. API routes still enforce auth server-side.
-    if (typeof window === "undefined") return;
+    // Check auth on both the server (SSR) and the client. Running it during
+    // SSR is what prevents the protected page from being streamed to the
+    // browser and flashing for a frame before the client-side redirect fires.
+    const isServer = typeof window === "undefined";
+    const { status } = isServer ? await fetchAuthStatus() : await getAuthMe();
 
-    const { status } = await getAuthMe();
-    if (status !== 401) return;
+    if (status === 401) {
+      // Evict the cache so the next login attempt gets a fresh response.
+      if (!isServer) invalidateAuthMe();
+      // Unauthenticated visitors go to the public ticket portal, not login.
+      throw redirect({ to: "/support" });
+    }
 
-    // Evict the cache so the next login attempt gets a fresh response.
-    invalidateAuthMe();
-
-    // Unauthenticated visitors go to the public ticket portal, not login.
-    throw redirect({ to: "/support" });
+    // Authenticated staff land on the ticket queue, not the dashboard.
+    if (location.pathname === "/") {
+      throw redirect({ to: "/tickets" });
+    }
   },
   head: () => ({
     meta: [

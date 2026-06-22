@@ -17,6 +17,7 @@ import { Route as SysMetricsRouteImport } from './routes/sys-metrics'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as SubmitRouteImport } from './routes/submit'
 import { Route as StaffAuditRouteImport } from './routes/staff-audit'
+import { Route as ServerLogsRouteImport } from './routes/server-logs'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as PlayerLookupRouteImport } from './routes/player-lookup'
 import { Route as PlayerListRouteImport } from './routes/player-list'
@@ -77,6 +78,11 @@ const SubmitRoute = SubmitRouteImport.update({
 const StaffAuditRoute = StaffAuditRouteImport.update({
   id: '/staff-audit',
   path: '/staff-audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ServerLogsRoute = ServerLogsRouteImport.update({
+  id: '/server-logs',
+  path: '/server-logs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/player-list': typeof PlayerListRoute
   '/player-lookup': typeof PlayerLookupRoute
   '/privacy': typeof PrivacyRoute
+  '/server-logs': typeof ServerLogsRoute
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
@@ -230,6 +237,7 @@ export interface FileRoutesByTo {
   '/player-list': typeof PlayerListRoute
   '/player-lookup': typeof PlayerLookupRoute
   '/privacy': typeof PrivacyRoute
+  '/server-logs': typeof ServerLogsRoute
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
@@ -262,6 +270,7 @@ export interface FileRoutesById {
   '/player-list': typeof PlayerListRoute
   '/player-lookup': typeof PlayerLookupRoute
   '/privacy': typeof PrivacyRoute
+  '/server-logs': typeof ServerLogsRoute
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
@@ -295,6 +304,7 @@ export interface FileRouteTypes {
     | '/player-list'
     | '/player-lookup'
     | '/privacy'
+    | '/server-logs'
     | '/staff-audit'
     | '/submit'
     | '/support'
@@ -326,6 +336,7 @@ export interface FileRouteTypes {
     | '/player-list'
     | '/player-lookup'
     | '/privacy'
+    | '/server-logs'
     | '/staff-audit'
     | '/submit'
     | '/support'
@@ -357,6 +368,7 @@ export interface FileRouteTypes {
     | '/player-list'
     | '/player-lookup'
     | '/privacy'
+    | '/server-logs'
     | '/staff-audit'
     | '/submit'
     | '/support'
@@ -389,6 +401,7 @@ export interface RootRouteChildren {
   PlayerListRoute: typeof PlayerListRoute
   PlayerLookupRoute: typeof PlayerLookupRoute
   PrivacyRoute: typeof PrivacyRoute
+  ServerLogsRoute: typeof ServerLogsRoute
   StaffAuditRoute: typeof StaffAuditRoute
   SubmitRoute: typeof SubmitRoute
   SupportRoute: typeof SupportRoute
@@ -456,6 +469,13 @@ declare module '@tanstack/react-router' {
       path: '/staff-audit'
       fullPath: '/staff-audit'
       preLoaderRoute: typeof StaffAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/server-logs': {
+      id: '/server-logs'
+      path: '/server-logs'
+      fullPath: '/server-logs'
+      preLoaderRoute: typeof ServerLogsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -645,6 +665,7 @@ const rootRouteChildren: RootRouteChildren = {
   PlayerListRoute: PlayerListRoute,
   PlayerLookupRoute: PlayerLookupRoute,
   PrivacyRoute: PrivacyRoute,
+  ServerLogsRoute: ServerLogsRoute,
   StaffAuditRoute: StaffAuditRoute,
   SubmitRoute: SubmitRoute,
   SupportRoute: SupportRoute,

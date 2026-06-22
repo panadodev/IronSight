@@ -310,7 +310,7 @@ function SiteNav() {
         path.startsWith("/support") ||
         path.startsWith("/my-reports")
       ) {
-        navigate({ to: "/" });
+        navigate({ to: "/tickets" });
       }
     }
   };
@@ -504,7 +504,7 @@ function SiteNav() {
             </aside>
           </SheetContent>
         </Sheet>
-        <Link to="/" className="flex items-center gap-2 font-bold text-sm">
+        <Link to="/tickets" className="flex items-center gap-2 font-bold text-sm">
           IronSight
         </Link>
         <div className="ml-auto flex items-center gap-2">

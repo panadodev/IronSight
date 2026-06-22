@@ -2138,6 +2138,14 @@ function fmtMB(mb) {
   if (mb >= 1024) return `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB`;
   return `${mb} MB`;
 }
+// Bandwidth rate (bytes/sec) → human readable. Pterodactyl's network_*_bytes
+// are cumulative counters, so a rate is derived from the delta between polls.
+function fmtRate(bytesPerSec) {
+  const bps = bytesPerSec > 0 ? bytesPerSec : 0;
+  if (bps >= 1048576) return `${(bps / 1048576).toFixed(1)} MB/s`;
+  if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
+  return `${Math.round(bps)} B/s`;
+}
 function fmtUptime(ms) {
   if (!ms || ms <= 0) return "—";
   const s = Math.floor(ms / 1000);
@@ -2695,6 +2703,8 @@ function StatusTab({ orgId }) {
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState(null);
   const historyRef = useRef(new Map());
+  // Previous network counter sample per server, used to derive a live rate.
+  const netSamplesRef = useRef(new Map());
 
   const pushHistory = useCallback((identifier, cpu, memPct) => {
     const hist = historyRef.current;
@@ -2719,6 +2729,30 @@ function StatusTab({ orgId }) {
         return;
       }
       setError("");
+
+      // Derive a live bandwidth rate (bytes/sec) per container from the delta
+      // between this poll and the previous one. The counters reset to a lower
+      // value when a server restarts, so a decrease is treated as 0.
+      if (Array.isArray(body?.servers)) {
+        const now = Date.now();
+        const samples = netSamplesRef.current;
+        for (const s of body.servers) {
+          if (!s.identifier || !s.live) continue;
+          const rx = s.live.resources.networkRxBytes ?? 0;
+          const tx = s.live.resources.networkTxBytes ?? 0;
+          const prev = samples.get(s.identifier);
+          if (prev && now > prev.t) {
+            const dt = (now - prev.t) / 1000;
+            s.live.rxRate = rx >= prev.rx ? (rx - prev.rx) / dt : 0;
+            s.live.txRate = tx >= prev.tx ? (tx - prev.tx) / dt : 0;
+          } else {
+            s.live.rxRate = 0;
+            s.live.txRate = 0;
+          }
+          samples.set(s.identifier, { t: now, rx, tx });
+        }
+      }
+
       setData(body);
       setUpdatedAt(Date.now());
 
@@ -2756,6 +2790,7 @@ function StatusTab({ orgId }) {
     setData(null);
     setError("");
     historyRef.current = new Map();
+    netSamplesRef.current = new Map();
     load();
     let id = setInterval(load, 8000);
 
@@ -2784,17 +2819,26 @@ function StatusTab({ orgId }) {
       const key = s.nodeId ?? s.nodeName ?? "unknown";
       const agg = map.get(key) ?? {
         count: 0,
+        running: 0,
         allocMem: 0,
         allocDisk: 0,
+        allocCpu: 0,
         usedMemBytes: 0,
         usedDiskBytes: 0,
+        usedCpu: 0,
+        rxRate: 0,
+        txRate: 0,
         hasUsage: false,
       };
       agg.count += 1;
       agg.allocMem += s.limits?.memory ?? 0;
       agg.allocDisk += s.limits?.disk ?? 0;
+      agg.allocCpu += s.limits?.cpu ?? 0;
+      const state = s.live?.state ?? (s.suspended ? "offline" : "unknown");
+      if (state === "running") agg.running += 1;
       const usedMem = s.live?.resources.memoryBytes;
       const usedDisk = s.live?.resources.diskBytes;
+      const usedCpu = s.live?.resources.cpuAbsolute;
       if (usedMem != null) {
         agg.usedMemBytes += usedMem;
         agg.hasUsage = true;
@@ -2802,6 +2846,9 @@ function StatusTab({ orgId }) {
       if (usedDisk != null) {
         agg.usedDiskBytes += usedDisk;
       }
+      if (usedCpu != null) agg.usedCpu += usedCpu;
+      agg.rxRate += s.live?.rxRate ?? 0;
+      agg.txRate += s.live?.txRate ?? 0;
       map.set(key, agg);
     }
     return map;
@@ -2896,7 +2943,19 @@ function StatusTab({ orgId }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {nodes.map((n) => {
               const agg = nodeAgg.get(n.id) ??
-                nodeAgg.get(n.name) ?? { count: 0, mem: 0, disk: 0 };
+                nodeAgg.get(n.name) ?? {
+                  count: 0,
+                  running: 0,
+                  allocMem: 0,
+                  allocDisk: 0,
+                  allocCpu: 0,
+                  usedMemBytes: 0,
+                  usedDiskBytes: 0,
+                  usedCpu: 0,
+                  rxRate: 0,
+                  txRate: 0,
+                  hasUsage: false,
+                };
               const memCap = n.memory * (1 + (n.memoryOverallocate || 0) / 100);
               const diskCap = n.disk * (1 + (n.diskOverallocate || 0) / 100);
               return (
@@ -2926,6 +2985,25 @@ function StatusTab({ orgId }) {
                   {n.fqdn && (
                     <div className="text-[10px] font-mono text-muted-foreground truncate">
                       {n.fqdn}
+                    </div>
+                  )}
+
+                  {agg.hasUsage && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono">
+                        <span className="text-muted-foreground uppercase tracking-widest">
+                          CPU used
+                        </span>
+                        <span className="text-muted-foreground">
+                          {agg.usedCpu.toFixed(0)}%
+                          {agg.allocCpu > 0 ? ` / ${agg.allocCpu}%` : ""}
+                        </span>
+                      </div>
+                      <UsageBar
+                        value={agg.usedCpu}
+                        max={agg.allocCpu > 0 ? agg.allocCpu : agg.count * 100}
+                        tone="bg-sky-500"
+                      />
                     </div>
                   )}
 
@@ -2964,6 +3042,17 @@ function StatusTab({ orgId }) {
                     />
                   </div>
 
+                  {agg.hasUsage && (
+                    <div className="flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-muted-foreground uppercase tracking-widest">
+                        Network
+                      </span>
+                      <span className="text-muted-foreground tabular-nums">
+                        ↓ {fmtRate(agg.rxRate)} · ↑ {fmtRate(agg.txRate)}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground pt-1 border-t border-border">
                     <span>
                       HOSTING{" "}
@@ -2971,6 +3060,12 @@ function StatusTab({ orgId }) {
                       server
                       {agg.count === 1 ? "" : "s"}
                     </span>
+                    {agg.hasUsage && (
+                      <span>
+                        <span className="text-success">{agg.running}</span>{" "}
+                        running
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -3005,12 +3100,13 @@ function StatusTab({ orgId }) {
           </p>
         ) : (
           <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-            <div className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1.2fr_0.9fr_0.6fr_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Server</div>
               <div>Node</div>
               <div>CPU</div>
               <div>Memory</div>
               <div>Disk</div>
+              <div>Network</div>
               <div className="text-right">Uptime</div>
               <div />
             </div>
@@ -3025,10 +3121,12 @@ function StatusTab({ orgId }) {
               const memBytes = s.live?.resources.memoryBytes;
               const diskBytes = s.live?.resources.diskBytes;
               const uptime = s.live?.resources.uptime;
+              const rxRate = s.live?.rxRate ?? 0;
+              const txRate = s.live?.txRate ?? 0;
 
               return (
                 <Fragment key={s.uuid ?? s.identifier ?? s.pteroId}>
-                  <div className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1.2fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40">
+                  <div className="grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40">
                     <div className="flex items-center gap-2 min-w-0">
                       <StateDot state={state} />
                       <span className="font-medium truncate">{s.name}</span>
@@ -3113,6 +3211,29 @@ function StatusTab({ orgId }) {
                       )}
                     </div>
 
+                    <div className="min-w-0">
+                      {hasStats ? (
+                        <div className="flex flex-col gap-0.5 font-mono text-[10px] tabular-nums leading-tight">
+                          <span
+                            className="text-muted-foreground"
+                            title="Inbound (download)"
+                          >
+                            ↓ {fmtRate(rxRate)}
+                          </span>
+                          <span
+                            className="text-muted-foreground"
+                            title="Outbound (upload)"
+                          >
+                            ↑ {fmtRate(txRate)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          —
+                        </span>
+                      )}
+                    </div>
+
                     <div className="text-right font-mono text-[10px] text-muted-foreground">
                       {hasStats ? fmtUptime(uptime) : "—"}
                     </div>
@@ -3125,9 +3246,10 @@ function StatusTab({ orgId }) {
           </div>
         )}
         <div className="text-[10px] text-muted-foreground/70 font-mono mt-1.5">
-          CPU, memory, disk and uptime come from the Pterodactyl client API and
-          refresh every 8s. Memory and disk are shown against each server's
-          configured limit.
+          CPU, memory, disk, network and uptime come from the Pterodactyl client
+          API and refresh every 8s. Memory and disk are shown against each
+          server's configured limit; network is the live in/out rate derived
+          from the cumulative byte counters between refreshes.
         </div>
       </div>
     </div>
