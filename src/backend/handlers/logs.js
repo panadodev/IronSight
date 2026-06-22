@@ -1,0 +1,445 @@
+// Server log readers (chat / pvp / reports / team events). Session-authed
+// GET endpoints; pure relocation from api.js.
+
+import { pool, redis } from "../runtime.js";
+import { json, parseLimit } from "../http.js";
+import {
+  requireSession,
+  orgHasPermission,
+  isConfiguredSysAdmin,
+} from "../core.js";
+
+export async function handleGetChatLogs(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = parseLimit(url.searchParams.get("limit"), 100, 200);
+  // before: exclusive upper timestamp cursor (for loading older messages)
+  // after: exclusive lower timestamp cursor (for polling new messages)
+  const beforeParam = url.searchParams.get("before");
+  const afterParam = url.searchParams.get("after");
+  const before = beforeParam != null ? Math.floor(Number(beforeParam)) : null;
+  const after = afterParam != null ? Math.floor(Number(afterParam)) : null;
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  if (
+    !orgHasPermission(session, server.owner_org_id, "players_view") &&
+    !isConfiguredSysAdmin(session)
+  ) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const fetch_limit = limit + 1; // fetch one extra to determine hasMore
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `chat:server:${serverId}`;
+
+  // Serve from Redis cache if the entire window falls within the last 7 days
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        let rawEntries;
+        if (after != null) {
+          // Poll for new messages: ascending from (after to endUnix
+          rawEntries = await redis.zrangebyscore(
+            cacheKey,
+            `(${after}`,
+            endUnix,
+            "LIMIT",
+            0,
+            fetch_limit,
+          );
+        } else {
+          // Initial load or "before" cursor: descending newest-first
+          const scoreMax = before != null ? `(${before}` : endUnix;
+          rawEntries = await redis.zrevrangebyscore(
+            cacheKey,
+            scoreMax,
+            startUnix,
+            "LIMIT",
+            0,
+            fetch_limit,
+          );
+        }
+        if (rawEntries.length > 0) {
+          const hasMore = rawEntries.length > limit;
+          const lines = rawEntries
+            .slice(0, limit)
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          // after-poll returns ASC; normalize to DESC for consistency
+          if (after != null) lines.reverse();
+          return json({ lines, hasMore });
+        }
+      }
+    } catch {
+      // fall through to Postgres on Redis error
+    }
+  }
+
+  // PostgreSQL fallback
+  const conditions = ["server_id = $1", "created_at >= $2", "created_at <= $3"];
+  const params = [serverId, startUnix, endUnix];
+  let idx = 4;
+
+  if (before != null) {
+    conditions.push(`created_at < $${idx++}`);
+    params.push(before);
+  }
+  if (after != null) {
+    conditions.push(`created_at > $${idx++}`);
+    params.push(after);
+  }
+
+  const order = after != null ? "ASC" : "DESC";
+  params.push(fetch_limit);
+
+  const { rows } = await pool.query(
+    `SELECT id, message, steam_id, player_name, team_message, created_at AS ts
+     FROM text_chat_log
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY created_at ${order}
+     LIMIT $${idx}`,
+    params,
+  );
+
+  const hasMore = rows.length > limit;
+  let lines = rows.slice(0, limit).map((row) => ({
+    id: String(row.id),
+    message: String(row.message),
+    steamId: String(row.steam_id),
+    playerName: row.player_name == null ? null : String(row.player_name),
+    teamMessage: Boolean(row.team_message),
+    ts: Number(row.ts),
+  }));
+  // after-poll returns ASC; normalize to DESC for consistency
+  if (after != null) lines.reverse();
+
+  return json({ lines, hasMore });
+}
+
+export async function handleGetPvpLogs(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  if (
+    !orgHasPermission(session, server.owner_org_id, "players_view") &&
+    !isConfiguredSysAdmin(session)
+  ) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `pvp:server:${serverId}`;
+
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
+      }
+    } catch {
+      // fall through to Postgres
+    }
+  }
+
+  const { rows } = await pool.query(
+    `SELECT id, killer_steam_id, victim_name, combatlog_cache,
+            created_at AS ts
+     FROM pvp_log
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startUnix, endUnix, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    killerSteamId: String(row.killer_steam_id),
+    victimName: String(row.victim_name),
+    combatlogCache: row.combatlog_cache ?? {},
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}
+
+export async function handleGetReports(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [server.owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `reports:server:${serverId}`;
+
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
+      }
+    } catch {
+      // fall through to Postgres
+    }
+  }
+
+  const { rows } = await pool.query(
+    `SELECT id, report_type, report_reason, report_description,
+            reporter_name, reporter_steam_id, reported_steam_id,
+            created_at AS ts
+     FROM player_reports
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startUnix, endUnix, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    reportType: String(row.report_type),
+    reportReason: String(row.report_reason),
+    reportDescription: String(row.report_description),
+    reporterName: String(row.reporter_name),
+    reporterSteamId: String(row.reporter_steam_id),
+    reportedSteamId: String(row.reported_steam_id),
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}
+
+export async function handleGetTeamEvents(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const serverId = (url.searchParams.get("serverId") ?? "").trim();
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
+
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  const serverRes = await pool.query(
+    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+  const server = serverRes.rows[0];
+
+  const memberRes = await pool.query(
+    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
+    [server.owner_org_id, session.userId],
+  );
+  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const nowUnixTs = Math.floor(Date.now() / 1000);
+  const startUnix = startParam
+    ? Math.floor(Number(startParam))
+    : nowUnixTs - 6 * 3600;
+  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
+
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
+    return json({ error: "Invalid start or end parameter" }, 400);
+  }
+  if (startUnix > endUnix) {
+    return json({ error: "start must not be after end" }, 400);
+  }
+
+  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
+  const cacheKey = `team:server:${serverId}`;
+
+  if (startUnix >= sevenDaysAgoUnix) {
+    try {
+      const cacheExists = await redis.exists(cacheKey);
+      if (cacheExists) {
+        const rawEntries = await redis.zrangebyscore(
+          cacheKey,
+          startUnix,
+          endUnix,
+          "LIMIT",
+          0,
+          limit,
+        );
+        if (rawEntries.length > 0) {
+          const lines = rawEntries
+            .map((raw) => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+          return json({ lines });
+        }
+      }
+    } catch {
+      // fall through to Postgres
+    }
+  }
+
+  const { rows } = await pool.query(
+    `SELECT id, event_type, team_members, team_leader, target_player,
+            event_time AS event_time_unix,
+            created_at AS ts
+     FROM team_events
+     WHERE server_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     ORDER BY created_at ASC
+     LIMIT $4`,
+    [serverId, startUnix, endUnix, limit],
+  );
+
+  const lines = rows.map((row) => ({
+    id: String(row.id),
+    eventType: String(row.event_type),
+    teamLeader: String(row.team_leader),
+    teamMembers: Array.isArray(row.team_members) ? row.team_members : [],
+    targetPlayer: row.target_player != null ? String(row.target_player) : null,
+    eventTimeUnix: Number(row.event_time_unix),
+    ts: Number(row.ts),
+  }));
+
+  return json({ lines });
+}

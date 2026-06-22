@@ -25,12 +25,6 @@ const TEAM_META = {
   support: { label: "Support", rank: 1, short: "SUP" },
 };
 const TEAM_IDS = ["management", "sr_admins", "admins", "support"];
-const TICKET_TYPE_ROUTING = {
-  general_support: "support",
-  player_report: "admins",
-  ban_appeal: "sr_admins",
-  vip_issue: "management",
-};
 const TICKET_TYPES = [
   { id: "player_report", label: "Player Report", team: "admins" },
   { id: "ban_appeal", label: "Ban Appeal", team: "sr_admins" },
@@ -1640,7 +1634,6 @@ const TICKETS = [
     "76561198000000019",
   );
 })();
-const CURRENT_STAFF_ID = "u_zedge";
 const TICKET_TYPE_LABEL = {
   player_report: "Player Report",
   ban_appeal: "Ban Appeal",
@@ -1674,23 +1667,6 @@ const BAN_LENGTH_MINUTES = {
   "14d": 20160,
   "30d": 43200,
   permanent: null,
-};
-const BAN_LENGTH_LABEL = {
-  "1h": "1 hour",
-  "3h": "3 hours",
-  "6h": "6 hours",
-  "12h": "12 hours",
-  "24h": "24 hours",
-  "2d": "2 days",
-  "3d": "3 days",
-  "4d": "4 days",
-  "5d": "5 days",
-  "6d": "6 days",
-  next_wipe: "Next wipe",
-  "7d": "7 days",
-  "14d": "14 days",
-  "30d": "30 days",
-  permanent: "Permanent",
 };
 const NOW_REF = Date.parse("2026-05-26T12:00:00Z");
 function _seed(s) {
@@ -1771,106 +1747,24 @@ Reviewed by: ${staff.name}`,
   }
   return out.sort((a, b) => +new Date(b.issuedAt) - +new Date(a.issuedAt));
 }
-function _buildMutes() {
-  const r = _seed(20260527);
-  const allPlayers = Object.values(PLAYERS);
-  const out = [];
-  const muteTypes = ["toxicity", "spam", "harassment", "mic_abuse"];
-  for (let i = 0; i < 48; i++) {
-    const subject = allPlayers[Math.floor(r() * allPlayers.length)];
-    const staff = STAFF[Math.floor(r() * STAFF.length)];
-    const server = SERVERS[Math.floor(r() * SERVERS.length)];
-    const type = muteTypes[Math.floor(r() * muteTypes.length)];
-    const reason =
-      MUTE_REASONS_BY_TYPE[type][
-        Math.floor(r() * MUTE_REASONS_BY_TYPE[type].length)
-      ];
-    const length = LENGTH_POOL[Math.floor(r() * LENGTH_POOL.length)];
-    const issuedMinsAgo = Math.floor(r() * 60 * 24 * 30);
-    const issuedAt = _isoAgo(issuedMinsAgo);
-    const durMin = BAN_LENGTH_MINUTES[length];
-    const expiresAt =
-      durMin == null
-        ? null
-        : new Date(NOW_REF - issuedMinsAgo * 6e4 + durMin * 6e4).toISOString();
-    out.push({
-      id: `m_${i + 2e3}`,
-      subjectSteamId: subject.steamId,
-      subjectName: subject.name,
-      staffId: staff.id,
-      orgId: server.orgId,
-      serverId: server.id,
-      type,
-      reason,
-      length,
-      issuedAt,
-      expiresAt,
-      note: `Mute issued for ${type}.
-
-Context: voice chat
-Reviewed by: ${staff.name}`,
-      revoked: r() < 0.05,
-    });
-  }
-  return out.sort((a, b) => +new Date(b.issuedAt) - +new Date(a.issuedAt));
-}
 const BAN_RECORDS = _buildBans();
-const MUTE_RECORDS = _buildMutes();
-function _buildStaffStats() {
-  const out = {};
-  for (const s of STAFF) {
-    const r = _seed(hashStaffId(s.id));
-    const lastBanFromRecords = BAN_RECORDS.find((b) => b.staffId === s.id);
-    out[s.id] = {
-      staffId: s.id,
-      ticketsClosed7d: Math.floor(r() * 18),
-      ticketsClosed30d: 20 + Math.floor(r() * 80),
-      ticketsClosedAllTime: 200 + Math.floor(r() * 4e3),
-      lastPanelLogin: _isoAgo(Math.floor(r() * 60 * 24 * 7)),
-      lastIngameSeen: _isoAgo(Math.floor(r() * 60 * 24 * 14)),
-      lastBanIssued: lastBanFromRecords?.issuedAt ?? null,
-      hoursIngame7d: Math.floor(r() * 40),
-      hoursIngame30d: 20 + Math.floor(r() * 140),
-      hoursIngameAllTime: 500 + Math.floor(r() * 6e3),
-    };
-  }
-  return out;
-}
-function hashStaffId(id) {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = (h * 16777619) >>> 0;
-  }
-  return h >>> 0;
-}
-const STAFF_STATS = _buildStaffStats();
-function getStaff(staffId) {
-  return STAFF.find((s) => s.id === staffId);
-}
 export {
-  BAN_LENGTH_LABEL,
   BAN_LENGTH_MINUTES,
   BAN_RECORDS,
-  CURRENT_STAFF_ID,
-  MUTE_RECORDS,
   OWNER_STEAM_ID,
   REPORT_CATEGORIES,
   REPORT_CATEGORY_LABEL,
   SERVERS,
   STAFF,
-  STAFF_STATS,
   STATUS_LABEL,
   TEAM_IDS,
   TEAM_META,
   TICKETS,
   TICKET_TYPES,
   TICKET_TYPE_LABEL,
-  TICKET_TYPE_ROUTING,
   fmtNum,
   getPlayer,
   getPreviousTeammates,
   getServerPlayers,
-  getStaff,
   getTeammates,
 };

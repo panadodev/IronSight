@@ -14,7 +14,6 @@ import {
   STATUS_LABEL,
   TEAM_IDS,
   TEAM_META,
-  TICKETS,
   TICKET_TYPES,
   TICKET_TYPE_LABEL,
   getPlayer,
@@ -110,6 +109,8 @@ function mapDbTicketToUi(row) {
     team: teamForType(type),
     category: null,
     reporterId,
+    reporterName:
+      row.created_by_username ?? row.created_by_steam_id ?? "Unknown",
     subjectId: null,
     assigneeId: null,
     assigneeName: row.assigned_to_username ?? null,
@@ -140,18 +141,14 @@ function StaffDashboard() {
   } = useAuth();
   void activeRank;
   const { ticket: ticketSearchId } = Route.useSearch();
-  const [tickets, setTickets] = useState(TICKETS);
+  const [tickets, setTickets] = useState([]);
   const [typeFilter, setTypeFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [sortBy, setSortBy] = usePersistentState("dashboard.sortBy", "newest");
   const [queueView, setQueueView] = useState("active");
   const [proofOnly, setProofOnly] = useState(false);
   const [recencyDays, setRecencyDays] = useState(0);
-  const [selectedId, setSelectedId] = useState(
-    ticketSearchId && TICKETS.some((t) => t.id === ticketSearchId)
-      ? ticketSearchId
-      : TICKETS[0].id,
-  );
+  const [selectedId, setSelectedId] = useState(ticketSearchId ?? null);
   useEffect(() => {
     if (!ticketSearchId) return;
     const t = tickets.find((x) => x.id === ticketSearchId);
@@ -841,7 +838,7 @@ function StaffDashboard() {
                     ? t.subjectId
                       ? getPlayer(t.subjectId).name
                       : "\u2014"
-                    : getPlayer(t.reporterId).name;
+                    : (t.reporterName ?? getPlayer(t.reporterId).name);
                 return (
                   <button
                     key={t.id}

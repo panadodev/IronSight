@@ -1,6 +1,12 @@
 ﻿import { Queue } from "bullmq";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import {
+  env,
+  SYSADMIN,
+  SESSION_COOKIE,
+  PENDING_LINK_COOKIE,
+} from "./config.js";
+import {
   isValidSteamId,
   sanitizeNext,
   sanitizeReportedPlayers,
@@ -13,7 +19,22 @@ import {
 } from "./schema.js";
 import { getClientIp, json, parseLimit, parseMaybeList } from "./http.js";
 import { pool, redis, queue, setPool, setRedis, setQueue } from "./runtime.js";
-import { authenticateServerKey, checkRateLimit } from "./core.js";
+import {
+  authenticateServerKey,
+  checkRateLimit,
+  auditLog,
+  redirect,
+  canWriteTodos,
+  isGlobalAdmin,
+  isConfiguredSysAdmin,
+  requireConfiguredSysAdmin,
+  canManageOrg,
+  canViewOrgAsOwner,
+  orgHasPermission,
+  sessionRankForOrg,
+  getSession,
+  requireSession,
+} from "./core.js";
 import {
   handleServerHealthCheck,
   handleIngestChatMessage,
@@ -24,6 +45,20 @@ import {
   handleIngestMuteSync,
   handleGetBlacklistedWordsForServer,
 } from "./handlers/ingest.js";
+import {
+  handleGetChatLogs,
+  handleGetPvpLogs,
+  handleGetReports,
+  handleGetTeamEvents,
+} from "./handlers/logs.js";
+import {
+  ticketCacheKey,
+  cacheTicket,
+  getCachedTicket,
+  invalidateTicketCache,
+  loadTicketFromDb,
+  loadTicketMessages,
+} from "./ticket-store.js";
 import "dotenv/config";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
@@ -34,131 +69,11 @@ const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_ME_URL = "https://discord.com/api/users/@me";
 const STEAM_OPENID_URL = "https://steamcommunity.com/openid/login";
-const SYSADMIN = {
-  globalOrgId: "__global__",
-  sysadminRoleId: "sysadmin",
-  username: "panado",
-};
-
-function chooseConnectionUrl(primary, secondary) {
-  const first = primary?.trim();
-  const second = secondary?.trim();
-
-  if (first && second) {
-    // Coolify often injects localhost defaults in DATABASE_URL/REDIS_URL while
-    // POSTGRESQL_URI/REDIS_URI points to the actual service.
-    const firstIsLocal = /localhost|127\.0\.0\.1|\[::1\]|::1/i.test(first);
-    const secondIsLocal = /localhost|127\.0\.0\.1|\[::1\]|::1/i.test(second);
-    if (firstIsLocal && !secondIsLocal) return second;
-  }
-
-  return first || second;
-}
-
-function parseEnvList(value) {
-  if (!value) return [];
-  return String(value)
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function parsePterodactylAllowedHosts(value) {
-  if (!value) return [];
-  const items = String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return items.map((item) => {
-    try {
-      const url = new URL(item);
-      return url.hostname.toLowerCase();
-    } catch {
-      return item.toLowerCase();
-    }
-  });
-}
-
-const env = {
-  nodeEnv: process.env.NODE_ENV ?? "development",
-  databaseUrl: chooseConnectionUrl(
-    process.env.DATABASE_URL,
-    process.env.POSTGRESQL_URI,
-  ),
-  redisUrl: chooseConnectionUrl(process.env.REDIS_URL, process.env.REDIS_URI),
-  jwtSecret: process.env.JWT_SECRET,
-  sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 60 * 60 * 24),
-  loginRateLimitPerMinute: Number(
-    process.env.LOGIN_RATE_LIMIT_PER_MINUTE ?? 10,
-  ),
-  appUrl: process.env.APP_URL ?? process.env.PUBLIC_APP_URL,
-  discordClientId: process.env.DISCORD_CLIENT_ID,
-  discordClientSecret: process.env.DISCORD_CLIENT_SECRET,
-  sysAdminDiscordId: process.env.SYS_ADMIN_DISCORD_ID,
-  sysAdminSteamId: process.env.SYSADMIN_STEAM_ID,
-  // DISCORD_AUTH_CALLBACK is the legacy key used in .env; DISCORD_REDIRECT_URI takes precedence
-  discordRedirectUri:
-    process.env.DISCORD_REDIRECT_URI ?? process.env.DISCORD_AUTH_CALLBACK,
-  steamRealm: process.env.STEAM_REALM,
-  // STEAM_AUTH_CALLBACK is the legacy key used in .env; STEAM_RETURN_URL takes precedence
-  steamReturnUrl:
-    process.env.STEAM_RETURN_URL ?? process.env.STEAM_AUTH_CALLBACK,
-  pterodactylAllowedHosts: parsePterodactylAllowedHosts(
-    process.env.PTERODACTYL_ALLOWED_HOSTS,
-  ),
-  pterodactylEncryptionSecret:
-    process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
-  discordBotToken: process.env.DISCORD_BOT_TOKEN,
-};
-
-if (!env.databaseUrl) {
-  console.warn(
-    "[config] Missing DATABASE_URL (or POSTGRESQL_URI). API routes will return 503 until fixed.",
-  );
-}
-if (!env.redisUrl) {
-  console.warn(
-    "[config] Missing REDIS_URL (or REDIS_URI). API routes will return 503 until fixed.",
-  );
-}
-if (!env.jwtSecret) {
-  console.warn(
-    "[config] Missing JWT_SECRET. API routes will return 503 until fixed.",
-  );
-}
-if (!env.discordClientId || !env.discordClientSecret) {
-  console.warn(
-    "[config] Missing DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET. Discord OAuth will return 503.",
-  );
-}
-if (!env.sysAdminDiscordId?.trim()) {
-  console.warn(
-    "[config] Missing SYS_ADMIN_DISCORD_ID. API startup will fail until fixed.",
-  );
-}
-if (!env.sysAdminSteamId?.trim()) {
-  console.warn(
-    "[config] Missing SYSADMIN_STEAM_ID. Sysadmin seeding will fail until fixed.",
-  );
-}
-if (env.jwtSecret && !process.env.PTERODACTYL_ENCRYPTION_KEY?.trim()) {
-  console.warn(
-    "[config] Missing PTERODACTYL_ENCRYPTION_KEY. Falling back to JWT_SECRET for Pterodactyl key encryption.",
-  );
-}
-if (!env.pterodactylAllowedHosts.length) {
-  console.warn(
-    "[config] Missing PTERODACTYL_ALLOWED_HOSTS. Pterodactyl endpoints will return 503 until configured.",
-  );
-}
 
 let initError = null;
 let initialized = false;
 let initializationPromise = null;
 
-const SESSION_COOKIE = "panel_session";
-const PENDING_LINK_COOKIE = "pending_identity";
 let pterodactylEncryptionKey;
 let pterodactylEncryptionKeyV2;
 
@@ -372,124 +287,6 @@ function getPterodactylSecurityConfigError() {
 // Parse a user-supplied pagination limit safely: a missing, non-numeric, or
 // non-positive value falls back to `fallback` rather than producing NaN, which
 // would otherwise blow up the Redis/SQL query with `LIMIT NaN`.
-
-async function auditLog({
-  orgId,
-  actorUserId,
-  targetUserId = null,
-  resourceType = null,
-  resourceId = null,
-  actionType,
-  actionCategory = "admin",
-  severity = 1,
-  metadata = {},
-  beforeState = null,
-  afterState = null,
-  ipAddress = null,
-  userAgent = null,
-  sessionId = null,
-}) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO audit_logs (
-        org_id, actor_user_id, target_user_id, resource_type, resource_id,
-        action_type, action_category, severity, metadata, before_state, after_state,
-        ip_address, user_agent, session_id, correlation_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-      [
-        orgId,
-        actorUserId,
-        targetUserId,
-        resourceType,
-        resourceId,
-        actionType,
-        actionCategory,
-        severity,
-        JSON.stringify(metadata),
-        beforeState ? JSON.stringify(beforeState) : null,
-        afterState ? JSON.stringify(afterState) : null,
-        ipAddress,
-        userAgent,
-        sessionId,
-        crypto.randomUUID(),
-      ],
-    );
-  } catch (err) {
-    console.error("[audit] Failed to log action:", err.message);
-  }
-}
-
-function redirect(location, headers = new Headers()) {
-  headers.set("location", location);
-  return new Response(null, { status: 302, headers });
-}
-
-function canWriteTodos(session) {
-  if (session?.canWrite) return true;
-  if (session?.orgOwnerOrgIds?.length) return true;
-  if (session?.orgAdminOrgIds?.length) return true;
-  if (!session?.groups?.length) return false;
-  return session.groups.some((g) => g.admin || g.editUsers);
-}
-
-function isGlobalAdmin(session) {
-  if (session?.globalAdmin) return true;
-  return Boolean(session?.groups?.some((g) => g.admin));
-}
-
-function isConfiguredSysAdmin(session) {
-  const configuredDiscordId = String(env.sysAdminDiscordId ?? "").trim();
-  if (!configuredDiscordId) return false;
-  return String(session?.discordId ?? "") === configuredDiscordId;
-}
-
-function requireConfiguredSysAdmin(session) {
-  if (!String(env.sysAdminDiscordId ?? "").trim()) {
-    return {
-      error: json(
-        {
-          error:
-            "Server misconfigured: SYS_ADMIN_DISCORD_ID is required for sysadmin endpoints",
-        },
-        503,
-      ),
-    };
-  }
-
-  if (!isConfiguredSysAdmin(session)) {
-    return {
-      error: json({ error: "Forbidden: SYS_ADMIN_DISCORD_ID required" }, 403),
-    };
-  }
-
-  return { error: null };
-}
-
-function canManageOrg(session, orgId) {
-  return session.orgAdminOrgIds.includes(orgId);
-}
-
-function canViewOrgAsOwner(session, orgId) {
-  // Check if user is org owner
-  return session.orgAdminOrgIds.includes(orgId);
-}
-
-function orgHasPermission(session, orgId, permissionId) {
-  return (
-    canManageOrg(session, orgId) ||
-    (session.orgPermissions?.[orgId] ?? []).includes(permissionId)
-  );
-}
-
-function sessionRankForOrg(session, orgId) {
-  if (session.globalAdmin) return 4;
-  if ((session.orgOwnerOrgIds ?? []).includes(orgId)) return 4;
-  if ((session.orgAdminOrgIds ?? []).includes(orgId)) return 4;
-  const perms = (session.orgPermissions ?? {})[orgId] ?? [];
-  if (perms.length > 0) return 3;
-  return 1;
-}
 
 // Permission IDs that may be assigned to a custom role via the role editor.
 // Must stay in sync with the `permissions` table seed in runMigrations().
@@ -940,45 +737,6 @@ async function createSessionForUser(user, options = {}) {
     sessionCookie(token, env.sessionTtlSeconds),
   );
   return response;
-}
-
-async function getSession(request) {
-  const cookies = parseCookie(request.headers.get("cookie") ?? "");
-  const token = cookies[SESSION_COOKIE];
-  if (!token) return null;
-
-  try {
-    const decoded = jwt.verify(token, env.jwtSecret);
-    const sid = decoded?.sid;
-    if (!sid || typeof sid !== "string") return null;
-
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const dbSessionRes = await pool.query(
-      `SELECT session_id
-       FROM sessions
-       WHERE session_id = $1
-         AND token_hash = $2
-         AND revoked = FALSE
-         AND expires_at > unix_now()
-       LIMIT 1`,
-      [sid, tokenHash],
-    );
-    if (!dbSessionRes.rows[0]) return null;
-
-    const raw = await redis.get(`session:${sid}`);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-async function requireSession(request) {
-  const session = await getSession(request);
-  if (!session) {
-    return { error: json({ error: "Unauthorized" }, 401) };
-  }
-  return { session };
 }
 
 async function listUserOrganizations(userId) {
@@ -3449,106 +3207,6 @@ async function ensureDefaultTicketTypes(orgId) {
 }
 
 // ── Ticket Redis cache ────────────────────────────────────────────────────────
-
-function ticketCacheKey(ticketId) {
-  return `ticket:${ticketId}`;
-}
-
-async function cacheTicket(ticket) {
-  const key = ticketCacheKey(ticket.ticket_id);
-  let ttl;
-  if (ticket.closed_at) {
-    const expireAt = ticket.closed_at + 7 * 24 * 3600;
-    ttl = expireAt - Math.floor(Date.now() / 1000);
-  } else {
-    ttl = 30 * 24 * 3600;
-  }
-  if (ttl > 0) {
-    await redis.set(key, JSON.stringify(ticket), "EX", ttl);
-  }
-}
-
-async function getCachedTicket(ticketId) {
-  const raw = await redis.get(ticketCacheKey(ticketId));
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-async function invalidateTicketCache(ticketId) {
-  await redis.del(ticketCacheKey(ticketId));
-}
-
-// ── Ticket DB helpers ─────────────────────────────────────────────────────────
-
-async function loadTicketFromDb(ticketId) {
-  const { rows } = await pool.query(
-    `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
-            t.status, t.priority, t.title,
-            t.created_at,
-            t.updated_at,
-            t.closed_at,
-            t.reported_players,
-            tt.ticket_type_name,
-            creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
-            assignee.username AS assigned_to_username
-     FROM tickets t
-     LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
-     LEFT JOIN users creator ON creator.user_id = t.created_by
-     LEFT JOIN users assignee ON assignee.user_id = t.assigned_to
-     WHERE t.ticket_id = $1
-     LIMIT 1`,
-    [ticketId],
-  );
-  if (!rows[0]) return null;
-  const row = rows[0];
-  return {
-    ticket_id: Number(row.ticket_id),
-    org_id: String(row.org_id),
-    ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
-    ticket_type_name: row.ticket_type_name ?? null,
-    created_by: row.created_by ? String(row.created_by) : null,
-    created_by_username: row.created_by_username ?? null,
-    created_by_steam_id: row.created_by_steam_id ?? null,
-    assigned_to: row.assigned_to ? String(row.assigned_to) : null,
-    assigned_to_username: row.assigned_to_username ?? null,
-    status: String(row.status),
-    priority: String(row.priority),
-    title: String(row.title),
-    created_at: Number(row.created_at),
-    updated_at: Number(row.updated_at),
-    closed_at: row.closed_at ? Number(row.closed_at) : null,
-    reported_players: Array.isArray(row.reported_players)
-      ? row.reported_players.map(String)
-      : [],
-  };
-}
-
-async function loadTicketMessages(ticketId) {
-  const { rows } = await pool.query(
-    `SELECT tm.message_id, tm.ticket_id, tm.user_id, tm.message, tm.is_internal,
-            tm.created_at,
-            u.username, u.steam_id
-     FROM ticket_messages tm
-     LEFT JOIN users u ON u.user_id = tm.user_id
-     WHERE tm.ticket_id = $1
-     ORDER BY tm.created_at ASC`,
-    [ticketId],
-  );
-  return rows.map((row) => ({
-    messageId: Number(row.message_id),
-    ticketId: Number(row.ticket_id),
-    userId: row.user_id ? String(row.user_id) : null,
-    username: row.username ?? null,
-    steamId: row.steam_id ?? null,
-    message: String(row.message),
-    isInternal: Boolean(row.is_internal),
-    createdAt: Number(row.created_at),
-  }));
-}
 
 // ── Public Steam auth (ticket submission, no Discord required) ────────────────
 
@@ -7296,441 +6954,6 @@ async function handleExecRconCommand(request, serverId) {
   });
 }
 
-async function handleGetChatLogs(request) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-
-  const url = new URL(request.url);
-  const serverId = (url.searchParams.get("serverId") ?? "").trim();
-  const startParam = url.searchParams.get("start");
-  const endParam = url.searchParams.get("end");
-  const limit = parseLimit(url.searchParams.get("limit"), 100, 200);
-  // before: exclusive upper timestamp cursor (for loading older messages)
-  // after: exclusive lower timestamp cursor (for polling new messages)
-  const beforeParam = url.searchParams.get("before");
-  const afterParam = url.searchParams.get("after");
-  const before = beforeParam != null ? Math.floor(Number(beforeParam)) : null;
-  const after = afterParam != null ? Math.floor(Number(afterParam)) : null;
-
-  if (!serverId) return json({ error: "serverId is required" }, 400);
-
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
-    [serverId],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const server = serverRes.rows[0];
-
-  if (
-    !orgHasPermission(session, server.owner_org_id, "players_view") &&
-    !isConfiguredSysAdmin(session)
-  ) {
-    return json({ error: "Forbidden: players_view permission required" }, 403);
-  }
-
-  const nowUnixTs = Math.floor(Date.now() / 1000);
-  const startUnix = startParam
-    ? Math.floor(Number(startParam))
-    : nowUnixTs - 6 * 3600;
-  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
-
-  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
-    return json({ error: "Invalid start or end parameter" }, 400);
-  }
-  if (startUnix > endUnix) {
-    return json({ error: "start must not be after end" }, 400);
-  }
-
-  const fetch_limit = limit + 1; // fetch one extra to determine hasMore
-
-  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
-  const cacheKey = `chat:server:${serverId}`;
-
-  // Serve from Redis cache if the entire window falls within the last 7 days
-  if (startUnix >= sevenDaysAgoUnix) {
-    try {
-      const cacheExists = await redis.exists(cacheKey);
-      if (cacheExists) {
-        let rawEntries;
-        if (after != null) {
-          // Poll for new messages: ascending from (after to endUnix
-          rawEntries = await redis.zrangebyscore(
-            cacheKey,
-            `(${after}`,
-            endUnix,
-            "LIMIT",
-            0,
-            fetch_limit,
-          );
-        } else {
-          // Initial load or "before" cursor: descending newest-first
-          const scoreMax = before != null ? `(${before}` : endUnix;
-          rawEntries = await redis.zrevrangebyscore(
-            cacheKey,
-            scoreMax,
-            startUnix,
-            "LIMIT",
-            0,
-            fetch_limit,
-          );
-        }
-        if (rawEntries.length > 0) {
-          const hasMore = rawEntries.length > limit;
-          const lines = rawEntries
-            .slice(0, limit)
-            .map((raw) => {
-              try {
-                return JSON.parse(raw);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-          // after-poll returns ASC; normalize to DESC for consistency
-          if (after != null) lines.reverse();
-          return json({ lines, hasMore });
-        }
-      }
-    } catch {
-      // fall through to Postgres on Redis error
-    }
-  }
-
-  // PostgreSQL fallback
-  const conditions = ["server_id = $1", "created_at >= $2", "created_at <= $3"];
-  const params = [serverId, startUnix, endUnix];
-  let idx = 4;
-
-  if (before != null) {
-    conditions.push(`created_at < $${idx++}`);
-    params.push(before);
-  }
-  if (after != null) {
-    conditions.push(`created_at > $${idx++}`);
-    params.push(after);
-  }
-
-  const order = after != null ? "ASC" : "DESC";
-  params.push(fetch_limit);
-
-  const { rows } = await pool.query(
-    `SELECT id, message, steam_id, player_name, team_message, created_at AS ts
-     FROM text_chat_log
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY created_at ${order}
-     LIMIT $${idx}`,
-    params,
-  );
-
-  const hasMore = rows.length > limit;
-  let lines = rows.slice(0, limit).map((row) => ({
-    id: String(row.id),
-    message: String(row.message),
-    steamId: String(row.steam_id),
-    playerName: row.player_name == null ? null : String(row.player_name),
-    teamMessage: Boolean(row.team_message),
-    ts: Number(row.ts),
-  }));
-  // after-poll returns ASC; normalize to DESC for consistency
-  if (after != null) lines.reverse();
-
-  return json({ lines, hasMore });
-}
-
-async function handleGetPvpLogs(request) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-
-  const url = new URL(request.url);
-  const serverId = (url.searchParams.get("serverId") ?? "").trim();
-  const startParam = url.searchParams.get("start");
-  const endParam = url.searchParams.get("end");
-  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
-
-  if (!serverId) return json({ error: "serverId is required" }, 400);
-
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
-    [serverId],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const server = serverRes.rows[0];
-
-  if (
-    !orgHasPermission(session, server.owner_org_id, "players_view") &&
-    !isConfiguredSysAdmin(session)
-  ) {
-    return json({ error: "Forbidden: players_view permission required" }, 403);
-  }
-
-  const nowUnixTs = Math.floor(Date.now() / 1000);
-  const startUnix = startParam
-    ? Math.floor(Number(startParam))
-    : nowUnixTs - 6 * 3600;
-  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
-
-  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
-    return json({ error: "Invalid start or end parameter" }, 400);
-  }
-  if (startUnix > endUnix) {
-    return json({ error: "start must not be after end" }, 400);
-  }
-
-  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
-  const cacheKey = `pvp:server:${serverId}`;
-
-  if (startUnix >= sevenDaysAgoUnix) {
-    try {
-      const cacheExists = await redis.exists(cacheKey);
-      if (cacheExists) {
-        const rawEntries = await redis.zrangebyscore(
-          cacheKey,
-          startUnix,
-          endUnix,
-          "LIMIT",
-          0,
-          limit,
-        );
-        if (rawEntries.length > 0) {
-          const lines = rawEntries
-            .map((raw) => {
-              try {
-                return JSON.parse(raw);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-          return json({ lines });
-        }
-      }
-    } catch {
-      // fall through to Postgres
-    }
-  }
-
-  const { rows } = await pool.query(
-    `SELECT id, killer_steam_id, victim_name, combatlog_cache,
-            created_at AS ts
-     FROM pvp_log
-     WHERE server_id = $1
-       AND created_at >= $2
-       AND created_at <= $3
-     ORDER BY created_at ASC
-     LIMIT $4`,
-    [serverId, startUnix, endUnix, limit],
-  );
-
-  const lines = rows.map((row) => ({
-    id: String(row.id),
-    killerSteamId: String(row.killer_steam_id),
-    victimName: String(row.victim_name),
-    combatlogCache: row.combatlog_cache ?? {},
-    ts: Number(row.ts),
-  }));
-
-  return json({ lines });
-}
-
-async function handleGetReports(request) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-
-  const url = new URL(request.url);
-  const serverId = (url.searchParams.get("serverId") ?? "").trim();
-  const startParam = url.searchParams.get("start");
-  const endParam = url.searchParams.get("end");
-  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
-
-  if (!serverId) return json({ error: "serverId is required" }, 400);
-
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
-    [serverId],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const server = serverRes.rows[0];
-
-  const memberRes = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [server.owner_org_id, session.userId],
-  );
-  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden" }, 403);
-  }
-
-  const nowUnixTs = Math.floor(Date.now() / 1000);
-  const startUnix = startParam
-    ? Math.floor(Number(startParam))
-    : nowUnixTs - 6 * 3600;
-  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
-
-  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
-    return json({ error: "Invalid start or end parameter" }, 400);
-  }
-  if (startUnix > endUnix) {
-    return json({ error: "start must not be after end" }, 400);
-  }
-
-  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
-  const cacheKey = `reports:server:${serverId}`;
-
-  if (startUnix >= sevenDaysAgoUnix) {
-    try {
-      const cacheExists = await redis.exists(cacheKey);
-      if (cacheExists) {
-        const rawEntries = await redis.zrangebyscore(
-          cacheKey,
-          startUnix,
-          endUnix,
-          "LIMIT",
-          0,
-          limit,
-        );
-        if (rawEntries.length > 0) {
-          const lines = rawEntries
-            .map((raw) => {
-              try {
-                return JSON.parse(raw);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-          return json({ lines });
-        }
-      }
-    } catch {
-      // fall through to Postgres
-    }
-  }
-
-  const { rows } = await pool.query(
-    `SELECT id, report_type, report_reason, report_description,
-            reporter_name, reporter_steam_id, reported_steam_id,
-            created_at AS ts
-     FROM player_reports
-     WHERE server_id = $1
-       AND created_at >= $2
-       AND created_at <= $3
-     ORDER BY created_at ASC
-     LIMIT $4`,
-    [serverId, startUnix, endUnix, limit],
-  );
-
-  const lines = rows.map((row) => ({
-    id: String(row.id),
-    reportType: String(row.report_type),
-    reportReason: String(row.report_reason),
-    reportDescription: String(row.report_description),
-    reporterName: String(row.reporter_name),
-    reporterSteamId: String(row.reporter_steam_id),
-    reportedSteamId: String(row.reported_steam_id),
-    ts: Number(row.ts),
-  }));
-
-  return json({ lines });
-}
-
-async function handleGetTeamEvents(request) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-
-  const url = new URL(request.url);
-  const serverId = (url.searchParams.get("serverId") ?? "").trim();
-  const startParam = url.searchParams.get("start");
-  const endParam = url.searchParams.get("end");
-  const limit = parseLimit(url.searchParams.get("limit"), 200, 500);
-
-  if (!serverId) return json({ error: "serverId is required" }, 400);
-
-  const serverRes = await pool.query(
-    "SELECT server_id, server_name, owner_org_id FROM servers WHERE server_id = $1 LIMIT 1",
-    [serverId],
-  );
-  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
-  const server = serverRes.rows[0];
-
-  const memberRes = await pool.query(
-    "SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1",
-    [server.owner_org_id, session.userId],
-  );
-  if (!memberRes.rows[0] && !isConfiguredSysAdmin(session)) {
-    return json({ error: "Forbidden" }, 403);
-  }
-
-  const nowUnixTs = Math.floor(Date.now() / 1000);
-  const startUnix = startParam
-    ? Math.floor(Number(startParam))
-    : nowUnixTs - 6 * 3600;
-  const endUnix = endParam ? Math.floor(Number(endParam)) : nowUnixTs;
-
-  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix)) {
-    return json({ error: "Invalid start or end parameter" }, 400);
-  }
-  if (startUnix > endUnix) {
-    return json({ error: "start must not be after end" }, 400);
-  }
-
-  const sevenDaysAgoUnix = nowUnixTs - 7 * 24 * 3600;
-  const cacheKey = `team:server:${serverId}`;
-
-  if (startUnix >= sevenDaysAgoUnix) {
-    try {
-      const cacheExists = await redis.exists(cacheKey);
-      if (cacheExists) {
-        const rawEntries = await redis.zrangebyscore(
-          cacheKey,
-          startUnix,
-          endUnix,
-          "LIMIT",
-          0,
-          limit,
-        );
-        if (rawEntries.length > 0) {
-          const lines = rawEntries
-            .map((raw) => {
-              try {
-                return JSON.parse(raw);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-          return json({ lines });
-        }
-      }
-    } catch {
-      // fall through to Postgres
-    }
-  }
-
-  const { rows } = await pool.query(
-    `SELECT id, event_type, team_members, team_leader, target_player,
-            event_time AS event_time_unix,
-            created_at AS ts
-     FROM team_events
-     WHERE server_id = $1
-       AND created_at >= $2
-       AND created_at <= $3
-     ORDER BY created_at ASC
-     LIMIT $4`,
-    [serverId, startUnix, endUnix, limit],
-  );
-
-  const lines = rows.map((row) => ({
-    id: String(row.id),
-    eventType: String(row.event_type),
-    teamLeader: String(row.team_leader),
-    teamMembers: Array.isArray(row.team_members) ? row.team_members : [],
-    targetPlayer: row.target_player != null ? String(row.target_player) : null,
-    eventTimeUnix: Number(row.event_time_unix),
-    ts: Number(row.ts),
-  }));
-
-  return json({ lines });
-}
-
 // ── Ban / Mute handlers ──────────────────────────────────────────────────────
 
 async function handleListOrgBans(request, orgId) {
@@ -8536,15 +7759,30 @@ async function externalFetchWithRotation(orgId, service, buildRequest) {
       continue;
     }
 
-    if (resp.status === 401) {
+    // Auth failures. Steam returns 401 (GetFriendList) or 403 (GetUserGroupList,
+    // and invalid keys) for a PRIVATE target profile just as it does for a bad
+    // key — we cannot reliably tell them apart from the status alone. So for
+    // Steam we rotate to the next key but never disable: disabling on a private
+    // profile would nuke a perfectly good key and break every later Steam lookup
+    // (the root cause of "my tokens won't fetch data"). For other services a 401
+    // is a definitively invalid key, so disable it for 1h.
+    const isAuthFailure =
+      resp.status === 401 || (service === "steam" && resp.status === 403);
+    if (isAuthFailure) {
       let body = "";
       try {
         body = await resp.text();
       } catch {}
-      console.warn(
-        `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP 401 — key is invalid or revoked. body="${body.slice(0, 300)}". Disabling for 1h.`,
-      );
-      markExternalKeyRateLimited(keyId, 3600).catch(() => {});
+      if (service === "steam") {
+        console.warn(
+          `[ext-api:steam] key=${keyId} org=${orgId} HTTP ${resp.status} — rotating to next key (NOT disabling; private profile or invalid key). body="${body.slice(0, 200)}"`,
+        );
+      } else {
+        console.warn(
+          `[ext-api:${service}] key=${keyId} org=${orgId} rejected with HTTP 401 — key is invalid or revoked. body="${body.slice(0, 300)}". Disabling for 1h.`,
+        );
+        markExternalKeyRateLimited(keyId, 3600).catch(() => {});
+      }
       continue;
     }
 
@@ -9469,7 +8707,7 @@ async function writeSteamDataToCache(steamId, data) {
     `UPDATE player_cache SET
        display_name             = COALESCE($2, display_name),
        avatar_url               = COALESCE($3, avatar_url),
-       steam_profile_visibility = $4,
+       steam_profile_visibility = COALESCE($4, steam_profile_visibility),
        steam_profile_created_at = COALESCE($5, steam_profile_created_at),
        steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE steam_rust_hours END,
        steam_data_public        = $6,
@@ -9846,8 +9084,13 @@ async function refreshPlayerData(steamId, orgId) {
             ? runProxycheckForIps(ipsOnly, orgId)
             : Promise.resolve({}),
           fetchSteamGroups(steamId, orgId),
+          // Grab the subject's COMPLETE session history (not just the recent
+          // co-presence window) and cache all of it. refreshPlayerData is
+          // fire-and-forget, so the extra BattleMetrics pages don't block the
+          // request. maxPages is a generous safety cap (100 pages × 100 =
+          // 10k sessions) — more than any realistic player has.
           bmId
-            ? fetchBMSessions(bmId, orgId, { sinceUnix })
+            ? fetchBMSessions(bmId, orgId, { maxPages: 100, sinceUnix: null })
             : Promise.resolve([]),
         ]);
 
@@ -10001,17 +9244,17 @@ async function getPlayerCacheData(steamId) {
          ORDER BY match_count DESC`,
         [steamId],
       ),
-      // Recent raw session windows (last 90 days) for the activity timeline.
-      // server_name is joined from the per-server totals table for display.
+      // Raw session windows for the activity timeline — the 500 most recent
+      // across the player's full cached history (no time cap). server_name is
+      // joined from the per-server totals table for display.
       pool.query(
         `SELECT psw.bm_server_id, psw.started_at, psw.stopped_at, pbs.server_name
          FROM player_session_windows psw
          LEFT JOIN player_bm_sessions pbs
            ON pbs.steam_id = psw.steam_id AND pbs.bm_server_id = psw.bm_server_id
          WHERE psw.steam_id = $1
-           AND psw.started_at > unix_now() - 7776000
          ORDER BY psw.started_at DESC
-         LIMIT 200`,
+         LIMIT 500`,
         [steamId],
       ),
     ]);
