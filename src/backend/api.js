@@ -7631,7 +7631,20 @@ async function fetchPendingGlobalpingResults() {
     }
   }
 
+  const nowSec = Math.floor(Date.now() / 1000);
   for (const msm of pending) {
+    // Expire measurements older than 5 minutes — Globalping probes typically
+    // finish within seconds; anything older is stale or permanently stuck.
+    if (nowSec - Number(msm.created_at) > 300) {
+      await pool.query(
+        `UPDATE org_globalping_measurements
+         SET status = 'completed', results_fetched_at = unix_now()
+         WHERE id = $1`,
+        [msm.id],
+      );
+      continue;
+    }
+
     const apiToken = tokensByOrg.get(msm.org_id) ?? null;
 
     try {

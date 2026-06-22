@@ -629,7 +629,7 @@ function RateLimitBadge({ limit }) {
       : pct > 20
         ? "text-amber-400 ring-amber-500/30 bg-amber-500/10"
         : "text-danger ring-danger/30 bg-danger/10";
-  const resetMins = reset != null ? Math.ceil(reset / 60) : null;
+  const resetMins = reset != null && reset > 0 ? Math.ceil(reset / 60) : null;
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono ring-1 ${color}`}
@@ -787,8 +787,8 @@ function GlobalpingSection({ orgId }) {
               <h2 className="text-base font-semibold leading-tight">
                 Globalping Network Monitoring
               </h2>
-              {limits?.ratelimit?.measurements?.create != null && (
-                <RateLimitBadge limit={limits.ratelimit.measurements.create} />
+              {limits?.rateLimit?.measurements?.create != null && (
+                <RateLimitBadge limit={limits.rateLimit.measurements.create} />
               )}
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
