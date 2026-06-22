@@ -8792,8 +8792,18 @@ async function writeActivityToCache(steamId, data) {
   );
 }
 
+// Keep one row per conflict key so a bulk INSERT ... ON CONFLICT DO UPDATE never
+// receives the same target row twice ("cannot affect row a second time"). Later
+// occurrences win, matching EXCLUDED-overwrite semantics.
+function dedupBy(arr, keyFn) {
+  const m = new Map();
+  for (const item of arr) m.set(keyFn(item), item);
+  return [...m.values()];
+}
+
 async function writeBMSessionsToCache(steamId, sessions) {
-  if (!sessions.length) return;
+  const rows = dedupBy(sessions, (s) => s.bmServerId);
+  if (!rows.length) return;
   await pool.query(
     `INSERT INTO player_bm_sessions
        (steam_id, bm_server_id, server_name, hours_played, last_seen)
@@ -8806,15 +8816,16 @@ async function writeBMSessionsToCache(steamId, sessions) {
        cached_at    = unix_now()`,
     [
       steamId,
-      sessions.map((s) => s.bmServerId),
-      sessions.map((s) => s.serverName),
-      sessions.map((s) => s.hoursPlayed),
-      sessions.map((s) => s.lastSeen),
+      rows.map((s) => s.bmServerId),
+      rows.map((s) => s.serverName),
+      rows.map((s) => s.hoursPlayed),
+      rows.map((s) => s.lastSeen),
     ],
   );
 }
 
-async function writeBMBansToCache(steamId, bans) {
+async function writeBMBansToCache(steamId, bansInput) {
+  const bans = dedupBy(bansInput, (b) => b.bmBanId);
   if (!bans.length) return;
   await pool.query(
     `INSERT INTO player_bm_bans_cache
@@ -8845,7 +8856,8 @@ async function writeBMBansToCache(steamId, bans) {
   );
 }
 
-async function writeIpsToHistory(steamId, ips) {
+async function writeIpsToHistory(steamId, ipsInput) {
+  const ips = dedupBy(ipsInput, (x) => x.ip);
   if (!ips.length) return;
   await pool.query(
     `INSERT INTO player_ip_history (steam_id, ip_address, is_vpn, last_seen)
@@ -8944,17 +8956,14 @@ async function writeFriendsToCache(steamId, result) {
 
   if (!result.isPublic || !result.friends?.length) return;
 
+  const friends = [...new Set(result.friends)];
   const nowUnix = Math.floor(Date.now() / 1000);
   await pool.query(
     `INSERT INTO player_friends (steam_id, friend_steam_id, last_confirmed)
      SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::bigint[])
      ON CONFLICT (steam_id, friend_steam_id) DO UPDATE SET
        last_confirmed = EXCLUDED.last_confirmed`,
-    [
-      result.friends.map(() => steamId),
-      result.friends,
-      result.friends.map(() => nowUnix),
-    ],
+    [friends.map(() => steamId), friends, friends.map(() => nowUnix)],
   );
 }
 
@@ -10166,6 +10175,25 @@ async function handleClearAllPlayerCache(request) {
   const { rowCount } = await pool.query(`DELETE FROM player_cache`);
 
   return json({ ok: true, redisCleared, dbCleared: rowCount ?? 0 });
+}
+
+// Sysadmin: clear bogus rate-limit timers on external API keys. The old
+// rotation disabled a Steam key for 1h whenever a looked-up profile was private
+// (401 misread as a bad key), leaving orgs with "no available keys". This
+// re-enables any key that is only rate-limited; keys disabled in the UI
+// (enabled=FALSE) are left untouched.
+async function handleResetExternalKeyLimits(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  const { rowCount } = await pool.query(
+    `UPDATE org_external_api_keys
+     SET rate_limited_until = NULL
+     WHERE rate_limited_until IS NOT NULL`,
+  );
+  return json({ ok: true, cleared: rowCount ?? 0 });
 }
 
 // ── Sysadmin: diagnostic metrics ─────────────────────────────────────────────
@@ -11627,6 +11655,10 @@ async function _handleApiRequest(request) {
     // Sysadmin: clear all player cache
     if (pathname === "/api/admin/player-cache" && request.method === "DELETE")
       return handleClearAllPlayerCache(request);
+
+    // Sysadmin: reset bogus external API key rate-limit timers
+    if (pathname === "/api/admin/reset-key-limits" && request.method === "POST")
+      return handleResetExternalKeyLimits(request);
 
     // Sysadmin: diagnostic metrics
     if (pathname === "/api/sys/metrics" && request.method === "GET")

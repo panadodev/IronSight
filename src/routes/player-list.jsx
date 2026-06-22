@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  KeyRound,
   RefreshCw,
   ShieldAlert,
   Trash2,
@@ -83,6 +84,7 @@ function PlayerListPage() {
   const [page, setPage] = useState(1);
   const [copiedId, setCopiedId] = useState(null);
   const [cacheClearBusy, setCacheClearBusy] = useState(false);
+  const [keyResetBusy, setKeyResetBusy] = useState(false);
 
   const PAGE_SIZE = 50;
   const intervalRef = useRef(null);
@@ -253,6 +255,32 @@ function PlayerListPage() {
     }
   };
 
+  const handleResetKeyLimits = async () => {
+    if (
+      !window.confirm(
+        "Reset external API key rate limits? This re-enables any Steam/BattleMetrics/Proxycheck key that was auto-disabled (e.g. by a private-profile lookup). Keys disabled in the UI are not affected.",
+      )
+    )
+      return;
+    setKeyResetBusy(true);
+    try {
+      const res = await fetch("/api/admin/reset-key-limits", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json();
+      if (res.ok) {
+        alert(`Reset complete. Cleared rate limits on ${body.cleared} key(s).`);
+      } else {
+        alert(body.error ?? "Failed to reset key limits.");
+      }
+    } catch {
+      alert("Network error.");
+    } finally {
+      setKeyResetBusy(false);
+    }
+  };
+
   if (!canAccess) {
     return (
       <div className="h-screen w-full flex flex-col bg-background">
@@ -323,6 +351,17 @@ function PlayerListPage() {
                   >
                     <Trash2 className="size-3" />
                     Clear Cache
+                  </button>
+                )}
+                {sessionUser?.isSysAdmin && (
+                  <button
+                    onClick={handleResetKeyLimits}
+                    disabled={keyResetBusy}
+                    className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface hover:text-brand hover:ring-brand/40 text-xs disabled:opacity-50 transition-colors"
+                    title="Reset external API key rate limits (sysadmin)"
+                  >
+                    <KeyRound className="size-3" />
+                    Reset Key Limits
                   </button>
                 )}
               </div>
