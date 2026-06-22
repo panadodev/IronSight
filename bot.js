@@ -201,7 +201,9 @@ function connect(resume = false) {
                 console.error(
                   `[IronSight Bot] Ingest error for message ${d.id}:`,
                   err.message,
-                  err.cause ? `(cause: ${err.cause?.message ?? err.cause})` : "",
+                  err.cause
+                    ? `(cause: ${err.cause?.message ?? err.cause})`
+                    : "",
                 ),
               );
           }

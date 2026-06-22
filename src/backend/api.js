@@ -2874,7 +2874,14 @@ async function handleUpdateOrgDetails(request, orgId) {
          bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END
      WHERE org_id = $1
      RETURNING org_id, guild_id, bm_org_id, name, created_at`,
-    [orgId, name, guildId !== undefined, guildId ?? null, bmOrgId !== undefined, bmOrgId ?? null],
+    [
+      orgId,
+      name,
+      guildId !== undefined,
+      guildId ?? null,
+      bmOrgId !== undefined,
+      bmOrgId ?? null,
+    ],
   );
 
   const updated = result.rows[0];
@@ -6757,13 +6764,14 @@ function executeRconCommand(rconUrl, command) {
 
     ws.addEventListener("error", (event) => {
       const detail =
-        event?.message ||
-        event?.error?.message ||
-        event?.error?.code ||
-        "";
+        event?.message || event?.error?.message || event?.error?.code || "";
       settle(
         reject,
-        new Error(detail ? `RCON connection failed: ${detail}` : "RCON connection failed"),
+        new Error(
+          detail
+            ? `RCON connection failed: ${detail}`
+            : "RCON connection failed",
+        ),
       );
     });
 
@@ -7154,7 +7162,8 @@ async function handleRevokeBan(request, orgId, banId) {
   if (!banCheck.rows[0])
     return json({ error: "Ban not found or already revoked" }, 404);
 
-  const { identifier, identifier_type, action_type, bm_ban_id } = banCheck.rows[0];
+  const { identifier, identifier_type, action_type, bm_ban_id } =
+    banCheck.rows[0];
 
   await pool.query(
     `UPDATE player_bans SET revoked = TRUE, revoked_at = unix_now(), revoked_by = $3
@@ -7224,11 +7233,18 @@ async function handleRevokeBan(request, orgId, banId) {
   let bmDeleteError = null;
   if (bm_ban_id && action_type !== "mute") {
     try {
-      const bmDel = await bmFetch(orgId, `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`, {
-        method: "DELETE",
-      });
+      const bmDel = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`,
+        {
+          method: "DELETE",
+        },
+      );
       if (bmDel?.ok || bmDel?.status === 404) {
-        await pool.query(`UPDATE player_bans SET bm_ban_id = NULL WHERE ban_id = $1`, [banId]);
+        await pool.query(
+          `UPDATE player_bans SET bm_ban_id = NULL WHERE ban_id = $1`,
+          [banId],
+        );
       } else {
         bmDeleteError = `BattleMetrics delete returned ${bmDel?.status}`;
       }
@@ -7256,7 +7272,10 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
   if (!ban) return json({ error: "Ban not found" }, 404);
 
   if (ban.action_type !== "ban")
-    return json({ error: "Only bans (not mutes) can be synced to BattleMetrics" }, 400);
+    return json(
+      { error: "Only bans (not mutes) can be synced to BattleMetrics" },
+      400,
+    );
 
   const orgRes = await pool.query(
     "SELECT bm_org_id FROM organizations WHERE org_id = $1",
@@ -7264,7 +7283,13 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
   );
   const bmOrgId = orgRes.rows[0]?.bm_org_id;
   if (!bmOrgId)
-    return json({ error: "No BattleMetrics organization ID configured for this org. Set it in Manage → Manage." }, 400);
+    return json(
+      {
+        error:
+          "No BattleMetrics organization ID configured for this org. Set it in Manage → Manage.",
+      },
+      400,
+    );
 
   // If already synced to BM, delete the existing BM ban first (to recreate fresh)
   // or update it if it exists.
@@ -7272,15 +7297,27 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
 
   const identifiers = [];
   if (ban.identifier_type === "steam_id" && /^\d{17}$/.test(ban.identifier)) {
-    identifiers.push({ type: "steamID", identifier: String(ban.identifier), manual: true });
+    identifiers.push({
+      type: "steamID",
+      identifier: String(ban.identifier),
+      manual: true,
+    });
   } else if (ban.identifier_type === "ip") {
-    identifiers.push({ type: "ip", identifier: String(ban.identifier), manual: true });
+    identifiers.push({
+      type: "ip",
+      identifier: String(ban.identifier),
+      manual: true,
+    });
   } else {
-    return json({ error: "Unsupported identifier type for BattleMetrics sync" }, 400);
+    return json(
+      { error: "Unsupported identifier type for BattleMetrics sync" },
+      400,
+    );
   }
 
-  const expiresIso =
-    ban.expires_at ? new Date(Number(ban.expires_at) * 1000).toISOString() : null;
+  const expiresIso = ban.expires_at
+    ? new Date(Number(ban.expires_at) * 1000).toISOString()
+    : null;
   const permanent = !expiresIso;
 
   const bmBody = {
@@ -7305,11 +7342,15 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
     let bmRes;
     if (existingBmBanId) {
       bmBody.data.id = existingBmBanId;
-      bmRes = await bmFetch(orgId, `https://api.battlemetrics.com/bans/${encodeURIComponent(existingBmBanId)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bmBody),
-      });
+      bmRes = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/bans/${encodeURIComponent(existingBmBanId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bmBody),
+        },
+      );
     } else {
       bmRes = await bmFetch(orgId, "https://api.battlemetrics.com/bans", {
         method: "POST",
@@ -7319,12 +7360,17 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
     }
 
     if (!bmRes?.ok) {
-      const errText = await bmRes?.text?.() ?? "Unknown BattleMetrics error";
-      return json({ error: `BattleMetrics API error: ${bmRes?.status} — ${errText}` }, 502);
+      const errText = (await bmRes?.text?.()) ?? "Unknown BattleMetrics error";
+      return json(
+        { error: `BattleMetrics API error: ${bmRes?.status} — ${errText}` },
+        502,
+      );
     }
 
     const bmData = await bmRes.json();
-    const newBmBanId = bmData?.data?.id ? String(bmData.data.id) : existingBmBanId;
+    const newBmBanId = bmData?.data?.id
+      ? String(bmData.data.id)
+      : existingBmBanId;
 
     if (newBmBanId) {
       await pool.query(

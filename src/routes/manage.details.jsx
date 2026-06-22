@@ -1026,14 +1026,23 @@ function ManageDetailsPage() {
       try {
         const res = await fetch("/api/auth/me", { credentials: "include" });
         if (!res.ok) {
-          if (!cancelled) { setSessionUser(null); setSessionLoading(false); }
+          if (!cancelled) {
+            setSessionUser(null);
+            setSessionLoading(false);
+          }
           return;
         }
 
         const body = await res.json();
-        if (!cancelled) { setSessionUser(body?.user ?? null); setSessionLoading(false); }
+        if (!cancelled) {
+          setSessionUser(body?.user ?? null);
+          setSessionLoading(false);
+        }
       } catch {
-        if (!cancelled) { setSessionUser(null); setSessionLoading(false); }
+        if (!cancelled) {
+          setSessionUser(null);
+          setSessionLoading(false);
+        }
       }
     }
 
@@ -1099,7 +1108,9 @@ function ManageDetailsPage() {
       } catch {}
     }
     loadGuilds();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleSave(event) {
@@ -1249,7 +1260,8 @@ function ManageDetailsPage() {
               placeholder="12345"
             />
             <p className="text-[11px] text-muted-foreground">
-              Found in your BattleMetrics URL: battlemetrics.com/rcon/orgs/<strong>ID</strong>
+              Found in your BattleMetrics URL: battlemetrics.com/rcon/orgs/
+              <strong>ID</strong>
             </p>
           </div>
 

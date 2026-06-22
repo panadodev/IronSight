@@ -5,7 +5,9 @@ All plugin endpoints authenticate via a per-server API key. Pass it as either:
 ```
 Authorization: Bearer <server_api_key>
 ```
+
 or
+
 ```
 x-api-key: <server_api_key>
 ```
@@ -16,19 +18,6 @@ All endpoints return JSON unless stated otherwise. Timestamps are Unix seconds (
 
 ---
 
-## Health Check
-
-**`GET /api/server-health-check`**
-
-Updates the server's `last_health_ping` timestamp. Call periodically (e.g. every minute) to indicate the plugin is alive.
-
-**Response**
-```json
-{ "ok": true }
-```
-
----
-
 ## Player Connect
 
 **`POST /api/ingest/connect`**
@@ -36,6 +25,7 @@ Updates the server's `last_health_ping` timestamp. Call periodically (e.g. every
 Called when a player joins the server. Triggers a background player-data refresh (BattleMetrics + Steam) if the cache is older than 1 hour or missing. Also records the player's IP address with server context and optionally sets their in-game display name.
 
 **Request body**
+
 ```json
 {
   "steam_id": "76561198000000000",
@@ -44,13 +34,14 @@ Called when a player joins the server. Triggers a background player-data refresh
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `steam_id` | string | Yes | SteamID64 (must match `^765611\d{11}$`) |
-| `ip` | string | No | Player's IP address (used for alt-detection) |
-| `player_name` | string | No | In-game display name (used as fallback if no Steam name yet) |
+| Field         | Type   | Required | Description                                                  |
+| ------------- | ------ | -------- | ------------------------------------------------------------ |
+| `steam_id`    | string | Yes      | SteamID64 (must match `^765611\d{11}$`)                      |
+| `ip`          | string | No       | Player's IP address (used for alt-detection)                 |
+| `player_name` | string | No       | In-game display name (used as fallback if no Steam name yet) |
 
 **Response**
+
 ```json
 { "ok": true }
 ```
@@ -64,6 +55,7 @@ Called when a player joins the server. Triggers a background player-data refresh
 Called when a player leaves the server. Updates the player's `last_seen_at` timestamp in the org's player sightings table.
 
 **Request body**
+
 ```json
 {
   "steam_id": "76561198000000000",
@@ -71,12 +63,13 @@ Called when a player leaves the server. Updates the player's `last_seen_at` time
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `steam_id` | string | Yes | SteamID64 (must match `^765611\d{11}$`) |
-| `player_name` | string | No | In-game display name (logged for diagnostics) |
+| Field         | Type   | Required | Description                                   |
+| ------------- | ------ | -------- | --------------------------------------------- |
+| `steam_id`    | string | Yes      | SteamID64 (must match `^765611\d{11}$`)       |
+| `player_name` | string | No       | In-game display name (logged for diagnostics) |
 
 **Response**
+
 ```json
 { "ok": true }
 ```
@@ -90,6 +83,7 @@ Called when a player leaves the server. Updates the player's `last_seen_at` time
 Stores a chat message. Persisted to PostgreSQL and cached in Redis for 7 days.
 
 **Request body**
+
 ```json
 {
   "message": "Hello world",
@@ -99,14 +93,15 @@ Stores a chat message. Persisted to PostgreSQL and cached in Redis for 7 days.
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `message` | string | Yes | Chat message content (max 1000 chars) |
-| `steam_id` | string | Yes | SteamID64 of the sender |
-| `player_name` | string | No | In-game display name of the sender (max 128 chars) |
-| `team_message` | boolean | No | `true` if this is a team/squad chat message |
+| Field          | Type    | Required | Description                                        |
+| -------------- | ------- | -------- | -------------------------------------------------- |
+| `message`      | string  | Yes      | Chat message content (max 1000 chars)              |
+| `steam_id`     | string  | Yes      | SteamID64 of the sender                            |
+| `player_name`  | string  | No       | In-game display name of the sender (max 128 chars) |
+| `team_message` | boolean | No       | `true` if this is a team/squad chat message        |
 
 **Response**
+
 ```json
 { "ok": true, "id": "123" }
 ```
@@ -120,6 +115,7 @@ Stores a chat message. Persisted to PostgreSQL and cached in Redis for 7 days.
 Logs a PvP kill event with optional Rust combatlog data. Persisted to PostgreSQL and cached in Redis for 7 days.
 
 **Request body**
+
 ```json
 {
   "killer_steam_id": "76561198000000000",
@@ -128,13 +124,14 @@ Logs a PvP kill event with optional Rust combatlog data. Persisted to PostgreSQL
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `killer_steam_id` | string | Yes | SteamID64 of the killer (max 64 chars) |
-| `victim_name` | string | Yes | Display name of the victim (max 128 chars) |
-| `combatlog_cache` | object | No | Raw Rust combatlog JSON object (max 64 KB) |
+| Field             | Type   | Required | Description                                |
+| ----------------- | ------ | -------- | ------------------------------------------ |
+| `killer_steam_id` | string | Yes      | SteamID64 of the killer (max 64 chars)     |
+| `victim_name`     | string | Yes      | Display name of the victim (max 128 chars) |
+| `combatlog_cache` | object | No       | Raw Rust combatlog JSON object (max 64 KB) |
 
 **Response**
+
 ```json
 { "ok": true, "id": "456" }
 ```
@@ -148,6 +145,7 @@ Logs a PvP kill event with optional Rust combatlog data. Persisted to PostgreSQL
 Stores a player report submitted via the in-game F7 menu or a custom plugin command.
 
 **Request body**
+
 ```json
 {
   "report_type": "cheat",
@@ -159,16 +157,17 @@ Stores a player report submitted via the in-game F7 menu or a custom plugin comm
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `report_type` | string | Yes | Category (max 64 chars, e.g. `cheat`, `toxicity`) |
-| `report_reason` | string | Yes | Short reason (max 256 chars) |
-| `report_description` | string | No | Longer description (max 2000 chars) |
-| `reporter_name` | string | Yes | Display name of the reporter (max 128 chars) |
-| `reporter_steam_id` | string | Yes | SteamID64 of the reporter (max 64 chars) |
-| `reported_steam_id` | string | Yes | SteamID64 of the reported player (max 64 chars) |
+| Field                | Type   | Required | Description                                       |
+| -------------------- | ------ | -------- | ------------------------------------------------- |
+| `report_type`        | string | Yes      | Category (max 64 chars, e.g. `cheat`, `toxicity`) |
+| `report_reason`      | string | Yes      | Short reason (max 256 chars)                      |
+| `report_description` | string | No       | Longer description (max 2000 chars)               |
+| `reporter_name`      | string | Yes      | Display name of the reporter (max 128 chars)      |
+| `reporter_steam_id`  | string | Yes      | SteamID64 of the reporter (max 64 chars)          |
+| `reported_steam_id`  | string | Yes      | SteamID64 of the reported player (max 64 chars)   |
 
 **Response**
+
 ```json
 { "ok": true, "id": "789" }
 ```
@@ -182,6 +181,7 @@ Stores a player report submitted via the in-game F7 menu or a custom plugin comm
 Logs a team/squad change event (member join, leave, team creation, or invite).
 
 **Request body**
+
 ```json
 {
   "event_type": "joined",
@@ -192,50 +192,19 @@ Logs a team/squad change event (member join, leave, team creation, or invite).
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `event_type` | string | Yes | One of: `created`, `joined`, `left`, `invited` |
-| `team_leader` | string | Yes | SteamID64 of the team leader (max 128 chars) |
-| `team_members` | string[] | Yes | SteamID64 array of all current team members (max 100 entries) |
-| `target_player` | string | Required for `invited` | SteamID64 or name of the invited player (max 128 chars) |
-| `event_time` | string | No | ISO 8601 timestamp or Unix seconds of the event (defaults to now) |
+| Field           | Type     | Required               | Description                                                       |
+| --------------- | -------- | ---------------------- | ----------------------------------------------------------------- |
+| `event_type`    | string   | Yes                    | One of: `created`, `joined`, `left`, `invited`                    |
+| `team_leader`   | string   | Yes                    | SteamID64 of the team leader (max 128 chars)                      |
+| `team_members`  | string[] | Yes                    | SteamID64 array of all current team members (max 100 entries)     |
+| `target_player` | string   | Required for `invited` | SteamID64 or name of the invited player (max 128 chars)           |
+| `event_time`    | string   | No                     | ISO 8601 timestamp or Unix seconds of the event (defaults to now) |
 
 **Response**
+
 ```json
 { "ok": true, "id": "abc" }
 ```
-
----
-
-## Mute Check
-
-**`GET /api/mute-check?steam_id=<steamid>`**
-
-Checks whether a player currently has an active mute on this org's servers. Call this on player connect to enforce mutes at join time.
-
-**Query parameters**
-
-| Param | Required | Description |
-|---|---|---|
-| `steam_id` | Yes | SteamID64 to check |
-
-**Response — not muted**
-```json
-{ "muted": false }
-```
-
-**Response — muted**
-```json
-{
-  "muted": true,
-  "permanent": false,
-  "reason": "Toxicity",
-  "expiresAt": 1700000000,
-  "expiresUnix": 1700000000
-}
-```
-
-`expiresAt` / `expiresUnix` is `null` for permanent mutes.
 
 ---
 
@@ -246,20 +215,19 @@ Checks whether a player currently has an active mute on this org's servers. Call
 Returns the active mute state for a batch of players. Useful on server startup to re-apply all existing mutes without querying one by one.
 
 **Request body**
+
 ```json
 {
-  "steam_ids": [
-    "76561198000000001",
-    "76561198000000002"
-  ]
+  "steam_ids": ["76561198000000001", "76561198000000002"]
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `steam_ids` | string[] | Yes | List of SteamID64s to check (max 350, invalid IDs are silently skipped) |
+| Field       | Type     | Required | Description                                                             |
+| ----------- | -------- | -------- | ----------------------------------------------------------------------- |
+| `steam_ids` | string[] | Yes      | List of SteamID64s to check (max 350, invalid IDs are silently skipped) |
 
 **Response**
+
 ```json
 {
   "active_mutes": {
@@ -273,32 +241,17 @@ The value for each steam ID is the Unix expiry timestamp, or `null` for a perman
 
 ---
 
-## Blacklisted Words
-
-**`GET /api/blacklisted-words`**
-
-Returns the org's blacklisted word list as a semicolon-delimited plain-text string. Use this to enforce word filtering in your plugin.
-
-**Response** (`text/plain`)
-```
-word1;word2;word3
-```
-
----
-
 ## Rate limits
 
 All endpoints are rate-limited per server. Exceeding the limit returns `429 Too Many Requests`. The limits are intentionally generous for normal plugin traffic:
 
-| Endpoint | Limit |
-|---|---|
-| Health check | 60 req/min |
+| Endpoint             | Limit       |
+| -------------------- | ----------- |
 | Connect / Disconnect | 300 req/min |
-| Chat | 120 req/min |
-| PvP | 120 req/min |
-| Reports | 60 req/min |
-| Team events | 120 req/min |
-| Mute check | 60 req/min |
-| Mute sync | 120 req/min |
+| Chat                 | 120 req/min |
+| PvP                  | 120 req/min |
+| Reports              | 60 req/min  |
+| Team events          | 120 req/min |
+| Mute sync            | 120 req/min |
 
 Rate limiters fail **open** — if Redis is unavailable, requests are passed through rather than rejected.

@@ -183,7 +183,10 @@ function BansMutesPage() {
     if (res.ok) {
       const body = await res.json().catch(() => null);
       if (body?.bmDeleteError) {
-        setBmSyncResult({ ok: false, msg: `Ban revoked, but BM delete failed: ${body.bmDeleteError}` });
+        setBmSyncResult({
+          ok: false,
+          msg: `Ban revoked, but BM delete failed: ${body.bmDeleteError}`,
+        });
         setTimeout(() => setBmSyncResult(null), 6000);
       }
       loadBans();
@@ -200,7 +203,10 @@ function BansMutesPage() {
       );
       const body = await res.json().catch(() => null);
       if (res.ok) {
-        setBmSyncResult({ ok: true, msg: body?.updated ? "BM ban updated" : "Synced to BattleMetrics" });
+        setBmSyncResult({
+          ok: true,
+          msg: body?.updated ? "BM ban updated" : "Synced to BattleMetrics",
+        });
         loadBans();
       } else {
         setBmSyncResult({ ok: false, msg: body?.error ?? "BM sync failed" });
@@ -391,9 +397,15 @@ function BansMutesPage() {
                             onClick={() => syncToBm(r)}
                             disabled={bmSyncing === r.banId}
                             className="size-7 inline-flex items-center justify-center rounded ring-1 ring-border hover:bg-surface disabled:opacity-50"
-                            title={r.bmBanId ? "Update BattleMetrics ban" : "Sync to BattleMetrics"}
+                            title={
+                              r.bmBanId
+                                ? "Update BattleMetrics ban"
+                                : "Sync to BattleMetrics"
+                            }
                           >
-                            <RefreshCw className={`size-3 ${bmSyncing === r.banId ? "animate-spin" : ""}`} />
+                            <RefreshCw
+                              className={`size-3 ${bmSyncing === r.banId ? "animate-spin" : ""}`}
+                            />
                           </button>
                         )}
                         {!r.revoked && (

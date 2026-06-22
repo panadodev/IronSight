@@ -1,9 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -115,8 +111,7 @@ function SiteNav() {
     canTicketsManage;
 
   const canOrgDetails =
-    isSysAdminSession ||
-    orgs.some((o) => sessionOrgOwnerIds.includes(o.id));
+    isSysAdminSession || orgs.some((o) => sessionOrgOwnerIds.includes(o.id));
 
   const allOrgs = useMemo(() => {
     const map = new Map(orgs.map((o) => [o.id, o]));
@@ -1300,7 +1295,12 @@ function ManageOrgInlineSwitcher({ orgs }) {
     </Popover>
   );
 }
-function MobileSidebarContent({ groups, path, currentOrgId, setMobileNavOpen }) {
+function MobileSidebarContent({
+  groups,
+  path,
+  currentOrgId,
+  setMobileNavOpen,
+}) {
   const { location } = useRouterState();
   return (
     <div className="flex flex-col h-full">
@@ -1323,8 +1323,7 @@ function MobileSidebarContent({ groups, path, currentOrgId, setMobileNavOpen }) 
                   ? pathMatches && l.matchSearch(location.search)
                   : pathMatches;
                 const search =
-                  l.search ??
-                  (currentOrgId ? { org: currentOrgId } : void 0);
+                  l.search ?? (currentOrgId ? { org: currentOrgId } : void 0);
                 return (
                   <Link
                     key={l.to + ":" + (l.label ?? idx)}
