@@ -687,6 +687,7 @@ function ScriptsTab({ servers, orgId }) {
   const [pendingRun, setPendingRun] = useState(null);
   const [runResults, setRunResults] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -759,7 +760,9 @@ function ScriptsTab({ servers, orgId }) {
   };
 
   const executeRun = async (script, targets, vars) => {
+    if (running) return;
     setPendingRun(null);
+    setRunning(true);
     const serverMap = Object.fromEntries(servers.map((s) => [s.id, s.name]));
     const initialResults = targets.map((id) => ({
       serverId: id,
@@ -814,6 +817,7 @@ function ScriptsTab({ servers, orgId }) {
         return { ...prev, results: next };
       });
     }
+    setRunning(false);
   };
 
   const triggerRun = (script, targets, targetLabel) => {
@@ -948,13 +952,13 @@ function ScriptsTab({ servers, orgId }) {
                       `all ${servers.length} servers`,
                     )
                   }
-                  disabled={!servers.length || !allowed || !canRcon}
+                  disabled={!servers.length || !allowed || !canRcon || running}
                 >
-                  <Play className="size-3.5 mr-1" /> Run all
+                  <Play className="size-3.5 mr-1" /> {running ? "Running…" : "Run all"}
                 </Button>
                 <RunOnGroupButton
                   tags={allTags}
-                  disabled={!allowed || !canRcon}
+                  disabled={!allowed || !canRcon || running}
                   onPick={(tag) =>
                     triggerRun(
                       s,
@@ -967,7 +971,7 @@ function ScriptsTab({ servers, orgId }) {
                 />
                 <RunOnServerButton
                   servers={servers}
-                  disabled={!allowed || !canRcon}
+                  disabled={!allowed || !canRcon || running}
                   onPick={(srv) => triggerRun(s, [srv.id], srv.name)}
                 />
               </div>

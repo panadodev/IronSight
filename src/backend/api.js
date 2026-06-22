@@ -10484,6 +10484,10 @@ async function handleGetDiscordBotGuilds(request) {
     return json({ guilds: [] });
   }
 
+  const ADMINISTRATOR = 0x8n;
+  const MANAGE_GUILD = 0x20n;
+  const userId = session.discordId;
+
   try {
     const res = await fetch("https://discord.com/api/v10/users/@me/guilds", {
       headers: { Authorization: `Bot ${env.discordBotToken}` },
@@ -10491,14 +10495,51 @@ async function handleGetDiscordBotGuilds(request) {
     if (!res.ok) {
       return json({ guilds: [] });
     }
-    const guilds = await res.json();
-    return json({
-      guilds: guilds.map((g) => ({
-        id: String(g.id),
-        name: String(g.name),
-        icon: g.icon ?? null,
-      })),
-    });
+    const allGuilds = await res.json();
+
+    const results = await Promise.all(
+      allGuilds.map(async (g) => {
+        try {
+          const [guildRes, memberRes] = await Promise.all([
+            fetch(
+              `https://discord.com/api/v10/guilds/${g.id}?with_counts=false`,
+              { headers: { Authorization: `Bot ${env.discordBotToken}` } },
+            ),
+            fetch(
+              `https://discord.com/api/v10/guilds/${g.id}/members/${userId}`,
+              { headers: { Authorization: `Bot ${env.discordBotToken}` } },
+            ),
+          ]);
+          if (!guildRes.ok) return null;
+          const guild = await guildRes.json();
+
+          if (guild.owner_id === userId) {
+            return { id: String(g.id), name: String(g.name), icon: g.icon ?? null };
+          }
+
+          if (!memberRes.ok) return null;
+          const member = await memberRes.json();
+
+          const memberRoleIds = new Set(member.roles ?? []);
+          const rolePerms = Object.fromEntries(
+            (guild.roles ?? []).map((r) => [r.id, BigInt(r.permissions)]),
+          );
+          let perms = rolePerms[guild.id] ?? 0n;
+          for (const roleId of memberRoleIds) {
+            perms |= rolePerms[roleId] ?? 0n;
+          }
+
+          if ((perms & ADMINISTRATOR) !== 0n || (perms & MANAGE_GUILD) !== 0n) {
+            return { id: String(g.id), name: String(g.name), icon: g.icon ?? null };
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    return json({ guilds: results.filter(Boolean) });
   } catch {
     return json({ guilds: [] });
   }

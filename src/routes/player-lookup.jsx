@@ -215,6 +215,8 @@ function PlayerLookupPage() {
   const [manageBansOpen, setManageBansOpen] = useState(false);
   const [manageMutesOpen, setManageMutesOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshCooldown, setRefreshCooldown] = useState(false);
+  const refreshCooldownRef = useRef(null);
 
   useEffect(() => {
     if (search.steam && search.steam !== steamId) {
@@ -386,9 +388,13 @@ function PlayerLookupPage() {
     if (/^\d{17}$/.test(trimmed)) setSteamId(trimmed);
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
+    if (refreshing || refreshCooldown) return;
     setRefreshing(true);
-    fetchPlayer(true);
+    await fetchPlayer(true);
+    setRefreshCooldown(true);
+    if (refreshCooldownRef.current) clearTimeout(refreshCooldownRef.current);
+    refreshCooldownRef.current = setTimeout(() => setRefreshCooldown(false), 15000);
   };
 
   const submitBan = async (sub) => {
@@ -586,7 +592,8 @@ function PlayerLookupPage() {
                 </div>
                 <button
                   type="submit"
-                  className="px-4 py-2.5 bg-brand text-brand-foreground rounded-md text-sm font-semibold hover:opacity-90"
+                  disabled={playerLoading || firstFetch}
+                  className="px-4 py-2.5 bg-brand text-brand-foreground rounded-md text-sm font-semibold hover:opacity-90 disabled:opacity-50"
                 >
                   Lookup
                 </button>
@@ -678,9 +685,9 @@ function PlayerLookupPage() {
                         <button
                           type="button"
                           onClick={handleRefresh}
-                          disabled={refreshing}
+                          disabled={refreshing || refreshCooldown}
                           className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-muted-foreground text-xs rounded-md ring-1 ring-border hover:bg-surface-bright disabled:opacity-50"
-                          title="Refresh data from BattleMetrics / Steam"
+                          title={refreshCooldown ? "Wait a moment before refreshing again" : "Refresh data from BattleMetrics / Steam"}
                         >
                           <RefreshCw
                             className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}

@@ -55,6 +55,7 @@ function BanDialog({
   const [customReason, setCustomReason] = useState("");
   const [length, setLength] = useState("7d");
   const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     if (!open || !orgId) return;
     if (orgBanConfigs[orgId] === undefined) {
@@ -63,7 +64,10 @@ function BanDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, orgId]);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setSubmitting(false);
+      return;
+    }
     setReasonId(isOther ? "__custom__" : (reasons[0]?.id ?? "__custom__"));
     setCustomReason("");
     setLength("7d");
@@ -75,7 +79,8 @@ function BanDialog({
   }, [reasonId, customReason, reasons]);
   const canSubmit = reasonLabel.length > 0;
   const handleSubmit = () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
     onSubmit({
       reason: reasonLabel,
       length,
@@ -179,7 +184,7 @@ function BanDialog({
           </Button>
           <Button
             variant="destructive"
-            disabled={!canSubmit}
+            disabled={!canSubmit || submitting}
             onClick={handleSubmit}
           >
             {isMute ? "Mute player" : "Ban player"}

@@ -19,6 +19,7 @@ Copy `.env.example` to `.env` and set values:
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
 - `SYS_ADMIN_DISCORD_ID`
+- `SYSADMIN_STEAM_ID`
 
 Optional runtime tuning:
 
