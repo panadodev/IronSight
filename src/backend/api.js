@@ -7072,7 +7072,18 @@ async function handleCreateBan(request, orgId) {
     ipAddress: getClientIp(request),
   });
 
-  return json({ ok: true, banId, rconResults }, 201);
+  // Bans are mirrored to BattleMetrics for record-keeping (no identifiers, so it
+  // never bans the player there). Best-effort: a BM failure must not fail the
+  // ban that already succeeded locally and over RCON.
+  let bmSync = null;
+  if (actionType === "ban") {
+    const r = await syncBanRecordToBattlemetrics(orgId, banId);
+    bmSync = r.ok
+      ? { ok: true, bmBanId: r.bmBanId }
+      : { ok: false, error: r.error, skipped: r.skipped ?? false };
+  }
+
+  return json({ ok: true, banId, rconResults, bmSync }, 201);
 }
 
 async function handleUpdateBan(request, orgId, banId) {
@@ -7253,12 +7264,12 @@ async function handleRevokeBan(request, orgId, banId) {
   return json({ ok: true, rconResults, bmDeleteError });
 }
 
-async function handleSyncBanToBattlemetrics(request, orgId, banId) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_manage"))
-    return json({ error: "Forbidden: bans_manage permission required" }, 403);
-
+// Create or update a BattleMetrics ban for a local ban record. By design the BM
+// ban carries NO identifiers, so it never actually bans the player on
+// BattleMetrics — it exists purely as a cross-referenced record for history.
+// Returns { ok, bmBanId, updated, error, status, skipped }. Used both by the
+// manual sync endpoint and automatically on ban creation.
+async function syncBanRecordToBattlemetrics(orgId, banId) {
   const banRes = await pool.query(
     `SELECT ban_id, org_id, action_type, identifier, identifier_type,
             category, reason, note, expires_at, revoked, bm_ban_id
@@ -7266,13 +7277,14 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
     [banId, orgId],
   );
   const ban = banRes.rows[0];
-  if (!ban) return json({ error: "Ban not found" }, 404);
+  if (!ban) return { ok: false, error: "Ban not found", status: 404 };
 
   if (ban.action_type !== "ban")
-    return json(
-      { error: "Only bans (not mutes) can be synced to BattleMetrics" },
-      400,
-    );
+    return {
+      ok: false,
+      error: "Only bans (not mutes) can be synced to BattleMetrics",
+      status: 400,
+    };
 
   const orgRes = await pool.query(
     "SELECT bm_org_id FROM organizations WHERE org_id = $1",
@@ -7280,37 +7292,16 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
   );
   const bmOrgId = orgRes.rows[0]?.bm_org_id;
   if (!bmOrgId)
-    return json(
-      {
-        error:
-          "No BattleMetrics organization ID configured for this org. Set it in Manage → Manage.",
-      },
-      400,
-    );
+    return {
+      ok: false,
+      skipped: true,
+      status: 400,
+      error:
+        "No BattleMetrics organization ID configured for this org. Set it in Manage → Manage.",
+    };
 
-  // If already synced to BM, delete the existing BM ban first (to recreate fresh)
-  // or update it if it exists.
+  // If already synced, PATCH the existing BM ban; otherwise create a new one.
   const existingBmBanId = ban.bm_ban_id ? String(ban.bm_ban_id) : null;
-
-  const identifiers = [];
-  if (ban.identifier_type === "steam_id" && /^\d{17}$/.test(ban.identifier)) {
-    identifiers.push({
-      type: "steamID",
-      identifier: String(ban.identifier),
-      manual: true,
-    });
-  } else if (ban.identifier_type === "ip") {
-    identifiers.push({
-      type: "ip",
-      identifier: String(ban.identifier),
-      manual: true,
-    });
-  } else {
-    return json(
-      { error: "Unsupported identifier type for BattleMetrics sync" },
-      400,
-    );
-  }
 
   const expiresIso = ban.expires_at
     ? new Date(Number(ban.expires_at) * 1000).toISOString()
@@ -7325,9 +7316,11 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
         note: ban.note || null,
         expires: expiresIso,
         permanent,
-        autoAddEnabled: true,
+        // No identifiers and no native push: this BM ban is for record-keeping
+        // only and must not match or ban the player on BattleMetrics' side.
+        autoAddEnabled: false,
         nativeEnabled: null,
-        identifiers,
+        identifiers: [],
       },
       relationships: {
         organization: { data: { type: "organization", id: String(bmOrgId) } },
@@ -7358,10 +7351,11 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
 
     if (!bmRes?.ok) {
       const errText = (await bmRes?.text?.()) ?? "Unknown BattleMetrics error";
-      return json(
-        { error: `BattleMetrics API error: ${bmRes?.status} — ${errText}` },
-        502,
-      );
+      return {
+        ok: false,
+        status: 502,
+        error: `BattleMetrics API error: ${bmRes?.status} — ${errText}`,
+      };
     }
 
     const bmData = await bmRes.json();
@@ -7376,10 +7370,30 @@ async function handleSyncBanToBattlemetrics(request, orgId, banId) {
       );
     }
 
-    return json({ ok: true, bmBanId: newBmBanId, updated: !!existingBmBanId });
+    return { ok: true, bmBanId: newBmBanId, updated: !!existingBmBanId };
   } catch (err) {
-    return json({ error: `BattleMetrics sync failed: ${err.message}` }, 502);
+    return {
+      ok: false,
+      status: 502,
+      error: `BattleMetrics sync failed: ${err.message}`,
+    };
   }
+}
+
+async function handleSyncBanToBattlemetrics(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden: bans_manage permission required" }, 403);
+
+  const result = await syncBanRecordToBattlemetrics(orgId, banId);
+  if (!result.ok) return json({ error: result.error }, result.status ?? 502);
+
+  return json({
+    ok: true,
+    bmBanId: result.bmBanId,
+    updated: result.updated,
+  });
 }
 
 async function handleGetBlacklistedWords(request, orgId) {
@@ -8199,6 +8213,74 @@ async function handleGetGlobalpingResults(request, orgId) {
       measuredAt: Number(r.measured_at),
     })),
     pendingCount: Number(pendingRows[0]?.cnt ?? 0),
+  });
+}
+
+async function handleGetGlobalpingHistory(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (
+    !orgHasPermission(session, orgId, "status_view") &&
+    !orgHasPermission(session, orgId, "servers_manage")
+  )
+    return json({ error: "Forbidden" }, 403);
+
+  const url = new URL(request.url);
+  const serverId = url.searchParams.get("serverId");
+  if (!serverId) return json({ error: "serverId is required" }, 400);
+
+  // Verify the server belongs to this org (derive ownership from the row → no IDOR).
+  const srvRes = await pool.query(
+    `SELECT server_id FROM servers WHERE server_id = $1 AND owner_org_id = $2`,
+    [serverId, orgId],
+  );
+  if (!srvRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const cfgRes = await pool.query(
+    `SELECT countries FROM org_globalping_config WHERE org_id = $1`,
+    [orgId],
+  );
+  const countries = Array.isArray(cfgRes.rows[0]?.countries)
+    ? cfgRes.rows[0].countries
+    : [];
+
+  const { rows } = await pool.query(
+    `SELECT country, reachable, avg_rtt, min_rtt, max_rtt,
+            probe_count, reachable_count, measured_at
+     FROM org_globalping_results
+     WHERE org_id = $1 AND server_id = $2 AND measured_at > unix_now() - 86400
+     ORDER BY measured_at DESC, country ASC
+     LIMIT 3000`,
+    [orgId, serverId],
+  );
+
+  // Each measurement cycle inserts all countries with the same measured_at, so
+  // group rows into per-timestamp snapshots. Cap to the 50 most recent cycles.
+  const byTime = new Map();
+  const order = [];
+  for (const r of rows) {
+    const t = Number(r.measured_at);
+    let snap = byTime.get(t);
+    if (!snap) {
+      if (order.length >= 50) continue;
+      snap = {};
+      byTime.set(t, snap);
+      order.push(t);
+    }
+    snap[r.country] = {
+      reachable: r.reachable,
+      avgRtt: r.avg_rtt != null ? Number(r.avg_rtt) : null,
+      minRtt: r.min_rtt != null ? Number(r.min_rtt) : null,
+      maxRtt: r.max_rtt != null ? Number(r.max_rtt) : null,
+      probeCount: Number(r.probe_count),
+      reachableCount: Number(r.reachable_count),
+    };
+  }
+
+  return json({
+    serverId: String(serverId),
+    countries,
+    snapshots: order.map((t) => ({ measuredAt: t, cells: byTime.get(t) })),
   });
 }
 
@@ -9932,6 +10014,12 @@ async function _handleApiRequest(request) {
     );
     if (orgGlobalpingResultsMatch && request.method === "GET")
       return handleGetGlobalpingResults(request, orgGlobalpingResultsMatch[1]);
+
+    const orgGlobalpingHistoryMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/globalping\/history$/,
+    );
+    if (orgGlobalpingHistoryMatch && request.method === "GET")
+      return handleGetGlobalpingHistory(request, orgGlobalpingHistoryMatch[1]);
 
     const orgGlobalpingTriggerMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/globalping\/trigger$/,

@@ -903,8 +903,8 @@ function GlobalpingSection({ orgId }) {
                 {countries.length} countr
                 {countries.length === 1 ? "y" : "ies"} ({probesPerCountry} probe
                 {probesPerCountry === 1 ? "" : "s"} each), ~
-                {cyclesPerDay.toLocaleString()} cycles/day. Longer intervals stay
-                further under Globalping's rate limit.
+                {cyclesPerDay.toLocaleString()} cycles/day. Longer intervals
+                stay further under Globalping's rate limit.
               </p>
             </div>
 

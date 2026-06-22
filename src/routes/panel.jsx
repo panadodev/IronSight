@@ -954,7 +954,8 @@ function ScriptsTab({ servers, orgId }) {
                   }
                   disabled={!servers.length || !allowed || !canRcon || running}
                 >
-                  <Play className="size-3.5 mr-1" /> {running ? "Running…" : "Run all"}
+                  <Play className="size-3.5 mr-1" />{" "}
+                  {running ? "Running…" : "Run all"}
                 </Button>
                 <RunOnGroupButton
                   tags={allTags}
@@ -2226,11 +2227,49 @@ function rttColor(rtt) {
   return "bg-orange-500/20 text-orange-400";
 }
 
+// One reachability grid cell, shared by the live snapshot and the history view.
+function ReachabilityCell({ r, label }) {
+  if (!r) {
+    return (
+      <td className="px-2 py-2 text-center">
+        <span className="inline-block px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground/50 font-mono">
+          —
+        </span>
+      </td>
+    );
+  }
+  if (!r.reachable) {
+    return (
+      <td className="px-2 py-2 text-center">
+        <span
+          className="inline-block px-1.5 py-0.5 rounded ring-1 ring-red-500/40 bg-red-500/15 text-red-400 font-mono"
+          title={`Unreachable from ${label} · ${r.probeCount} probe${r.probeCount === 1 ? "" : "s"} tried`}
+        >
+          ✕
+        </span>
+      </td>
+    );
+  }
+  return (
+    <td className="px-2 py-2 text-center">
+      <span
+        className={`inline-block px-1.5 py-0.5 rounded ring-1 font-mono tabular-nums ${rttColor(r.avgRtt)} ring-current/20`}
+        title={`${label} · avg ${r.avgRtt?.toFixed(1)} ms · min ${r.minRtt?.toFixed(1)} ms · max ${r.maxRtt?.toFixed(1)} ms · ${r.reachableCount}/${r.probeCount} probes`}
+      >
+        {r.avgRtt != null ? `${Math.round(r.avgRtt)}ms` : "ok"}
+      </span>
+    </td>
+  );
+}
+
 function GlobalpingSection({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
   const [triggering, setTriggering] = useState(false);
+  const [historyServerId, setHistoryServerId] = useState("");
+  const [history, setHistory] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -2269,6 +2308,33 @@ function GlobalpingSection({ orgId }) {
     const id = setInterval(load, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, [load]);
+
+  const loadHistory = useCallback(
+    async (serverId) => {
+      if (!serverId) {
+        setHistory(null);
+        return;
+      }
+      setHistoryLoading(true);
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/globalping/history?serverId=${encodeURIComponent(serverId)}`,
+          { credentials: "include" },
+        );
+        setHistory(res.ok ? await res.json() : null);
+      } catch {
+        setHistory(null);
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [orgId],
+  );
+
+  // Refetch history whenever a server is picked or the live data refreshes.
+  useEffect(() => {
+    loadHistory(historyServerId);
+  }, [historyServerId, loadHistory, updatedAt]);
 
   if (loading) return null;
   if (!data?.configured) {
@@ -2325,6 +2391,19 @@ function GlobalpingSection({ orgId }) {
               {new Date(updatedAt).toLocaleTimeString()}
             </span>
           )}
+          <select
+            value={historyServerId}
+            onChange={(e) => setHistoryServerId(e.target.value)}
+            title="Show measurement history for a server"
+            className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
+          >
+            <option value="">History…</option>
+            {servers.map((s) => (
+              <option key={s.serverId} value={s.serverId}>
+                {s.serverName}
+              </option>
+            ))}
+          </select>
           <button
             onClick={trigger}
             disabled={triggering}
@@ -2381,46 +2460,91 @@ function GlobalpingSection({ orgId }) {
                       </span>
                     </div>
                   </td>
-                  {countries.map((cc) => {
-                    const r = resultMap.get(`${s.serverId}:${cc}`);
-                    if (!r) {
-                      return (
-                        <td key={cc} className="px-2 py-2 text-center">
-                          <span className="inline-block px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground/50 font-mono">
-                            —
-                          </span>
-                        </td>
-                      );
-                    }
-                    if (!r.reachable) {
-                      return (
-                        <td key={cc} className="px-2 py-2 text-center">
-                          <span
-                            className="inline-block px-1.5 py-0.5 rounded ring-1 ring-red-500/40 bg-red-500/15 text-red-400 font-mono"
-                            title={`Unreachable from ${COUNTRY_NAMES[cc] ?? cc} · ${r.probeCount} probe${r.probeCount === 1 ? "" : "s"} tried`}
-                          >
-                            ✕
-                          </span>
-                        </td>
-                      );
-                    }
-                    return (
-                      <td key={cc} className="px-2 py-2 text-center">
-                        <span
-                          className={`inline-block px-1.5 py-0.5 rounded ring-1 font-mono tabular-nums ${rttColor(r.avgRtt)} ring-current/20`}
-                          title={`${COUNTRY_NAMES[cc] ?? cc} · avg ${r.avgRtt?.toFixed(1)} ms · min ${r.minRtt?.toFixed(1)} ms · max ${r.maxRtt?.toFixed(1)} ms · ${r.reachableCount}/${r.probeCount} probes`}
-                        >
-                          {r.avgRtt != null
-                            ? `${Math.round(r.avgRtt)}ms`
-                            : "ok"}
-                        </span>
-                      </td>
-                    );
-                  })}
+                  {countries.map((cc) => (
+                    <ReachabilityCell
+                      key={cc}
+                      r={resultMap.get(`${s.serverId}:${cc}`)}
+                      label={COUNTRY_NAMES[cc] ?? cc}
+                    />
+                  ))}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {historyServerId && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <h5 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              History ·{" "}
+              {servers.find((s) => s.serverId === historyServerId)
+                ?.serverName ?? historyServerId}
+              <span className="ml-1 normal-case tracking-normal text-muted-foreground/60">
+                (last 24h)
+              </span>
+            </h5>
+            <button
+              onClick={() => setHistoryServerId("")}
+              className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
+            >
+              Close
+            </button>
+          </div>
+          {historyLoading && !history ? (
+            <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[11px] text-muted-foreground">
+              Loading history…
+            </div>
+          ) : !history?.snapshots?.length ? (
+            <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[11px] text-muted-foreground">
+              No measurement history in the last 24 hours.
+            </div>
+          ) : (
+            <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto max-h-72 overflow-y-auto">
+              <table className="w-full text-[10px]">
+                <thead className="sticky top-0">
+                  <tr className="border-b border-border bg-surface/90">
+                    <th className="text-left px-3 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                      Time
+                    </th>
+                    {history.countries.map((cc) => (
+                      <th
+                        key={cc}
+                        className="px-2 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap text-center"
+                        title={COUNTRY_NAMES[cc] ?? cc}
+                      >
+                        {cc}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.snapshots.map((snap, i) => (
+                    <tr
+                      key={snap.measuredAt}
+                      className={
+                        i < history.snapshots.length - 1
+                          ? "border-b border-border"
+                          : ""
+                      }
+                    >
+                      <td className="px-3 py-2 font-mono whitespace-nowrap text-muted-foreground">
+                        {new Date(snap.measuredAt * 1000).toLocaleString()}
+                      </td>
+                      {history.countries.map((cc) => (
+                        <ReachabilityCell
+                          key={cc}
+                          r={snap.cells[cc]}
+                          label={COUNTRY_NAMES[cc] ?? cc}
+                        />
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
