@@ -1139,6 +1139,13 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_ripe_atlas_results_org
      ON org_ripe_atlas_results(org_id, measured_at DESC)`,
   );
+
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bm_org_id TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS bm_ban_id TEXT`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {

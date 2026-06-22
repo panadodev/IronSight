@@ -89,6 +89,12 @@
   body {
     padding-left: 14rem;
   }
+  @media (max-width: 767px) {
+    body {
+      padding-left: 0;
+      padding-top: 3.5rem; /* mobile header height */
+    }
+  }
   ::selection {
     background-color: color-mix(in oklab, var(--brand) 30%, transparent);
     color: white;

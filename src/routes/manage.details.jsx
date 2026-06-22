@@ -1009,11 +1009,14 @@ function RipeAtlasSection({ orgId }) {
 function ManageDetailsPage() {
   const orgId = useManageOrgId();
   const [loading, setLoading] = useState(true);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
   const [guildId, setGuildId] = useState("");
+  const [bmOrgId, setBmOrgId] = useState("");
+  const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
 
   useEffect(() => {
@@ -1023,14 +1026,14 @@ function ManageDetailsPage() {
       try {
         const res = await fetch("/api/auth/me", { credentials: "include" });
         if (!res.ok) {
-          if (!cancelled) setSessionUser(null);
+          if (!cancelled) { setSessionUser(null); setSessionLoading(false); }
           return;
         }
 
         const body = await res.json();
-        if (!cancelled) setSessionUser(body?.user ?? null);
+        if (!cancelled) { setSessionUser(body?.user ?? null); setSessionLoading(false); }
       } catch {
-        if (!cancelled) setSessionUser(null);
+        if (!cancelled) { setSessionUser(null); setSessionLoading(false); }
       }
     }
 
@@ -1066,6 +1069,7 @@ function ManageDetailsPage() {
         if (cancelled) return;
         setName(body.organization?.name ?? "");
         setGuildId(body.organization?.guildId ?? "");
+        setBmOrgId(body.organization?.bmOrgId ?? "");
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1082,6 +1086,22 @@ function ManageDetailsPage() {
     };
   }, [orgId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGuilds() {
+      try {
+        const res = await fetch("/api/internal/discord-guilds", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled && Array.isArray(body?.guilds)) setGuilds(body.guilds);
+      } catch {}
+    }
+    loadGuilds();
+    return () => { cancelled = true; };
+  }, []);
+
   async function handleSave(event) {
     event.preventDefault();
     if (!orgId) return;
@@ -1096,7 +1116,8 @@ function ManageDetailsPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          guildId: guildId.trim(),
+          guildId: guildId.trim() || null,
+          bmOrgId: bmOrgId.trim() || null,
         }),
       });
 
@@ -1109,6 +1130,7 @@ function ManageDetailsPage() {
       const body = await res.json();
       setName(body.organization?.name ?? name.trim());
       setGuildId(body.organization?.guildId ?? guildId.trim());
+      setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1128,6 +1150,24 @@ function ManageDetailsPage() {
   }
 
   const isSysAdmin = Boolean(sessionUser?.isSysAdmin);
+  const isOwner =
+    isSysAdmin ||
+    (Array.isArray(sessionUser?.orgOwnerOrgIds) &&
+      sessionUser.orgOwnerOrgIds.includes(orgId));
+
+  if (!sessionLoading && !isOwner) {
+    return (
+      <div className="rounded-lg ring-1 ring-border bg-surface/40 p-8 text-center">
+        <SectionHeader
+          title="Manage"
+          blurb="Update core organization details."
+        />
+        <p className="text-sm text-muted-foreground mt-4">
+          Only organization owners can access this page.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1169,14 +1209,48 @@ function ManageDetailsPage() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="guild-id">Discord guild ID</Label>
+            <Label htmlFor="guild-id">Discord guild</Label>
+            {guilds.length > 0 ? (
+              <Select
+                value={guildId || "__none__"}
+                onValueChange={(v) => setGuildId(v === "__none__" ? "" : v)}
+                disabled={loading || saving}
+              >
+                <SelectTrigger id="guild-id">
+                  <SelectValue placeholder="Select a guild" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Not linked —</SelectItem>
+                  {guilds.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name} ({g.id})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id="guild-id"
+                value={guildId}
+                onChange={(e) => setGuildId(e.target.value)}
+                disabled={loading || saving}
+                placeholder="123456789012345678"
+              />
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="bm-org-id">BattleMetrics organization ID</Label>
             <Input
-              id="guild-id"
-              value={guildId}
-              onChange={(e) => setGuildId(e.target.value)}
+              id="bm-org-id"
+              value={bmOrgId}
+              onChange={(e) => setBmOrgId(e.target.value)}
               disabled={loading || saving}
-              placeholder="123456789012345678"
+              placeholder="12345"
             />
+            <p className="text-[11px] text-muted-foreground">
+              Found in your BattleMetrics URL: battlemetrics.com/rcon/orgs/<strong>ID</strong>
+            </p>
           </div>
 
           <Button type="submit" disabled={loading || saving}>

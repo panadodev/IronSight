@@ -1,7 +1,7 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ShieldAlert, Edit3, X, Plus } from "lucide-react";
+import { ShieldAlert, Edit3, X, Plus, RefreshCw } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { Input } from "@/components/ui/input";
@@ -172,12 +172,45 @@ function BansMutesPage() {
     );
   }, [tab, bans, mutes, query]);
 
+  const [bmSyncing, setBmSyncing] = useState(null);
+  const [bmSyncResult, setBmSyncResult] = useState(null);
+
   const revoke = async (record) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}`,
       { method: "DELETE", credentials: "include" },
     );
-    if (res.ok) loadBans();
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      if (body?.bmDeleteError) {
+        setBmSyncResult({ ok: false, msg: `Ban revoked, but BM delete failed: ${body.bmDeleteError}` });
+        setTimeout(() => setBmSyncResult(null), 6000);
+      }
+      loadBans();
+    }
+  };
+
+  const syncToBm = async (record) => {
+    setBmSyncing(record.banId);
+    setBmSyncResult(null);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}/bm-sync`,
+        { method: "POST", credentials: "include" },
+      );
+      const body = await res.json().catch(() => null);
+      if (res.ok) {
+        setBmSyncResult({ ok: true, msg: body?.updated ? "BM ban updated" : "Synced to BattleMetrics" });
+        loadBans();
+      } else {
+        setBmSyncResult({ ok: false, msg: body?.error ?? "BM sync failed" });
+      }
+    } catch {
+      setBmSyncResult({ ok: false, msg: "Network error" });
+    } finally {
+      setBmSyncing(null);
+      setTimeout(() => setBmSyncResult(null), 4000);
+    }
   };
 
   if (!canAccess) {
@@ -245,6 +278,18 @@ function BansMutesPage() {
                 )}
               </div>
             </div>
+
+            {bmSyncResult && (
+              <div
+                className={`rounded-md px-3 py-2 text-sm ring-1 ${
+                  bmSyncResult.ok
+                    ? "bg-emerald-500/10 ring-emerald-500/30 text-emerald-700"
+                    : "bg-danger/10 ring-danger/40 text-danger"
+                }`}
+              >
+                {bmSyncResult.msg}
+              </div>
+            )}
 
             {/* Filters */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -341,6 +386,16 @@ function BansMutesPage() {
                         >
                           <Edit3 className="size-3" />
                         </button>
+                        {!r.revoked && r.actionType === "ban" && (
+                          <button
+                            onClick={() => syncToBm(r)}
+                            disabled={bmSyncing === r.banId}
+                            className="size-7 inline-flex items-center justify-center rounded ring-1 ring-border hover:bg-surface disabled:opacity-50"
+                            title={r.bmBanId ? "Update BattleMetrics ban" : "Sync to BattleMetrics"}
+                          >
+                            <RefreshCw className={`size-3 ${bmSyncing === r.banId ? "animate-spin" : ""}`} />
+                          </button>
+                        )}
                         {!r.revoked && (
                           <button
                             onClick={() => revoke(r)}

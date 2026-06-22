@@ -2791,7 +2791,7 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id, name, bm_org_id, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -2803,6 +2803,7 @@ async function handleGetOrgDetails(request, orgId) {
     organization: {
       orgId: String(org.org_id),
       guildId: org.guild_id == null ? null : String(org.guild_id),
+      bmOrgId: org.bm_org_id == null ? null : String(org.bm_org_id),
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
     },
@@ -2812,8 +2813,9 @@ async function handleGetOrgDetails(request, orgId) {
 async function handleUpdateOrgDetails(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "org_manage")) {
-    return json({ error: "Forbidden: org_manage permission required" }, 403);
+  const isOwner = (session.orgOwnerOrgIds ?? []).includes(orgId);
+  if (!isOwner && !session.globalAdmin) {
+    return json({ error: "Forbidden: org owner access required" }, 403);
   }
 
   let body;
@@ -2824,7 +2826,7 @@ async function handleUpdateOrgDetails(request, orgId) {
   }
 
   const name = body?.name == null ? null : String(body.name).trim();
-  // guildId omitted (undefined) → don't touch it; explicit null → unlink; string → set/change
+  // guildId / bmOrgId: omitted (undefined) → don't touch; null → unlink; string → set/change
   const guildIdRaw = body?.guildId;
   const guildId =
     guildIdRaw === undefined
@@ -2832,6 +2834,14 @@ async function handleUpdateOrgDetails(request, orgId) {
       : guildIdRaw === null
         ? null
         : String(guildIdRaw).trim() || null;
+
+  const bmOrgIdRaw = body?.bmOrgId;
+  const bmOrgId =
+    bmOrgIdRaw === undefined
+      ? undefined
+      : bmOrgIdRaw === null
+        ? null
+        : String(bmOrgIdRaw).trim() || null;
 
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
@@ -2860,10 +2870,11 @@ async function handleUpdateOrgDetails(request, orgId) {
   const result = await pool.query(
     `UPDATE organizations
      SET name = COALESCE($2, name),
-         guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END
+         guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END,
+         bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END
      WHERE org_id = $1
-     RETURNING org_id, guild_id, name, created_at`,
-    [orgId, name, guildId !== undefined, guildId ?? null],
+     RETURNING org_id, guild_id, bm_org_id, name, created_at`,
+    [orgId, name, guildId !== undefined, guildId ?? null, bmOrgId !== undefined, bmOrgId ?? null],
   );
 
   const updated = result.rows[0];
@@ -2876,6 +2887,7 @@ async function handleUpdateOrgDetails(request, orgId) {
     organization: {
       orgId: String(updated.org_id),
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
+      bmOrgId: updated.bm_org_id == null ? null : String(updated.bm_org_id),
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
@@ -6743,8 +6755,16 @@ function executeRconCommand(rconUrl, command) {
       }
     });
 
-    ws.addEventListener("error", () => {
-      settle(reject, new Error("RCON connection failed"));
+    ws.addEventListener("error", (event) => {
+      const detail =
+        event?.message ||
+        event?.error?.message ||
+        event?.error?.code ||
+        "";
+      settle(
+        reject,
+        new Error(detail ? `RCON connection failed: ${detail}` : "RCON connection failed"),
+      );
     });
 
     ws.addEventListener("close", ({ code }) => {
@@ -6847,6 +6867,7 @@ async function handleListOrgBans(request, orgId) {
     `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
             b.category, b.reason, b.note, b.expires_at, b.issued_at,
             b.issued_by, b.revoked, b.revoked_at, b.revoked_by,
+            b.bm_ban_id,
             u.username AS issued_by_name,
             COALESCE(
               json_agg(bst.server_id::text) FILTER (WHERE bst.server_id IS NOT NULL),
@@ -6880,6 +6901,7 @@ async function handleListOrgBans(request, orgId) {
       revoked: Boolean(r.revoked),
       revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
       serverIds: Array.isArray(r.server_ids) ? r.server_ids : [],
+      bmBanId: r.bm_ban_id ?? null,
     })),
   });
 }
@@ -7125,14 +7147,14 @@ async function handleRevokeBan(request, orgId, banId) {
     return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
-    `SELECT ban_id, identifier, identifier_type, action_type
+    `SELECT ban_id, identifier, identifier_type, action_type, bm_ban_id
      FROM player_bans WHERE ban_id = $1 AND org_id = $2 AND revoked = FALSE`,
     [banId, orgId],
   );
   if (!banCheck.rows[0])
     return json({ error: "Ban not found or already revoked" }, 404);
 
-  const { identifier, identifier_type, action_type } = banCheck.rows[0];
+  const { identifier, identifier_type, action_type, bm_ban_id } = banCheck.rows[0];
 
   await pool.query(
     `UPDATE player_bans SET revoked = TRUE, revoked_at = unix_now(), revoked_by = $3
@@ -7198,7 +7220,123 @@ async function handleRevokeBan(request, orgId, banId) {
     }
   }
 
-  return json({ ok: true, rconResults });
+  // Auto-delete the BM ban if one was previously synced
+  let bmDeleteError = null;
+  if (bm_ban_id && action_type !== "mute") {
+    try {
+      const bmDel = await bmFetch(orgId, `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`, {
+        method: "DELETE",
+      });
+      if (bmDel?.ok || bmDel?.status === 404) {
+        await pool.query(`UPDATE player_bans SET bm_ban_id = NULL WHERE ban_id = $1`, [banId]);
+      } else {
+        bmDeleteError = `BattleMetrics delete returned ${bmDel?.status}`;
+      }
+    } catch (err) {
+      bmDeleteError = err.message;
+    }
+  }
+
+  return json({ ok: true, rconResults, bmDeleteError });
+}
+
+async function handleSyncBanToBattlemetrics(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden: bans_manage permission required" }, 403);
+
+  const banRes = await pool.query(
+    `SELECT ban_id, org_id, action_type, identifier, identifier_type,
+            category, reason, note, expires_at, revoked, bm_ban_id
+     FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    [banId, orgId],
+  );
+  const ban = banRes.rows[0];
+  if (!ban) return json({ error: "Ban not found" }, 404);
+
+  if (ban.action_type !== "ban")
+    return json({ error: "Only bans (not mutes) can be synced to BattleMetrics" }, 400);
+
+  const orgRes = await pool.query(
+    "SELECT bm_org_id FROM organizations WHERE org_id = $1",
+    [orgId],
+  );
+  const bmOrgId = orgRes.rows[0]?.bm_org_id;
+  if (!bmOrgId)
+    return json({ error: "No BattleMetrics organization ID configured for this org. Set it in Manage → Manage." }, 400);
+
+  // If already synced to BM, delete the existing BM ban first (to recreate fresh)
+  // or update it if it exists.
+  const existingBmBanId = ban.bm_ban_id ? String(ban.bm_ban_id) : null;
+
+  const identifiers = [];
+  if (ban.identifier_type === "steam_id" && /^\d{17}$/.test(ban.identifier)) {
+    identifiers.push({ type: "steamID", identifier: String(ban.identifier), manual: true });
+  } else if (ban.identifier_type === "ip") {
+    identifiers.push({ type: "ip", identifier: String(ban.identifier), manual: true });
+  } else {
+    return json({ error: "Unsupported identifier type for BattleMetrics sync" }, 400);
+  }
+
+  const expiresIso =
+    ban.expires_at ? new Date(Number(ban.expires_at) * 1000).toISOString() : null;
+  const permanent = !expiresIso;
+
+  const bmBody = {
+    data: {
+      type: "ban",
+      attributes: {
+        reason: String(ban.reason || "No reason provided"),
+        note: ban.note || null,
+        expires: expiresIso,
+        permanent,
+        autoAddEnabled: true,
+        nativeEnabled: null,
+        identifiers,
+      },
+      relationships: {
+        organization: { data: { type: "organization", id: String(bmOrgId) } },
+      },
+    },
+  };
+
+  try {
+    let bmRes;
+    if (existingBmBanId) {
+      bmBody.data.id = existingBmBanId;
+      bmRes = await bmFetch(orgId, `https://api.battlemetrics.com/bans/${encodeURIComponent(existingBmBanId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bmBody),
+      });
+    } else {
+      bmRes = await bmFetch(orgId, "https://api.battlemetrics.com/bans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bmBody),
+      });
+    }
+
+    if (!bmRes?.ok) {
+      const errText = await bmRes?.text?.() ?? "Unknown BattleMetrics error";
+      return json({ error: `BattleMetrics API error: ${bmRes?.status} — ${errText}` }, 502);
+    }
+
+    const bmData = await bmRes.json();
+    const newBmBanId = bmData?.data?.id ? String(bmData.data.id) : existingBmBanId;
+
+    if (newBmBanId) {
+      await pool.query(
+        `UPDATE player_bans SET bm_ban_id = $1 WHERE ban_id = $2`,
+        [newBmBanId, banId],
+      );
+    }
+
+    return json({ ok: true, bmBanId: newBmBanId, updated: !!existingBmBanId });
+  } catch (err) {
+    return json({ error: `BattleMetrics sync failed: ${err.message}` }, 502);
+  }
 }
 
 async function handleGetBlacklistedWords(request, orgId) {
@@ -8137,6 +8275,49 @@ async function handleIngestPlayerConnect(request) {
   return json({ ok: true });
 }
 
+async function handleIngestPlayerDisconnect(request) {
+  const { server, error } = await authenticateServerKey(request);
+  if (error) return error;
+
+  const rl = await checkRateLimit(
+    `rl:disconnect:${server.server_id}`,
+    CONNECT_INGEST_RATE_LIMIT_PER_MINUTE,
+    60,
+    "Rate limit exceeded",
+  );
+  if (rl) return rl;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const steamId = String(body?.steam_id ?? "").trim();
+  const playerName = body?.player_name ? String(body.player_name).trim() : null;
+
+  if (!steamId) return json({ error: "steam_id is required" }, 400);
+  if (!/^765611\d{11}$/.test(steamId))
+    return json({ error: "Invalid Steam ID" }, 400);
+
+  // Update last_seen_at in org sightings
+  try {
+    await pool.query(
+      `UPDATE org_player_sightings
+       SET last_seen_at = unix_now()
+       WHERE org_id = $1 AND steam_id = $2`,
+      [server.owner_org_id, steamId],
+    );
+  } catch {}
+
+  console.log(
+    `[ingest:disconnect] player=${playerName ?? steamId} server=${server.server_name}`,
+  );
+
+  return json({ ok: true });
+}
+
 // ── Player lookup route handlers ──────────────────────────────────────────────
 
 // Per-user caps for the player endpoints. Generous enough for normal staff
@@ -9049,6 +9230,13 @@ async function _handleApiRequest(request) {
       return handleIngestDiscordMessage(request);
     }
 
+    if (
+      pathname === "/api/internal/discord-guilds" &&
+      request.method === "GET"
+    ) {
+      return handleGetDiscordBotGuilds(request);
+    }
+
     if (pathname === "/api/todo/bootstrap" && request.method === "GET") {
       return handleTodoBootstrap(request);
     }
@@ -9426,6 +9614,16 @@ async function _handleApiRequest(request) {
         orgBanDetailMatch[2],
       );
 
+    const orgBanBmSyncMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/bm-sync$/,
+    );
+    if (orgBanBmSyncMatch && request.method === "POST")
+      return handleSyncBanToBattlemetrics(
+        request,
+        orgBanBmSyncMatch[1],
+        orgBanBmSyncMatch[2],
+      );
+
     // Scripts CRUD
     const orgScriptsMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/scripts$/,
@@ -9611,6 +9809,9 @@ async function _handleApiRequest(request) {
 
     if (pathname === "/api/ingest/connect" && request.method === "POST")
       return handleIngestPlayerConnect(request);
+
+    if (pathname === "/api/ingest/disconnect" && request.method === "POST")
+      return handleIngestPlayerDisconnect(request);
 
     if (pathname === "/api/ingest/chat" && request.method === "POST") {
       return handleIngestChatMessage(request);
@@ -10272,6 +10473,39 @@ async function handleIngestDiscordMessage(request) {
   );
 
   return json({ ok: true });
+}
+
+async function handleGetDiscordBotGuilds(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const isOwner = (session.orgOwnerOrgIds ?? []).length > 0;
+  if (!isOwner && !session.globalAdmin) {
+    return json({ error: "Forbidden: org owner required" }, 403);
+  }
+
+  if (!env.discordBotToken) {
+    return json({ guilds: [] });
+  }
+
+  try {
+    const res = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: { Authorization: `Bot ${env.discordBotToken}` },
+    });
+    if (!res.ok) {
+      return json({ guilds: [] });
+    }
+    const guilds = await res.json();
+    return json({
+      guilds: guilds.map((g) => ({
+        id: String(g.id),
+        name: String(g.name),
+        icon: g.icon ?? null,
+      })),
+    });
+  } catch {
+    return json({ guilds: [] });
+  }
 }
 
 async function handleGetDiscordMessages(request, orgId) {

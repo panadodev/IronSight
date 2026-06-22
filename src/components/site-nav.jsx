@@ -1,5 +1,10 @@
 import { Button } from "@/components/ui/button";
 import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -28,7 +33,7 @@ import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META } from "@/lib/mock-data";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown, Lock } from "lucide-react";
+import { Building2, Check, ChevronDown, Lock, Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 function SiteNav() {
   const { location } = useRouterState();
@@ -48,6 +53,7 @@ function SiteNav() {
     updateProfile,
     realManageableOrgIds,
     adminableOrgIds,
+    sessionOrgOwnerIds,
     isImpersonating,
     stopImpersonating,
     viewingAs,
@@ -57,6 +63,7 @@ function SiteNav() {
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [draft, setDraft] = useState({
     ...profile,
     timezone: timezoneStore.get(),
@@ -106,6 +113,10 @@ function SiteNav() {
     canToxicity ||
     canBanConfigs ||
     canTicketsManage;
+
+  const canOrgDetails =
+    isSysAdminSession ||
+    orgs.some((o) => sessionOrgOwnerIds.includes(o.id));
 
   const allOrgs = useMemo(() => {
     const map = new Map(orgs.map((o) => [o.id, o]));
@@ -393,7 +404,7 @@ function SiteNav() {
         {
           to: "/manage/details",
           label: "Manage",
-          show: canManageSection,
+          show: canOrgDetails,
         },
         {
           to: "/manage/roles",
@@ -476,7 +487,41 @@ function SiteNav() {
             .join(" \xB7 ");
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-30 w-56 border-r border-border bg-background flex flex-col">
+      {/* Mobile header — visible only on small screens */}
+      <header className="md:hidden fixed top-0 left-0 right-0 h-14 z-40 flex items-center gap-3 px-4 border-b border-border bg-background">
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetTrigger asChild>
+            <button
+              className="size-8 inline-flex items-center justify-center rounded ring-1 ring-border hover:bg-surface"
+              aria-label="Open menu"
+            >
+              <Menu className="size-4" />
+            </button>
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-56">
+            <aside className="flex flex-col h-full bg-background overflow-y-auto">
+              <MobileSidebarContent
+                groups={groups}
+                path={path}
+                currentOrgId={currentOrgId}
+                setMobileNavOpen={setMobileNavOpen}
+              />
+            </aside>
+          </SheetContent>
+        </Sheet>
+        <Link to="/" className="flex items-center gap-2 font-bold text-sm">
+          IronSight
+        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          {selectedOrgsLabel && (
+            <span className="text-[10px] font-mono text-muted-foreground truncate max-w-32">
+              {selectedOrgsLabel}
+            </span>
+          )}
+        </div>
+      </header>
+
+      <aside className="fixed inset-y-0 left-0 z-30 w-56 border-r border-border bg-background hidden md:flex flex-col">
         {/* Brand */}
         <div className="h-14 px-4 flex items-center gap-2 border-b border-border shrink-0">
           <svg
@@ -1255,4 +1300,54 @@ function ManageOrgInlineSwitcher({ orgs }) {
     </Popover>
   );
 }
+function MobileSidebarContent({ groups, path, currentOrgId, setMobileNavOpen }) {
+  const { location } = useRouterState();
+  return (
+    <div className="flex flex-col h-full">
+      <div className="h-14 px-4 flex items-center border-b border-border shrink-0">
+        <span className="font-bold text-sm tracking-tight">IronSight</span>
+      </div>
+      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+        {groups.map((group) => (
+          <div key={group.label}>
+            <div className="px-2 mb-1">
+              <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                {group.label}
+              </span>
+            </div>
+            <div className="space-y-0.5">
+              {group.links.map((l, idx) => {
+                const pathMatches =
+                  l.to === "/" ? path === "/" : path.startsWith(l.to);
+                const active = l.matchSearch
+                  ? pathMatches && l.matchSearch(location.search)
+                  : pathMatches;
+                const search =
+                  l.search ??
+                  (currentOrgId ? { org: currentOrgId } : void 0);
+                return (
+                  <Link
+                    key={l.to + ":" + (l.label ?? idx)}
+                    to={l.to}
+                    search={search}
+                    onClick={() => setMobileNavOpen(false)}
+                    className={
+                      "flex items-center px-2.5 py-2 text-sm font-medium rounded-md transition-colors " +
+                      (active
+                        ? "text-foreground bg-surface"
+                        : "text-muted-foreground hover:text-foreground hover:bg-surface/50")
+                    }
+                  >
+                    {l.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export { SiteNav };

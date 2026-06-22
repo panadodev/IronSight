@@ -10,6 +10,13 @@ const DISCORD_API = "https://discord.com/api/v10";
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
 const API_URL = process.env.API_URL ?? "http://localhost:3000";
 
+if (!process.env.API_URL) {
+  console.warn(
+    "[IronSight Bot] API_URL is not set — defaulting to http://localhost:3000. Set API_URL to your panel's public URL in production.",
+  );
+}
+console.log(`[IronSight Bot] Using API_URL: ${API_URL}`);
+
 const INTENT_GUILD_MEMBERS = 1 << 1;
 const INTENT_GUILD_MESSAGES = 1 << 9;
 const INTENT_MESSAGE_CONTENT = 1 << 15;
@@ -194,6 +201,7 @@ function connect(resume = false) {
                 console.error(
                   `[IronSight Bot] Ingest error for message ${d.id}:`,
                   err.message,
+                  err.cause ? `(cause: ${err.cause?.message ?? err.cause})` : "",
                 ),
               );
           }
