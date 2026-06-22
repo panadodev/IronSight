@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { invalidateAuthMe } from "@/lib/auth-cache";
 import { useManageOrgId } from "@/lib/manage-org-store";
+import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Activity,
@@ -191,8 +192,11 @@ function StaffPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
 
-  const [sortCol, setSortCol] = useState("tickets_30d");
-  const [sortDir, setSortDir] = useState("desc");
+  const [sortCol, setSortCol] = usePersistentState(
+    "staff.sortCol",
+    "tickets_30d",
+  );
+  const [sortDir, setSortDir] = usePersistentState("staff.sortDir", "desc");
 
   async function loadMembers() {
     if (!orgId) return;

@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
+import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowDown,
@@ -66,10 +67,16 @@ function PlayerListPage() {
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const [serverIds, setServerIds] = useState(null);
-  const [sortKey, setSortKey] = useState("susScore");
-  const [sortDir, setSortDir] = useState("desc");
+  const [sortKey, setSortKey] = usePersistentState(
+    "playerList.sortKey",
+    "susScore",
+  );
+  const [sortDir, setSortDir] = usePersistentState("playerList.sortDir", "desc");
   const [query, setQuery] = useState("");
-  const [onlineOnly, setOnlineOnly] = useState(false);
+  const [onlineOnly, setOnlineOnly] = usePersistentState(
+    "playerList.onlineOnly",
+    false,
+  );
   const [page, setPage] = useState(1);
   const [copiedId, setCopiedId] = useState(null);
   const [cacheClearBusy, setCacheClearBusy] = useState(false);

@@ -7,6 +7,7 @@ import { PlayerSidebar } from "@/components/player-sidebar";
 import { PredefineSearch } from "@/components/predefine-search";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
+import { usePersistentState } from "@/lib/persistent-prefs";
 import { timezoneStore } from "@/lib/timezone-store";
 import {
   REPORT_CATEGORY_LABEL,
@@ -142,7 +143,7 @@ function StaffDashboard() {
   const [tickets, setTickets] = useState(TICKETS);
   const [typeFilter, setTypeFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("newest");
+  const [sortBy, setSortBy] = usePersistentState("dashboard.sortBy", "newest");
   const [queueView, setQueueView] = useState("active");
   const [proofOnly, setProofOnly] = useState(false);
   const [recencyDays, setRecencyDays] = useState(0);

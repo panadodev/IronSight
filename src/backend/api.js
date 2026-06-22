@@ -1136,9 +1136,10 @@ async function ensureSchema() {
       event_type TEXT NOT NULL,
       team_members JSONB NOT NULL DEFAULT '[]',
       team_leader TEXT NOT NULL,
+      target_player TEXT,
       event_time BIGINT NOT NULL DEFAULT unix_now(),
       created_at BIGINT NOT NULL DEFAULT unix_now(),
-      CONSTRAINT chk_team_events_type CHECK (event_type IN ('created', 'joined', 'left'))
+      CONSTRAINT chk_team_events_type CHECK (event_type IN ('created', 'joined', 'left', 'invited'))
     )
   `);
 
@@ -1150,6 +1151,19 @@ async function ensureSchema() {
   );
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_team_events_server_created ON team_events(server_id, created_at)`,
+  );
+
+  // Additive: invite events carry an invitee (target_player) and the 'invited'
+  // event type. Existing deployments created the table before these existed.
+  await pool.query(
+    `ALTER TABLE team_events ADD COLUMN IF NOT EXISTS target_player TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE team_events DROP CONSTRAINT IF EXISTS chk_team_events_type`,
+  );
+  await pool.query(
+    `ALTER TABLE team_events ADD CONSTRAINT chk_team_events_type
+       CHECK (event_type IN ('created', 'joined', 'left', 'invited'))`,
   );
 
   // -- Pterodactyl integration -----------------------------------------------
@@ -9282,14 +9296,15 @@ async function handleIngestTeamEvent(request) {
   const eventType = String(body?.event_type ?? "").trim();
   const teamLeader = String(body?.team_leader ?? "").trim();
   const teamMembers = body?.team_members;
+  const targetPlayerRaw = body?.target_player;
   const eventTimeRaw = body?.event_time;
 
   if (!eventType || !teamLeader) {
     return json({ error: "event_type and team_leader are required" }, 400);
   }
-  if (!["created", "joined", "left"].includes(eventType)) {
+  if (!["created", "joined", "left", "invited"].includes(eventType)) {
     return json(
-      { error: "event_type must be one of: created, joined, left" },
+      { error: "event_type must be one of: created, joined, left, invited" },
       400,
     );
   }
@@ -9303,6 +9318,19 @@ async function handleIngestTeamEvent(request) {
       { error: "team_members must contain 100 entries or fewer" },
       400,
     );
+
+  // 'invited' events record who was invited (the invitee). For every other
+  // event type target_player is optional and ignored.
+  let targetPlayer = null;
+  if (targetPlayerRaw != null) {
+    targetPlayer = String(targetPlayerRaw).trim().slice(0, 128);
+  }
+  if (eventType === "invited" && !targetPlayer) {
+    return json(
+      { error: "target_player is required for 'invited' events" },
+      400,
+    );
+  }
 
   let eventTime = new Date();
   if (eventTimeRaw != null) {
@@ -9319,8 +9347,8 @@ async function handleIngestTeamEvent(request) {
   const safeMembers = teamMembers.map((m) => String(m).slice(0, 128));
 
   const insertRes = await pool.query(
-    `INSERT INTO team_events (server_id, server_name, event_type, team_members, team_leader, event_time)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO team_events (server_id, server_name, event_type, team_members, team_leader, target_player, event_time)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id, created_at`,
     [
       server.server_id,
@@ -9328,6 +9356,7 @@ async function handleIngestTeamEvent(request) {
       eventType,
       JSON.stringify(safeMembers),
       teamLeader,
+      targetPlayer,
       Math.floor(eventTime.getTime() / 1000),
     ],
   );
@@ -9341,6 +9370,7 @@ async function handleIngestTeamEvent(request) {
     eventType,
     teamLeader,
     teamMembers: safeMembers,
+    targetPlayer,
     eventTimeUnix,
     ts: createdUnix,
   });
@@ -9430,7 +9460,7 @@ async function handleGetTeamEvents(request) {
   }
 
   const { rows } = await pool.query(
-    `SELECT id, event_type, team_members, team_leader,
+    `SELECT id, event_type, team_members, team_leader, target_player,
             event_time AS event_time_unix,
             created_at AS ts
      FROM team_events
@@ -9447,6 +9477,7 @@ async function handleGetTeamEvents(request) {
     eventType: String(row.event_type),
     teamLeader: String(row.team_leader),
     teamMembers: Array.isArray(row.team_members) ? row.team_members : [],
+    targetPlayer: row.target_player != null ? String(row.target_player) : null,
     eventTimeUnix: Number(row.event_time_unix),
     ts: Number(row.ts),
   }));

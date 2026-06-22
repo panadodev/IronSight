@@ -110,7 +110,7 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | `text_chat_log`  | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`.            |
 | `pvp_log`        | Ingested PVP kill events. Indexed by `server_id`, `killer_steam_id`, and `created_at`.           |
 | `player_reports` | Player-submitted in-game reports. Indexed by `server_id`, `reported_steam_id`, and `created_at`. |
-| `team_events`    | Team lifecycle events (`created`/`joined`/`left`). Indexed by `server_id` and `created_at`.      |
+| `team_events`    | Team lifecycle events (`created`/`joined`/`left`/`invited`). Indexed by `server_id` and `created_at`.      |
 
 ### Integrations
 
@@ -344,7 +344,7 @@ Single endpoint for team lifecycle events — `POST` to ingest, `GET` to read.
 
 #### POST /api/teaminfo
 
-Uses server API key auth.
+Uses server API key auth (`Authorization: Bearer <server key>` or `x-api-key: <server key>`). Send one request per team event as it happens.
 
 **Request body:**
 
@@ -357,17 +357,47 @@ Uses server API key auth.
     "76561198000000001",
     "76561198000000002"
   ],
+  "target_player": null,
   "event_time": "2026-06-16T12:00:00Z"
 }
 ```
 
-`event_type` must be one of `created`, `joined`, or `left`. `event_time` is optional (defaults to server receive time) and accepts ISO 8601 strings. `team_members` max 100 entries.
+| Field           | Type             | Required                  | Description                                                                                              |
+| --------------- | ---------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `event_type`    | string           | yes                       | One of `created`, `joined`, `left`, `invited`.                                                           |
+| `team_leader`   | string           | yes                       | SteamID64 of the team leader. For `invited` events this is the **inviter**. Max 128 chars.              |
+| `team_members`  | string[]         | yes                       | Current team roster (SteamID64s). May be empty `[]`. Max 100 entries.                                    |
+| `target_player` | string \| null   | only for `invited`        | SteamID64 of the **invitee** (the player invited to the team). Ignored for other event types. Max 128.  |
+| `event_time`    | string \| number | no                        | When the event occurred. ISO 8601 string or Unix seconds. Defaults to server receive time.              |
+
+**Example — an invite:**
+
+```json
+{
+  "event_type": "invited",
+  "team_leader": "76561198825911004",
+  "team_members": ["76561198825911004", "76561198000000001"],
+  "target_player": "76561198000000099",
+  "event_time": "2026-06-16T12:05:00Z"
+}
+```
 
 **Response `201`:**
 
 ```json
 { "ok": true, "id": "11111" }
 ```
+
+**Errors:**
+
+| Status | Body                                                              | Reason                          |
+| ------ | ---------------------------------------------------------------- | ------------------------------- |
+| `400`  | `{ "error": "Invalid JSON body" }`                               | Body is not valid JSON          |
+| `400`  | `{ "error": "event_type and team_leader are required" }`         | Missing required field          |
+| `400`  | `{ "error": "event_type must be one of: created, joined, left, invited" }` | Unknown event type    |
+| `400`  | `{ "error": "target_player is required for 'invited' events" }`  | Invite without an invitee       |
+| `401`  | `{ "error": "Missing API key …" }` / `{ "error": "Invalid API key" }` | Bad/missing server key    |
+| `429`  | `{ "error": "Rate limit exceeded" }`                             | > 120 req/min per server        |
 
 #### GET /api/teaminfo
 
@@ -385,6 +415,7 @@ Requires a valid staff session (org member or sysadmin).
       "eventType": "joined",
       "teamLeader": "76561198825911004",
       "teamMembers": ["76561198825911004", "76561198000000001"],
+      "targetPlayer": null,
       "eventTimeUnix": 1749999000,
       "ts": 1750000000
     }

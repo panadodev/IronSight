@@ -40,6 +40,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { usePersistentState } from "@/lib/persistent-prefs";
 import { useEffect, useMemo, useState } from "react";
 
 function redirectToLogin() {
@@ -132,7 +133,7 @@ function TodoPage() {
   const [todos, setTodos] = useState([]);
   const [boardOrgIds, setBoardOrgIds] = useState([]);
   const [boardStaff, setBoardStaff] = useState([]);
-  const [view, setView] = useState("board");
+  const [view, setView] = usePersistentState("todo.view", "board");
   const [completedSearch, setCompletedSearch] = useState("");
   const [draggedTodo, setDraggedTodo] = useState(null);
   const [dragOverStaff, setDragOverStaff] = useState(null);

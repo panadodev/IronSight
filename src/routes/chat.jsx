@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
+import { usePersistentState } from "@/lib/persistent-prefs";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
@@ -59,9 +60,12 @@ function ChatPage() {
   const [end, setEnd] = useState(fmtLocalInput(NOW));
   const [query, setQuery] = useState("");
   const [selectedPlayers, setSelectedPlayers] = useState(new Set());
-  const [relativeTs, setRelativeTs] = useState(false);
+  const [relativeTs, setRelativeTs] = usePersistentState("chat.relativeTs", false);
   const [selectedPreset, setSelectedPreset] = useState(0);
-  const [hideTeamMsg, setHideTeamMsg] = useState(false);
+  const [hideTeamMsg, setHideTeamMsg] = usePersistentState(
+    "chat.hideTeamMsg",
+    false,
+  );
 
   const [lines, setLines] = useState([]);
   const [linesLoading, setLinesLoading] = useState(false);
