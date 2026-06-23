@@ -25,3 +25,4 @@ bm_extra_example/
 .env
 /tmp
 CLAUDE.md
+.claude
