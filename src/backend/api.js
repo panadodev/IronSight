@@ -5888,7 +5888,6 @@ async function handleListFlaggedMessages(request, orgId) {
     return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
 
   const url = new URL(request.url);
-  const serverId = url.searchParams.get("serverId") || null;
   const resolvedParam = url.searchParams.get("resolved");
   const resolved = resolvedParam === "true" ? true : resolvedParam === "false" ? false : null;
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
@@ -5897,33 +5896,38 @@ async function handleListFlaggedMessages(request, orgId) {
   const params = [orgId];
   let idx = 2;
 
-  if (serverId) {
-    conditions.push(`f.server_id = $${idx++}`);
-    params.push(serverId);
-  }
   if (resolved !== null) {
     conditions.push(`f.resolved = $${idx++}`);
     params.push(resolved);
   }
 
-  const { rows } = await pool.query(
-    `SELECT f.flag_id, f.chat_log_id, f.server_id, f.steam_id, f.player_name,
-            f.message, f.triggered_category, f.score, f.action,
-            f.resolved, f.resolved_at, f.created_at,
-            u.username AS resolved_by_name
-     FROM ai_chat_flags f
-     LEFT JOIN users u ON u.user_id = f.resolved_by
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY f.created_at DESC
-     LIMIT $${idx}`,
-    [...params, limit],
-  );
+  const [{ rows }, countRes] = await Promise.all([
+    pool.query(
+      `SELECT f.flag_id, f.chat_log_id, f.server_id, f.steam_id, f.player_name,
+              f.message, f.triggered_category, f.score, f.action,
+              f.resolved, f.resolved_at, f.resolution_type, f.created_at,
+              u.username AS resolved_by_name,
+              s.server_name
+       FROM ai_chat_flags f
+       LEFT JOIN users u ON u.user_id = f.resolved_by
+       LEFT JOIN servers s ON s.server_id = f.server_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY f.created_at DESC
+       LIMIT $${idx}`,
+      [...params, limit],
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS total FROM ai_chat_flags WHERE org_id = $1 AND resolved = TRUE`,
+      [orgId],
+    ),
+  ]);
 
   return json({
     flags: rows.map((r) => ({
       flagId: r.flag_id,
       chatLogId: r.chat_log_id ? String(r.chat_log_id) : null,
       serverId: r.server_id,
+      serverName: r.server_name ?? null,
       steamId: r.steam_id,
       playerName: r.player_name,
       message: r.message,
@@ -5932,9 +5936,11 @@ async function handleListFlaggedMessages(request, orgId) {
       action: r.action,
       resolved: r.resolved,
       resolvedAt: r.resolved_at ? Number(r.resolved_at) : null,
+      resolutionType: r.resolution_type ?? null,
       resolvedByName: r.resolved_by_name ?? null,
       createdAt: Number(r.created_at),
     })),
+    totalReviewed: countRes.rows[0]?.total ?? 0,
   });
 }
 
@@ -5944,12 +5950,17 @@ async function handleResolveFlaggedMessage(request, orgId, flagId) {
   if (!orgHasPermission(session, orgId, "flagged_messages_resolve"))
     return json({ error: "Forbidden: flagged_messages_resolve permission required" }, 403);
 
+  const body = await request.json().catch(() => ({}));
+  const type = body?.type;
+  if (!["confirmed", "cleared"].includes(type))
+    return json({ error: "type must be 'confirmed' or 'cleared'" }, 400);
+
   const { rows } = await pool.query(
     `UPDATE ai_chat_flags
-     SET resolved = TRUE, resolved_by = $1, resolved_at = unix_now()
-     WHERE flag_id = $2 AND org_id = $3 AND resolved = FALSE
+     SET resolved = TRUE, resolved_by = $1, resolved_at = unix_now(), resolution_type = $2
+     WHERE flag_id = $3 AND org_id = $4 AND resolved = FALSE
      RETURNING flag_id`,
-    [session.userId, flagId, orgId],
+    [session.userId, type, flagId, orgId],
   );
   if (!rows[0]) return json({ error: "Flag not found or already resolved" }, 404);
   return json({ ok: true });

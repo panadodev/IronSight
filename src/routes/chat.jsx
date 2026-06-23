@@ -38,20 +38,20 @@ const CATEGORY_LABELS = {
   "violence/graphic": "Graphic Violence",
 };
 
-function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
+function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage }) {
   const [flags, setFlags] = useState([]);
+  const [totalReviewed, setTotalReviewed] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [resolvingIds, setResolvingIds] = useState(new Set());
+  const [actingIds, setActingIds] = useState(new Set());
   const [showResolved, setShowResolved] = useState(false);
 
   const fetchFlags = useCallback(async () => {
-    if (!serverId || !orgId) return;
+    if (!orgId) return;
     setLoading(true);
     try {
       const params = new URLSearchParams({
-        serverId,
         resolved: String(showResolved),
-        limit: "30",
+        limit: "50",
       });
       const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged?${params}`,
@@ -60,12 +60,13 @@ function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
       if (!res.ok) return;
       const data = await res.json();
       setFlags(data.flags ?? []);
+      setTotalReviewed(data.totalReviewed ?? 0);
     } catch {
       // panel is supplementary; ignore errors
     } finally {
       setLoading(false);
     }
-  }, [serverId, orgId, showResolved]);
+  }, [orgId, showResolved]);
 
   useEffect(() => {
     fetchFlags();
@@ -73,20 +74,26 @@ function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
     return () => clearInterval(timer);
   }, [fetchFlags]);
 
-  const resolve = useCallback(
-    async (flagId) => {
+  const act = useCallback(
+    async (flagId, type) => {
       if (!orgId) return;
-      setResolvingIds((s) => new Set(s).add(flagId));
+      setActingIds((s) => new Set(s).add(flagId));
       try {
         const res = await fetch(
           `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged/${flagId}/resolve`,
-          { method: "POST", credentials: "include" },
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type }),
+          },
         );
         if (res.ok) {
           setFlags((prev) => prev.filter((f) => f.flagId !== flagId));
+          setTotalReviewed((n) => n + 1);
         }
       } finally {
-        setResolvingIds((s) => {
+        setActingIds((s) => {
           const next = new Set(s);
           next.delete(flagId);
           return next;
@@ -107,6 +114,11 @@ function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
           {flags.length > 0 && !showResolved && (
             <span className="text-[9px] font-mono bg-danger/15 text-danger px-1.5 rounded-full">
               {flags.length}
+            </span>
+          )}
+          {totalReviewed > 0 && (
+            <span className="text-[9px] font-mono bg-success/10 text-success px-1.5 rounded-full">
+              {totalReviewed} checked
             </span>
           )}
         </div>
@@ -141,8 +153,15 @@ function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
                 key={flag.flagId}
                 flag={flag}
                 canResolve={canResolve && !showResolved}
-                resolving={resolvingIds.has(flag.flagId)}
-                onResolve={resolve}
+                acting={actingIds.has(flag.flagId)}
+                onConfirm={() => act(flag.flagId, "confirmed")}
+                onClear={() => act(flag.flagId, "cleared")}
+                onJump={
+                  flag.chatLogId
+                    ? () =>
+                        onJumpToMessage(flag.serverId, flag.chatLogId, flag.createdAt)
+                    : null
+                }
               />
             ))}
           </div>
@@ -152,7 +171,7 @@ function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
   );
 }
 
-function FlagCard({ flag, canResolve, resolving, onResolve }) {
+function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump }) {
   const scorePercent = Math.round(flag.score * 100);
   const label =
     CATEGORY_LABELS[flag.triggeredCategory] ?? flag.triggeredCategory;
@@ -173,9 +192,22 @@ function FlagCard({ flag, canResolve, resolving, onResolve }) {
         <span className="text-[9px] text-muted-foreground shrink-0">{age}</span>
       </div>
 
-      <p className="text-[11px] text-foreground/80 line-clamp-2 break-words">
+      {flag.serverName && (
+        <p className="text-[9px] font-mono text-muted-foreground truncate">
+          {flag.serverName}
+        </p>
+      )}
+
+      <button
+        onClick={onJump}
+        disabled={!onJump}
+        className={`text-left w-full text-[11px] text-foreground/80 line-clamp-2 break-words ${
+          onJump ? "hover:text-brand cursor-pointer" : "cursor-default"
+        }`}
+        title={onJump ? "Jump to message in chat log" : undefined}
+      >
         {flag.message}
-      </p>
+      </button>
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
@@ -193,22 +225,45 @@ function FlagCard({ flag, canResolve, resolving, onResolve }) {
         <span className="text-[9px] font-mono text-muted-foreground">
           {scorePercent}%
         </span>
+        {flag.resolutionType && (
+          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ring-1 ${
+            flag.resolutionType === "confirmed"
+              ? "bg-danger/10 text-danger ring-danger/20"
+              : "bg-muted/30 text-muted-foreground ring-border"
+          }`}>
+            {flag.resolutionType === "confirmed" ? "confirmed" : "cleared"}
+          </span>
+        )}
       </div>
 
       {canResolve && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 text-[10px] px-2 w-full"
-          disabled={resolving}
-          onClick={() => onResolve(flag.flagId)}
-        >
-          {resolving ? "Resolving…" : "Resolve"}
-        </Button>
+        <div className="flex gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-[10px] px-2 flex-1 text-danger border-danger/30 hover:bg-danger/10"
+            disabled={acting}
+            onClick={onConfirm}
+            title="Keep flagged — AI was correct, but unlist from the queue"
+          >
+            Confirm
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-[10px] px-2 flex-1"
+            disabled={acting}
+            onClick={onClear}
+            title="Dismiss — not a real concern"
+          >
+            Clear
+          </Button>
+        </div>
       )}
       {flag.resolved && flag.resolvedByName && (
         <p className="text-[9px] text-muted-foreground">
-          Resolved by {flag.resolvedByName}
+          {flag.resolutionType === "confirmed" ? "Confirmed" : "Cleared"} by{" "}
+          {flag.resolvedByName}
         </p>
       )}
     </div>
@@ -370,6 +425,9 @@ function ChatPage() {
   const [linesError, setLinesError] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  const [highlightedId, setHighlightedId] = useState(null);
+  const pendingScrollId = useRef(null);
 
   const fetchAbortRef = useRef(null);
   const loadingMoreRef = useRef(false);
@@ -591,6 +649,33 @@ function ChatPage() {
       if (newestTsRef.current == null) newestTsRef.current = lines[0].ts;
     }
   }, [lines]);
+
+  // Scroll to a message after navigation (fires when linesLoading goes false)
+  useEffect(() => {
+    if (!pendingScrollId.current || linesLoading) return;
+    const id = pendingScrollId.current;
+    pendingScrollId.current = null;
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-msg-id="${id}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [linesLoading]);
+
+  const onJumpToMessage = useCallback(
+    (targetServerId, chatLogId, ts) => {
+      const tsMs = ts * 1000;
+      const halfWindow = 15 * 60 * 1000; // ±15 min around the message
+      pendingScrollId.current = chatLogId;
+      setHighlightedId(chatLogId);
+      setServerId(targetServerId);
+      setSelectedPlayers(new Set());
+      setQuery("");
+      setRelativeTs(false);
+      setStart(fmtLocalInput(tsMs - halfWindow));
+      setEnd(fmtLocalInput(tsMs + halfWindow));
+    },
+    [],
+  );
 
   const startMs = parseLocal(start);
   const endMs = parseLocal(end);
@@ -938,11 +1023,12 @@ function ChatPage() {
                   {filtered.map((l) => (
                     <div
                       key={l.id}
-                      className={`flex gap-3 px-2 py-1 hover:bg-surface/50 rounded items-baseline ${
+                      data-msg-id={l.id}
+                      className={`flex gap-3 px-2 py-1 hover:bg-surface/50 rounded items-baseline transition-colors ${
                         l.teamMessage
                           ? "border-l-2 border-yellow-500/40 pl-1.5"
                           : ""
-                      }`}
+                      } ${String(l.id) === String(highlightedId) ? "bg-warning/10 ring-1 ring-warning/30" : ""}`}
                     >
                       <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
                         {relativeTs
@@ -995,12 +1081,12 @@ function ChatPage() {
               )}
             </div>
             <FlaggedMessagesPanel
-              serverId={serverId}
-              orgId={activeServer?.ownerOrgId}
+              orgId={activeServer?.ownerOrgId ?? selectedOrgIds[0]}
               canResolve={hasOrgPermission(
-                activeServer?.ownerOrgId,
+                activeServer?.ownerOrgId ?? selectedOrgIds[0],
                 "flagged_messages_resolve",
               )}
+              onJumpToMessage={onJumpToMessage}
             />
           </div>
         </main>

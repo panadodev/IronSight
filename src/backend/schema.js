@@ -1309,6 +1309,9 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_ai_chat_flags_server
      ON ai_chat_flags(server_id, created_at DESC)`,
   );
+  await pool.query(
+    `ALTER TABLE ai_chat_flags ADD COLUMN IF NOT EXISTS resolution_type TEXT CHECK (resolution_type IN ('confirmed', 'cleared'))`,
+  );
 
   // Opt-in toggle: when TRUE, in-game admin perms are granted via RCON whenever
   // a staff member (whose role has server_admin on this server) joins a game server.
