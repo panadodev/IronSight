@@ -255,6 +255,7 @@ function RolesPage() {
   const [loading, setLoading] = useState(false);
   const [ticketTypes, setTicketTypes] = useState([]);
   const [guildRoles, setGuildRoles] = useState([]);
+  const [servers, setServers] = useState([]);
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState(null);
@@ -262,6 +263,8 @@ function RolesPage() {
   const [draftPerms, setDraftPerms] = useState({});
   const [draftTicketTypes, setDraftTicketTypes] = useState({});
   const [draftDiscordRoleIds, setDraftDiscordRoleIds] = useState({});
+  const [draftServerAdminAll, setDraftServerAdminAll] = useState({});
+  const [draftServerAdminServers, setDraftServerAdminServers] = useState({});
   const [savingId, setSavingId] = useState(null);
   const [saveErr, setSaveErr] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
@@ -311,6 +314,20 @@ function RolesPage() {
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => body && setGuildRoles(body.discordRoles ?? []))
+      .catch(() => {});
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/servers`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (body) =>
+          body &&
+          setServers(
+            (body.servers ?? []).filter((s) => s.ownerOrgId === orgId),
+          ),
+      )
       .catch(() => {});
   }, [orgId]);
 
@@ -364,13 +381,23 @@ function RolesPage() {
       const permissions = [...editablePerms, ...lockedPerms];
       const ticketTypeIds = draftTicketTypes[roleId] ?? [];
       const discordRoleIds = draftDiscordRoleIds[roleId] ?? [];
+      const serverAdminAll =
+        draftServerAdminAll[roleId] ?? role?.serverAdminAll ?? false;
+      const serverAdminServerIds =
+        draftServerAdminServers[roleId] ?? role?.serverAdminServerIds ?? [];
       const res = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}`,
         {
           method: "PATCH",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ permissions, ticketTypeIds, discordRoleIds }),
+          body: JSON.stringify({
+            permissions,
+            ticketTypeIds,
+            discordRoleIds,
+            serverAdminAll,
+            serverAdminServerIds,
+          }),
         },
       );
       if (!res.ok) {
@@ -408,26 +435,42 @@ function RolesPage() {
     }
   }
 
-  function toggleExpand(
-    roleId,
-    currentPerms,
-    currentTicketTypeIds,
-    currentDiscordRoleIds,
-  ) {
+  function toggleExpand(role) {
+    const roleId = role.roleId;
     if (expandedId === roleId) {
       setExpandedId(null);
     } else {
       setExpandedId(roleId);
-      setDraftPerms((prev) => ({ ...prev, [roleId]: [...currentPerms] }));
+      setDraftPerms((prev) => ({ ...prev, [roleId]: [...role.permissions] }));
       setDraftTicketTypes((prev) => ({
         ...prev,
-        [roleId]: [...currentTicketTypeIds],
+        [roleId]: [...(role.ticketTypeIds ?? [])],
       }));
       setDraftDiscordRoleIds((prev) => ({
         ...prev,
-        [roleId]: [...currentDiscordRoleIds],
+        [roleId]: [...(role.discordRoleIds ?? [])],
+      }));
+      setDraftServerAdminAll((prev) => ({
+        ...prev,
+        [roleId]: !!role.serverAdminAll,
+      }));
+      setDraftServerAdminServers((prev) => ({
+        ...prev,
+        [roleId]: [...(role.serverAdminServerIds ?? [])],
       }));
     }
+  }
+
+  function toggleServerAdminServer(roleId, serverId) {
+    setDraftServerAdminServers((prev) => {
+      const cur = prev[roleId] ?? [];
+      return {
+        ...prev,
+        [roleId]: cur.includes(serverId)
+          ? cur.filter((s) => s !== serverId)
+          : [...cur, serverId],
+      };
+    });
   }
 
   function togglePerm(roleId, permId) {
@@ -576,6 +619,12 @@ function RolesPage() {
               draftTicketTypes[role.roleId] ?? role.ticketTypeIds ?? [];
             const draftDR =
               draftDiscordRoleIds[role.roleId] ?? role.discordRoleIds ?? [];
+            const draftSAAll =
+              draftServerAdminAll[role.roleId] ?? role.serverAdminAll ?? false;
+            const draftSAServers =
+              draftServerAdminServers[role.roleId] ??
+              role.serverAdminServerIds ??
+              [];
             const isDirty =
               isExpanded &&
               (JSON.stringify([...draft].sort()) !==
@@ -585,7 +634,12 @@ function RolesPage() {
                     [...(role.ticketTypeIds ?? [])].sort((a, b) => a - b),
                   ) ||
                 JSON.stringify([...draftDR].sort()) !==
-                  JSON.stringify([...(role.discordRoleIds ?? [])].sort()));
+                  JSON.stringify([...(role.discordRoleIds ?? [])].sort()) ||
+                draftSAAll !== (role.serverAdminAll ?? false) ||
+                JSON.stringify([...draftSAServers].sort()) !==
+                  JSON.stringify(
+                    [...(role.serverAdminServerIds ?? [])].sort(),
+                  ));
 
             return (
               <div
@@ -595,14 +649,7 @@ function RolesPage() {
                 <div className="flex items-center justify-between gap-2 p-2.5">
                   <button
                     className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                    onClick={() =>
-                      toggleExpand(
-                        role.roleId,
-                        role.permissions,
-                        role.ticketTypeIds ?? [],
-                        role.discordRoleIds ?? [],
-                      )
-                    }
+                    onClick={() => toggleExpand(role)}
                   >
                     {isExpanded ? (
                       <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
@@ -775,6 +822,65 @@ function RolesPage() {
                         </div>
                       </div>
                     ))}
+
+                    <div>
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                        Server Admin (in-game)
+                      </p>
+                      <PermCheckbox
+                        checked={draft.includes("server_admin")}
+                        disabled={!canGrant("server_admin")}
+                        onClick={() => togglePerm(role.roleId, "server_admin")}
+                        label="Admin on Server"
+                        desc="Grant in-game admin via RCON on assignment (moderatorid + usergroup admin); revoked on removal."
+                      />
+                      {draft.includes("server_admin") && (
+                        <div className="ml-6 border-l border-border/40 pl-2 mt-0.5">
+                          <PermCheckbox
+                            checked={draftSAAll}
+                            disabled={!canGrant("server_admin")}
+                            onClick={() =>
+                              setDraftServerAdminAll((prev) => ({
+                                ...prev,
+                                [role.roleId]: !draftSAAll,
+                              }))
+                            }
+                            label="All servers"
+                            desc="Apply to every imported server, including ones added later."
+                          />
+                          {!draftSAAll &&
+                            (servers.length === 0 ? (
+                              <p className="text-[11px] text-muted-foreground italic px-2 py-1">
+                                No servers imported yet.
+                              </p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5 mt-0.5">
+                                {servers.map((s) => (
+                                  <PermCheckbox
+                                    key={s.serverId}
+                                    checked={draftSAServers.includes(
+                                      s.serverId,
+                                    )}
+                                    disabled={!canGrant("server_admin")}
+                                    onClick={() =>
+                                      toggleServerAdminServer(
+                                        role.roleId,
+                                        s.serverId,
+                                      )
+                                    }
+                                    label={s.serverName}
+                                    desc={
+                                      s.rconConfigured
+                                        ? "RCON configured"
+                                        : "RCON not configured — grants skipped"
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
 
                     <div>
                       <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">

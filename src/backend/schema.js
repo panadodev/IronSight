@@ -1282,6 +1282,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('ip_read',             'View player IP addresses and location'),
       ('bans_manage',         'Issue and manage bans and mutes'),
       ('triggers_manage',     'Configure threat triggers'),
+      ('server_admin',        'Admin on Server (grants in-game admin via RCON)'),
       ('discord_mod',         'Use Discord moderation')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
@@ -1293,11 +1294,30 @@ export async function ensureRolePermissionSeed(pool) {
       ('org_admin', 'todo_write'),
       ('org_admin', 'todo_delete'),
       ('org_admin', 'org_manage'),
+      ('org_admin', 'server_admin'),
       ('org_owner', 'todo_write'),
       ('org_owner', 'todo_delete'),
       ('org_owner', 'org_manage'),
-      ('org_owner', 'role_create')
+      ('org_owner', 'role_create'),
+      ('org_owner', 'server_admin')
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
+  );
+
+  // Per-role configuration for the "Admin on Server" permission. Built-in
+  // Owner/Admin cover ALL of the org's servers (handled in code); custom roles
+  // either cover all (roles.server_admin_all) or an explicit list below.
+  await pool.query(
+    `ALTER TABLE roles ADD COLUMN IF NOT EXISTS server_admin_all BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS role_server_admin (
+      role_id TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+      server_id UUID NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      PRIMARY KEY (role_id, server_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_role_server_admin_role_id ON role_server_admin(role_id)`,
   );
 }
 

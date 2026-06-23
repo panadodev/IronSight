@@ -24,6 +24,7 @@ import {
   Crown,
   Eye,
   Gavel,
+  RefreshCw,
   ScrollText,
   Search,
   ShieldCheck,
@@ -203,6 +204,8 @@ function StaffPage() {
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState(null);
 
   const [sortCol, setSortCol] = usePersistentState(
     "staff.sortCol",
@@ -344,6 +347,35 @@ function StaffPage() {
     }
   }
 
+  async function handleSyncServerAdmin() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/sync-server-admin`,
+        { method: "POST", credentials: "include" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSyncMsg({
+          ok: false,
+          text: body?.error ?? "Failed to sync permissions.",
+        });
+        return;
+      }
+      setSyncMsg({
+        ok: body.failures === 0,
+        text: `Synced ${body.membersSynced} member(s) across ${body.serverGrants} server grant(s)${
+          body.failures ? ` — ${body.failures} failed` : ""
+        }.`,
+      });
+    } catch {
+      setSyncMsg({ ok: false, text: "Network error." });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   function handleSort(col) {
     if (sortCol === col) {
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -418,20 +450,42 @@ function StaffPage() {
           blurb="Staff roster, activity, and moderation stats."
         />
         {(isAdmin || isOwner) && (
-          <Button
-            size="sm"
-            variant="outline"
-            asChild
-            className="h-7 shrink-0 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
-            title="View server admin action logs"
-          >
-            <Link to="/server-logs" search={{ org: orgId }}>
-              <ScrollText className="size-3" />
-              Server Logs
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleSyncServerAdmin}
+              disabled={syncing}
+              className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+              title="Re-run in-game admin grants (moderatorid + usergroup admin) for all staff whose role has Admin on Server"
+            >
+              <RefreshCw
+                className={`size-3 ${syncing ? "animate-spin" : ""}`}
+              />
+              {syncing ? "Syncing…" : "Sync Perms to Servers"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              asChild
+              className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+              title="View server admin action logs"
+            >
+              <Link to="/server-logs" search={{ org: orgId }}>
+                <ScrollText className="size-3" />
+                Server Logs
+              </Link>
+            </Button>
+          </div>
         )}
       </div>
+      {syncMsg && (
+        <p
+          className={`text-[11px] px-1 ${syncMsg.ok ? "text-emerald-400" : "text-danger"}`}
+        >
+          {syncMsg.text}
+        </p>
+      )}
 
       {/* Add staff */}
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">

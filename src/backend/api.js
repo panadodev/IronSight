@@ -192,6 +192,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "ip_read",
   "bans_manage",
   "triggers_manage",
+  "server_admin",
   "discord_mod",
 ];
 
@@ -1859,6 +1860,21 @@ async function handleGrantOrgAdmin(request, orgId) {
     [orgId, member.userId],
   );
 
+  // Sync in-game admin via RCON: org_admin covers all servers.
+  const grantUserRes = await pool.query(
+    `SELECT username, steam_id FROM users WHERE user_id = $1 LIMIT 1`,
+    [member.userId],
+  );
+  await syncMemberServerAdminForRoleChange(
+    orgId,
+    {
+      steam_id: grantUserRes.rows[0]?.steam_id,
+      username: grantUserRes.rows[0]?.username ?? member.username,
+    },
+    beforeState.role_id,
+    "org_admin",
+  );
+
   // Audit log
   await auditLog({
     orgId,
@@ -2036,17 +2052,19 @@ async function handleListOrgRoles(request, orgId) {
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
 
   const { rows } = await pool.query(
-    `SELECT r.role_id, r.role_name,
+    `SELECT r.role_id, r.role_name, r.server_admin_all,
             COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
             COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids,
-            COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids
+            COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids,
+            COALESCE(array_agg(DISTINCT rsa.server_id::text) FILTER (WHERE rsa.server_id IS NOT NULL), '{}') AS server_admin_server_ids
      FROM roles r
      LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
      LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
      LEFT JOIN role_discord_roles rdr ON rdr.role_id = r.role_id
+     LEFT JOIN role_server_admin rsa ON rsa.role_id = r.role_id
      WHERE r.role_id LIKE ($1 || '_%')
        AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
-     GROUP BY r.role_id, r.role_name
+     GROUP BY r.role_id, r.role_name, r.server_admin_all
      ORDER BY r.role_name ASC`,
     [orgId],
   );
@@ -2061,6 +2079,10 @@ async function handleListOrgRoles(request, orgId) {
         : [],
       discordRoleIds: Array.isArray(row.discord_role_ids)
         ? row.discord_role_ids
+        : [],
+      serverAdminAll: row.server_admin_all === true,
+      serverAdminServerIds: Array.isArray(row.server_admin_server_ids)
+        ? row.server_admin_server_ids
         : [],
     })),
   });
@@ -2103,8 +2125,23 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
   const hasPermissions = Array.isArray(body?.permissions);
   const hasTicketTypes = Array.isArray(body?.ticketTypeIds);
   const hasDiscordRoles = Array.isArray(body?.discordRoleIds);
+  const hasServerAdminAll = typeof body?.serverAdminAll === "boolean";
+  const hasServerAdminServers = Array.isArray(body?.serverAdminServerIds);
 
-  if (hasPermissions || hasTicketTypes || hasDiscordRoles) {
+  // Capture the server-admin scope BEFORE mutating so we can reconcile members'
+  // in-game admin against the new scope (covers the permission being removed).
+  const oldServerAdminIds = await resolveRoleServerAdminServerIds(
+    orgId,
+    roleId,
+  );
+
+  if (
+    hasPermissions ||
+    hasTicketTypes ||
+    hasDiscordRoles ||
+    hasServerAdminAll ||
+    hasServerAdminServers
+  ) {
     let filteredPerms = [];
     if (hasPermissions) {
       filteredPerms = body.permissions
@@ -2153,6 +2190,22 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
       ? body.discordRoleIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
 
+    // Validate server-admin server ids belong to this org.
+    let validServerAdminIds = [];
+    if (hasServerAdminServers) {
+      const rawIds = body.serverAdminServerIds
+        .map((id) => String(id).trim())
+        .filter(Boolean);
+      if (rawIds.length > 0) {
+        const srvRes = await pool.query(
+          `SELECT server_id::text AS server_id FROM servers
+           WHERE owner_org_id = $1 AND server_id = ANY($2::uuid[])`,
+          [orgId, rawIds],
+        );
+        validServerAdminIds = srvRes.rows.map((r) => r.server_id);
+      }
+    }
+
     const client = await pool.connect();
     try {
       await client.query(`BEGIN`);
@@ -2190,6 +2243,23 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
           );
         }
       }
+      if (hasServerAdminAll) {
+        await client.query(
+          `UPDATE roles SET server_admin_all = $1 WHERE role_id = $2`,
+          [body.serverAdminAll, roleId],
+        );
+      }
+      if (hasServerAdminServers) {
+        await client.query(`DELETE FROM role_server_admin WHERE role_id = $1`, [
+          roleId,
+        ]);
+        for (const sid of validServerAdminIds) {
+          await client.query(
+            `INSERT INTO role_server_admin (role_id, server_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [roleId, sid],
+          );
+        }
+      }
       await client.query(`COMMIT`);
     } catch (err) {
       await client.query(`ROLLBACK`);
@@ -2197,19 +2267,52 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
     } finally {
       client.release();
     }
+
+    // Reconcile in-game admin for every member currently holding this role:
+    // grant on newly-covered servers, revoke on removed ones. Best-effort.
+    try {
+      const newServerAdminIds = await resolveRoleServerAdminServerIds(
+        orgId,
+        roleId,
+      );
+      const sameScope =
+        oldServerAdminIds.length === newServerAdminIds.length &&
+        new Set([...oldServerAdminIds, ...newServerAdminIds]).size ===
+          oldServerAdminIds.length;
+      if (!sameScope) {
+        const membersRes = await pool.query(
+          `SELECT u.steam_id, u.username FROM organization_members om
+           JOIN users u ON u.user_id = om.user_id
+           WHERE om.org_id = $1 AND om.role_id = $2 AND u.steam_id IS NOT NULL`,
+          [orgId, roleId],
+        );
+        for (const m of membersRes.rows) {
+          await applyMemberServerAdmin(
+            orgId,
+            m,
+            oldServerAdminIds,
+            newServerAdminIds,
+          );
+        }
+      }
+    } catch (err) {
+      console.error("server_admin role reconcile failed:", err);
+    }
   }
 
   const { rows } = await pool.query(
-    `SELECT r.role_id, r.role_name,
+    `SELECT r.role_id, r.role_name, r.server_admin_all,
             COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
             COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids,
-            COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids
+            COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids,
+            COALESCE(array_agg(DISTINCT rsa.server_id::text) FILTER (WHERE rsa.server_id IS NOT NULL), '{}') AS server_admin_server_ids
      FROM roles r
      LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
      LEFT JOIN ticket_type_roles ttr ON ttr.role_id = r.role_id
      LEFT JOIN role_discord_roles rdr ON rdr.role_id = r.role_id
+     LEFT JOIN role_server_admin rsa ON rsa.role_id = r.role_id
      WHERE r.role_id = $1
-     GROUP BY r.role_id, r.role_name`,
+     GROUP BY r.role_id, r.role_name, r.server_admin_all`,
     [roleId],
   );
 
@@ -2225,6 +2328,10 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
         : [],
       discordRoleIds: Array.isArray(role.discord_role_ids)
         ? role.discord_role_ids
+        : [],
+      serverAdminAll: role.server_admin_all === true,
+      serverAdminServerIds: Array.isArray(role.server_admin_server_ids)
+        ? role.server_admin_server_ids
         : [],
     },
   });
@@ -2246,6 +2353,25 @@ async function handleDeleteOrgRole(request, orgId, roleId) {
     [roleId],
   );
   if (!roleExists.rows[0]) return json({ error: "Role not found" }, 404);
+
+  // Revoke in-game admin for members on this role before they drop to
+  // org_member (which has no server_admin). Best-effort.
+  try {
+    const oldIds = await resolveRoleServerAdminServerIds(orgId, roleId);
+    if (oldIds.length > 0) {
+      const membersRes = await pool.query(
+        `SELECT u.steam_id, u.username FROM organization_members om
+         JOIN users u ON u.user_id = om.user_id
+         WHERE om.org_id = $1 AND om.role_id = $2 AND u.steam_id IS NOT NULL`,
+        [orgId, roleId],
+      );
+      for (const m of membersRes.rows) {
+        await applyMemberServerAdmin(orgId, m, oldIds, []);
+      }
+    }
+  } catch (err) {
+    console.error("server_admin revoke on role delete failed:", err);
+  }
 
   // Reassign members on this custom role back to org_member
   await pool.query(
@@ -2291,7 +2417,7 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   }
 
   const memberRes = await pool.query(
-    `SELECT om.role_id, u.username, u.discord_id FROM organization_members om
+    `SELECT om.role_id, u.username, u.discord_id, u.steam_id FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1 AND om.user_id = $2`,
     [orgId, userId],
@@ -2320,6 +2446,14 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   if (beforeState.role_id === "org_owner" && !actorIsOwner) {
     return json({ error: "Only org owners can remove other owners" }, 403);
   }
+
+  // Revoke in-game admin via RCON before dropping the membership.
+  await syncMemberServerAdminForRoleChange(
+    orgId,
+    { steam_id: beforeState.steam_id, username: beforeState.username },
+    beforeState.role_id,
+    null,
+  );
 
   await pool.query(
     `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`,
@@ -2447,7 +2581,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   }
 
   const memberRes = await pool.query(
-    `SELECT om.role_id, u.username, u.discord_id FROM organization_members om
+    `SELECT om.role_id, u.username, u.discord_id, u.steam_id FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1 AND om.user_id = $2`,
     [orgId, userId],
@@ -2476,6 +2610,14 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   await syncDiscordRolesOnRoleChange(
     orgRes.rows[0].guild_id,
     beforeState.discord_id,
+    beforeState.role_id,
+    resolvedTeam,
+  );
+
+  // Sync in-game admin (server_admin permission) via RCON for the role change.
+  await syncMemberServerAdminForRoleChange(
+    orgId,
+    { steam_id: beforeState.steam_id, username: beforeState.username },
     beforeState.role_id,
     resolvedTeam,
   );
@@ -6782,6 +6924,246 @@ function executeRconCommand(rconUrl, command) {
   });
 }
 
+// ── Server-admin (in-game admin) provisioning via RCON ───────────────────────
+//
+// A role holding the `server_admin` permission grants its members in-game admin
+// on a set of servers. Built-in Owner/Admin cover ALL of the org's servers;
+// custom roles either cover all (roles.server_admin_all) or an explicit list
+// (role_server_admin). When a member gains access we run, per server:
+//   moderatorid <steamId> "<name>"   +   o.usergroup add <steamId> admin
+// and when they lose it:
+//   removemoderator <steamId>        +   o.usergroup remove <steamId> admin
+// All RCON work here is best-effort and never throws into the request path.
+
+const SERVER_ADMIN_BUILTIN_ROLES = new Set(["org_admin", "org_owner"]);
+
+async function roleHasServerAdmin(roleId) {
+  if (SERVER_ADMIN_BUILTIN_ROLES.has(roleId)) return true;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM role_permissions
+     WHERE role_id = $1 AND permission_id = 'server_admin' LIMIT 1`,
+    [roleId],
+  );
+  return rows.length > 0;
+}
+
+async function allOrgServerIds(orgId) {
+  const { rows } = await pool.query(
+    `SELECT server_id::text AS server_id FROM servers WHERE owner_org_id = $1`,
+    [orgId],
+  );
+  return rows.map((r) => r.server_id);
+}
+
+// Concrete list of server_ids (within orgId) a role's server_admin applies to.
+// Returns [] when the role does not grant server_admin.
+async function resolveRoleServerAdminServerIds(orgId, roleId) {
+  if (!roleId) return [];
+  if (!(await roleHasServerAdmin(roleId))) return [];
+  if (SERVER_ADMIN_BUILTIN_ROLES.has(roleId))
+    return await allOrgServerIds(orgId);
+
+  const allRes = await pool.query(
+    `SELECT server_admin_all FROM roles WHERE role_id = $1 LIMIT 1`,
+    [roleId],
+  );
+  if (allRes.rows[0]?.server_admin_all) return await allOrgServerIds(orgId);
+
+  const { rows } = await pool.query(
+    `SELECT rsa.server_id::text AS server_id
+     FROM role_server_admin rsa
+     JOIN servers s ON s.server_id = rsa.server_id
+     WHERE rsa.role_id = $1 AND s.owner_org_id = $2`,
+    [roleId, orgId],
+  );
+  return rows.map((r) => r.server_id);
+}
+
+// Load RCON-capable server rows for an explicit list of ids (within orgId).
+async function loadRconServersByIds(orgId, serverIds) {
+  if (!Array.isArray(serverIds) || serverIds.length === 0) return [];
+  const { rows } = await pool.query(
+    `SELECT server_id::text AS server_id, server_name,
+            rcon_host, rcon_port, rcon_password_enc
+     FROM servers
+     WHERE owner_org_id = $1 AND server_id = ANY($2::uuid[])
+       AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL
+       AND rcon_password_enc IS NOT NULL`,
+    [orgId, serverIds],
+  );
+  return rows;
+}
+
+function sanitizeRconName(name) {
+  const cleaned = String(name ?? "")
+    .replace(/["\r\n]/g, "")
+    .trim()
+    .slice(0, 32);
+  return cleaned || "staff";
+}
+
+function serverAdminGrantCommands(steamId, name) {
+  return [
+    `moderatorid ${steamId} "${sanitizeRconName(name)}"`,
+    `o.usergroup add ${steamId} admin`,
+  ];
+}
+
+function serverAdminRevokeCommands(steamId) {
+  return [`removemoderator ${steamId}`, `o.usergroup remove ${steamId} admin`];
+}
+
+async function runRconCommandsOnServer(serverRow, commands) {
+  let password;
+  try {
+    password = decryptPterodactylApiKey(serverRow.rcon_password_enc);
+  } catch {
+    return {
+      serverId: serverRow.server_id,
+      serverName: serverRow.server_name,
+      ok: false,
+      error: "RCON credentials corrupted",
+    };
+  }
+  const rconUrl = `ws://${serverRow.rcon_host}:${serverRow.rcon_port}/${encodeURIComponent(password)}`;
+  try {
+    for (const cmd of commands) {
+      await executeRconCommand(rconUrl, cmd);
+    }
+    return {
+      serverId: serverRow.server_id,
+      serverName: serverRow.server_name,
+      ok: true,
+    };
+  } catch (err) {
+    return {
+      serverId: serverRow.server_id,
+      serverName: serverRow.server_name,
+      ok: false,
+      error: String(err?.message ?? err),
+    };
+  }
+}
+
+// Reconcile a single member from one server-admin server set to another.
+// `member` must have { steam_id, username }. Grants on (target − current) and
+// revokes on (current − target). Never throws.
+async function applyMemberServerAdmin(orgId, member, currentIds, targetIds) {
+  const steamId = member?.steam_id;
+  if (!steamId) return { skipped: "member has no linked Steam account" };
+
+  const curSet = new Set(currentIds ?? []);
+  const tgtSet = new Set(targetIds ?? []);
+  const toGrant = [...tgtSet].filter((id) => !curSet.has(id));
+  const toRevoke = [...curSet].filter((id) => !tgtSet.has(id));
+
+  const results = { granted: [], revoked: [] };
+  try {
+    if (toGrant.length) {
+      const servers = await loadRconServersByIds(orgId, toGrant);
+      const cmds = serverAdminGrantCommands(steamId, member.username);
+      for (const s of servers) {
+        results.granted.push(await runRconCommandsOnServer(s, cmds));
+      }
+    }
+    if (toRevoke.length) {
+      const servers = await loadRconServersByIds(orgId, toRevoke);
+      const cmds = serverAdminRevokeCommands(steamId);
+      for (const s of servers) {
+        results.revoked.push(await runRconCommandsOnServer(s, cmds));
+      }
+    }
+  } catch (err) {
+    console.error("applyMemberServerAdmin failed:", err);
+  }
+  return results;
+}
+
+// Convenience used by member role-change / removal paths: resolve old + new
+// role scopes for a member and apply the diff. Best-effort.
+async function syncMemberServerAdminForRoleChange(
+  orgId,
+  member,
+  oldRoleId,
+  newRoleId,
+) {
+  try {
+    const currentIds = await resolveRoleServerAdminServerIds(orgId, oldRoleId);
+    const targetIds = await resolveRoleServerAdminServerIds(orgId, newRoleId);
+    return await applyMemberServerAdmin(orgId, member, currentIds, targetIds);
+  } catch (err) {
+    console.error("syncMemberServerAdminForRoleChange failed:", err);
+    return null;
+  }
+}
+
+// POST /api/orgs/:orgId/sync-server-admin
+// Re-runs the in-game admin grant for every member whose role currently grants
+// the server_admin permission, across each member's scoped servers. Used by the
+// "Sync Perms to Servers" button for the built-in Owner/Admin roles.
+async function handleSyncServerAdmin(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
+  }
+
+  // RCON-heavy; cap how often a sync can be triggered per org.
+  const rl = await checkRateLimit(`rl:sync-server-admin:${orgId}`, 3, 60);
+  if (rl) return rl;
+
+  const { rows: members } = await pool.query(
+    `SELECT om.role_id, u.steam_id, u.username
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND u.steam_id IS NOT NULL`,
+    [orgId],
+  );
+
+  // Resolve scope per distinct role once.
+  const scopeCache = new Map();
+  let memberCount = 0;
+  let serverGrantCount = 0;
+  let failureCount = 0;
+
+  for (const m of members) {
+    if (!scopeCache.has(m.role_id)) {
+      scopeCache.set(
+        m.role_id,
+        await resolveRoleServerAdminServerIds(orgId, m.role_id),
+      );
+    }
+    const targetIds = scopeCache.get(m.role_id);
+    if (!targetIds.length) continue;
+    memberCount++;
+    // Force a full re-grant (current = []), so every command re-runs.
+    const res = await applyMemberServerAdmin(orgId, m, [], targetIds);
+    for (const r of res?.granted ?? []) {
+      serverGrantCount++;
+      if (!r.ok) failureCount++;
+    }
+  }
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "org",
+    resourceId: orgId,
+    actionType: "SERVER_ADMIN_SYNCED",
+    actionCategory: "staff_management",
+    severity: 2,
+    metadata: { memberCount, serverGrantCount, failureCount },
+    ipAddress: getClientIp(request),
+  });
+
+  return json({
+    ok: true,
+    membersSynced: memberCount,
+    serverGrants: serverGrantCount,
+    failures: failureCount,
+  });
+}
+
 async function handleExecRconCommand(request, serverId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -9528,6 +9910,13 @@ async function _handleApiRequest(request) {
         orgRoleDetailMatch[1],
         orgRoleDetailMatch[2],
       );
+    }
+
+    const orgSyncServerAdminMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/sync-server-admin$/,
+    );
+    if (orgSyncServerAdminMatch && request.method === "POST") {
+      return handleSyncServerAdmin(request, orgSyncServerAdminMatch[1]);
     }
 
     const orgMemberDetailMatch = pathname.match(
