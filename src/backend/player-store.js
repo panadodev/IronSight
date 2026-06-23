@@ -771,11 +771,42 @@ function classifyConnType(meta) {
 
 async function runProxycheckForIps(ipList, orgId) {
   if (!ipList.length) return {};
+
+  // Serve already-cached, non-expired entries from ip_metadata so we only
+  // hit the Proxycheck API for IPs we haven't seen within the 30-day TTL.
+  const { rows: cachedRows } = await pool.query(
+    `SELECT ip_address, is_proxy, is_vpn, conn_type, isp, country, asn
+     FROM ip_metadata
+     WHERE ip_address = ANY($1) AND cache_expires_at > unix_now()`,
+    [ipList],
+  );
+
   const results = {};
+  for (const r of cachedRows) {
+    results[r.ip_address] = {
+      isProxy: r.is_proxy,
+      isVpn: r.is_vpn,
+      connType: r.conn_type,
+      isp: r.isp,
+      country: r.country,
+      asn: r.asn,
+    };
+  }
+
+  const cachedIps = new Set(Object.keys(results));
+  const uncachedIps = ipList.filter((ip) => !cachedIps.has(ip));
+
+  if (!uncachedIps.length) {
+    console.log(
+      `[proxycheck] org=${orgId} — all ${ipList.length} IP(s) served from cache`,
+    );
+    return results;
+  }
+
   let classified = 0;
   let unknown = 0;
-  for (let i = 0; i < ipList.length; i += 100) {
-    const chunk = ipList.slice(i, i + 100);
+  for (let i = 0; i < uncachedIps.length; i += 100) {
+    const chunk = uncachedIps.slice(i, i + 100);
     const resp = await proxycheckApiFetch(orgId, chunk);
     if (!resp) {
       console.warn(
@@ -816,7 +847,7 @@ async function runProxycheckForIps(ipList, orgId) {
     }
   }
   console.log(
-    `[proxycheck] org=${orgId} — ${Object.keys(results).length} IP(s): ${classified} classified, ${unknown} unknown type`,
+    `[proxycheck] org=${orgId} — ${cachedRows.length} cached + ${uncachedIps.length} fetched (${classified} classified, ${unknown} unknown type)`,
   );
   return results;
 }
