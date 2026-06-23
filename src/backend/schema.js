@@ -1281,6 +1281,35 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_ai_mod_triggers_org_id
      ON org_ai_moderation_triggers(org_id)`,
   );
+
+  // Flagged messages log — one row per trigger-fire, resolvable by staff.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_chat_flags (
+      flag_id          UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      chat_log_id      BIGINT  REFERENCES text_chat_log(id) ON DELETE SET NULL,
+      org_id           TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      server_id        UUID    NOT NULL REFERENCES servers(server_id) ON DELETE CASCADE,
+      steam_id         TEXT    NOT NULL,
+      player_name      TEXT,
+      message          TEXT    NOT NULL,
+      triggered_category TEXT  NOT NULL,
+      score            DOUBLE PRECISION NOT NULL,
+      action           TEXT    NOT NULL DEFAULT 'highlight',
+      resolved         BOOLEAN NOT NULL DEFAULT FALSE,
+      resolved_by      UUID    REFERENCES users(user_id) ON DELETE SET NULL,
+      resolved_at      BIGINT,
+      created_at       BIGINT  NOT NULL DEFAULT unix_now(),
+      CONSTRAINT uq_ai_chat_flag UNIQUE (chat_log_id, triggered_category)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ai_chat_flags_org_resolved
+     ON ai_chat_flags(org_id, resolved, created_at DESC)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ai_chat_flags_server
+     ON ai_chat_flags(server_id, created_at DESC)`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
@@ -1363,7 +1392,8 @@ export async function ensureRolePermissionSeed(pool) {
       ('bans_ip',             'Issue IP bans and auto-ban evaders'),
       ('triggers_manage',     'Configure threat triggers'),
       ('server_admin',        'Admin on Server (grants in-game admin via RCON)'),
-      ('discord_mod',         'Use Discord moderation')
+      ('discord_mod',         'Use Discord moderation'),
+      ('flagged_messages_resolve', 'Resolve AI-flagged chat messages')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 

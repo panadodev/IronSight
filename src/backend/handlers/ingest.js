@@ -130,6 +130,7 @@ export async function handleIngestChatMessage(request) {
     steamId,
     server.server_id,
     message,
+    playerName,
   );
 
   return json({ ok: true, id: String(row.id) }, 201);
