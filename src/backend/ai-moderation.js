@@ -1,11 +1,19 @@
 // AI chat/image moderation via OpenAI's Moderation API.
 // Used by the chat ingest handler (fire-and-forget) and the manual image-review endpoint.
 
-import { pool } from "./runtime.js";
+import { pool, redis } from "./runtime.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
 
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
-const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
+// text-moderation-latest is free with high rate limits; reserve omni for images.
+const OPENAI_TEXT_MODERATION_MODEL = "text-moderation-latest";
+const OPENAI_IMAGE_MODERATION_MODEL = "omni-moderation-latest";
+
+// Per-org cap on moderation API calls per minute (safety valve against burst ingest).
+const AI_MOD_RATE_LIMIT = parseInt(
+  process.env.AI_MODERATION_RATE_LIMIT_PER_MINUTE ?? "300",
+  10,
+);
 
 // All category keys returned by omni-moderation-latest.
 export const AI_MODERATION_CATEGORIES = [
@@ -100,7 +108,11 @@ export async function getOrgOpenAIKey(orgId) {
 // Call the OpenAI Moderation API. input is a string (text) or an array of
 // content-block objects (for images). Returns { flagged, categories, scores }.
 // Retries up to 3 times on 429 with exponential backoff (1s, 2s, 4s).
-export async function callOpenAIModeration(apiKey, input) {
+export async function callOpenAIModeration(
+  apiKey,
+  input,
+  model = OPENAI_IMAGE_MODERATION_MODEL,
+) {
   const MAX_RETRIES = 3;
   let delay = 1000;
 
@@ -111,10 +123,7 @@ export async function callOpenAIModeration(apiKey, input) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: OPENAI_MODERATION_MODEL,
-        input,
-      }),
+      body: JSON.stringify({ model, input }),
     });
 
     if (res.status === 429 && attempt < MAX_RETRIES) {
@@ -242,6 +251,23 @@ async function insertFlag(
     });
 }
 
+// Returns true if the org is over its per-minute moderation call budget.
+async function isOrgModRateLimited(orgId) {
+  if (!redis) return false;
+  try {
+    const n = await redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], 60) end
+       return n`,
+      1,
+      `rl:ai-mod:${orgId}`,
+    );
+    return n > AI_MOD_RATE_LIMIT;
+  } catch {
+    return false;
+  }
+}
+
 async function _runChatModeration(
   chatRowId,
   orgId,
@@ -253,9 +279,20 @@ async function _runChatModeration(
   const apiKey = await getOrgOpenAIKey(orgId);
   if (!apiKey) return;
 
+  if (await isOrgModRateLimited(orgId)) {
+    console.warn(
+      `[ai-mod] rate limit reached for org=${orgId}, skipping chat ${chatRowId}`,
+    );
+    return;
+  }
+
   let scores;
   try {
-    const result = await callOpenAIModeration(apiKey, message);
+    const result = await callOpenAIModeration(
+      apiKey,
+      message,
+      OPENAI_TEXT_MODERATION_MODEL,
+    );
     scores = result.scores;
 
     await pool.query(`UPDATE text_chat_log SET ai_flags = $1 WHERE id = $2`, [
