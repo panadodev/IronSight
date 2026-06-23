@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Crown,
+  Eye,
   MessageSquare,
   ShieldAlert,
   Users,
@@ -38,7 +39,7 @@ const CATEGORY_LABELS = {
   "violence/graphic": "Graphic Violence",
 };
 
-function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage }) {
+function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage, onFilterToPlayer }) {
   const [flags, setFlags] = useState([]);
   const [totalReviewed, setTotalReviewed] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -162,6 +163,9 @@ function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage }) {
                         onJumpToMessage(flag.serverId, flag.chatLogId, flag.createdAt)
                     : null
                 }
+                onViewPlayer={() =>
+                  onFilterToPlayer(flag.serverId, flag.steamId, flag.createdAt)
+                }
               />
             ))}
           </div>
@@ -171,7 +175,7 @@ function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage }) {
   );
 }
 
-function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump }) {
+function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump, onViewPlayer }) {
   const scorePercent = Math.round(flag.score * 100);
   const label =
     CATEGORY_LABELS[flag.triggeredCategory] ?? flag.triggeredCategory;
@@ -198,16 +202,25 @@ function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump }) {
         </p>
       )}
 
-      <button
-        onClick={onJump}
-        disabled={!onJump}
-        className={`text-left w-full text-[11px] text-foreground/80 line-clamp-2 break-words ${
-          onJump ? "hover:text-brand cursor-pointer" : "cursor-default"
-        }`}
-        title={onJump ? "Jump to message in chat log" : undefined}
-      >
-        {flag.message}
-      </button>
+      <div className="flex items-start gap-1.5">
+        <button
+          onClick={onJump}
+          disabled={!onJump}
+          className={`flex-1 text-left text-[11px] text-foreground/80 line-clamp-2 break-words ${
+            onJump ? "hover:text-brand cursor-pointer" : "cursor-default"
+          }`}
+          title={onJump ? "Jump to this message in chat log" : undefined}
+        >
+          {flag.message}
+        </button>
+        <button
+          onClick={onViewPlayer}
+          className="shrink-0 text-muted-foreground hover:text-brand transition-colors mt-0.5"
+          title={`Filter chat to ${flag.playerName ?? flag.steamId} on ${flag.serverName ?? "this server"}`}
+        >
+          <Eye className="size-3.5" />
+        </button>
+      </div>
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
@@ -677,6 +690,21 @@ function ChatPage() {
     [],
   );
 
+  const onFilterToPlayer = useCallback(
+    (targetServerId, steamId, ts) => {
+      const tsMs = ts * 1000;
+      const halfWindow = 60 * 60 * 1000; // ±1 hour around the flagged message
+      setServerId(targetServerId);
+      setSelectedPlayers(new Set([steamId]));
+      setQuery("");
+      setRelativeTs(false);
+      setStart(fmtLocalInput(tsMs - halfWindow));
+      setEnd(fmtLocalInput(tsMs + halfWindow));
+      setHighlightedId(null);
+    },
+    [],
+  );
+
   const startMs = parseLocal(start);
   const endMs = parseLocal(end);
 
@@ -1087,6 +1115,7 @@ function ChatPage() {
                 "flagged_messages_resolve",
               )}
               onJumpToMessage={onJumpToMessage}
+              onFilterToPlayer={onFilterToPlayer}
             />
           </div>
         </main>
