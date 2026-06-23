@@ -8,7 +8,10 @@ if (!TOKEN) {
 
 const DISCORD_API = "https://discord.com/api/v10";
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
-const API_URL = process.env.API_URL ?? "http://localhost:3000";
+const API_URL = (process.env.API_URL ?? "http://localhost:3000").replace(
+  /\/api\/?$/,
+  "",
+);
 
 if (!process.env.API_URL) {
   console.warn(
