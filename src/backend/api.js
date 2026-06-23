@@ -94,6 +94,11 @@ import {
   evaluateThreatTriggers,
   TRIGGER_FACTS,
 } from "./threat-triggers.js";
+import {
+  getOrgOpenAIKey,
+  moderateImage,
+  AI_MODERATION_CATEGORIES,
+} from "./ai-moderation.js";
 import "dotenv/config";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
@@ -5645,6 +5650,237 @@ async function handleSetOrgToxicity(request, orgId) {
   });
 }
 
+// ── AI Moderation triggers ───────────────────────────────────────────────────
+
+async function handleListAIModerationTriggers(request, orgId) {
+  const { session, error } = await requireOrgMemberOrAdmin(request, orgId);
+  if (error) return error;
+  void session;
+
+  const { rows } = await pool.query(
+    `SELECT trigger_id, category, threshold, action, mute_duration_minutes,
+            apply_to_all_servers, enabled, created_at, updated_at
+     FROM org_ai_moderation_triggers
+     WHERE org_id = $1
+     ORDER BY category, threshold DESC`,
+    [orgId],
+  );
+
+  const hasKey = (await getOrgOpenAIKey(orgId)) !== null;
+
+  return json({
+    triggers: rows.map((r) => ({
+      triggerId: String(r.trigger_id),
+      category: r.category,
+      threshold: Number(r.threshold),
+      action: r.action,
+      muteDurationMinutes: r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
+      applyToAllServers: Boolean(r.apply_to_all_servers),
+      enabled: Boolean(r.enabled),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
+    })),
+    hasOpenAIKey: hasKey,
+  });
+}
+
+async function handleCreateAIModerationTrigger(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "toxicity_manage"))
+    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const category = String(body?.category ?? "").trim();
+  if (!AI_MODERATION_CATEGORIES.includes(category))
+    return json({ error: "Invalid category" }, 400);
+
+  const threshold = Number(body?.threshold ?? 0.8);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)
+    return json({ error: "threshold must be between 0 and 1" }, 400);
+
+  const action = String(body?.action ?? "highlight");
+  if (!["highlight", "automute"].includes(action))
+    return json({ error: "action must be highlight or automute" }, 400);
+
+  const rawDuration = body?.muteDurationMinutes;
+  const muteDurationMinutes =
+    rawDuration == null ? null : Math.max(1, Math.floor(Number(rawDuration)));
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_ai_moderation_triggers
+       (org_id, category, threshold, action, mute_duration_minutes, apply_to_all_servers, created_by)
+     VALUES ($1, $2, $3, $4, $5, TRUE, $6)
+     RETURNING trigger_id, category, threshold, action, mute_duration_minutes,
+               apply_to_all_servers, enabled, created_at, updated_at`,
+    [orgId, category, threshold, action, muteDurationMinutes, session.userId],
+  );
+  const r = rows[0];
+  return json(
+    {
+      triggerId: String(r.trigger_id),
+      category: r.category,
+      threshold: Number(r.threshold),
+      action: r.action,
+      muteDurationMinutes: r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
+      applyToAllServers: Boolean(r.apply_to_all_servers),
+      enabled: Boolean(r.enabled),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
+    },
+    201,
+  );
+}
+
+async function handleUpdateAIModerationTrigger(request, orgId, triggerId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "toxicity_manage"))
+    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const sets = [`updated_at = unix_now()`];
+  const params = [triggerId, orgId];
+  let idx = 3;
+
+  if ("threshold" in body) {
+    const v = Number(body.threshold);
+    if (!Number.isFinite(v) || v < 0 || v > 1)
+      return json({ error: "threshold must be between 0 and 1" }, 400);
+    sets.push(`threshold = $${idx++}`);
+    params.push(v);
+  }
+  if ("action" in body) {
+    if (!["highlight", "automute"].includes(body.action))
+      return json({ error: "action must be highlight or automute" }, 400);
+    sets.push(`action = $${idx++}`);
+    params.push(body.action);
+  }
+  if ("muteDurationMinutes" in body) {
+    const v = body.muteDurationMinutes == null ? null : Math.max(1, Math.floor(Number(body.muteDurationMinutes)));
+    sets.push(`mute_duration_minutes = $${idx++}`);
+    params.push(v);
+  }
+  if ("enabled" in body) {
+    sets.push(`enabled = $${idx++}`);
+    params.push(Boolean(body.enabled));
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE org_ai_moderation_triggers
+     SET ${sets.join(", ")}
+     WHERE trigger_id = $1 AND org_id = $2
+     RETURNING trigger_id, category, threshold, action, mute_duration_minutes,
+               apply_to_all_servers, enabled, created_at, updated_at`,
+    params,
+  );
+  if (!rows[0]) return json({ error: "Trigger not found" }, 404);
+  const r = rows[0];
+  return json({
+    triggerId: String(r.trigger_id),
+    category: r.category,
+    threshold: Number(r.threshold),
+    action: r.action,
+    muteDurationMinutes: r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
+    applyToAllServers: Boolean(r.apply_to_all_servers),
+    enabled: Boolean(r.enabled),
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  });
+}
+
+async function handleDeleteAIModerationTrigger(request, orgId, triggerId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "toxicity_manage"))
+    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+
+  const res = await pool.query(
+    `DELETE FROM org_ai_moderation_triggers WHERE trigger_id = $1 AND org_id = $2`,
+    [triggerId, orgId],
+  );
+  if (res.rowCount === 0) return json({ error: "Trigger not found" }, 404);
+  return json({ ok: true });
+}
+
+async function handleModerateImage(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "toxicity_manage"))
+    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+
+  const apiKey = await getOrgOpenAIKey(orgId);
+  if (!apiKey)
+    return json({ error: "No OpenAI API key configured for this organization" }, 422);
+
+  let imageInput;
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "Invalid JSON body" }, 400);
+    }
+    if (body?.url) {
+      imageInput = String(body.url).trim();
+    } else if (body?.base64 && body?.contentType) {
+      const mimeType = String(body.contentType).split(";")[0].trim();
+      if (!mimeType.startsWith("image/"))
+        return json({ error: "contentType must be an image/* MIME type" }, 400);
+      imageInput = `data:${mimeType};base64,${body.base64}`;
+    } else {
+      return json({ error: "Provide url or base64+contentType" }, 400);
+    }
+  } else if (contentType.includes("multipart/form-data")) {
+    let formData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return json({ error: "Could not parse multipart form" }, 400);
+    }
+    const file = formData.get("image");
+    if (!file || typeof file === "string")
+      return json({ error: "image field required" }, 400);
+    const mimeType = (file.type || "image/jpeg").split(";")[0].trim();
+    if (!mimeType.startsWith("image/"))
+      return json({ error: "file must be an image" }, 400);
+    const buf = await file.arrayBuffer();
+    const b64 = Buffer.from(buf).toString("base64");
+    imageInput = `data:${mimeType};base64,${b64}`;
+  } else {
+    return json({ error: "Content-Type must be application/json or multipart/form-data" }, 415);
+  }
+
+  if (!imageInput) return json({ error: "No image provided" }, 400);
+
+  let result;
+  try {
+    result = await moderateImage(apiKey, imageInput);
+  } catch (err) {
+    return json({ error: String(err.message) }, 502);
+  }
+
+  return json({
+    flagged: result.flagged,
+    categories: result.categories,
+    scores: result.scores,
+  });
+}
+
 // ── Manage Org: Ban/mute configs ────────────────────────────────────────────
 
 const BAN_CONFIG_CATEGORIES = ["cheating", "teaming", "toxicity", "mute"];
@@ -8388,9 +8624,9 @@ async function handleAddExternalKey(request, orgId) {
     .slice(0, 128);
   const priority = Number(body?.priority ?? 0);
 
-  if (!["battlemetrics", "steam", "proxycheck"].includes(service))
+  if (!["battlemetrics", "steam", "proxycheck", "openai"].includes(service))
     return json(
-      { error: "service must be battlemetrics, steam, or proxycheck" },
+      { error: "service must be battlemetrics, steam, proxycheck, or openai" },
       400,
     );
   if (!rawKey) return json({ error: "key is required" }, 400);
@@ -10440,6 +10676,29 @@ async function _handleApiRequest(request) {
       return handleGetOrgToxicity(request, orgToxicityMatch[1]);
     if (orgToxicityMatch && request.method === "PATCH")
       return handleSetOrgToxicity(request, orgToxicityMatch[1]);
+
+    // AI Moderation triggers
+    const aiTriggersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/triggers$/,
+    );
+    if (aiTriggersMatch && request.method === "GET")
+      return handleListAIModerationTriggers(request, aiTriggersMatch[1]);
+    if (aiTriggersMatch && request.method === "POST")
+      return handleCreateAIModerationTrigger(request, aiTriggersMatch[1]);
+
+    const aiTriggerItemMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/triggers\/([a-f0-9-]+)$/,
+    );
+    if (aiTriggerItemMatch && request.method === "PATCH")
+      return handleUpdateAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
+    if (aiTriggerItemMatch && request.method === "DELETE")
+      return handleDeleteAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
+
+    const aiModerateImageMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/moderate-image$/,
+    );
+    if (aiModerateImageMatch && request.method === "POST")
+      return handleModerateImage(request, aiModerateImageMatch[1]);
 
     // Manage Org: ban/mute configs
     const orgBanConfigsMatch = pathname.match(

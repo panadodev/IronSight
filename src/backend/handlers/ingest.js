@@ -5,6 +5,7 @@ import { pool, redis } from "../runtime.js";
 import { json } from "../http.js";
 import { authenticateServerKey, checkRateLimit } from "../core.js";
 import { evaluateThreatTriggers } from "../threat-triggers.js";
+import { runChatModerationAsync } from "../ai-moderation.js";
 
 const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
 const SERVER_LOG_RATE_LIMIT_PER_MINUTE = 120;
@@ -121,6 +122,15 @@ export async function handleIngestChatMessage(request) {
   } catch {
     // Redis caching is best-effort; message is already persisted in Postgres
   }
+
+  // AI moderation: fire-and-forget — never blocks the 201 response.
+  runChatModerationAsync(
+    row.id,
+    server.owner_org_id,
+    steamId,
+    server.server_id,
+    message,
+  );
 
   return json({ ok: true, id: String(row.id) }, 201);
 }
