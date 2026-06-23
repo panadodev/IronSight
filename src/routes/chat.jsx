@@ -29,8 +29,6 @@ const CATEGORY_LABELS = {
   "harassment/threatening": "Threatening",
   hate: "Hate Speech",
   "hate/threatening": "Threatening Hate",
-  illicit: "Illicit",
-  "illicit/violent": "Violent Illicit",
   "self-harm": "Self-Harm",
   "self-harm/intent": "Self-Harm Intent",
   "self-harm/instructions": "Self-Harm Instr.",

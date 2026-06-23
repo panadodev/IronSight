@@ -1,20 +1,18 @@
-// AI chat/image moderation via OpenAI's Moderation API.
-// Used by the chat ingest handler (fire-and-forget) and the manual image-review endpoint.
+// AI chat moderation via OpenAI's Moderation API
+// Used by the chat ingest handler (fire-and-forget)
 
 import { pool } from "./runtime.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
 
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
-const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
+const OPENAI_MODERATION_MODEL = "text-moderation-stable";
 
-// All category keys returned by omni-moderation-latest.
+// All category keys returned by text-moderation-stable.
 export const AI_MODERATION_CATEGORIES = [
   "harassment",
   "harassment/threatening",
   "hate",
   "hate/threatening",
-  "illicit",
-  "illicit/violent",
   "self-harm",
   "self-harm/intent",
   "self-harm/instructions",
@@ -41,14 +39,6 @@ export const CATEGORY_META = {
   "hate/threatening": {
     label: "Threatening Hate Speech",
     note: "Threatening content grounded in identity-based hatred.",
-  },
-  illicit: {
-    label: "Illicit Content",
-    note: "Discussion of illegal activities off-game.",
-  },
-  "illicit/violent": {
-    label: "Violent Illegal Content",
-    note: "Violent off-game illegal activities.",
   },
   "self-harm": {
     label: "Self-Harm Content",
@@ -97,10 +87,9 @@ export async function getOrgOpenAIKey(orgId) {
   }
 }
 
-// Call the OpenAI Moderation API. input is a string (text) or an array of
-// content-block objects (for images). Returns { flagged, categories, scores }.
+// Call the OpenAI Moderation API for a text string. Returns { flagged, categories, scores }.
 // Retries up to 3 times on 429 with exponential backoff (1s, 2s, 4s).
-export async function callOpenAIModeration(apiKey, input) {
+export async function callOpenAIModeration(apiKey, text) {
   const MAX_RETRIES = 3;
   let delay = 1000;
 
@@ -113,7 +102,7 @@ export async function callOpenAIModeration(apiKey, input) {
       },
       body: JSON.stringify({
         model: OPENAI_MODERATION_MODEL,
-        input,
+        input: text,
       }),
     });
 
@@ -292,14 +281,4 @@ async function _runChatModeration(
       }
     }
   }
-}
-
-// Moderate an image. imageInput is either a URL string or a base64 data URI
-// (e.g. "data:image/jpeg;base64,..."). Returns { flagged, categories, scores }.
-export async function moderateImage(apiKey, imageInput) {
-  const imageBlock = imageInput.startsWith("data:")
-    ? { type: "image_url", image_url: { url: imageInput } }
-    : { type: "image_url", image_url: { url: imageInput } };
-
-  return callOpenAIModeration(apiKey, [imageBlock]);
 }

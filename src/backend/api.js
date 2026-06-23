@@ -96,7 +96,6 @@ import {
 } from "./threat-triggers.js";
 import {
   getOrgOpenAIKey,
-  moderateImage,
   AI_MODERATION_CATEGORIES,
 } from "./ai-moderation.js";
 import "dotenv/config";
@@ -5816,72 +5815,6 @@ async function handleDeleteAIModerationTrigger(request, orgId, triggerId) {
   return json({ ok: true });
 }
 
-async function handleModerateImage(request, orgId) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-  if (!orgHasPermission(session, orgId, "toxicity_manage"))
-    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
-
-  const apiKey = await getOrgOpenAIKey(orgId);
-  if (!apiKey)
-    return json({ error: "No OpenAI API key configured for this organization" }, 422);
-
-  let imageInput;
-  const contentType = request.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    let body;
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: "Invalid JSON body" }, 400);
-    }
-    if (body?.url) {
-      imageInput = String(body.url).trim();
-    } else if (body?.base64 && body?.contentType) {
-      const mimeType = String(body.contentType).split(";")[0].trim();
-      if (!mimeType.startsWith("image/"))
-        return json({ error: "contentType must be an image/* MIME type" }, 400);
-      imageInput = `data:${mimeType};base64,${body.base64}`;
-    } else {
-      return json({ error: "Provide url or base64+contentType" }, 400);
-    }
-  } else if (contentType.includes("multipart/form-data")) {
-    let formData;
-    try {
-      formData = await request.formData();
-    } catch {
-      return json({ error: "Could not parse multipart form" }, 400);
-    }
-    const file = formData.get("image");
-    if (!file || typeof file === "string")
-      return json({ error: "image field required" }, 400);
-    const mimeType = (file.type || "image/jpeg").split(";")[0].trim();
-    if (!mimeType.startsWith("image/"))
-      return json({ error: "file must be an image" }, 400);
-    const buf = await file.arrayBuffer();
-    const b64 = Buffer.from(buf).toString("base64");
-    imageInput = `data:${mimeType};base64,${b64}`;
-  } else {
-    return json({ error: "Content-Type must be application/json or multipart/form-data" }, 415);
-  }
-
-  if (!imageInput) return json({ error: "No image provided" }, 400);
-
-  let result;
-  try {
-    result = await moderateImage(apiKey, imageInput);
-  } catch (err) {
-    return json({ error: String(err.message) }, 502);
-  }
-
-  return json({
-    flagged: result.flagged,
-    categories: result.categories,
-    scores: result.scores,
-  });
-}
-
 // ── AI Moderation: flagged messages ─────────────────────────────────────────
 
 async function handleListFlaggedMessages(request, orgId) {
@@ -10770,12 +10703,6 @@ async function _handleApiRequest(request) {
       return handleUpdateAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
     if (aiTriggerItemMatch && request.method === "DELETE")
       return handleDeleteAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
-
-    const aiModerateImageMatch = pathname.match(
-      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/moderate-image$/,
-    );
-    if (aiModerateImageMatch && request.method === "POST")
-      return handleModerateImage(request, aiModerateImageMatch[1]);
 
     // AI Moderation: flagged messages
     const aiFlaggedMatch = pathname.match(
