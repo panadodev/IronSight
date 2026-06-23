@@ -56,6 +56,7 @@ function BanDialog({
   const [length, setLength] = useState("7d");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   useEffect(() => {
     if (!open || !orgId) return;
     if (orgBanConfigs[orgId] === undefined) {
@@ -66,28 +67,36 @@ function BanDialog({
   useEffect(() => {
     if (!open) {
       setSubmitting(false);
+      setSubmitError("");
       return;
     }
     setReasonId(isOther ? "__custom__" : (reasons[0]?.id ?? "__custom__"));
     setCustomReason("");
     setLength("7d");
     setNote(noteFormat);
+    setSubmitError("");
   }, [open, orgId, category, isOther, noteFormat, reasons]);
   const reasonLabel = useMemo(() => {
     if (reasonId === "__custom__") return customReason.trim();
     return reasons.find((r) => r.id === reasonId)?.label ?? "";
   }, [reasonId, customReason, reasons]);
   const canSubmit = reasonLabel.length > 0;
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
-    onSubmit({
-      reason: reasonLabel,
-      length,
-      lengthLabel: LENGTH_LABEL[length],
-      note: note.trim(),
-    });
-    onOpenChange(false);
+    setSubmitError("");
+    try {
+      await onSubmit({
+        reason: reasonLabel,
+        length,
+        lengthLabel: LENGTH_LABEL[length],
+        note: note.trim(),
+      });
+      onOpenChange(false);
+    } catch (err) {
+      setSubmitError(err?.message ?? "Failed — please try again");
+      setSubmitting(false);
+    }
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -178,6 +187,12 @@ function BanDialog({
           </div>
         </div>
 
+        {submitError && (
+          <p className="text-xs text-danger bg-danger/10 ring-1 ring-danger/30 rounded px-3 py-2">
+            {submitError}
+          </p>
+        )}
+
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
@@ -187,7 +202,13 @@ function BanDialog({
             disabled={!canSubmit || submitting}
             onClick={handleSubmit}
           >
-            {isMute ? "Mute player" : "Ban player"}
+            {submitting
+              ? isMute
+                ? "Muting…"
+                : "Banning…"
+              : isMute
+                ? "Mute player"
+                : "Ban player"}
           </Button>
         </div>
       </DialogContent>

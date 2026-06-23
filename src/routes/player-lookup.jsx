@@ -402,44 +402,60 @@ function PlayerLookupPage() {
 
   const submitBan = async (sub) => {
     if (banOrgId && steamId) {
-      await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          actionType: "ban",
-          identifier: steamId,
-          identifierType: "steam_id",
-          category: banCategory || null,
-          reason: sub.reason,
-          note: sub.note,
-          expiresAt: lengthToExpiresAt(sub.length),
-          serverIds: [],
-        }),
-      });
+      let res;
+      try {
+        res = await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            actionType: "ban",
+            identifier: steamId,
+            identifierType: "steam_id",
+            category: banCategory || null,
+            reason: sub.reason,
+            note: sub.note,
+            expiresAt: lengthToExpiresAt(sub.length),
+            serverIds: [],
+          }),
+        });
+      } catch {
+        throw new Error("Network error — please try again");
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Failed to ban player (${res.status})`);
+      }
     }
-    setBanCategory(null);
   };
 
   const submitMute = async (sub) => {
     if (banOrgId && steamId) {
-      await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          actionType: "mute",
-          identifier: steamId,
-          identifierType: "steam_id",
-          category: "toxicity",
-          reason: sub.reason,
-          note: sub.note,
-          expiresAt: lengthToExpiresAt(sub.length),
-          serverIds: [],
-        }),
-      });
+      let res;
+      try {
+        res = await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            actionType: "mute",
+            identifier: steamId,
+            identifierType: "steam_id",
+            category: "toxicity",
+            reason: sub.reason,
+            note: sub.note,
+            expiresAt: lengthToExpiresAt(sub.length),
+            serverIds: [],
+          }),
+        });
+      } catch {
+        throw new Error("Network error — please try again");
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Failed to mute player (${res.status})`);
+      }
     }
-    setMuteOpen(false);
   };
 
   const displayName = playerData?.displayName ?? steamId ?? "";
