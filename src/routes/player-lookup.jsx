@@ -9,6 +9,7 @@ import {
   ServerHistorySection,
 } from "@/components/player-sidebar";
 import { BanDialog, LENGTH_OPTIONS } from "@/components/ban-dialog";
+import { HINTS } from "@/components/hint";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
 import { PlayerLinks } from "@/components/player-links";
@@ -225,22 +226,24 @@ function PlayerLookupPage() {
     }
   }, [search.steam, steamId]);
 
-  // Player lookup needs players_view; issuing/viewing bans needs bans_manage.
-  // Prefer a selected org the user has the relevant permission in, falling back
-  // to any such org so the page still works regardless of org selection.
+  // Player lookup needs players_view; issuing bans needs the ban-create perm
+  // (legacy bans_manage still implies it). Prefer a selected org the user has
+  // the relevant permission in, falling back to any such org so the page still
+  // works regardless of org selection.
+  const canCreateBansInOrg = (id) =>
+    hasOrgPermission(id, "bans_create") || hasOrgPermission(id, "bans_manage");
+
   const fetchOrgId =
     selectedOrgIds.find((id) => hasOrgPermission(id, "players_view")) ??
     orgs.find((o) => hasOrgPermission(o.id, "players_view"))?.id ??
     null;
 
   const banOrgId =
-    selectedOrgIds.find((id) => hasOrgPermission(id, "bans_manage")) ??
-    orgs.find((o) => hasOrgPermission(o.id, "bans_manage"))?.id ??
+    selectedOrgIds.find(canCreateBansInOrg) ??
+    orgs.find((o) => canCreateBansInOrg(o.id))?.id ??
     "";
 
-  const offenseOrgIds = selectedOrgIds.filter((id) =>
-    hasOrgPermission(id, "bans_manage"),
-  );
+  const offenseOrgIds = selectedOrgIds.filter(canCreateBansInOrg);
 
   // No ban permission anywhere → view-only (hide ban/mute actions).
   const isSupportOnly = !banOrgId;
@@ -764,6 +767,7 @@ function PlayerLookupPage() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-6">
                         <Field
                           label="S-Hours"
+                          hint={HINTS.steamHours}
                           value={
                             playerData.steam.dataPublic
                               ? fmtNum(playerData.steam.rustHours)
@@ -772,6 +776,7 @@ function PlayerLookupPage() {
                         />
                         <Field
                           label="BM-Hours"
+                          hint={HINTS.bmHours}
                           value={
                             playerData.bm
                               ? fmtNum(playerData.bm.rustHours)
@@ -780,13 +785,14 @@ function PlayerLookupPage() {
                         />
                         <Field
                           label="AT-Hours"
+                          hint={HINTS.atHours}
                           value={
                             playerData.bm
                               ? fmtNum(playerData.bm.aimtrainHours)
                               : "—"
                           }
                         />
-                        <Field label="K.D" value={kd ?? "—"} />
+                        <Field label="K.D" hint={HINTS.kd} value={kd ?? "—"} />
                         <Field
                           label="VAC / Game"
                           value={vacSummary.value}

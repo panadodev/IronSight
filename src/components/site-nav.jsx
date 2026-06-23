@@ -25,6 +25,7 @@ import {
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
 import { timezoneStore } from "@/lib/timezone-store";
+import { hintsStore } from "@/lib/hints-store";
 import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META } from "@/lib/mock-data";
@@ -63,6 +64,7 @@ function SiteNav() {
   const [draft, setDraft] = useState({
     ...profile,
     timezone: timezoneStore.get(),
+    enableHints: hintsStore.get(),
   });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -99,7 +101,12 @@ function SiteNav() {
   const canBanConfigs = anyOrgHas("ban_configs_manage");
   const canTicketsManage = anyOrgHas("tickets_manage");
   const canPlayersView = anyOrgHas("players_view");
-  const canBansManage = anyOrgHas("bans_manage");
+  const canBansManage =
+    anyOrgHas("bans_manage") ||
+    anyOrgHas("bans_create") ||
+    anyOrgHas("bans_modify") ||
+    anyOrgHas("bans_delete") ||
+    anyOrgHas("bans_ip");
   const canTriggers = anyOrgHas("triggers_manage");
   const canDiscordMod = anyOrgHas("discord_mod");
   const canManageSection =
@@ -170,6 +177,7 @@ function SiteNav() {
         ? { id: sessionUser.discordId, name: sessionUser.username }
         : profile.discordLinked,
       timezone: timezoneStore.get(),
+      enableHints: hintsStore.get(),
     }));
     setProfileOpen(true);
   };
@@ -202,6 +210,7 @@ function SiteNav() {
       }
 
       timezoneStore.set(draft.timezone ?? "");
+      hintsStore.set(draft.enableHints !== false);
       updateProfile({
         ...draft,
         displayName: nextSessionUser?.username ?? trimmedName,
@@ -1079,6 +1088,40 @@ function SiteNav() {
               <p className="text-[11px] text-muted-foreground">
                 Timestamps throughout the panel will display in this timezone.
               </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Hints</Label>
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft({ ...draft, enableHints: draft.enableHints === false })
+                }
+                className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-surface/60 p-3 text-left transition-colors hover:bg-surface"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Enable hints</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Show explanatory tooltips when hovering data like BM hours or
+                    Steam hours across the panel.
+                  </p>
+                </div>
+                <span
+                  className={
+                    "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
+                    (draft.enableHints !== false ? "bg-brand" : "bg-muted")
+                  }
+                >
+                  <span
+                    className={
+                      "inline-block size-4 rounded-full bg-background shadow transition-transform " +
+                      (draft.enableHints !== false
+                        ? "translate-x-4"
+                        : "translate-x-0.5")
+                    }
+                  />
+                </span>
+              </button>
             </div>
 
             {profileError ? (

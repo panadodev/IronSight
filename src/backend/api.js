@@ -88,6 +88,12 @@ import {
   ensurePlayerCacheRow,
   playerRedisKey,
 } from "./player-store.js";
+import {
+  getThreatTriggerConfigOrDefault,
+  saveThreatTriggerConfig,
+  evaluateThreatTriggers,
+  TRIGGER_FACTS,
+} from "./threat-triggers.js";
 import "dotenv/config";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
@@ -191,10 +197,40 @@ const ASSIGNABLE_PERMISSIONS = [
   "players_view",
   "ip_read",
   "bans_manage",
+  "bans_create",
+  "bans_modify",
+  "bans_ip",
   "triggers_manage",
   "server_admin",
   "discord_mod",
 ];
+
+// Ban permissions were split from the legacy umbrella `bans_manage` into granular
+// create / modify / delete / ip permissions. `bans_manage` is retained as a
+// backwards-compatible alias that still implies create + modify so existing role
+// grants keep working. Owners/admins pass automatically via orgHasPermission.
+function canCreateBans(session, orgId) {
+  return (
+    orgHasPermission(session, orgId, "bans_create") ||
+    orgHasPermission(session, orgId, "bans_manage")
+  );
+}
+function canModifyBans(session, orgId) {
+  return (
+    orgHasPermission(session, orgId, "bans_modify") ||
+    orgHasPermission(session, orgId, "bans_manage")
+  );
+}
+function canIssueIpBans(session, orgId) {
+  return orgHasPermission(session, orgId, "bans_ip");
+}
+function canAccessBans(session, orgId) {
+  return (
+    canCreateBans(session, orgId) ||
+    canModifyBans(session, orgId) ||
+    orgHasPermission(session, orgId, "bans_delete")
+  );
+}
 
 function getBaseUrl(request) {
   return env.appUrl ?? new URL(request.url).origin;
@@ -2932,7 +2968,7 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, bm_org_id, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -2945,6 +2981,7 @@ async function handleGetOrgDetails(request, orgId) {
       orgId: String(org.org_id),
       guildId: org.guild_id == null ? null : String(org.guild_id),
       bmOrgId: org.bm_org_id == null ? null : String(org.bm_org_id),
+      bmAutoSync: org.bm_auto_sync === true,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
     },
@@ -2984,6 +3021,10 @@ async function handleUpdateOrgDetails(request, orgId) {
         ? null
         : String(bmOrgIdRaw).trim() || null;
 
+  // bmAutoSync: omitted (undefined) → don't touch; otherwise coerce to boolean.
+  const bmAutoSync =
+    body?.bmAutoSync === undefined ? undefined : body.bmAutoSync === true;
+
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
   }
@@ -3012,9 +3053,10 @@ async function handleUpdateOrgDetails(request, orgId) {
     `UPDATE organizations
      SET name = COALESCE($2, name),
          guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END,
-         bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END
+         bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END,
+         bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END
      WHERE org_id = $1
-     RETURNING org_id, guild_id, bm_org_id, name, created_at`,
+     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, name, created_at`,
     [
       orgId,
       name,
@@ -3022,6 +3064,8 @@ async function handleUpdateOrgDetails(request, orgId) {
       guildId ?? null,
       bmOrgId !== undefined,
       bmOrgId ?? null,
+      bmAutoSync !== undefined,
+      bmAutoSync ?? false,
     ],
   );
 
@@ -3036,6 +3080,7 @@ async function handleUpdateOrgDetails(request, orgId) {
       orgId: String(updated.org_id),
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       bmOrgId: updated.bm_org_id == null ? null : String(updated.bm_org_id),
+      bmAutoSync: updated.bm_auto_sync === true,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
@@ -6924,6 +6969,78 @@ function executeRconCommand(rconUrl, command) {
   });
 }
 
+// Run several commands over a SINGLE RCON connection, sequentially. Rust's
+// WebRcon refuses rapid reconnects, so opening one socket per command (as the
+// single-shot helper does) is unreliable when issuing many commands in a burst.
+// Admin-provisioning commands (moderatorid / usergroup) don't need their output,
+// so we fire each, give the server a brief moment, then close cleanly.
+function executeRconCommandSequence(rconUrl, commands) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(val);
+    };
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        /* noop */
+      }
+      settle(reject, new Error("RCON connection timed out"));
+    }, 10000);
+
+    const ws = new WebSocket(rconUrl);
+
+    ws.addEventListener("open", () => {
+      try {
+        commands.forEach((cmd, i) => {
+          ws.send(
+            JSON.stringify({
+              Identifier: 2000 + i,
+              Message: cmd,
+              Name: "WebRcon",
+            }),
+          );
+        });
+      } catch (err) {
+        settle(reject, err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      // Let the server process the queued commands before closing.
+      setTimeout(() => {
+        try {
+          ws.close(1000, "Done");
+        } catch {
+          /* noop */
+        }
+        settle(resolve, true);
+      }, 750);
+    });
+
+    ws.addEventListener("error", (event) => {
+      const detail =
+        event?.message || event?.error?.message || event?.error?.code || "";
+      settle(
+        reject,
+        new Error(
+          detail
+            ? `RCON connection failed: ${detail}`
+            : "RCON connection failed",
+        ),
+      );
+    });
+
+    ws.addEventListener("close", ({ code }) => {
+      if (code !== 1000 && code !== 1001) {
+        settle(reject, new Error(`RCON disconnected (${code})`));
+      }
+    });
+  });
+}
+
 // ── Server-admin (in-game admin) provisioning via RCON ───────────────────────
 //
 // A role holding the `server_admin` permission grants its members in-game admin
@@ -7027,9 +7144,8 @@ async function runRconCommandsOnServer(serverRow, commands) {
   }
   const rconUrl = `ws://${serverRow.rcon_host}:${serverRow.rcon_port}/${encodeURIComponent(password)}`;
   try {
-    for (const cmd of commands) {
-      await executeRconCommand(rconUrl, cmd);
-    }
+    // All commands over one connection to avoid rapid-reconnect refusals.
+    await executeRconCommandSequence(rconUrl, commands);
     return {
       serverId: serverRow.server_id,
       serverName: serverRow.server_name,
@@ -7043,6 +7159,12 @@ async function runRconCommandsOnServer(serverRow, commands) {
       error: String(err?.message ?? err),
     };
   }
+}
+
+// Small pause between RCON connections so a burst of grants doesn't trip Rust's
+// reconnect throttling.
+function rconPause() {
+  return new Promise((r) => setTimeout(r, 200));
 }
 
 // Reconcile a single member from one server-admin server set to another.
@@ -7064,6 +7186,7 @@ async function applyMemberServerAdmin(orgId, member, currentIds, targetIds) {
       const cmds = serverAdminGrantCommands(steamId, member.username);
       for (const s of servers) {
         results.granted.push(await runRconCommandsOnServer(s, cmds));
+        await rconPause();
       }
     }
     if (toRevoke.length) {
@@ -7071,6 +7194,7 @@ async function applyMemberServerAdmin(orgId, member, currentIds, targetIds) {
       const cmds = serverAdminRevokeCommands(steamId);
       for (const s of servers) {
         results.revoked.push(await runRconCommandsOnServer(s, cmds));
+        await rconPause();
       }
     }
   } catch (err) {
@@ -7125,6 +7249,7 @@ async function handleSyncServerAdmin(request, orgId) {
   let memberCount = 0;
   let serverGrantCount = 0;
   let failureCount = 0;
+  const sampleErrors = [];
 
   for (const m of members) {
     if (!scopeCache.has(m.role_id)) {
@@ -7140,7 +7265,12 @@ async function handleSyncServerAdmin(request, orgId) {
     const res = await applyMemberServerAdmin(orgId, m, [], targetIds);
     for (const r of res?.granted ?? []) {
       serverGrantCount++;
-      if (!r.ok) failureCount++;
+      if (!r.ok) {
+        failureCount++;
+        if (sampleErrors.length < 3 && r.error) {
+          sampleErrors.push(`${r.serverName ?? r.serverId}: ${r.error}`);
+        }
+      }
     }
   }
 
@@ -7152,7 +7282,7 @@ async function handleSyncServerAdmin(request, orgId) {
     actionType: "SERVER_ADMIN_SYNCED",
     actionCategory: "staff_management",
     severity: 2,
-    metadata: { memberCount, serverGrantCount, failureCount },
+    metadata: { memberCount, serverGrantCount, failureCount, sampleErrors },
     ipAddress: getClientIp(request),
   });
 
@@ -7161,7 +7291,70 @@ async function handleSyncServerAdmin(request, orgId) {
     membersSynced: memberCount,
     serverGrants: serverGrantCount,
     failures: failureCount,
+    sampleErrors,
   });
+}
+
+// ── Threat triggers config ───────────────────────────────────────────────────
+
+async function handleGetThreatTriggers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "triggers_manage")) {
+    return json(
+      { error: "Forbidden: triggers_manage permission required" },
+      403,
+    );
+  }
+  const config = await getThreatTriggerConfigOrDefault(orgId);
+  return json({ config, facts: TRIGGER_FACTS });
+}
+
+async function handleSaveThreatTriggers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "triggers_manage")) {
+    return json(
+      { error: "Forbidden: triggers_manage permission required" },
+      403,
+    );
+  }
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const config = await saveThreatTriggerConfig(
+    orgId,
+    body?.config ?? body,
+    session.userId,
+  );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "org",
+    resourceId: orgId,
+    actionType: "THREAT_TRIGGERS_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: {
+      signals: config.signals.length,
+      blocks: config.blocks.length,
+      boughtAccount: config.boughtAccount.enabled,
+    },
+  });
+
+  return json({ ok: true, config });
 }
 
 async function handleExecRconCommand(request, serverId) {
@@ -7245,8 +7438,8 @@ async function handleExecRconCommand(request, serverId) {
 async function handleListOrgBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_manage"))
-    return json({ error: "Forbidden: bans_manage permission required" }, 403);
+  if (!canAccessBans(session, orgId))
+    return json({ error: "Forbidden: ban permission required" }, 403);
 
   const url = new URL(request.url);
   const actionType = url.searchParams.get("type") ?? "ban";
@@ -7256,7 +7449,7 @@ async function handleListOrgBans(request, orgId) {
     `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
             b.category, b.reason, b.note, b.expires_at, b.issued_at,
             b.issued_by, b.revoked, b.revoked_at, b.revoked_by,
-            b.bm_ban_id,
+            b.bm_ban_id, b.source_ip_ban_id,
             u.username AS issued_by_name,
             COALESCE(
               json_agg(bst.server_id::text) FILTER (WHERE bst.server_id IS NOT NULL),
@@ -7291,6 +7484,7 @@ async function handleListOrgBans(request, orgId) {
       revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
       serverIds: Array.isArray(r.server_ids) ? r.server_ids : [],
       bmBanId: r.bm_ban_id ?? null,
+      sourceIpBanId: r.source_ip_ban_id ? String(r.source_ip_ban_id) : null,
     })),
   });
 }
@@ -7298,8 +7492,8 @@ async function handleListOrgBans(request, orgId) {
 async function handleCreateBan(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_manage"))
-    return json({ error: "Forbidden: bans_manage permission required" }, 403);
+  if (!canCreateBans(session, orgId))
+    return json({ error: "Forbidden: ban create permission required" }, 403);
 
   const rl = await checkRateLimit(`rl:ban:${session.userId}`, 30, 60);
   if (rl) return rl;
@@ -7345,6 +7539,11 @@ async function handleCreateBan(request, orgId) {
   }
   if (identifierType === "ip" && actionType === "mute") {
     return json({ error: "Cannot mute by IP address" }, 400);
+  }
+  // IP bans are a separate, off-by-default privilege (they also drive automatic
+  // ban-evasion enforcement on connect), so they require the dedicated perm.
+  if (identifierType === "ip" && !canIssueIpBans(session, orgId)) {
+    return json({ error: "Forbidden: IP ban permission required" }, 403);
   }
 
   const banId = crypto.randomUUID();
@@ -7457,14 +7656,21 @@ async function handleCreateBan(request, orgId) {
   });
 
   // Bans are mirrored to BattleMetrics for record-keeping (no identifiers, so it
-  // never bans the player there). Best-effort: a BM failure must not fail the
-  // ban that already succeeded locally and over RCON.
+  // never bans the player there) only when the org has opted in via the
+  // auto-sync toggle. Best-effort: a BM failure must not fail the ban that
+  // already succeeded locally and over RCON.
   let bmSync = null;
   if (actionType === "ban") {
-    const r = await syncBanRecordToBattlemetrics(orgId, banId);
-    bmSync = r.ok
-      ? { ok: true, bmBanId: r.bmBanId }
-      : { ok: false, error: r.error, skipped: r.skipped ?? false };
+    const autoSyncRes = await pool.query(
+      "SELECT bm_auto_sync FROM organizations WHERE org_id = $1",
+      [orgId],
+    );
+    if (autoSyncRes.rows[0]?.bm_auto_sync === true) {
+      const r = await syncBanRecordToBattlemetrics(orgId, banId);
+      bmSync = r.ok
+        ? { ok: true, bmBanId: r.bmBanId }
+        : { ok: false, error: r.error, skipped: r.skipped ?? false };
+    }
   }
 
   return json({ ok: true, banId, rconResults, bmSync }, 201);
@@ -7473,8 +7679,8 @@ async function handleCreateBan(request, orgId) {
 async function handleUpdateBan(request, orgId, banId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_manage"))
-    return json({ error: "Forbidden: bans_manage permission required" }, 403);
+  if (!canModifyBans(session, orgId))
+    return json({ error: "Forbidden: ban modify permission required" }, 403);
 
   const banCheck = await pool.query(
     `SELECT ban_id, action_type FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
@@ -7762,22 +7968,6 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
       error: `BattleMetrics sync failed: ${err.message}`,
     };
   }
-}
-
-async function handleSyncBanToBattlemetrics(request, orgId, banId) {
-  const { session, error } = await requireSession(request);
-  if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_manage"))
-    return json({ error: "Forbidden: bans_manage permission required" }, 403);
-
-  const result = await syncBanRecordToBattlemetrics(orgId, banId);
-  if (!result.ok) return json({ error: result.error }, result.status ?? 502);
-
-  return json({
-    ok: true,
-    bmBanId: result.bmBanId,
-    updated: result.updated,
-  });
 }
 
 async function handleGetBlacklistedWords(request, orgId) {
@@ -8775,6 +8965,131 @@ async function handleGetGlobalpingLimits(request, orgId) {
 
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
 
+// Background IP-ban evasion enforcement. When a player connects from an IP that
+// has an active IP ban in the org, auto-create a regular (Steam-ID) ban record
+// linked back to that IP ban, mirror its server targets, and push the ban over
+// RCON to the connecting server so the evader is removed immediately. Fully
+// best-effort and idempotent — it must never break the connect ingest path.
+async function enforceIpBanEvasion(server, steamId, ip, playerName) {
+  try {
+    const orgId = server.owner_org_id;
+
+    const ipBanRes = await pool.query(
+      `SELECT ban_id, category, reason, expires_at
+       FROM player_bans
+       WHERE org_id = $1 AND identifier = $2 AND identifier_type = 'ip'
+         AND action_type = 'ban' AND revoked = FALSE
+         AND (expires_at IS NULL OR expires_at > unix_now())
+       ORDER BY issued_at DESC
+       LIMIT 1`,
+      [orgId, ip],
+    );
+    const ipBan = ipBanRes.rows[0];
+    if (!ipBan) return;
+
+    // Idempotent: don't stack a second auto-ban for the same IP ban + player.
+    const existing = await pool.query(
+      `SELECT 1 FROM player_bans
+       WHERE org_id = $1 AND identifier = $2 AND identifier_type = 'steam_id'
+         AND action_type = 'ban' AND revoked = FALSE AND source_ip_ban_id = $3
+       LIMIT 1`,
+      [orgId, steamId, ipBan.ban_id],
+    );
+    if (existing.rows[0]) return;
+
+    const reason = `Ban evasion — connected from banned IP (${ip})`.slice(
+      0,
+      500,
+    );
+    const note =
+      `Auto-created: ${playerName ?? steamId} joined ${server.server_name} from IP ${ip}, which has an active IP ban. Linked to IP ban ${ipBan.ban_id}.${ipBan.reason ? ` Original reason: ${ipBan.reason}` : ""}`.slice(
+        0,
+        1000,
+      );
+    const newBanId = crypto.randomUUID();
+
+    await pool.query(
+      `INSERT INTO player_bans
+         (ban_id, org_id, action_type, identifier, identifier_type, category,
+          reason, note, expires_at, issued_by, source_ip_ban_id)
+       VALUES ($1, $2, 'ban', $3, 'steam_id', $4, $5, $6, $7, NULL, $8)`,
+      [
+        newBanId,
+        orgId,
+        steamId,
+        ipBan.category ?? "ban_evasion",
+        reason,
+        note,
+        ipBan.expires_at ?? null,
+        ipBan.ban_id,
+      ],
+    );
+
+    // Mirror the IP ban's server targets, plus the server being joined now.
+    await pool.query(
+      `INSERT INTO ban_server_targets (ban_id, server_id)
+       SELECT $1, server_id FROM ban_server_targets WHERE ban_id = $2
+       ON CONFLICT DO NOTHING`,
+      [newBanId, ipBan.ban_id],
+    );
+    await pool.query(
+      `INSERT INTO ban_server_targets (ban_id, server_id)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [newBanId, server.server_id],
+    );
+
+    // Push the ban to the connecting server over RCON so the evader is removed.
+    const rconRes = await pool.query(
+      `SELECT rcon_host, rcon_port, rcon_password_enc
+       FROM servers WHERE server_id = $1`,
+      [server.server_id],
+    );
+    const srv = rconRes.rows[0];
+    if (srv?.rcon_host && srv?.rcon_port && srv?.rcon_password_enc) {
+      try {
+        const password = decryptPterodactylApiKey(
+          String(srv.rcon_password_enc),
+        );
+        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+        const safeReason = reason
+          .replace(/[\r\n\x00-\x1f]/g, " ")
+          .replace(/"/g, "'");
+        await executeRconCommand(rconUrl, `ban ${steamId} "${safeReason}"`);
+      } catch (err) {
+        console.error(
+          `[ip-ban-evasion] RCON ban failed for ${steamId}:`,
+          err.message,
+        );
+      }
+    }
+
+    auditLog({
+      orgId,
+      actorUserId: null,
+      resourceType: "ban",
+      resourceId: newBanId,
+      actionType: "BAN_CREATED",
+      actionCategory: "moderation",
+      severity: 3,
+      metadata: {
+        auto: true,
+        sourceIpBanId: String(ipBan.ban_id),
+        identifier: steamId,
+        identifierType: "steam_id",
+        matchedIp: ip,
+        serverId: String(server.server_id),
+      },
+      ipAddress: null,
+    });
+
+    console.log(
+      `[ip-ban-evasion] auto-banned ${steamId} on ${server.server_name} (IP ${ip} matched ban ${ipBan.ban_id})`,
+    );
+  } catch (err) {
+    console.error("[ip-ban-evasion] error:", err.message);
+  }
+}
+
 async function handleIngestPlayerConnect(request) {
   const { server, error } = await authenticateServerKey(request);
   if (error) return error;
@@ -8812,6 +9127,11 @@ async function handleIngestPlayerConnect(request) {
          server_id   = EXCLUDED.server_id,
          server_name = EXCLUDED.server_name`,
       [steamId, ip, server.server_id, server.server_name],
+    );
+
+    // IP-ban evasion enforcement (fire-and-forget so connect stays fast).
+    enforceIpBanEvasion(server, steamId, ip, playerName).catch((err) =>
+      console.error("[ip-ban-evasion] unhandled:", err.message),
     );
   }
 
@@ -9040,9 +9360,12 @@ async function handleRefreshPlayer(request, steamId) {
 
   // Fire the refresh in the background; poll Redis for core data (written mid-refresh,
   // after BM/Steam calls complete) rather than awaiting the full ~4s pipeline.
-  refreshPlayerData(steamId, orgId).catch((err) =>
-    console.error(`[player:refresh] bg error for ${steamId}:`, err.message),
-  );
+  // Once the refresh completes, evaluate threat triggers against the fresh data.
+  refreshPlayerData(steamId, orgId)
+    .then(() => evaluateThreatTriggers(orgId, steamId, "refresh"))
+    .catch((err) =>
+      console.error(`[player:refresh] bg error for ${steamId}:`, err.message),
+    );
 
   for (let i = 0; i < 6; i++) {
     await new Promise((r) => setTimeout(r, 500));
@@ -9919,6 +10242,16 @@ async function _handleApiRequest(request) {
       return handleSyncServerAdmin(request, orgSyncServerAdminMatch[1]);
     }
 
+    const orgThreatTriggersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/threat-triggers$/,
+    );
+    if (orgThreatTriggersMatch && request.method === "GET") {
+      return handleGetThreatTriggers(request, orgThreatTriggersMatch[1]);
+    }
+    if (orgThreatTriggersMatch && request.method === "PUT") {
+      return handleSaveThreatTriggers(request, orgThreatTriggersMatch[1]);
+    }
+
     const orgMemberDetailMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)$/,
     );
@@ -10166,16 +10499,6 @@ async function _handleApiRequest(request) {
         request,
         orgBanDetailMatch[1],
         orgBanDetailMatch[2],
-      );
-
-    const orgBanBmSyncMatch = pathname.match(
-      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/bm-sync$/,
-    );
-    if (orgBanBmSyncMatch && request.method === "POST")
-      return handleSyncBanToBattlemetrics(
-        request,
-        orgBanBmSyncMatch[1],
-        orgBanBmSyncMatch[2],
       );
 
     // Scripts CRUD

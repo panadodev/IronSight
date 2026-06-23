@@ -86,14 +86,32 @@ const PERMISSION_GROUPS = [
         desc: "See actual IP addresses and player country",
       },
       {
-        id: "bans_manage",
-        label: "Issue Bans / Mutes",
-        desc: "Create and edit bans and mutes",
-      },
-      {
-        id: "bans_delete",
-        label: "Revoke Bans / Mutes",
-        desc: "Delete and revoke existing bans and mutes",
+        isParent: true,
+        id: "_bans",
+        label: "Bans / Mutes",
+        desc: "Issue and manage player bans and mutes",
+        children: [
+          {
+            id: "bans_create",
+            label: "Create Bans / Mutes",
+            desc: "Issue new bans and mutes",
+          },
+          {
+            id: "bans_modify",
+            label: "Modify Bans / Mutes",
+            desc: "Edit existing bans and mutes",
+          },
+          {
+            id: "bans_delete",
+            label: "Revoke Bans / Mutes",
+            desc: "Delete and revoke existing bans and mutes",
+          },
+          {
+            id: "bans_ip",
+            label: "Issue IP Bans",
+            desc: "Ban by IP and auto-ban evaders who rejoin (off by default)",
+          },
+        ],
       },
       {
         id: "ban_configs_manage",

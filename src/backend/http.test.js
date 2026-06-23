@@ -98,7 +98,9 @@ describe("getClientIp", () => {
   });
 
   it("falls back to the right-most x-forwarded-for hop", () => {
-    const req = makeRequest({ "x-forwarded-for": "10.0.0.1, 10.0.0.2, 10.0.0.3" });
+    const req = makeRequest({
+      "x-forwarded-for": "10.0.0.1, 10.0.0.2, 10.0.0.3",
+    });
     expect(getClientIp(req)).toBe("10.0.0.3");
   });
 

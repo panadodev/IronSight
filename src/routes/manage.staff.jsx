@@ -363,10 +363,14 @@ function StaffPage() {
         });
         return;
       }
+      const errSuffix =
+        body.failures && body.sampleErrors?.length
+          ? ` (${body.sampleErrors.join("; ")})`
+          : "";
       setSyncMsg({
         ok: body.failures === 0,
         text: `Synced ${body.membersSynced} member(s) across ${body.serverGrants} server grant(s)${
-          body.failures ? ` — ${body.failures} failed` : ""
+          body.failures ? ` — ${body.failures} failed${errSuffix}` : ""
         }.`,
       });
     } catch {

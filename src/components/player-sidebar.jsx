@@ -23,6 +23,7 @@ import {
   unhideAssociation,
   isAssociationHidden,
 } from "@/lib/associations";
+import { Hint, HINTS } from "@/components/hint";
 import { useAuth } from "@/lib/auth-context";
 import { PlayerLinks } from "@/components/player-links";
 import { ExternalBansSection } from "@/components/external-bans";
@@ -184,14 +185,28 @@ function PlayerSidebar({
                       <Field
                         label="S-Hours"
                         value={fmtNum(subject.playtimeHours)}
+                        hint={HINTS.steamHours}
                       />
-                      <Field label="BM-Hours" value={fmtNum(d.bmHours)} />
-                      <Field label="AT-Hours" value={fmtNum(d.atHours)} />
-                      <Field label="K.D" value={d.kd.toFixed(2)} />
+                      <Field
+                        label="BM-Hours"
+                        value={fmtNum(d.bmHours)}
+                        hint={HINTS.bmHours}
+                      />
+                      <Field
+                        label="AT-Hours"
+                        value={fmtNum(d.atHours)}
+                        hint={HINTS.atHours}
+                      />
+                      <Field
+                        label="K.D"
+                        value={d.kd.toFixed(2)}
+                        hint={HINTS.kd}
+                      />
                       <Field
                         label="Proxy"
                         value={d.proxy ? "True" : "False"}
                         tone={d.proxy ? "danger" : "success"}
+                        hint={HINTS.proxy}
                       />
                       <div>
                         <p className="text-[10px] text-muted-foreground uppercase">
@@ -214,20 +229,31 @@ function PlayerSidebar({
                       <Field
                         label="S-Hours"
                         value={fmtNum(subject.playtimeHours)}
+                        hint={HINTS.steamHours}
                       />
-                      <Field label="BM-Hours" value={fmtNum(d.bmHours)} />
+                      <Field
+                        label="BM-Hours"
+                        value={fmtNum(d.bmHours)}
+                        hint={HINTS.bmHours}
+                      />
                     </>
                   ) : category === "toxicity" ? null : (
                     <>
                       <Field
                         label="S-Hours"
                         value={fmtNum(subject.playtimeHours)}
+                        hint={HINTS.steamHours}
                       />
-                      <Field label="BM-Hours" value={fmtNum(d.bmHours)} />
+                      <Field
+                        label="BM-Hours"
+                        value={fmtNum(d.bmHours)}
+                        hint={HINTS.bmHours}
+                      />
                       <Field
                         label="Proxy"
                         value={d.proxy ? "True" : "False"}
                         tone={d.proxy ? "danger" : "success"}
+                        hint={HINTS.proxy}
                       />
                       <div>
                         <p className="text-[10px] text-muted-foreground uppercase">
@@ -2046,7 +2072,7 @@ function FriendlyNotes({ subjectId, recipientId, recipientName }) {
     </div>
   );
 }
-function Field({ label, value, tone }) {
+function Field({ label, value, tone, hint }) {
   const color =
     tone === "danger"
       ? "text-danger"
@@ -2055,9 +2081,21 @@ function Field({ label, value, tone }) {
         : tone === "warning"
           ? "text-warning"
           : "text-foreground";
+  const labelEl = (
+    <p
+      className={
+        "text-[10px] text-muted-foreground uppercase w-fit" +
+        (hint
+          ? " underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 cursor-help"
+          : "")
+      }
+    >
+      {label}
+    </p>
+  );
   return (
     <div>
-      <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
+      {hint ? <Hint text={hint}>{labelEl}</Hint> : labelEl}
       <p className={`text-sm font-mono ${color}`}>{value}</p>
     </div>
   );

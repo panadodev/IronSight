@@ -1,7 +1,7 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ShieldAlert, Edit3, X, Plus, RefreshCw } from "lucide-react";
+import { ShieldAlert, Edit3, X, Plus } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Hint, HINTS } from "@/components/hint";
 
 const Route = createFileRoute("/bans-mutes")({
   head: () => ({ meta: [{ title: "Bans / Mutes — IronSight" }] }),
@@ -79,12 +80,22 @@ function computeExpiresAt(durationValue) {
   return Math.floor(Date.now() / 1000) + minutes * 60;
 }
 
+// A staffer can reach the Bans/Mutes view if they hold any ban permission in
+// the org (create, modify, delete, the IP-ban perm, or the legacy umbrella).
+function canAccessBansInOrg(hasOrgPermission, id) {
+  return (
+    hasOrgPermission(id, "bans_create") ||
+    hasOrgPermission(id, "bans_modify") ||
+    hasOrgPermission(id, "bans_delete") ||
+    hasOrgPermission(id, "bans_ip") ||
+    hasOrgPermission(id, "bans_manage")
+  );
+}
+
 function BansMutesPage() {
   const { selectedOrgIds, hasOrgPermission, orgs } = useAuth();
-  const canAccess = selectedOrgIds.some(
-    (id) =>
-      hasOrgPermission(id, "bans_manage") ||
-      hasOrgPermission(id, "bans_delete"),
+  const canAccess = selectedOrgIds.some((id) =>
+    canAccessBansInOrg(hasOrgPermission, id),
   );
 
   const [tab, setTab] = useState("bans");
@@ -98,10 +109,18 @@ function BansMutesPage() {
 
   const manageableOrgIds = useMemo(
     () =>
+      selectedOrgIds.filter((id) => canAccessBansInOrg(hasOrgPermission, id)),
+    [selectedOrgIds, hasOrgPermission],
+  );
+
+  // Orgs where the user can actually issue new bans (drives the "Issue" button
+  // and the org options in the new-ban dialog).
+  const creatableOrgIds = useMemo(
+    () =>
       selectedOrgIds.filter(
         (id) =>
-          hasOrgPermission(id, "bans_manage") ||
-          hasOrgPermission(id, "bans_delete"),
+          hasOrgPermission(id, "bans_create") ||
+          hasOrgPermission(id, "bans_manage"),
       ),
     [selectedOrgIds, hasOrgPermission],
   );
@@ -172,8 +191,9 @@ function BansMutesPage() {
     );
   }, [tab, bans, mutes, query]);
 
-  const [bmSyncing, setBmSyncing] = useState(null);
-  const [bmSyncResult, setBmSyncResult] = useState(null);
+  // Surfaces incidental messages from row actions (e.g. a BattleMetrics delete
+  // that failed while revoking a synced ban).
+  const [actionResult, setActionResult] = useState(null);
 
   const revoke = async (record) => {
     const res = await fetch(
@@ -183,39 +203,13 @@ function BansMutesPage() {
     if (res.ok) {
       const body = await res.json().catch(() => null);
       if (body?.bmDeleteError) {
-        setBmSyncResult({
+        setActionResult({
           ok: false,
           msg: `Ban revoked, but BM delete failed: ${body.bmDeleteError}`,
         });
-        setTimeout(() => setBmSyncResult(null), 6000);
+        setTimeout(() => setActionResult(null), 6000);
       }
       loadBans();
-    }
-  };
-
-  const syncToBm = async (record) => {
-    setBmSyncing(record.banId);
-    setBmSyncResult(null);
-    try {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}/bm-sync`,
-        { method: "POST", credentials: "include" },
-      );
-      const body = await res.json().catch(() => null);
-      if (res.ok) {
-        setBmSyncResult({
-          ok: true,
-          msg: body?.updated ? "BM ban updated" : "Synced to BattleMetrics",
-        });
-        loadBans();
-      } else {
-        setBmSyncResult({ ok: false, msg: body?.error ?? "BM sync failed" });
-      }
-    } catch {
-      setBmSyncResult({ ok: false, msg: "Network error" });
-    } finally {
-      setBmSyncing(null);
-      setTimeout(() => setBmSyncResult(null), 4000);
     }
   };
 
@@ -272,7 +266,7 @@ function BansMutesPage() {
                     </button>
                   ))}
                 </div>
-                {manageableOrgIds.length > 0 && (
+                {creatableOrgIds.length > 0 && (
                   <Button
                     size="sm"
                     onClick={() => setShowNew(true)}
@@ -285,15 +279,15 @@ function BansMutesPage() {
               </div>
             </div>
 
-            {bmSyncResult && (
+            {actionResult && (
               <div
                 className={`rounded-md px-3 py-2 text-sm ring-1 ${
-                  bmSyncResult.ok
+                  actionResult.ok
                     ? "bg-emerald-500/10 ring-emerald-500/30 text-emerald-700"
                     : "bg-danger/10 ring-danger/40 text-danger"
                 }`}
               >
-                {bmSyncResult.msg}
+                {actionResult.msg}
               </div>
             )}
 
@@ -344,6 +338,13 @@ function BansMutesPage() {
                           >
                             {r.identifierType === "ip" ? "IP" : "Steam ID"}
                           </span>
+                          {r.sourceIpBanId && (
+                            <Hint text={HINTS.banEvasion}>
+                              <span className="px-1 rounded text-[9px] font-bold ring-1 bg-danger/15 text-danger ring-danger/40 cursor-help">
+                                IP-EVADE
+                              </span>
+                            </Hint>
+                          )}
                           {org && (
                             <span className="text-[10px] font-mono text-muted-foreground">
                               {org.short}
@@ -392,22 +393,6 @@ function BansMutesPage() {
                         >
                           <Edit3 className="size-3" />
                         </button>
-                        {!r.revoked && r.actionType === "ban" && (
-                          <button
-                            onClick={() => syncToBm(r)}
-                            disabled={bmSyncing === r.banId}
-                            className="size-7 inline-flex items-center justify-center rounded ring-1 ring-border hover:bg-surface disabled:opacity-50"
-                            title={
-                              r.bmBanId
-                                ? "Update BattleMetrics ban"
-                                : "Sync to BattleMetrics"
-                            }
-                          >
-                            <RefreshCw
-                              className={`size-3 ${bmSyncing === r.banId ? "animate-spin" : ""}`}
-                            />
-                          </button>
-                        )}
                         {!r.revoked && (
                           <button
                             onClick={() => revoke(r)}
@@ -439,9 +424,10 @@ function BansMutesPage() {
             loadBans();
           }}
           defaultActionType={tab === "bans" ? "ban" : "mute"}
-          manageableOrgIds={manageableOrgIds}
+          manageableOrgIds={creatableOrgIds}
           orgs={orgs}
           servers={servers}
+          hasOrgPermission={hasOrgPermission}
         />
 
         <EditDialog
@@ -465,19 +451,33 @@ function NewBanDialog({
   manageableOrgIds,
   orgs,
   servers,
+  hasOrgPermission,
 }) {
+  const { orgBanConfigs, orgMuteConfigs, loadOrgBanConfigs } = useAuth();
   const [orgId, setOrgId] = useState(manageableOrgIds[0] ?? "");
   const [actionType, setActionType] = useState(defaultActionType);
   const [identifierType, setIdentifierType] = useState("steam_id");
   const [identifier, setIdentifier] = useState("");
   const [selectedServerIds, setSelectedServerIds] = useState([]);
   const [category, setCategory] = useState("");
-  const [reason, setReason] = useState("");
+  // Reason is driven by the org's configured reasons for the chosen category;
+  // "__custom__" reveals a free-text field. `reason` always holds the final text.
+  const [reasonId, setReasonId] = useState("__custom__");
+  const [customReason, setCustomReason] = useState("");
   const [duration, setDuration] = useState("-1");
   const [note, setNote] = useState("");
+  const [noteEdited, setNoteEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [rconResults, setRconResults] = useState(null);
+
+  const canIssueIp = orgId ? hasOrgPermission(orgId, "bans_ip") : false;
+
+  // Load this org's ban/mute configs so the reason dropdown can offer presets.
+  useEffect(() => {
+    if (!open || !orgId) return;
+    if (orgBanConfigs[orgId] === undefined) loadOrgBanConfigs(orgId);
+  }, [open, orgId, orgBanConfigs, loadOrgBanConfigs]);
 
   useEffect(() => {
     if (!open) return;
@@ -487,9 +487,11 @@ function NewBanDialog({
     setIdentifier("");
     setSelectedServerIds([]);
     setCategory("");
-    setReason("");
+    setReasonId("__custom__");
+    setCustomReason("");
     setDuration("-1");
     setNote("");
+    setNoteEdited(false);
     setError("");
     setRconResults(null);
   }, [open, manageableOrgIds, defaultActionType]);
@@ -497,6 +499,37 @@ function NewBanDialog({
   useEffect(() => {
     if (actionType === "mute") setIdentifierType("steam_id");
   }, [actionType]);
+
+  // If the user loses the IP-ban permission context (e.g. switching orgs),
+  // never leave the form stuck on the IP identifier type.
+  useEffect(() => {
+    if (!canIssueIp && identifierType === "ip") setIdentifierType("steam_id");
+  }, [canIssueIp, identifierType]);
+
+  // Reasons + note format for the selected category come from the org config.
+  // Mutes use the single mute config; bans use the per-category ban config.
+  const activeConfig = useMemo(() => {
+    if (actionType === "mute") return orgMuteConfigs[orgId] ?? null;
+    if (!category || category === "other") return null;
+    return orgBanConfigs[orgId]?.[category] ?? null;
+  }, [actionType, category, orgId, orgBanConfigs, orgMuteConfigs]);
+
+  const reasonOptions = activeConfig?.reasons ?? [];
+  const noteFormat = activeConfig?.noteFormat ?? "";
+
+  // When the category (and thus its reason set) changes, reset to the first
+  // preset reason and prefill the note format unless the user already edited it.
+  useEffect(() => {
+    setReasonId(reasonOptions[0]?.id ?? "__custom__");
+    setCustomReason("");
+    if (!noteEdited) setNote(noteFormat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, actionType, activeConfig]);
+
+  const reason = useMemo(() => {
+    if (reasonId === "__custom__") return customReason.trim();
+    return reasonOptions.find((r) => r.id === reasonId)?.label ?? "";
+  }, [reasonId, customReason, reasonOptions]);
 
   const orgServers = useMemo(
     () => servers.filter((s) => s.ownerOrgId === orgId),
@@ -518,6 +551,10 @@ function NewBanDialog({
     }
     if (!orgId) {
       setError("Select an organization.");
+      return;
+    }
+    if (!reason.trim()) {
+      setError("A reason is required.");
       return;
     }
     setSubmitting(true);
@@ -645,7 +682,7 @@ function NewBanDialog({
               </div>
             </div>
 
-            {actionType === "ban" && (
+            {actionType === "ban" && canIssueIp && (
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                   Identifier Type
@@ -666,6 +703,12 @@ function NewBanDialog({
                     </button>
                   ))}
                 </div>
+                {identifierType === "ip" && (
+                  <p className="text-[10px] text-warning">
+                    IP ban: anyone who later connects from this IP is
+                    automatically given a linked ban record and removed.
+                  </p>
+                )}
               </div>
             )}
 
@@ -782,11 +825,32 @@ function NewBanDialog({
               <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                 Reason
               </Label>
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason shown to the player…"
-              />
+              <select
+                value={reasonId}
+                onChange={(e) => setReasonId(e.target.value)}
+                className="w-full bg-surface border border-border rounded px-2 py-2 text-sm"
+              >
+                {reasonOptions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+                <option value="__custom__">Custom reason…</option>
+              </select>
+              {reasonId === "__custom__" && (
+                <Input
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  placeholder="Reason shown to the player…"
+                  autoFocus
+                />
+              )}
+              {reasonOptions.length === 0 && category && category !== "other" && (
+                <p className="text-[10px] text-muted-foreground italic">
+                  No preset reasons for this category — add them in Manage org →
+                  Ban configs, or enter a custom reason.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -818,7 +882,10 @@ function NewBanDialog({
               </Label>
               <Textarea
                 value={note}
-                onChange={(e) => setNote(e.target.value)}
+                onChange={(e) => {
+                  setNote(e.target.value);
+                  setNoteEdited(true);
+                }}
                 rows={3}
                 className="font-mono text-xs"
                 placeholder="Internal notes, not shown to the player…"

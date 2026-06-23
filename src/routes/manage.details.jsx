@@ -998,6 +998,7 @@ function ManageDetailsPage() {
   const [name, setName] = useState("");
   const [guildId, setGuildId] = useState("");
   const [bmOrgId, setBmOrgId] = useState("");
+  const [bmAutoSync, setBmAutoSync] = useState(false);
   const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
 
@@ -1061,6 +1062,7 @@ function ManageDetailsPage() {
         setName(body.organization?.name ?? "");
         setGuildId(body.organization?.guildId ?? "");
         setBmOrgId(body.organization?.bmOrgId ?? "");
+        setBmAutoSync(body.organization?.bmAutoSync === true);
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1111,6 +1113,7 @@ function ManageDetailsPage() {
           name: name.trim(),
           guildId: guildId.trim() || null,
           bmOrgId: bmOrgId.trim() || null,
+          bmAutoSync,
         }),
       });
 
@@ -1124,6 +1127,8 @@ function ManageDetailsPage() {
       setName(body.organization?.name ?? name.trim());
       setGuildId(body.organization?.guildId ?? guildId.trim());
       setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
+      if (body.organization?.bmAutoSync !== undefined)
+        setBmAutoSync(body.organization.bmAutoSync === true);
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1246,6 +1251,36 @@ function ManageDetailsPage() {
               <strong>ID</strong>
             </p>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setBmAutoSync((v) => !v)}
+            disabled={loading || saving}
+            className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-background p-3 text-left transition-colors hover:bg-surface/60 disabled:opacity-50"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Auto-sync bans to BattleMetrics</p>
+              <p className="text-[11px] text-muted-foreground">
+                Mirror every new ban to BattleMetrics as a record-only ban — no
+                identifiers are attached, so BattleMetrics never bans the player
+                itself; it just shows in your BM ban history. Requires a
+                BattleMetrics organization ID and API key.
+              </p>
+            </div>
+            <span
+              className={
+                "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
+                (bmAutoSync ? "bg-brand" : "bg-muted")
+              }
+            >
+              <span
+                className={
+                  "inline-block size-4 rounded-full bg-background shadow transition-transform " +
+                  (bmAutoSync ? "translate-x-4" : "translate-x-0.5")
+                }
+              />
+            </span>
+          </button>
 
           <Button type="submit" disabled={loading || saving}>
             {saving ? "Saving..." : "Save details"}

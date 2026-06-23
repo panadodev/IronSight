@@ -223,6 +223,18 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_ticket_audit_ticket_id ON ticket_audit_log(ticket_id)`,
   );
 
+  // Per-org threat-trigger configuration (weighted signals, trigger blocks,
+  // bought-account rules). Evaluated on player refresh and F7 report ingest to
+  // auto-open tickets. One JSONB row per org.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS threat_trigger_config (
+      org_id TEXT PRIMARY KEY REFERENCES organizations(org_id) ON DELETE CASCADE,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at BIGINT NOT NULL DEFAULT unix_now(),
+      updated_by UUID REFERENCES users(user_id) ON DELETE SET NULL
+    )
+  `);
+
   // Additive migrations
   await pool.query(
     `ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`,
@@ -1187,6 +1199,22 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS bm_ban_id TEXT`,
   );
+  // Opt-in toggle: when TRUE, new bans are mirrored to BattleMetrics as
+  // record-only bans (no identifiers, so the player is never banned there).
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bm_auto_sync BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
+  // Links an auto-created Steam ban back to the IP ban whose address the player
+  // connected from (IP-ban evasion enforcement). NULL for normal bans.
+  await pool.query(
+    `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS source_ip_ban_id UUID
+       REFERENCES player_bans(ban_id) ON DELETE SET NULL`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bans_ip_active
+       ON player_bans(org_id, identifier)
+       WHERE identifier_type = 'ip' AND action_type = 'ban' AND revoked = FALSE`,
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS server_player_sessions (
@@ -1281,6 +1309,9 @@ export async function ensureRolePermissionSeed(pool) {
       ('players_view',        'View player lookup and player list'),
       ('ip_read',             'View player IP addresses and location'),
       ('bans_manage',         'Issue and manage bans and mutes'),
+      ('bans_create',         'Create bans and mutes'),
+      ('bans_modify',         'Modify existing bans and mutes'),
+      ('bans_ip',             'Issue IP bans and auto-ban evaders'),
       ('triggers_manage',     'Configure threat triggers'),
       ('server_admin',        'Admin on Server (grants in-game admin via RCON)'),
       ('discord_mod',         'Use Discord moderation')

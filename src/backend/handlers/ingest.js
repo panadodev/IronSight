@@ -4,6 +4,7 @@
 import { pool, redis } from "../runtime.js";
 import { json } from "../http.js";
 import { authenticateServerKey, checkRateLimit } from "../core.js";
+import { evaluateThreatTriggers } from "../threat-triggers.js";
 
 const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
 const SERVER_LOG_RATE_LIMIT_PER_MINUTE = 120;
@@ -305,6 +306,12 @@ export async function handleIngestReport(request) {
   } catch {
     // best-effort cache; report already persisted in Postgres
   }
+
+  // Evaluate threat triggers for the reported player (fire-and-forget so the
+  // game server's ingest call stays fast).
+  evaluateThreatTriggers(server.owner_org_id, reportedSteamId, "f7").catch(
+    () => {},
+  );
 
   return json({ ok: true, id: String(row.id) }, 201);
 }
