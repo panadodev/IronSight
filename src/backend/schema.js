@@ -1232,6 +1232,55 @@ export async function ensureSchema(pool) {
      ON server_player_sessions (org_id, server_id, steam_id)
      WHERE disconnected_at IS NULL`,
   );
+
+  // ── AI chat moderation ────────────────────────────────────────────────────
+  // Expand the external-key service constraint to include 'openai'.
+  await pool.query(`
+    ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service
+  `);
+  await pool.query(`
+    ALTER TABLE org_external_api_keys ADD CONSTRAINT chk_ext_api_key_service
+      CHECK (service IN ('battlemetrics', 'steam', 'proxycheck', 'openai'))
+  `);
+
+  // Store AI moderation scores alongside each chat message (null until evaluated).
+  await pool.query(
+    `ALTER TABLE text_chat_log ADD COLUMN IF NOT EXISTS ai_flags JSONB`,
+  );
+
+  // Per-org trigger rules: fire an action when a moderation score exceeds threshold.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_ai_moderation_triggers (
+      trigger_id     UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id         TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      category       TEXT    NOT NULL,
+      threshold      DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+      action         TEXT    NOT NULL DEFAULT 'highlight',
+      mute_duration_minutes INTEGER,
+      apply_to_all_servers BOOLEAN NOT NULL DEFAULT TRUE,
+      enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at     BIGINT  NOT NULL DEFAULT unix_now(),
+      updated_at     BIGINT  NOT NULL DEFAULT unix_now(),
+      created_by     UUID    REFERENCES users(user_id) ON DELETE SET NULL,
+      CONSTRAINT chk_ai_trigger_action
+        CHECK (action IN ('highlight', 'automute')),
+      CONSTRAINT chk_ai_trigger_threshold
+        CHECK (threshold >= 0.0 AND threshold <= 1.0),
+      CONSTRAINT chk_ai_trigger_category
+        CHECK (category IN (
+          'harassment', 'harassment/threatening',
+          'hate', 'hate/threatening',
+          'illicit', 'illicit/violent',
+          'self-harm', 'self-harm/intent', 'self-harm/instructions',
+          'sexual', 'sexual/minors',
+          'violence', 'violence/graphic'
+        ))
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ai_mod_triggers_org_id
+     ON org_ai_moderation_triggers(org_id)`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
