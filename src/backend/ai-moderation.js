@@ -99,33 +99,47 @@ export async function getOrgOpenAIKey(orgId) {
 
 // Call the OpenAI Moderation API. input is a string (text) or an array of
 // content-block objects (for images). Returns { flagged, categories, scores }.
+// Retries up to 3 times on 429 with exponential backoff (1s, 2s, 4s).
 export async function callOpenAIModeration(apiKey, input) {
-  const res = await fetch(OPENAI_MODERATION_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODERATION_MODEL,
-      input,
-    }),
-  });
+  const MAX_RETRIES = 3;
+  let delay = 1000;
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`OpenAI moderation API error ${res.status}: ${body}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(OPENAI_MODERATION_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODERATION_MODEL,
+        input,
+      }),
+    });
+
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfter = res.headers.get("retry-after");
+      const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
+      await new Promise((r) => setTimeout(r, wait));
+      delay *= 2;
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`OpenAI moderation API error ${res.status}: ${body}`);
+    }
+
+    const data = await res.json();
+    const result = data.results?.[0];
+    if (!result) throw new Error("Unexpected OpenAI response: no results");
+
+    return {
+      flagged: Boolean(result.flagged),
+      categories: result.categories ?? {},
+      scores: result.category_scores ?? {},
+    };
   }
-
-  const data = await res.json();
-  const result = data.results?.[0];
-  if (!result) throw new Error("Unexpected OpenAI response: no results");
-
-  return {
-    flagged: Boolean(result.flagged),
-    categories: result.categories ?? {},
-    scores: result.category_scores ?? {},
-  };
 }
 
 // Load active moderation triggers for an org from DB.
