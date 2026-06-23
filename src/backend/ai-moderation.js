@@ -109,13 +109,6 @@ export async function callOpenAIModeration(apiKey, text) {
       body: JSON.stringify({ model: OPENAI_MODERATION_MODEL, input: text }),
     });
 
-    console.log({
-      remainingRequests: res.headers.get("x-ratelimit-remaining-requests"),
-      remainingTokens: res.headers.get("x-ratelimit-remaining-tokens"),
-      resetRequests: res.headers.get("x-ratelimit-reset-requests"),
-      resetTokens: res.headers.get("x-ratelimit-reset-tokens"),
-    });
-
     if (res.status === 429 && attempt < MAX_RETRIES) {
       const retryAfter = res.headers.get("retry-after");
       const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
@@ -128,6 +121,13 @@ export async function callOpenAIModeration(apiKey, text) {
       const body = await res.text().catch(() => "");
       throw new Error(`OpenAI moderation API error ${res.status}: ${body}`);
     }
+
+    console.log({
+      remainingRequests: res.headers.get("x-ratelimit-remaining-requests"),
+      remainingTokens: res.headers.get("x-ratelimit-remaining-tokens"),
+      resetRequests: res.headers.get("x-ratelimit-reset-requests"),
+      resetTokens: res.headers.get("x-ratelimit-reset-tokens"),
+    });
 
     const data = await res.json();
     const result = data.results?.[0];
@@ -292,7 +292,12 @@ async function _runChatModeration(
       chatRowId,
     ]);
   } catch (err) {
-    console.error(`[ai-mod] moderation API failed for chat ${chatRowId}:`, err);
+    const is429 = err.message?.includes("429");
+    if (is429) {
+      console.warn(`[ai-mod] rate limited by OpenAI for chat ${chatRowId}, skipping`);
+    } else {
+      console.error(`[ai-mod] moderation API failed for chat ${chatRowId}:`, err);
+    }
     return;
   }
 
