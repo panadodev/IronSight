@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
+import { usePteroPlugins } from "@/lib/use-ptero-plugins";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -1400,15 +1401,22 @@ function PresetsTab({ servers, orgId }) {
   const [selectedServerId, setSelectedServerId] = useState(
     pteroServers[0]?.id ?? null,
   );
-  const [plugins, setPlugins] = useState([]);
-  const [rconAvailable, setRconAvailable] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [fetchError, setFetchError] = useState(null);
   const [cmdState, setCmdState] = useState({});
   const [configDialog, setConfigDialog] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(null);
   const [uploadDialog, setUploadDialog] = useState(null);
   const fileInputRef = useRef(null);
+
+  const {
+    plugins,
+    rconAvailable,
+    loading,
+    fetching,
+    error: fetchError,
+    refresh,
+    invalidate,
+    invalidateAll,
+  } = usePteroPlugins(selectedServerId);
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
@@ -1426,44 +1434,6 @@ function PresetsTab({ servers, orgId }) {
       setSelectedServerId(pteroServers[0].id);
     }
   }, [pteroServers, selectedServerId]);
-
-  useEffect(() => {
-    if (!selectedServerId) return;
-    let cancelled = false;
-    setLoading(true);
-    setFetchError(null);
-    setPlugins([]);
-    fetch(`/api/servers/${selectedServerId}/ptero-plugins`, {
-      credentials: "include",
-    })
-      .then(async (r) => {
-        if (r.ok) return r.json();
-        let errMsg;
-        try {
-          const d = await r.json();
-          errMsg = d.error ?? `HTTP ${r.status}`;
-        } catch {
-          errMsg = `HTTP ${r.status}`;
-        }
-        return Promise.reject(errMsg);
-      })
-      .then((d) => {
-        if (!cancelled) {
-          setPlugins(d.plugins ?? []);
-          setRconAvailable(d.rconAvailable ?? false);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setFetchError(String(err));
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedServerId]);
 
   const runCmd = async (pluginName, cmd) => {
     const key = `${pluginName}:${cmd}`;
@@ -1485,6 +1455,8 @@ function PresetsTab({ servers, orgId }) {
           ? { output: data.output ?? "" }
           : { error: data.error ?? "Failed" },
       }));
+      // A reload/unload changes the plugin's live status — refresh the list.
+      if (res.ok) invalidate();
     } catch (err) {
       setCmdState((s) => ({ ...s, [key]: { error: err.message } }));
     }
@@ -1542,15 +1514,30 @@ function PresetsTab({ servers, orgId }) {
             </button>
           ))}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Upload className="size-3.5 mr-1.5" />
-          Upload plugin
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs"
+            onClick={() => refresh()}
+            disabled={!selectedServerId || fetching}
+            title="Refresh plugin list and status"
+          >
+            <RefreshCw
+              className={"size-3.5 mr-1.5 " + (fetching ? "animate-spin" : "")}
+            />
+            Refresh
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="size-3.5 mr-1.5" />
+            Upload plugin
+          </Button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -1748,6 +1735,7 @@ function PresetsTab({ servers, orgId }) {
           pluginName={configDialog.pluginName}
           serverName={configDialog.serverName}
           onClose={() => setConfigDialog(null)}
+          onSaved={() => invalidate()}
         />
       )}
       {deleteDialog && (
@@ -1756,11 +1744,7 @@ function PresetsTab({ servers, orgId }) {
           pteroServers={pteroServers}
           orgId={orgId}
           onClose={() => setDeleteDialog(null)}
-          onSuccess={(removedName) =>
-            setPlugins((prev) =>
-              prev.filter((p) => p.pluginName !== removedName),
-            )
-          }
+          onSuccess={() => invalidateAll()}
         />
       )}
       {uploadDialog && (
@@ -1770,6 +1754,7 @@ function PresetsTab({ servers, orgId }) {
           pteroServers={pteroServers}
           orgId={orgId}
           onClose={() => setUploadDialog(null)}
+          onSuccess={() => invalidateAll()}
         />
       )}
     </div>
@@ -1941,7 +1926,14 @@ function BulkDeleteDialog({
     </Dialog>
   );
 }
-function BulkUploadDialog({ fileName, content, pteroServers, orgId, onClose }) {
+function BulkUploadDialog({
+  fileName,
+  content,
+  pteroServers,
+  orgId,
+  onClose,
+  onSuccess,
+}) {
   const [selected, setSelected] = useState(
     () => new Set(pteroServers.map((s) => s.id)),
   );
@@ -1968,6 +1960,8 @@ function BulkUploadDialog({ fileName, content, pteroServers, orgId, onClose }) {
         ]);
       } else {
         setResults(data.results ?? []);
+        // New/replaced .cs files on the servers — refresh the plugin list.
+        if (data.results?.some((r) => r.ok)) onSuccess?.();
       }
       setPhase("done");
     } catch (err) {
@@ -2025,7 +2019,13 @@ function BulkUploadDialog({ fileName, content, pteroServers, orgId, onClose }) {
     </Dialog>
   );
 }
-function PluginConfigDialog({ serverId, pluginName, serverName, onClose }) {
+function PluginConfigDialog({
+  serverId,
+  pluginName,
+  serverName,
+  onClose,
+  onSaved,
+}) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2070,6 +2070,8 @@ function PluginConfigDialog({ serverId, pluginName, serverName, onClose }) {
           output: data.rconOutput ?? null,
           rconError: data.rconError ?? null,
         });
+        // Config write triggers a plugin reload — refresh status.
+        onSaved?.();
       }
     } catch (err) {
       setResult({ error: err.message });
