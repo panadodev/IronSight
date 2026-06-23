@@ -8222,7 +8222,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         // No identifiers and no native push: this BM ban is for record-keeping
         // only and must not match or ban the player on BattleMetrics' side.
         autoAddEnabled: false,
-        nativeEnabled: null,
+        nativeEnabled: false,
         identifiers: [],
       },
       relationships: {
