@@ -1,4 +1,4 @@
-﻿import { Queue } from "bullmq";
+﻿import { Queue, Worker } from "bullmq";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import {
   env,
@@ -562,12 +562,41 @@ async function init() {
       }),
     );
 
+    const banExpireWorker = new Worker(
+      "panel-jobs",
+      async (job) => {
+        if (job.name === "ban-expire") await processBanExpireJob(job);
+      },
+      {
+        connection: new Redis(env.redisUrl, {
+          maxRetriesPerRequest: null,
+          enableReadyCheck: true,
+        }),
+      },
+    );
+    banExpireWorker.on("failed", (job, err) => {
+      console.error(`[worker] job ${job?.name} ${job?.id} failed:`, err.message);
+    });
+
     await ensureSchema(pool);
     await migrateTimestampsToUnix(pool);
     await migratePterodactylApiKeys();
     await ensureRolePermissionSeed(pool);
     await migrateLegacyData(pool);
     await pingDependencies();
+
+    // Schedule expiry jobs for all active timed bans. Catches existing bans
+    // from before this feature and any that expired while the server was down
+    // (BullMQ fires delay:0 jobs immediately, so past-due ones run on startup).
+    const timedBans = await pool.query(
+      `SELECT ban_id, expires_at FROM player_bans
+       WHERE revoked = FALSE AND expires_at IS NOT NULL`,
+    );
+    for (const row of timedBans.rows) {
+      await scheduleBanExpiry(String(row.ban_id), Number(row.expires_at)).catch(
+        (e) => console.error("[startup] ban-expire schedule failed:", e.message),
+      );
+    }
 
     initialized = true;
     initError = null;
@@ -7986,6 +8015,12 @@ async function handleCreateBan(request, orgId) {
     }
   }
 
+  if (expiresAtUnix != null) {
+    scheduleBanExpiry(banId, expiresAtUnix).catch((e) =>
+      console.error("[ban-expire] schedule failed:", e.message),
+    );
+  }
+
   return json({ ok: true, banId, rconResults, bmSync }, 201);
 }
 
@@ -8019,6 +8054,7 @@ async function handleUpdateBan(request, orgId, banId) {
     params.push(String(body.note).slice(0, 1000));
     idx++;
   }
+  let updatedExpiresAt; // undefined = not changed; null = made permanent
   if ("expiresAt" in body) {
     let expiresAtUnix = null;
     if (body.expiresAt != null && body.expiresAt !== "") {
@@ -8030,6 +8066,7 @@ async function handleUpdateBan(request, orgId, banId) {
     sets.push(`expires_at = $${idx}`);
     params.push(expiresAtUnix);
     idx++;
+    updatedExpiresAt = expiresAtUnix;
   }
 
   if (sets.length > 0) {
@@ -8056,6 +8093,12 @@ async function handleUpdateBan(request, orgId, banId) {
     ipAddress: getClientIp(request),
   });
 
+  if (updatedExpiresAt !== undefined) {
+    scheduleBanExpiry(banId, updatedExpiresAt).catch((e) =>
+      console.error("[ban-expire] reschedule failed:", e.message),
+    );
+  }
+
   return json({ ok: true });
 }
 
@@ -8081,6 +8124,8 @@ async function handleRevokeBan(request, orgId, banId) {
      WHERE ban_id = $1 AND org_id = $2`,
     [banId, orgId, session.userId],
   );
+
+  scheduleBanExpiry(banId, null).catch(() => {});
 
   auditLog({
     orgId,
@@ -8165,6 +8210,106 @@ async function handleRevokeBan(request, orgId, banId) {
   }
 
   return json({ ok: true, rconResults, bmDeleteError });
+}
+
+// Schedules (or cancels) a BullMQ delayed job to auto-revoke a ban/mute when
+// its expires_at elapses. Uses a deterministic jobId so re-scheduling on update
+// cleanly replaces the old job. Passing null for expiresAtUnix cancels any
+// existing job without scheduling a new one.
+async function scheduleBanExpiry(banId, expiresAtUnix) {
+  const jobId = `ban-expire:${banId}`;
+  try {
+    const existing = await queue.getJob(jobId);
+    if (existing) await existing.remove().catch(() => {});
+  } catch {}
+  if (expiresAtUnix == null) return;
+  const delayMs = Math.max(0, expiresAtUnix * 1000 - Date.now());
+  await queue.add("ban-expire", { banId }, { jobId, delay: delayMs });
+}
+
+async function processBanExpireJob(job) {
+  const { banId } = job.data;
+  const banRes = await pool.query(
+    `SELECT ban_id, org_id, identifier, identifier_type, action_type, bm_ban_id
+     FROM player_bans WHERE ban_id = $1 AND revoked = FALSE`,
+    [banId],
+  );
+  const ban = banRes.rows[0];
+  if (!ban) return; // already revoked or deleted
+
+  await pool.query(
+    `UPDATE player_bans SET revoked = TRUE, revoked_at = unix_now()
+     WHERE ban_id = $1 AND revoked = FALSE`,
+    [banId],
+  );
+
+  const { org_id, identifier, identifier_type, action_type, bm_ban_id } = ban;
+
+  auditLog({
+    orgId: org_id,
+    actorUserId: null,
+    resourceType: action_type === "mute" ? "mute" : "ban",
+    resourceId: banId,
+    actionType: action_type === "mute" ? "MUTE_EXPIRED" : "BAN_EXPIRED",
+    actionCategory: "moderation",
+    severity: 2,
+    metadata: {
+      identifier: String(identifier),
+      identifierType: String(identifier_type),
+    },
+  });
+
+  if (action_type !== "mute") {
+    const targetServers = await pool.query(
+      `SELECT s.server_id, s.rcon_host, s.rcon_port, s.rcon_password_enc
+       FROM ban_server_targets bst
+       JOIN servers s ON s.server_id = bst.server_id
+       WHERE bst.ban_id = $1
+         AND s.rcon_host IS NOT NULL
+         AND s.rcon_port IS NOT NULL
+         AND s.rcon_password_enc IS NOT NULL`,
+      [banId],
+    );
+
+    for (const srv of targetServers.rows) {
+      try {
+        const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+        const command =
+          identifier_type === "ip"
+            ? `unbanip ${String(identifier)}`
+            : `unban ${String(identifier)}`;
+        await executeRconCommand(rconUrl, command);
+      } catch (err) {
+        console.error(
+          `[ban-expire] RCON unban failed for server ${srv.server_id}:`,
+          err.message,
+        );
+      }
+    }
+
+    if (bm_ban_id) {
+      try {
+        const bmDel = await bmFetch(
+          org_id,
+          `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`,
+          { method: "DELETE" },
+        );
+        if (bmDel?.ok || bmDel?.status === 404) {
+          await pool.query(
+            `UPDATE player_bans SET bm_ban_id = NULL WHERE ban_id = $1`,
+            [banId],
+          );
+        } else {
+          console.error(
+            `[ban-expire] BM delete returned ${bmDel?.status} for ban ${banId}`,
+          );
+        }
+      } catch (err) {
+        console.error(`[ban-expire] BM delete failed for ban ${banId}:`, err.message);
+      }
+    }
+  }
 }
 
 // Create or update a BattleMetrics ban for a local ban record. By design the BM
