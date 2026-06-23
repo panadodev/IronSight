@@ -52,8 +52,6 @@ function hydrate(config) {
       enabled: Boolean(config?.boughtAccount?.enabled),
       hoursRule: {
         enabled: config?.boughtAccount?.hoursRule?.enabled !== false,
-        minSteamHours: config?.boughtAccount?.hoursRule?.minSteamHours ?? 1000,
-        maxBmHours: config?.boughtAccount?.hoursRule?.maxBmHours ?? 100,
         ratio: config?.boughtAccount?.hoursRule?.ratio ?? 10,
       },
       nameRule: {
@@ -741,17 +739,7 @@ function BoughtAccountCard({ bought, onChange }) {
               label={hoursRule.enabled ? "On" : "Off"}
             />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <NumField
-              label="Min Steam hrs"
-              value={hoursRule.minSteamHours}
-              onChange={(v) => setHours({ minSteamHours: v })}
-            />
-            <NumField
-              label="Max BM hrs"
-              value={hoursRule.maxBmHours}
-              onChange={(v) => setHours({ maxBmHours: v })}
-            />
+          <div className="flex items-center gap-3">
             <NumField
               label="Ratio ≥"
               value={hoursRule.ratio}
@@ -760,8 +748,7 @@ function BoughtAccountCard({ bought, onChange }) {
             />
           </div>
           <p className="text-[10px] font-mono text-muted-foreground">
-            Triggers when Steam ≥ {hoursRule.minSteamHours}h AND BM ≤{" "}
-            {hoursRule.maxBmHours}h AND (Steam ÷ BM) ≥ {hoursRule.ratio}×.
+            Triggers when (Steam ÷ BM) ≥ {hoursRule.ratio}×.
           </p>
         </div>
 

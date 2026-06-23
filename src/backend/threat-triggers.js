@@ -89,8 +89,6 @@ export const DEFAULT_TRIGGER_CONFIG = {
     enabled: false,
     hoursRule: {
       enabled: true,
-      minSteamHours: 1000,
-      maxBmHours: 100,
       ratio: 10,
     },
     nameRule: { enabled: false, terms: [] },
@@ -126,9 +124,6 @@ export function sanitizeTriggerConfig(raw) {
       enabled: Boolean(raw?.boughtAccount?.enabled),
       hoursRule: {
         enabled: raw?.boughtAccount?.hoursRule?.enabled !== false,
-        minSteamHours:
-          num(raw?.boughtAccount?.hoursRule?.minSteamHours) ?? 1000,
-        maxBmHours: num(raw?.boughtAccount?.hoursRule?.maxBmHours) ?? 100,
         ratio: num(raw?.boughtAccount?.hoursRule?.ratio) ?? 10,
       },
       nameRule: {
@@ -328,15 +323,11 @@ function evaluateBoughtAccount(ba, data) {
   const steam = num(data.steamRustHours);
   const bm = num(data.bmRustHours);
 
-  if (ba.hoursRule?.enabled && steam != null && bm != null) {
-    const ratio = bm > 0 ? steam / bm : steam > 0 ? Infinity : 0;
-    if (
-      steam >= (ba.hoursRule.minSteamHours ?? 0) &&
-      bm <= (ba.hoursRule.maxBmHours ?? Infinity) &&
-      ratio >= (ba.hoursRule.ratio ?? 0)
-    ) {
+  if (ba.hoursRule?.enabled && steam != null && bm != null && bm > 0) {
+    const ratio = steam / bm;
+    if (ratio >= (ba.hoursRule.ratio ?? 10)) {
       reasons.push(
-        `bought-account hours ratio (${steam}h Steam vs ${bm}h BM, ${ratio === Infinity ? "∞" : ratio.toFixed(1)}×)`,
+        `bought-account hours ratio (${steam}h Steam vs ${bm}h BM, ${ratio.toFixed(1)}×)`,
       );
     }
   }
