@@ -4837,6 +4837,29 @@ async function handleGetPteroStatus(request, orgId) {
       };
     });
 
+  // When live data is supported, infer node connectivity from registered server
+  // live-data. A stopped server still returns {state:"offline"}; null means the
+  // Client API couldn't reach Wings at all — so null unambiguously means down.
+  const nodeOnlineMap = {};
+  if (liveSupported) {
+    const serversByNode = {};
+    for (const s of mergedServers) {
+      if (s.nodeId == null) continue;
+      if (!serversByNode[s.nodeId]) serversByNode[s.nodeId] = [];
+      serversByNode[s.nodeId].push(s);
+    }
+    for (const [nodeId, nodeServers] of Object.entries(serversByNode)) {
+      nodeOnlineMap[Number(nodeId)] = nodeServers.some((s) => s.live !== null);
+    }
+  }
+
+  const annotatedNodes = nodes.map((n) => ({
+    ...n,
+    online: Object.prototype.hasOwnProperty.call(nodeOnlineMap, n.id)
+      ? nodeOnlineMap[n.id]
+      : null,
+  }));
+
   await pool.query(
     `UPDATE ptero_api_keys SET last_used_at = unix_now() WHERE org_id = $1`,
     [orgId],
@@ -4845,7 +4868,7 @@ async function handleGetPteroStatus(request, orgId) {
   return json({
     connected: true,
     liveSupported,
-    nodes,
+    nodes: annotatedNodes,
     servers: mergedServers,
   });
 }

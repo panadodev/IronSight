@@ -2975,10 +2975,16 @@ function StatusTab({ orgId }) {
                       className={
                         n.maintenanceMode
                           ? "border-warning/40 text-warning bg-warning/10 text-[9px]"
-                          : "border-success/40 text-success bg-success/10 text-[9px]"
+                          : n.online === false
+                            ? "border-destructive/40 text-destructive bg-destructive/10 text-[9px]"
+                            : "border-success/40 text-success bg-success/10 text-[9px]"
                       }
                     >
-                      {n.maintenanceMode ? "maintenance" : "online"}
+                      {n.maintenanceMode
+                        ? "maintenance"
+                        : n.online === false
+                          ? "offline"
+                          : "online"}
                     </Badge>
                   </div>
 
