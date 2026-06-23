@@ -1,5 +1,6 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { SiteNav } from "@/components/site-nav";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,12 +15,207 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
   Check,
+  CheckCircle2,
   ChevronDown,
   Crown,
   MessageSquare,
+  ShieldAlert,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const CATEGORY_LABELS = {
+  harassment: "Harassment",
+  "harassment/threatening": "Threatening",
+  hate: "Hate Speech",
+  "hate/threatening": "Threatening Hate",
+  illicit: "Illicit",
+  "illicit/violent": "Violent Illicit",
+  "self-harm": "Self-Harm",
+  "self-harm/intent": "Self-Harm Intent",
+  "self-harm/instructions": "Self-Harm Instr.",
+  sexual: "Sexual",
+  "sexual/minors": "Sexual/Minors",
+  violence: "Violence",
+  "violence/graphic": "Graphic Violence",
+};
+
+function FlaggedMessagesPanel({ serverId, orgId, canResolve }) {
+  const [flags, setFlags] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [resolvingIds, setResolvingIds] = useState(new Set());
+  const [showResolved, setShowResolved] = useState(false);
+
+  const fetchFlags = useCallback(async () => {
+    if (!serverId || !orgId) return;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        serverId,
+        resolved: String(showResolved),
+        limit: "30",
+      });
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged?${params}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setFlags(data.flags ?? []);
+    } catch {
+      // panel is supplementary; ignore errors
+    } finally {
+      setLoading(false);
+    }
+  }, [serverId, orgId, showResolved]);
+
+  useEffect(() => {
+    fetchFlags();
+    const timer = setInterval(fetchFlags, 30000);
+    return () => clearInterval(timer);
+  }, [fetchFlags]);
+
+  const resolve = useCallback(
+    async (flagId) => {
+      if (!orgId) return;
+      setResolvingIds((s) => new Set(s).add(flagId));
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged/${flagId}/resolve`,
+          { method: "POST", credentials: "include" },
+        );
+        if (res.ok) {
+          setFlags((prev) => prev.filter((f) => f.flagId !== flagId));
+        }
+      } finally {
+        setResolvingIds((s) => {
+          const next = new Set(s);
+          next.delete(flagId);
+          return next;
+        });
+      }
+    },
+    [orgId],
+  );
+
+  return (
+    <div className="w-72 shrink-0 border-l border-border flex flex-col bg-surface/20">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <ShieldAlert className="size-3.5 text-danger" />
+          <span className="text-[11px] font-semibold tracking-tight">
+            Flagged Messages
+          </span>
+          {flags.length > 0 && !showResolved && (
+            <span className="text-[9px] font-mono bg-danger/15 text-danger px-1.5 rounded-full">
+              {flags.length}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setShowResolved((v) => !v)}
+          className={`text-[9px] font-mono uppercase tracking-widest transition-colors ${
+            showResolved
+              ? "text-brand"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {showResolved ? "Unresolved" : "Resolved"}
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading && flags.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground text-center py-8">
+            Loading…
+          </p>
+        ) : flags.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center px-4">
+            <CheckCircle2 className="size-6 text-muted-foreground/30" />
+            <p className="text-[11px] text-muted-foreground">
+              {showResolved ? "No resolved flags." : "All clear."}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {flags.map((flag) => (
+              <FlagCard
+                key={flag.flagId}
+                flag={flag}
+                canResolve={canResolve && !showResolved}
+                resolving={resolvingIds.has(flag.flagId)}
+                onResolve={resolve}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FlagCard({ flag, canResolve, resolving, onResolve }) {
+  const scorePercent = Math.round(flag.score * 100);
+  const label =
+    CATEGORY_LABELS[flag.triggeredCategory] ?? flag.triggeredCategory;
+  const isAutomute = flag.action === "automute";
+  const age = fmtRelative(flag.createdAt * 1000);
+
+  return (
+    <div className="px-3 py-2.5 space-y-1.5 hover:bg-surface/40 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          to="/player-lookup"
+          search={{ steam: flag.steamId }}
+          className="text-[11px] font-semibold truncate hover:text-brand hover:underline"
+          title={flag.steamId}
+        >
+          {flag.playerName ?? flag.steamId}
+        </Link>
+        <span className="text-[9px] text-muted-foreground shrink-0">{age}</span>
+      </div>
+
+      <p className="text-[11px] text-foreground/80 line-clamp-2 break-words">
+        {flag.message}
+      </p>
+
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span
+          className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+            isAutomute
+              ? "bg-danger/15 text-danger ring-1 ring-danger/30"
+              : "bg-warning/15 text-warning ring-1 ring-warning/30"
+          }`}
+        >
+          {isAutomute ? "MUTED" : "FLAG"}
+        </span>
+        <span className="text-[9px] font-mono bg-surface px-1.5 py-0.5 rounded ring-1 ring-border">
+          {label}
+        </span>
+        <span className="text-[9px] font-mono text-muted-foreground">
+          {scorePercent}%
+        </span>
+      </div>
+
+      {canResolve && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[10px] px-2 w-full"
+          disabled={resolving}
+          onClick={() => onResolve(flag.flagId)}
+        >
+          {resolving ? "Resolving…" : "Resolve"}
+        </Button>
+      )}
+      {flag.resolved && flag.resolvedByName && (
+        <p className="text-[9px] text-muted-foreground">
+          Resolved by {flag.resolvedByName}
+        </p>
+      )}
+    </div>
+  );
+}
 const Route = createFileRoute("/chat")({
   head: () => ({ meta: [{ title: "Chat Logs — IronSight" }] }),
   component: ChatPage,
@@ -148,7 +344,8 @@ const NOW = Date.now();
 const PAGE_SIZE = 100;
 
 function ChatPage() {
-  const { selectedOrgIds, orgsLoaded, hasStaffAccount } = useAuth();
+  const { selectedOrgIds, orgsLoaded, hasStaffAccount, hasOrgPermission } =
+    useAuth();
   const tz = useTimezone();
 
   const [servers, setServers] = useState([]);
@@ -724,79 +921,89 @@ function ChatPage() {
             )}
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-            {linesLoading ? (
-              <p className="text-sm text-muted-foreground text-center py-12">
-                Loading…
-              </p>
-            ) : linesError ? (
-              <p className="text-sm text-destructive text-center py-12">
-                {linesError}
-              </p>
-            ) : filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-12">
-                No chat lines match these filters.
-              </p>
-            ) : (
-              <div className="space-y-0.5 font-mono text-[12px] max-w-4xl mx-auto">
-                {filtered.map((l) => (
-                  <div
-                    key={l.id}
-                    className={`flex gap-3 px-2 py-1 hover:bg-surface/50 rounded items-baseline ${
-                      l.teamMessage
-                        ? "border-l-2 border-yellow-500/40 pl-1.5"
-                        : ""
-                    }`}
-                  >
-                    <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
-                      {relativeTs
-                        ? fmtRelative(l.ts * 1000)
-                        : fmtTime(l.ts * 1000, tz)}
-                    </span>
-                    {l.teamMessage && (
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
-                        team
-                      </span>
-                    )}
-                    <Link
-                      to="/player-lookup"
-                      search={{ steam: l.steamId }}
-                      className="font-semibold shrink-0 w-[140px] truncate hover:text-brand hover:underline"
-                      title={l.steamId}
+          <div className="flex-1 overflow-hidden flex">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+              {linesLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-12">
+                  Loading…
+                </p>
+              ) : linesError ? (
+                <p className="text-sm text-destructive text-center py-12">
+                  {linesError}
+                </p>
+              ) : filtered.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-12">
+                  No chat lines match these filters.
+                </p>
+              ) : (
+                <div className="space-y-0.5 font-mono text-[12px] max-w-4xl mx-auto">
+                  {filtered.map((l) => (
+                    <div
+                      key={l.id}
+                      className={`flex gap-3 px-2 py-1 hover:bg-surface/50 rounded items-baseline ${
+                        l.teamMessage
+                          ? "border-l-2 border-yellow-500/40 pl-1.5"
+                          : ""
+                      }`}
                     >
-                      {l.playerName ?? l.steamId}
-                    </Link>
-                    <div className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
-                      <span
-                        className={`break-words min-w-0 ${l.teamMessage ? "text-yellow-400/80" : "text-foreground/90"}`}
-                      >
-                        {l.message}
+                      <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
+                        {relativeTs
+                          ? fmtRelative(l.ts * 1000)
+                          : fmtTime(l.ts * 1000, tz)}
                       </span>
                       {l.teamMessage && (
-                        <TeamRecipients
-                          info={teamInfoById.get(l.id)}
-                          nameFor={nameFor}
-                        />
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
+                          team
+                        </span>
                       )}
+                      <Link
+                        to="/player-lookup"
+                        search={{ steam: l.steamId }}
+                        className="font-semibold shrink-0 w-[140px] truncate hover:text-brand hover:underline"
+                        title={l.steamId}
+                      >
+                        {l.playerName ?? l.steamId}
+                      </Link>
+                      <div className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
+                        <span
+                          className={`break-words min-w-0 ${l.teamMessage ? "text-yellow-400/80" : "text-foreground/90"}`}
+                        >
+                          {l.message}
+                        </span>
+                        {l.teamMessage && (
+                          <TeamRecipients
+                            info={teamInfoById.get(l.id)}
+                            nameFor={nameFor}
+                          />
+                        )}
+                      </div>
                     </div>
+                  ))}
+                  <div
+                    ref={sentinelRef}
+                    className="py-3 flex items-center justify-center"
+                  >
+                    {loadingMore ? (
+                      <span className="text-xs text-muted-foreground">
+                        Loading older messages…
+                      </span>
+                    ) : !hasMore && lines.length > 0 ? (
+                      <span className="text-[10px] text-muted-foreground/40">
+                        All messages loaded
+                      </span>
+                    ) : null}
                   </div>
-                ))}
-                <div
-                  ref={sentinelRef}
-                  className="py-3 flex items-center justify-center"
-                >
-                  {loadingMore ? (
-                    <span className="text-xs text-muted-foreground">
-                      Loading older messages…
-                    </span>
-                  ) : !hasMore && lines.length > 0 ? (
-                    <span className="text-[10px] text-muted-foreground/40">
-                      All messages loaded
-                    </span>
-                  ) : null}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+            <FlaggedMessagesPanel
+              serverId={serverId}
+              orgId={activeServer?.ownerOrgId}
+              canResolve={hasOrgPermission(
+                activeServer?.ownerOrgId,
+                "flagged_messages_resolve",
+              )}
+            />
           </div>
         </main>
       </div>

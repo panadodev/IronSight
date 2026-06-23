@@ -208,6 +208,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "triggers_manage",
   "server_admin",
   "discord_mod",
+  "flagged_messages_resolve",
 ];
 
 // Ban permissions were split from the legacy umbrella `bans_manage` into granular
@@ -5881,6 +5882,82 @@ async function handleModerateImage(request, orgId) {
   });
 }
 
+// ── AI Moderation: flagged messages ─────────────────────────────────────────
+
+async function handleListFlaggedMessages(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "toxicity_manage"))
+    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+
+  const url = new URL(request.url);
+  const serverId = url.searchParams.get("serverId") || null;
+  const resolvedParam = url.searchParams.get("resolved");
+  const resolved = resolvedParam === "true" ? true : resolvedParam === "false" ? false : null;
+  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
+
+  const conditions = ["f.org_id = $1"];
+  const params = [orgId];
+  let idx = 2;
+
+  if (serverId) {
+    conditions.push(`f.server_id = $${idx++}`);
+    params.push(serverId);
+  }
+  if (resolved !== null) {
+    conditions.push(`f.resolved = $${idx++}`);
+    params.push(resolved);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT f.flag_id, f.chat_log_id, f.server_id, f.steam_id, f.player_name,
+            f.message, f.triggered_category, f.score, f.action,
+            f.resolved, f.resolved_at, f.created_at,
+            u.username AS resolved_by_name
+     FROM ai_chat_flags f
+     LEFT JOIN users u ON u.user_id = f.resolved_by
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY f.created_at DESC
+     LIMIT $${idx}`,
+    [...params, limit],
+  );
+
+  return json({
+    flags: rows.map((r) => ({
+      flagId: r.flag_id,
+      chatLogId: r.chat_log_id ? String(r.chat_log_id) : null,
+      serverId: r.server_id,
+      steamId: r.steam_id,
+      playerName: r.player_name,
+      message: r.message,
+      triggeredCategory: r.triggered_category,
+      score: Number(r.score),
+      action: r.action,
+      resolved: r.resolved,
+      resolvedAt: r.resolved_at ? Number(r.resolved_at) : null,
+      resolvedByName: r.resolved_by_name ?? null,
+      createdAt: Number(r.created_at),
+    })),
+  });
+}
+
+async function handleResolveFlaggedMessage(request, orgId, flagId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "flagged_messages_resolve"))
+    return json({ error: "Forbidden: flagged_messages_resolve permission required" }, 403);
+
+  const { rows } = await pool.query(
+    `UPDATE ai_chat_flags
+     SET resolved = TRUE, resolved_by = $1, resolved_at = unix_now()
+     WHERE flag_id = $2 AND org_id = $3 AND resolved = FALSE
+     RETURNING flag_id`,
+    [session.userId, flagId, orgId],
+  );
+  if (!rows[0]) return json({ error: "Flag not found or already resolved" }, 404);
+  return json({ ok: true });
+}
+
 // ── Manage Org: Ban/mute configs ────────────────────────────────────────────
 
 const BAN_CONFIG_CATEGORIES = ["cheating", "teaming", "toxicity", "mute"];
@@ -10699,6 +10776,19 @@ async function _handleApiRequest(request) {
     );
     if (aiModerateImageMatch && request.method === "POST")
       return handleModerateImage(request, aiModerateImageMatch[1]);
+
+    // AI Moderation: flagged messages
+    const aiFlaggedMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/flagged$/,
+    );
+    if (aiFlaggedMatch && request.method === "GET")
+      return handleListFlaggedMessages(request, aiFlaggedMatch[1]);
+
+    const aiFlagResolveMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/flagged\/([a-f0-9-]+)\/resolve$/,
+    );
+    if (aiFlagResolveMatch && request.method === "POST")
+      return handleResolveFlaggedMessage(request, aiFlagResolveMatch[1], aiFlagResolveMatch[2]);
 
     // Manage Org: ban/mute configs
     const orgBanConfigsMatch = pathname.match(

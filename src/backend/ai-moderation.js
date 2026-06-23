@@ -194,15 +194,52 @@ export function runChatModerationAsync(
   steamId,
   serverId,
   message,
+  playerName,
 ) {
-  _runChatModeration(chatRowId, orgId, steamId, serverId, message).catch(
-    (err) => {
-      console.error(
-        `[ai-mod] background error for chat row ${chatRowId}:`,
-        err,
-      );
-    },
-  );
+  _runChatModeration(
+    chatRowId,
+    orgId,
+    steamId,
+    serverId,
+    message,
+    playerName,
+  ).catch((err) => {
+    console.error(`[ai-mod] background error for chat row ${chatRowId}:`, err);
+  });
+}
+
+async function insertFlag(
+  chatRowId,
+  orgId,
+  serverId,
+  steamId,
+  playerName,
+  message,
+  trigger,
+  score,
+) {
+  await pool
+    .query(
+      `INSERT INTO ai_chat_flags
+         (chat_log_id, org_id, server_id, steam_id, player_name, message,
+          triggered_category, score, action)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (chat_log_id, triggered_category) DO NOTHING`,
+      [
+        chatRowId,
+        orgId,
+        serverId,
+        steamId,
+        playerName ?? null,
+        message,
+        trigger.category,
+        score,
+        trigger.action,
+      ],
+    )
+    .catch((err) => {
+      console.error(`[ai-mod] failed to insert flag:`, err);
+    });
 }
 
 async function _runChatModeration(
@@ -211,6 +248,7 @@ async function _runChatModeration(
   steamId,
   serverId,
   message,
+  playerName,
 ) {
   const apiKey = await getOrgOpenAIKey(orgId);
   if (!apiKey) return;
@@ -230,14 +268,24 @@ async function _runChatModeration(
   }
 
   const triggers = await loadTriggers(orgId);
-  const fired = new Set();
+  const muteFired = new Set();
 
   for (const trigger of triggers) {
     const score = scores[trigger.category] ?? 0;
     if (score >= Number(trigger.threshold)) {
-      const key = `${trigger.action}:${steamId}`;
-      if (trigger.action === "automute" && !fired.has(key)) {
-        fired.add(key);
+      await insertFlag(
+        chatRowId,
+        orgId,
+        serverId,
+        steamId,
+        playerName,
+        message,
+        trigger,
+        score,
+      );
+
+      if (trigger.action === "automute" && !muteFired.has(steamId)) {
+        muteFired.add(steamId);
         await issueMute(orgId, steamId, trigger, serverId).catch((err) => {
           console.error(`[ai-mod] failed to issue mute:`, err);
         });
