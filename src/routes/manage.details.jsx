@@ -370,7 +370,7 @@ function ApiKeysSection({ orgId }) {
     }
   }
 
-  const keysByService = ["battlemetrics", "steam", "proxycheck"].reduce(
+  const keysByService = ["battlemetrics", "steam", "proxycheck", "openai"].reduce(
     (acc, svc) => {
       acc[svc] = keys.filter((k) => k.service === svc);
       return acc;
@@ -398,7 +398,7 @@ function ApiKeysSection({ orgId }) {
         <p className="text-sm text-muted-foreground">Loading keys…</p>
       ) : (
         <div className="space-y-4">
-          {["battlemetrics", "steam", "proxycheck"].map((svc) => (
+          {["battlemetrics", "steam", "proxycheck", "openai"].map((svc) => (
             <div
               key={svc}
               className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2 max-w-xl"
