@@ -2974,7 +2974,7 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, sync_perms_on_join, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -2988,6 +2988,7 @@ async function handleGetOrgDetails(request, orgId) {
       guildId: org.guild_id == null ? null : String(org.guild_id),
       bmOrgId: org.bm_org_id == null ? null : String(org.bm_org_id),
       bmAutoSync: org.bm_auto_sync === true,
+      syncPermsOnJoin: org.sync_perms_on_join === true,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
     },
@@ -3027,9 +3028,11 @@ async function handleUpdateOrgDetails(request, orgId) {
         ? null
         : String(bmOrgIdRaw).trim() || null;
 
-  // bmAutoSync: omitted (undefined) → don't touch; otherwise coerce to boolean.
+  // bmAutoSync / syncPermsOnJoin: omitted (undefined) → don't touch; otherwise coerce to boolean.
   const bmAutoSync =
     body?.bmAutoSync === undefined ? undefined : body.bmAutoSync === true;
+  const syncPermsOnJoin =
+    body?.syncPermsOnJoin === undefined ? undefined : body.syncPermsOnJoin === true;
 
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
@@ -3060,9 +3063,10 @@ async function handleUpdateOrgDetails(request, orgId) {
      SET name = COALESCE($2, name),
          guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END,
          bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END,
-         bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END
+         bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END,
+         sync_perms_on_join = CASE WHEN $9 THEN $10::boolean ELSE sync_perms_on_join END
      WHERE org_id = $1
-     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, name, created_at`,
+     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, sync_perms_on_join, name, created_at`,
     [
       orgId,
       name,
@@ -3072,6 +3076,8 @@ async function handleUpdateOrgDetails(request, orgId) {
       bmOrgId ?? null,
       bmAutoSync !== undefined,
       bmAutoSync ?? false,
+      syncPermsOnJoin !== undefined,
+      syncPermsOnJoin ?? false,
     ],
   );
 
@@ -3087,6 +3093,7 @@ async function handleUpdateOrgDetails(request, orgId) {
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       bmOrgId: updated.bm_org_id == null ? null : String(updated.bm_org_id),
       bmAutoSync: updated.bm_auto_sync === true,
+      syncPermsOnJoin: updated.sync_perms_on_join === true,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
@@ -9508,7 +9515,54 @@ async function handleIngestPlayerConnect(request) {
     `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh}(${refreshReason})`,
   );
 
+  // If the org has "Sync Perms on Join" enabled, check whether this player is a
+  // staff member whose role grants server_admin on this server, and if so re-issue
+  // the in-game admin grant. Fire-and-forget — must never block or throw here.
+  syncPermsOnJoinForPlayer(server, steamId, playerName).catch((err) =>
+    console.error("[sync-perms-on-join] unhandled:", err.message),
+  );
+
   return json({ ok: true });
+}
+
+// Best-effort: grant server_admin via RCON when the joining player is staff and
+// the org has sync_perms_on_join enabled. Idempotent (moderatorid + usergroup are
+// safe to re-apply). Runs fire-and-forget from handleIngestPlayerConnect.
+async function syncPermsOnJoinForPlayer(server, steamId, playerName) {
+  const orgId = server.owner_org_id;
+
+  // Check the org setting first — skip everything if the toggle is off.
+  const orgRes = await pool.query(
+    `SELECT sync_perms_on_join FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  if (!orgRes.rows[0]?.sync_perms_on_join) return;
+
+  // Find the member's role for this org.
+  const memberRes = await pool.query(
+    `SELECT om.role_id, u.username
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND u.steam_id = $2
+     LIMIT 1`,
+    [orgId, steamId],
+  );
+  const member = memberRes.rows[0];
+  if (!member) return; // not a staff member
+
+  // Check whether the role grants server_admin on this specific server.
+  const targetIds = await resolveRoleServerAdminServerIds(orgId, member.role_id);
+  if (!targetIds.includes(String(server.server_id))) return;
+
+  // Grant (from empty current set so the command always fires).
+  const rconRows = await loadRconServersByIds(orgId, [String(server.server_id)]);
+  if (!rconRows.length) return;
+
+  const cmds = serverAdminGrantCommands(steamId, member.username ?? playerName);
+  const result = await runRconCommandsOnServer(rconRows[0], cmds);
+  console.log(
+    `[sync-perms-on-join] player=${playerName ?? steamId} server=${server.server_name} ok=${result.ok}${result.error ? ` err=${result.error}` : ""}`,
+  );
 }
 
 async function handleIngestPlayerDisconnect(request) {

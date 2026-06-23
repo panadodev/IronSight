@@ -24,7 +24,6 @@ import {
   Crown,
   Eye,
   Gavel,
-  RefreshCw,
   ScrollText,
   Search,
   ShieldCheck,
@@ -204,8 +203,8 @@ function StaffPage() {
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState(null);
+  const [syncPermsOnJoin, setSyncPermsOnJoin] = useState(false);
+  const [togglingSync, setTogglingSync] = useState(false);
 
   const [sortCol, setSortCol] = usePersistentState(
     "staff.sortCol",
@@ -259,10 +258,24 @@ function StaffPage() {
     } catch {}
   }
 
+  async function loadSyncPermsOnJoin() {
+    if (!orgId) return;
+    try {
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setSyncPermsOnJoin(body.organization?.syncPermsOnJoin === true);
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     loadMembers();
     loadCustomRoles();
     loadStaffStats();
+    loadSyncPermsOnJoin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
@@ -347,36 +360,21 @@ function StaffPage() {
     }
   }
 
-  async function handleSyncServerAdmin() {
-    setSyncing(true);
-    setSyncMsg(null);
+  async function handleToggleSyncPermsOnJoin() {
+    if (togglingSync) return;
+    setTogglingSync(true);
+    const next = !syncPermsOnJoin;
     try {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/sync-server-admin`,
-        { method: "POST", credentials: "include" },
-      );
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSyncMsg({
-          ok: false,
-          text: body?.error ?? "Failed to sync permissions.",
-        });
-        return;
-      }
-      const errSuffix =
-        body.failures && body.sampleErrors?.length
-          ? ` (${body.sampleErrors.join("; ")})`
-          : "";
-      setSyncMsg({
-        ok: body.failures === 0,
-        text: `Synced ${body.membersSynced} member(s) across ${body.serverGrants} server grant(s)${
-          body.failures ? ` — ${body.failures} failed${errSuffix}` : ""
-        }.`,
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ syncPermsOnJoin: next }),
       });
-    } catch {
-      setSyncMsg({ ok: false, text: "Network error." });
-    } finally {
-      setSyncing(false);
+      if (res.ok) setSyncPermsOnJoin(next);
+    } catch {}
+    finally {
+      setTogglingSync(false);
     }
   }
 
@@ -454,20 +452,31 @@ function StaffPage() {
           blurb="Staff roster, activity, and moderation stats."
         />
         {(isAdmin || isOwner) && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleSyncServerAdmin}
-              disabled={syncing}
-              className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
-              title="Re-run in-game admin grants (moderatorid + usergroup admin) for all staff whose role has Admin on Server"
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleToggleSyncPermsOnJoin}
+              disabled={togglingSync}
+              title="When enabled, in-game admin permissions (moderatorid + usergroup admin) are automatically granted via RCON whenever a staff member joins a server."
+              className="flex items-center gap-2 rounded-md ring-1 ring-border bg-background px-2.5 py-1 text-left transition-colors hover:bg-surface/60 disabled:opacity-50"
             >
-              <RefreshCw
-                className={`size-3 ${syncing ? "animate-spin" : ""}`}
-              />
-              {syncing ? "Syncing…" : "Sync Perms to Servers"}
-            </Button>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                Sync Perms on Join
+              </span>
+              <span
+                className={
+                  "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors " +
+                  (syncPermsOnJoin ? "bg-brand" : "bg-muted")
+                }
+              >
+                <span
+                  className={
+                    "inline-block size-3 rounded-full bg-background shadow transition-transform " +
+                    (syncPermsOnJoin ? "translate-x-3.5" : "translate-x-0.5")
+                  }
+                />
+              </span>
+            </button>
             <Button
               size="sm"
               variant="outline"
@@ -483,13 +492,6 @@ function StaffPage() {
           </div>
         )}
       </div>
-      {syncMsg && (
-        <p
-          className={`text-[11px] px-1 ${syncMsg.ok ? "text-emerald-400" : "text-danger"}`}
-        >
-          {syncMsg.text}
-        </p>
-      )}
 
       {/* Add staff */}
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
