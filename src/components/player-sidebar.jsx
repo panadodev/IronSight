@@ -193,7 +193,7 @@ function PlayerSidebar({
                         hint={HINTS.bmHours}
                       />
                       <Field
-                        label="AT-Hours"
+                        label="AIM-TRAIN Hours"
                         value={fmtNum(d.atHours)}
                         hint={HINTS.atHours}
                       />

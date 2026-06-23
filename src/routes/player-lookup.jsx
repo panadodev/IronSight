@@ -784,7 +784,7 @@ function PlayerLookupPage() {
                           }
                         />
                         <Field
-                          label="AT-Hours"
+                          label="AIM-TRAIN Hours"
                           hint={HINTS.atHours}
                           value={
                             playerData.bm

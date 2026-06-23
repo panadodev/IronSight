@@ -385,7 +385,7 @@ function AppealSidebar({ ticket, team }) {
                   value={fmtNum(appellant.playtimeHours)}
                 />
                 <Field label="BM-Hours" value={fmtNum(stats.bmHours)} />
-                <Field label="AT-Hours" value={fmtNum(stats.atHours)} />
+                <Field label="AIM-TRAIN Hours" value={fmtNum(stats.atHours)} />
                 {isAppeal ? (
                   <Field label="K.D" value={stats.kd.toFixed(2)} />
                 ) : null}
