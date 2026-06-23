@@ -63,12 +63,14 @@ const SERVICE_LABELS = {
   battlemetrics: "BattleMetrics",
   steam: "Steam Web API",
   proxycheck: "Proxycheck.io",
+  openai: "OpenAI",
 };
 
 const SERVICE_LINKS = {
   battlemetrics: "https://www.battlemetrics.com/developers/token",
   steam: "https://steamcommunity.com/dev/apikey",
   proxycheck: "https://proxycheck.io/dashboard/",
+  openai: "https://platform.openai.com/api-keys",
 };
 
 const SERVICE_HINTS = {
@@ -78,6 +80,8 @@ const SERVICE_HINTS = {
     "Used to fetch Steam profile data, friends lists, and game hours during player lookup.",
   proxycheck:
     "Used to flag VPN / proxy connections on new player joins and during lookups.",
+  openai:
+    "Used for AI chat moderation — scores every ingested chat message and fires highlight/automute triggers configured on the Toxicity page.",
 };
 
 const SERVICE_PERMISSIONS = {
@@ -96,6 +100,7 @@ const SERVICE_PERMISSIONS = {
   ],
   steam: null,
   proxycheck: null,
+  openai: null,
 };
 
 const STEAM_DAILY_LIMIT = 100_000;
@@ -533,6 +538,7 @@ function ApiKeysSection({ orgId }) {
               <SelectItem value="battlemetrics">BattleMetrics</SelectItem>
               <SelectItem value="steam">Steam Web API</SelectItem>
               <SelectItem value="proxycheck">Proxycheck.io</SelectItem>
+              <SelectItem value="openai">OpenAI</SelectItem>
             </SelectContent>
           </Select>
         </div>
