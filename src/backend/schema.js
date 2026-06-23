@@ -1270,7 +1270,6 @@ export async function ensureSchema(pool) {
         CHECK (category IN (
           'harassment', 'harassment/threatening',
           'hate', 'hate/threatening',
-          'illicit', 'illicit/violent',
           'self-harm', 'self-harm/intent', 'self-harm/instructions',
           'sexual', 'sexual/minors',
           'violence', 'violence/graphic'

@@ -46,18 +46,6 @@ const CATEGORY_META = {
     defaultThreshold: 75,
     defaultAction: "automute",
   },
-  illicit: {
-    label: "Illicit Content",
-    note: "Discussion of illegal off-game activities.",
-    defaultThreshold: 85,
-    defaultAction: "highlight",
-  },
-  "illicit/violent": {
-    label: "Violent Illegal Content",
-    note: "Violent off-game illegal activities.",
-    defaultThreshold: 80,
-    defaultAction: "highlight",
-  },
   "self-harm": {
     label: "Self-Harm Content",
     note: "Content that may encourage self-harm.",
@@ -120,7 +108,6 @@ function ToxicityPage() {
         blurb="AI-powered triggers score each chat message via OpenAI and automatically highlight or mute players based on configurable thresholds."
       />
       <AIModerationSection orgId={orgId} />
-      <ImageModerationInfo />
       <BlockedWordsSection orgId={orgId} />
     </GateRank>
   );
@@ -520,77 +507,6 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
         </Button>
       </div>
     </div>
-  );
-}
-
-// ── Image moderation info panel ───────────────────────────────────────────────
-
-function ImageModerationInfo() {
-  return (
-    <section className="rounded-md ring-1 ring-border bg-surface/40">
-      <div className="px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-semibold">Image Moderation Endpoint</h2>
-        <p className="text-[11px] text-muted-foreground">
-          Submit images for AI review via one of three methods. Requires an
-          active session with{" "}
-          <code className="font-mono text-[10px] bg-surface px-1 rounded">
-            toxicity_manage
-          </code>{" "}
-          permission and an OpenAI key configured for the org.
-        </p>
-      </div>
-      <div className="p-4 space-y-4 text-xs">
-        <div className="space-y-1">
-          <p className="font-mono font-semibold text-[11px]">
-            POST /api/orgs/:orgId/ai-moderation/moderate-image
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-              A — URL
-            </p>
-            <pre className="bg-surface font-mono text-[10px] p-2 rounded ring-1 ring-border overflow-x-auto">
-              {`Content-Type: application/json\n\n{\n  "url": "https://…/shot.jpg"\n}`}
-            </pre>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-              B — Base64
-            </p>
-            <pre className="bg-surface font-mono text-[10px] p-2 rounded ring-1 ring-border overflow-x-auto">
-              {`Content-Type: application/json\n\n{\n  "base64": "<bytes>",\n  "contentType": "image/jpeg"\n}`}
-            </pre>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-              C — File upload
-            </p>
-            <pre className="bg-surface font-mono text-[10px] p-2 rounded ring-1 ring-border overflow-x-auto">
-              {`Content-Type: multipart/form-data\n\nimage=<file>`}
-            </pre>
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-            Response
-          </p>
-          <pre className="bg-surface font-mono text-[10px] p-2 rounded ring-1 ring-border overflow-x-auto">
-            {`{\n  "flagged": true,\n  "categories": { "sexual": true, ... },\n  "scores": { "harassment": 0.02, "violence": 0.91, ... }\n}`}
-          </pre>
-        </div>
-
-        <p className="text-[11px] text-muted-foreground">
-          Uses{" "}
-          <code className="font-mono bg-surface px-1 rounded">
-            omni-moderation-latest
-          </code>
-          . Supported formats: JPEG, PNG, GIF, WEBP. Max 20 MB (OpenAI limit).
-        </p>
-      </div>
-    </section>
   );
 }
 
