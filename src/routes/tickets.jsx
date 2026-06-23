@@ -994,7 +994,7 @@ function PlayerCard({ player }) {
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase">
-            AT-Hours
+            AIM-TRAIN Hours
           </p>
           <p className="text-sm font-mono text-foreground">
             {formatHours(player.bm?.aimtrainHours)}

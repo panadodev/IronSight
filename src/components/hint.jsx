@@ -15,7 +15,7 @@ export const HINTS = {
   bmHours:
     "Hours BattleMetrics has tracked this player across servers it monitors. Often lower than Steam hours since it only counts BM-tracked time.",
   atHours:
-    "Anti-cheat tracked hours — playtime observed by the server's anti-cheat while it was active.",
+    "Hours spent on aim-training servers (servers with 'aim' or 'ukn' in the name, e.g. UKN.aim).",
   kd: "Kill/death ratio from tracked PvP activity.",
   proxy:
     "Whether the player's connection looks like a VPN, proxy, or hosting/datacenter IP (a common evasion signal).",
