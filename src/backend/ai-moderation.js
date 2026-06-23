@@ -122,12 +122,14 @@ export async function callOpenAIModeration(apiKey, text) {
       throw new Error(`OpenAI moderation API error ${res.status}: ${body}`);
     }
 
-    console.log({
+    const ratelimitHeaders = {
       remainingRequests: res.headers.get("x-ratelimit-remaining-requests"),
+      limitRequests: res.headers.get("x-ratelimit-limit-requests"),
       remainingTokens: res.headers.get("x-ratelimit-remaining-tokens"),
+      limitTokens: res.headers.get("x-ratelimit-limit-tokens"),
       resetRequests: res.headers.get("x-ratelimit-reset-requests"),
       resetTokens: res.headers.get("x-ratelimit-reset-tokens"),
-    });
+    };
 
     const data = await res.json();
     const result = data.results?.[0];
@@ -137,6 +139,7 @@ export async function callOpenAIModeration(apiKey, text) {
       flagged: Boolean(result.flagged),
       categories: result.categories ?? {},
       scores: result.category_scores ?? {},
+      ratelimitHeaders,
     };
   }
 }
@@ -241,6 +244,48 @@ async function insertFlag(
     });
 }
 
+// Cache the OpenAI rate limit headers returned by a moderation response.
+async function cacheOpenAIRateLimitHeaders(orgId, headers) {
+  if (!redis) return;
+  try {
+    await redis.set(
+      `openai:rl:${orgId}`,
+      JSON.stringify({ ...headers, fetchedAt: Math.floor(Date.now() / 1000) }),
+      "EX",
+      120,
+    );
+  } catch {}
+}
+
+// Return combined rate limit info for an org: cached OpenAI headers + internal budget counter.
+export async function getOrgModerationRateInfo(orgId) {
+  const result = { openai: null, internal: null };
+  if (!redis) return result;
+  try {
+    const [cached, count, ttl] = await Promise.all([
+      redis.get(`openai:rl:${orgId}`),
+      redis.get(`rl:ai-mod:${orgId}`),
+      redis.ttl(`rl:ai-mod:${orgId}`),
+    ]);
+    if (cached) {
+      const p = JSON.parse(cached);
+      result.openai = {
+        remainingRequests: p.remainingRequests != null ? parseInt(p.remainingRequests, 10) : null,
+        limitRequests: p.limitRequests != null ? parseInt(p.limitRequests, 10) : null,
+        remainingTokens: p.remainingTokens != null ? parseInt(p.remainingTokens, 10) : null,
+        limitTokens: p.limitTokens != null ? parseInt(p.limitTokens, 10) : null,
+        fetchedAt: p.fetchedAt ?? null,
+      };
+    }
+    result.internal = {
+      used: count ? parseInt(count, 10) : 0,
+      limit: AI_MOD_RATE_LIMIT,
+      ttl: ttl > 0 ? ttl : 0,
+    };
+  } catch {}
+  return result;
+}
+
 // Returns true if the org is over its per-minute moderation call budget.
 async function isOrgModRateLimited(orgId) {
   if (!redis) return false;
@@ -286,6 +331,10 @@ async function _runChatModeration(
   try {
     const result = await callOpenAIModeration(apiKey, message);
     scores = result.scores;
+
+    if (result.ratelimitHeaders) {
+      cacheOpenAIRateLimitHeaders(orgId, result.ratelimitHeaders).catch(() => {});
+    }
 
     await pool.query(`UPDATE text_chat_log SET ai_flags = $1 WHERE id = $2`, [
       JSON.stringify({ flagged: result.flagged, scores }),

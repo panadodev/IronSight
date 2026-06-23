@@ -96,6 +96,7 @@ import {
 } from "./threat-triggers.js";
 import {
   getOrgOpenAIKey,
+  getOrgModerationRateInfo,
   AI_MODERATION_CATEGORIES,
 } from "./ai-moderation.js";
 import "dotenv/config";
@@ -5725,7 +5726,10 @@ async function handleListAIModerationTriggers(request, orgId) {
     [orgId],
   );
 
-  const hasKey = (await getOrgOpenAIKey(orgId)) !== null;
+  const [hasKey, rateInfo] = await Promise.all([
+    getOrgOpenAIKey(orgId).then((k) => k !== null),
+    getOrgModerationRateInfo(orgId),
+  ]);
 
   return json({
     triggers: rows.map((r) => ({
@@ -5740,6 +5744,7 @@ async function handleListAIModerationTriggers(request, orgId) {
       updatedAt: Number(r.updated_at),
     })),
     hasOpenAIKey: hasKey,
+    rateInfo,
   });
 }
 

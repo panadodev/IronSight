@@ -1153,7 +1153,7 @@ async function writeSessionWindowsToCache(steamId, windows) {
   );
 }
 
-async function writeFriendsToCache(steamId, result) {
+async function writeFriendsToCache(steamId, result, orgId) {
   await pool.query(
     `INSERT INTO player_friends_meta (steam_id, friends_public, friend_count)
      VALUES ($1, $2, $3)
@@ -1176,6 +1176,48 @@ async function writeFriendsToCache(steamId, result) {
        last_confirmed = EXCLUDED.last_confirmed`,
     [friends.map(() => steamId), friends, friends.map(() => nowUnix)],
   );
+
+  // Batch-fetch Steam summaries for friends not yet cached so their display
+  // names are available when enrichFriendsWithBans renders the friends list.
+  if (!orgId) return;
+  const { rows: cachedRows } = await pool.query(
+    `SELECT steam_id FROM player_cache WHERE steam_id = ANY($1) AND display_name IS NOT NULL`,
+    [friends],
+  );
+  const cachedSet = new Set(cachedRows.map((r) => String(r.steam_id)));
+  const uncached = friends.filter((f) => !cachedSet.has(f));
+  if (!uncached.length) return;
+
+  // GetPlayerSummaries accepts up to 100 IDs per call.
+  for (let i = 0; i < uncached.length; i += 100) {
+    const batch = uncached.slice(i, i + 100);
+    try {
+      const resp = await steamApiFetch(
+        orgId,
+        "/ISteamUser/GetPlayerSummaries/v0002/",
+        { steamids: batch.join(",") },
+      );
+      if (!resp?.ok) continue;
+      const data = await resp.json();
+      const players = data.response?.players ?? [];
+      if (!players.length) continue;
+      const ids = players.map((p) => String(p.steamid));
+      const names = players.map((p) => p.personaname ?? null);
+      const avatars = players.map((p) => p.avatarmedium ?? null);
+      await pool.query(
+        `INSERT INTO player_cache (steam_id, display_name, avatar_url)
+         SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
+         ON CONFLICT (steam_id) DO UPDATE SET
+           display_name = COALESCE(EXCLUDED.display_name, player_cache.display_name),
+           avatar_url   = COALESCE(EXCLUDED.avatar_url, player_cache.avatar_url)`,
+        [ids, names, avatars],
+      );
+    } catch (err) {
+      console.warn(
+        `[player:friends-enrich] summary batch failed for ${steamId}: ${err.message}`,
+      );
+    }
+  }
 }
 
 async function writeProxycheckToCache(ipResults) {
@@ -1338,7 +1380,7 @@ export async function refreshPlayerData(steamId, orgId) {
       }
 
       await Promise.all([
-        writeFriendsToCache(steamId, subjectFriends),
+        writeFriendsToCache(steamId, subjectFriends, orgId),
         writeProxycheckToCache(ipResults),
         writeSessionWindowsToCache(steamId, subjectWindows),
       ]);

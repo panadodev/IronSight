@@ -6,7 +6,7 @@ import { SectionHeader, GateRank } from "@/components/manage-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, X, Bot, Key, Trash2, Pencil } from "lucide-react";
+import { Plus, Upload, X, Bot, Key, Trash2, Pencil, Activity } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -118,6 +118,7 @@ function ToxicityPage() {
 function AIModerationSection({ orgId }) {
   const [triggers, setTriggers] = useState([]);
   const [hasKey, setHasKey] = useState(false);
+  const [rateInfo, setRateInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -134,6 +135,7 @@ function AIModerationSection({ orgId }) {
         const data = await res.json();
         setTriggers(data.triggers ?? []);
         setHasKey(Boolean(data.hasOpenAIKey));
+        setRateInfo(data.rateInfo ?? null);
       }
     } finally {
       setLoading(false);
@@ -230,6 +232,10 @@ function AIModerationSection({ orgId }) {
         )}
       </div>
 
+      {hasKey && rateInfo && (
+        <RateLimitBar rateInfo={rateInfo} />
+      )}
+
       {adding && (
         <div className="border-b border-border">
           <TriggerForm
@@ -271,6 +277,104 @@ function AIModerationSection({ orgId }) {
         </div>
       )}
     </section>
+  );
+}
+
+function RateLimitBar({ rateInfo }) {
+  const now = Math.floor(Date.now() / 1000);
+  const { openai, internal } = rateInfo;
+
+  const fmtNum = (n) => (n != null ? n.toLocaleString() : "?");
+
+  const openaiAge = openai?.fetchedAt ? now - openai.fetchedAt : null;
+
+  const internalPct =
+    internal && internal.limit > 0
+      ? Math.round((internal.used / internal.limit) * 100)
+      : 0;
+  const internalColor =
+    internalPct >= 90
+      ? "text-danger"
+      : internalPct >= 70
+        ? "text-warning"
+        : "text-muted-foreground";
+
+  const openaiReqPct =
+    openai?.limitRequests && openai.limitRequests > 0
+      ? Math.round(
+          ((openai.limitRequests - (openai.remainingRequests ?? openai.limitRequests)) /
+            openai.limitRequests) *
+            100,
+        )
+      : 0;
+  const openaiColor =
+    openaiReqPct >= 90
+      ? "text-danger"
+      : openaiReqPct >= 70
+        ? "text-warning"
+        : "text-muted-foreground";
+
+  return (
+    <div className="px-4 py-2 border-b border-border bg-surface/20 flex flex-wrap items-center gap-x-5 gap-y-1">
+      <div className="flex items-center gap-1.5">
+        <Activity className="size-3 text-muted-foreground shrink-0" />
+        <span className="text-[10px] font-mono font-medium text-muted-foreground uppercase tracking-wide">
+          Rate limits
+        </span>
+      </div>
+
+      {internal && (
+        <div className="flex items-center gap-1 text-[11px] font-mono">
+          <span className="text-muted-foreground">Org budget:</span>
+          <span className={internalColor}>
+            {internal.used.toLocaleString()} / {internal.limit.toLocaleString()}
+          </span>
+          <span className="text-muted-foreground">calls/min</span>
+          {internal.ttl > 0 && (
+            <span className="text-muted-foreground">
+              · resets in {internal.ttl}s
+            </span>
+          )}
+        </div>
+      )}
+
+      {openai ? (
+        <div className="flex items-center gap-1 text-[11px] font-mono">
+          <span className="text-muted-foreground">OpenAI requests:</span>
+          <span className={openaiColor}>
+            {fmtNum(openai.remainingRequests)} remaining
+          </span>
+          {openai.limitRequests != null && (
+            <span className="text-muted-foreground">
+              / {fmtNum(openai.limitRequests)}
+            </span>
+          )}
+          {openai.remainingTokens != null && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">tokens:</span>
+              <span className={openaiColor}>
+                {fmtNum(openai.remainingTokens)}
+              </span>
+              {openai.limitTokens != null && (
+                <span className="text-muted-foreground">
+                  / {fmtNum(openai.limitTokens)}
+                </span>
+              )}
+            </>
+          )}
+          {openaiAge != null && (
+            <span className="text-muted-foreground">
+              · {openaiAge < 60 ? `${openaiAge}s ago` : `${Math.floor(openaiAge / 60)}m ago`}
+            </span>
+          )}
+        </div>
+      ) : (
+        <span className="text-[11px] font-mono text-muted-foreground">
+          OpenAI limits: no data yet — updates after first moderation call
+        </span>
+      )}
+    </div>
   );
 }
 
