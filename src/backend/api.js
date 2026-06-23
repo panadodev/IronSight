@@ -8343,6 +8343,10 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
     let bmRes;
     if (existingBmBanId) {
       bmBody.data.id = existingBmBanId;
+      console.log(
+        `[bm-ban-sync] PATCH ban ${banId} (bm_ban_id=${existingBmBanId}) body:`,
+        JSON.stringify(bmBody),
+      );
       bmRes = await bmFetch(
         orgId,
         `https://api.battlemetrics.com/bans/${encodeURIComponent(existingBmBanId)}`,
@@ -8353,6 +8357,10 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         },
       );
     } else {
+      console.log(
+        `[bm-ban-sync] POST ban ${banId} body:`,
+        JSON.stringify(bmBody),
+      );
       bmRes = await bmFetch(orgId, "https://api.battlemetrics.com/bans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -8360,8 +8368,11 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
       });
     }
 
+    console.log(`[bm-ban-sync] response status: ${bmRes?.status}`);
+
     if (!bmRes?.ok) {
       const errText = (await bmRes?.text?.()) ?? "Unknown BattleMetrics error";
+      console.error(`[bm-ban-sync] error response body: ${errText}`);
       return {
         ok: false,
         status: 502,
@@ -8370,6 +8381,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
     }
 
     const bmData = await bmRes.json();
+    console.log(`[bm-ban-sync] success response body:`, JSON.stringify(bmData));
     const newBmBanId = bmData?.data?.id
       ? String(bmData.data.id)
       : existingBmBanId;
@@ -8383,6 +8395,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
 
     return { ok: true, bmBanId: newBmBanId, updated: !!existingBmBanId };
   } catch (err) {
+    console.error(`[bm-ban-sync] exception for ban ${banId}:`, err);
     return {
       ok: false,
       status: 502,

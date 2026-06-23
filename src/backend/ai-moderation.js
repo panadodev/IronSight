@@ -109,6 +109,13 @@ export async function callOpenAIModeration(apiKey, text) {
       body: JSON.stringify({ model: OPENAI_MODERATION_MODEL, input: text }),
     });
 
+    console.log({
+      remainingRequests: res.headers.get("x-ratelimit-remaining-requests"),
+      remainingTokens: res.headers.get("x-ratelimit-remaining-tokens"),
+      resetRequests: res.headers.get("x-ratelimit-reset-requests"),
+      resetTokens: res.headers.get("x-ratelimit-reset-tokens"),
+    });
+
     if (res.status === 429 && attempt < MAX_RETRIES) {
       const retryAfter = res.headers.get("retry-after");
       const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
@@ -259,6 +266,12 @@ async function _runChatModeration(
   message,
   playerName,
 ) {
+  const { rows: existing } = await pool.query(
+    `SELECT ai_flags FROM text_chat_log WHERE id = $1`,
+    [chatRowId],
+  );
+  if (!existing.length || existing[0].ai_flags !== null) return;
+
   const apiKey = await getOrgOpenAIKey(orgId);
   if (!apiKey) return;
 
