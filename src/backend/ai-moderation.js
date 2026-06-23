@@ -5,7 +5,7 @@ import { pool, redis } from "./runtime.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
 
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
-const OPENAI_MODERATION_MODEL = "text-moderation-stable";
+const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 
 // Per-org cap on moderation API calls per minute (safety valve against burst ingest).
 const AI_MOD_RATE_LIMIT = parseInt(
