@@ -1,6 +1,7 @@
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { fetchAuthStatus } from "@/lib/auth-guard";
-import { AuthProvider } from "@/lib/auth-context";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { Toaster } from "@/components/ui/sonner";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -11,6 +12,8 @@ import {
   Scripts,
   useRouter,
 } from "@tanstack/react-router";
+import { AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
 import appCss from "../styles.css?url";
 function NotFoundComponent() {
   return (
@@ -145,12 +148,72 @@ function RootShell({ children }) {
     </html>
   );
 }
+function ServerHealthBanner() {
+  const { selectedOrgIds, sessionUser } = useAuth();
+  const [staleServers, setStaleServers] = useState([]);
+
+  useEffect(() => {
+    if (!sessionUser || !selectedOrgIds.length) {
+      setStaleServers([]);
+      return;
+    }
+
+    let cancelled = false;
+    const STALE_SECS = 15 * 60;
+
+    const fetchHealth = async () => {
+      const NOW = Math.floor(Date.now() / 1000);
+      const stale = [];
+      for (const orgId of selectedOrgIds) {
+        try {
+          const res = await fetch(
+            `/api/orgs/${encodeURIComponent(orgId)}/servers`,
+            { credentials: "include" },
+          );
+          if (!res.ok) continue;
+          const { servers = [] } = await res.json().catch(() => ({}));
+          for (const s of servers) {
+            if (
+              s.lastHealthPing !== null &&
+              NOW - s.lastHealthPing > STALE_SECS
+            ) {
+              stale.push(s.serverName ?? s.serverId);
+            }
+          }
+        } catch {}
+      }
+      if (!cancelled) setStaleServers(stale);
+    };
+
+    fetchHealth();
+    const id = setInterval(fetchHealth, 2 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [sessionUser, selectedOrgIds]);
+
+  if (!sessionUser || !staleServers.length) return null;
+
+  return (
+    <div className="fixed top-14 md:top-0 left-0 md:left-56 right-0 z-20 bg-destructive/15 border-b-2 border-destructive/50 px-4 md:px-5 py-2.5 flex items-center gap-3">
+      <AlertTriangle className="size-4 text-destructive shrink-0" />
+      <p className="text-xs text-destructive leading-snug">
+        <span className="font-bold">Server heartbeat lost —</span>{" "}
+        {staleServers.join(" · ")} has not sent a ping in over 15 minutes.
+      </p>
+    </div>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Outlet />
+        <ServerHealthBanner />
+        <Toaster position="top-right" />
       </AuthProvider>
     </QueryClientProvider>
   );

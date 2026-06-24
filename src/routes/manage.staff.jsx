@@ -17,6 +17,7 @@ import { invalidateAuthMe } from "@/lib/auth-cache";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
 import {
   Activity,
   ArrowDown,
@@ -326,11 +327,12 @@ function StaffPage() {
         `/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
         { method: "DELETE", credentials: "include" },
       );
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         setRemoveErr(body?.error ?? "Failed to remove member.");
         return;
       }
+      for (const w of body.warnings ?? []) toast.error(w);
       await loadMembers();
       await loadStaffStats();
     } catch {
@@ -352,7 +354,13 @@ function StaffPage() {
           body: JSON.stringify({ team: newRole }),
         },
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body?.error ?? "Failed to update role.");
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      for (const w of body.warnings ?? []) toast.error(w);
       invalidateAuthMe();
       await loadMembers();
     } finally {

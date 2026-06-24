@@ -54,6 +54,7 @@ import {
   Terminal,
   Trash2,
   Upload,
+  Users,
   X,
 } from "lucide-react";
 import {
@@ -2384,15 +2385,103 @@ function WorldLatencyMap({ snapshot, countries }) {
   );
 }
 
+function WorldPlayerMap({ players }) {
+  const byCountry = {};
+  for (const p of players) {
+    const cc = p.country ?? "__unknown__";
+    if (!byCountry[cc]) byCountry[cc] = [];
+    byCountry[cc].push(p);
+  }
+
+  const points = Object.entries(byCountry)
+    .map(([cc, group]) => {
+      if (cc === "__unknown__") return null;
+      const c = COUNTRY_CENTROIDS[cc];
+      if (!c) return null;
+      return {
+        cc,
+        x: c.x,
+        y: c.y,
+        name: COUNTRY_NAMES[cc] ?? c.name ?? cc,
+        count: group.length,
+        players: group,
+      };
+    })
+    .filter(Boolean);
+
+  const unknownCount = byCountry["__unknown__"]?.length ?? 0;
+
+  return (
+    <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden relative">
+      <svg
+        viewBox={`0 0 ${WORLD_MAP_WIDTH} ${WORLD_MAP_HEIGHT}`}
+        className="w-full h-auto block"
+        role="img"
+        aria-label="World map of online player locations"
+      >
+        <path
+          d={WORLD_LAND_PATH}
+          className="fill-foreground/10 stroke-border"
+          strokeWidth={0.5}
+        />
+        {points.map((p) => {
+          const radius = Math.max(4, Math.min(12, 4 + Math.log(p.count + 1) * 3));
+          const names = p.players
+            .slice(0, 5)
+            .map((pl) => pl.name || pl.steamId)
+            .join(", ");
+          const extra = p.count > 5 ? ` +${p.count - 5} more` : "";
+          return (
+            <g key={p.cc}>
+              <circle cx={p.x} cy={p.y} r={radius * 1.8} className="fill-emerald-500/15" />
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={radius}
+                className="fill-emerald-400 stroke-background"
+                strokeWidth={0.8}
+                opacity={0.9}
+              />
+              {p.count > 1 && (
+                <text
+                  x={p.x}
+                  y={p.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={Math.max(4, radius * 0.85)}
+                  fontWeight="bold"
+                  className="fill-background select-none"
+                >
+                  {p.count}
+                </text>
+              )}
+              <title>{`${p.name}: ${p.count} player${p.count === 1 ? "" : "s"}\n${names}${extra}`}</title>
+            </g>
+          );
+        })}
+      </svg>
+      {unknownCount > 0 && (
+        <div className="absolute bottom-2 right-2 text-[9px] font-mono text-muted-foreground bg-surface/80 px-1.5 py-0.5 rounded ring-1 ring-border">
+          +{unknownCount} · unknown location
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GlobalpingSection({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
   const [triggering, setTriggering] = useState(false);
+  const [secsLeft, setSecsLeft] = useState(null);
   const [mapServerId, setMapServerId] = useState("");
   const [history, setHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [snapIndex, setSnapIndex] = useState(0);
+  const [playerMode, setPlayerMode] = useState(false);
+  const [playerData, setPlayerData] = useState(null);
+  const [playerLoading, setPlayerLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -2408,6 +2497,22 @@ function GlobalpingSection({ orgId }) {
       // non-critical
     } finally {
       setLoading(false);
+    }
+  }, [orgId]);
+
+  const loadPlayers = useCallback(async () => {
+    setPlayerLoading(true);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/player-list`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      setPlayerData(await res.json());
+    } catch {
+      // non-critical
+    } finally {
+      setPlayerLoading(false);
     }
   }, [orgId]);
 
@@ -2431,6 +2536,17 @@ function GlobalpingSection({ orgId }) {
     const id = setInterval(load, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, [load]);
+
+  useEffect(() => {
+    if (updatedAt === null) return;
+    const tick = () => {
+      const ms = updatedAt + 5 * 60 * 1000 - Date.now();
+      setSecsLeft(Math.max(0, Math.ceil(ms / 1000)));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [updatedAt]);
 
   const loadHistory = useCallback(
     async (serverId) => {
@@ -2551,39 +2667,72 @@ function GlobalpingSection({ orgId }) {
               </option>
             ))}
           </select>
-          <button
-            onClick={trigger}
-            disabled={triggering}
-            className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Play className="size-3" /> {triggering ? "Running…" : "Run now"}
-          </button>
+          {triggering ? (
+            <span className="text-[10px] font-mono uppercase tracking-widest text-amber-500 flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse inline-block" />
+              Running…
+            </span>
+          ) : secsLeft !== null ? (
+            <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
+              next in {Math.floor(secsLeft / 60)}:
+              {String(secsLeft % 60).padStart(2, "0")}
+            </span>
+          ) : null}
           <button
             onClick={load}
             className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
           >
             <RefreshCw className="size-3" /> Refresh
           </button>
+          <button
+            onClick={() => {
+              const next = !playerMode;
+              setPlayerMode(next);
+              if (next) loadPlayers();
+            }}
+            className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 transition-colors ${
+              playerMode
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Users className="size-3" /> {playerMode ? "Latency" : "Players"}
+          </button>
         </div>
       </div>
 
-      {/* World latency map for the selected server + time scrubber */}
+      {/* World latency map / player map for the selected server */}
       <div className="space-y-1.5">
         <div className="relative">
-          <WorldLatencyMap snapshot={currentSnap} countries={mapCountries} />
-          {historyLoading && !snaps.length && (
-            <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
-              Loading history…
-            </div>
-          )}
-          {!historyLoading && !snaps.length && (
-            <div className="absolute inset-0 grid place-items-center text-center text-[11px] font-mono text-muted-foreground bg-background/40 px-4">
-              No measurement history yet for {mapServerName || "this server"}.
-              Measurements run every few minutes — check back shortly.
-            </div>
+          {playerMode ? (
+            <>
+              <WorldPlayerMap
+                players={(playerData?.players ?? []).filter((p) => p.isOnline)}
+              />
+              {playerLoading && (
+                <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
+                  Loading players…
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <WorldLatencyMap snapshot={currentSnap} countries={mapCountries} />
+              {historyLoading && !snaps.length && (
+                <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
+                  Loading history…
+                </div>
+              )}
+              {!historyLoading && !snaps.length && (
+                <div className="absolute inset-0 grid place-items-center text-center text-[11px] font-mono text-muted-foreground bg-background/40 px-4">
+                  No measurement history yet for {mapServerName || "this server"}.
+                  Measurements run every few minutes — check back shortly.
+                </div>
+              )}
+            </>
           )}
         </div>
-        {snaps.length > 1 && (
+        {!playerMode && snaps.length > 1 && (
           <div className="flex items-center gap-3">
             <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
               {currentSnap

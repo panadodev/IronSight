@@ -60,7 +60,13 @@ async function findBMIdBySteamId(steamId, orgId) {
     return null;
   }
 
-  const json = await resp.json();
+  let json;
+  try {
+    json = await resp.json();
+  } catch {
+    console.warn(`[player:bm] JSON parse error resolving steamId=${steamId}`);
+    return null;
+  }
   for (const entry of json.data ?? []) {
     if (entry.attributes?.type === "steamID") {
       const bmId = entry.relationships?.player?.data?.id;
@@ -99,31 +105,39 @@ async function fetchSteamPlayerData(steamId, orgId) {
     summaryOk = false;
 
   if (summaryResp?.ok) {
-    const json = await summaryResp.json();
-    const p = json.response?.players?.[0];
-    if (p) {
-      summaryOk = true;
-      displayName = p.personaname ?? null;
-      avatarUrl = p.avatarmedium ?? null;
-      const visState =
-        p.profilestate === 0 ? 0 : (p.communityvisibilitystate ?? 1);
-      profileVisibility =
-        { 0: "Not Configured", 1: "Private", 2: "Private", 3: "Public" }[
-          visState
-        ] ?? "Private";
-      profileCreatedAt = p.timecreated ?? null;
+    try {
+      const json = await summaryResp.json();
+      const p = json.response?.players?.[0];
+      if (p) {
+        summaryOk = true;
+        displayName = p.personaname ?? null;
+        avatarUrl = p.avatarmedium ?? null;
+        const visState =
+          p.profilestate === 0 ? 0 : (p.communityvisibilitystate ?? 1);
+        profileVisibility =
+          { 0: "Not Configured", 1: "Private", 2: "Private", 3: "Public" }[
+            visState
+          ] ?? "Private";
+        profileCreatedAt = p.timecreated ?? null;
+      }
+    } catch {
+      console.warn(`[player:steam] summary JSON parse error for ${steamId}`);
     }
   }
 
   let rustHours = null,
     hoursPublic = false;
   if (playtimeResp?.ok) {
-    const json = await playtimeResp.json();
-    const games = json.response?.games;
-    if (games?.length) {
-      hoursPublic = true;
-      const rust = games.find((g) => g.appid === RUST_APP_ID);
-      if (rust) rustHours = Math.round((rust.playtime_forever / 60) * 10) / 10;
+    try {
+      const json = await playtimeResp.json();
+      const games = json.response?.games;
+      if (games?.length) {
+        hoursPublic = true;
+        const rust = games.find((g) => g.appid === RUST_APP_ID);
+        if (rust) rustHours = Math.round((rust.playtime_forever / 60) * 10) / 10;
+      }
+    } catch {
+      console.warn(`[player:steam] playtime JSON parse error for ${steamId}`);
     }
   }
 
@@ -131,17 +145,21 @@ async function fetchSteamPlayerData(steamId, orgId) {
   // Always present for a valid SteamID64 (does not depend on profile privacy).
   let bans = null;
   if (bansResp?.ok) {
-    const json = await bansResp.json();
-    const b = json.players?.[0];
-    if (b) {
-      bans = {
-        vacBanned: Boolean(b.VACBanned),
-        vacCount: Number(b.NumberOfVACBans ?? 0),
-        gameBanCount: Number(b.NumberOfGameBans ?? 0),
-        daysSinceLastBan: Number(b.DaysSinceLastBan ?? 0),
-        communityBanned: Boolean(b.CommunityBanned),
-        economyBan: b.EconomyBan ?? null,
-      };
+    try {
+      const json = await bansResp.json();
+      const b = json.players?.[0];
+      if (b) {
+        bans = {
+          vacBanned: Boolean(b.VACBanned),
+          vacCount: Number(b.NumberOfVACBans ?? 0),
+          gameBanCount: Number(b.NumberOfGameBans ?? 0),
+          daysSinceLastBan: Number(b.DaysSinceLastBan ?? 0),
+          communityBanned: Boolean(b.CommunityBanned),
+          economyBan: b.EconomyBan ?? null,
+        };
+      }
+    } catch {
+      console.warn(`[player:steam] bans JSON parse error for ${steamId}`);
     }
   }
 
@@ -164,7 +182,13 @@ async function fetchBMPlayerData(bmId, orgId) {
   const resp = await bmFetch(orgId, url);
   if (!resp?.ok) return null;
 
-  const json = await resp.json();
+  let json;
+  try {
+    json = await resp.json();
+  } catch {
+    console.warn(`[player:bm] JSON parse error fetching player data bmId=${bmId}`);
+    return null;
+  }
   const steamIdentifier = (json.included ?? []).find(
     (inc) => inc.type === "identifier" && inc.attributes?.type === "steamID",
   );
@@ -237,7 +261,13 @@ async function fetchBMRelatedIdentifiers(bmId, orgId) {
   const resp = await bmFetch(orgId, url);
   if (!resp?.ok) return { ips: [], relatedPlayers: [] };
 
-  const data = await resp.json();
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    console.warn(`[player:bm] JSON parse error fetching related identifiers bmId=${bmId}`);
+    return { ips: [], relatedPlayers: [] };
+  }
   const ips = [];
   // bmId -> { matchCount, sharedIps:Set<ip>, sharedTypes:{identifierType:count} }
   const related = {};
@@ -292,7 +322,13 @@ async function fetchBMPlayerBans(bmId, orgId) {
   const resp = await bmFetch(orgId, url);
   if (!resp?.ok) return [];
 
-  const data = await resp.json();
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    console.warn(`[player:bm] JSON parse error fetching bans bmId=${bmId}`);
+    return [];
+  }
   const orgs = {};
   for (const inc of data.included ?? []) {
     if (inc.type === "organization")
@@ -358,7 +394,13 @@ async function fetchBMActivity(bmId, orgId) {
   while (nextUrl) {
     const resp = await bmFetch(orgId, nextUrl);
     if (!resp?.ok) break;
-    const json = await resp.json();
+    let json;
+    try {
+      json = await resp.json();
+    } catch {
+      console.warn(`[player:bm] JSON parse error fetching activity bmId=${bmId}`);
+      break;
+    }
     activities.push(...(json.data ?? []));
     nextUrl = json.links?.next ?? null;
   }
@@ -421,7 +463,12 @@ async function fetchSteamFriends(steamId, orgId) {
   }
   if (!resp.ok) return { isPublic: false, friends: null };
 
-  const json = await resp.json();
+  let json;
+  try {
+    json = await resp.json();
+  } catch {
+    return { isPublic: false, friends: null };
+  }
   const friends = json.friendslist?.friends;
   if (!friends) return { isPublic: false, friends: [] };
 
@@ -1301,11 +1348,25 @@ export async function refreshPlayerData(steamId, orgId) {
     let bmBans = [];
 
     if (bmId) {
-      [bmData, relIdentifiers, bmBans] = await Promise.all([
+      const [bmDataResult, relResult, bansResult] = await Promise.allSettled([
         fetchBMPlayerData(bmId, orgId),
         fetchBMRelatedIdentifiers(bmId, orgId),
         fetchBMPlayerBans(bmId, orgId),
       ]);
+
+      if (bmDataResult.status === "rejected")
+        console.warn(`[player:refresh] ${steamId} — BM player data failed: ${bmDataResult.reason?.message}`);
+      if (relResult.status === "rejected")
+        console.warn(`[player:refresh] ${steamId} — BM related identifiers failed: ${relResult.reason?.message}`);
+      if (bansResult.status === "rejected")
+        console.warn(`[player:refresh] ${steamId} — BM bans failed: ${bansResult.reason?.message}`);
+
+      bmData = bmDataResult.status === "fulfilled" ? bmDataResult.value : null;
+      relIdentifiers =
+        relResult.status === "fulfilled"
+          ? (relResult.value ?? { ips: [], relatedPlayers: [] })
+          : { ips: [], relatedPlayers: [] };
+      bmBans = bansResult.status === "fulfilled" ? (bansResult.value ?? []) : [];
 
       console.log(
         `[player:refresh] ${steamId} bmId=${bmId} — bmData ok=${!!bmData} ips=${relIdentifiers.ips.length} relatedPlayers=${relIdentifiers.relatedPlayers.length} bans=${bmBans.length}`,

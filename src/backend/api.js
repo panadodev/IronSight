@@ -2533,7 +2533,7 @@ async function handleRemoveOrgMember(request, orgId, userId) {
   );
 
   // Remove Discord roles associated with their staff role (best-effort)
-  await removeAllDiscordRolesForRole(
+  const discordWarning = await removeAllDiscordRolesForRole(
     orgRes.rows[0].guild_id,
     beforeState.discord_id,
     beforeState.role_id,
@@ -2561,7 +2561,7 @@ async function handleRemoveOrgMember(request, orgId, userId) {
     },
   });
 
-  return json({ ok: true, orgId, userId });
+  return json({ ok: true, orgId, userId, warnings: discordWarning ? [discordWarning] : [] });
 }
 
 async function handleUpdateOrgMemberTeam(request, orgId, userId) {
@@ -2679,7 +2679,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   );
 
   // Sync Discord roles: remove old role's Discord roles, add new role's (best-effort)
-  await syncDiscordRolesOnRoleChange(
+  const discordWarning = await syncDiscordRolesOnRoleChange(
     orgRes.rows[0].guild_id,
     beforeState.discord_id,
     beforeState.role_id,
@@ -2722,7 +2722,7 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     },
   });
 
-  return json({ ok: true, orgId, userId });
+  return json({ ok: true, orgId, userId, warnings: discordWarning ? [discordWarning] : [] });
 }
 
 async function handleGetOrgStaffStats(request, orgId) {
@@ -11681,14 +11681,15 @@ async function getGuildRoles(guildId) {
 
 async function addDiscordRoleToMember(guildId, discordUserId, discordRoleId) {
   if (!env.discordBotToken || !guildId || !discordUserId || !discordRoleId)
-    return;
+    return true;
   try {
-    await discordFetch(
+    const res = await discordFetch(
       `/guilds/${guildId}/members/${discordUserId}/roles/${discordRoleId}`,
       { method: "PUT" },
     );
+    return res.ok || res.status === 204;
   } catch {
-    // Best-effort — don't fail the operation if Discord is unreachable
+    return false;
   }
 }
 
@@ -11698,14 +11699,15 @@ async function removeDiscordRoleFromMember(
   discordRoleId,
 ) {
   if (!env.discordBotToken || !guildId || !discordUserId || !discordRoleId)
-    return;
+    return true;
   try {
-    await discordFetch(
+    const res = await discordFetch(
       `/guilds/${guildId}/members/${discordUserId}/roles/${discordRoleId}`,
       { method: "DELETE" },
     );
+    return res.ok || res.status === 204;
   } catch {
-    // Best-effort
+    return false;
   }
 }
 
@@ -11723,27 +11725,34 @@ async function syncDiscordRolesOnRoleChange(
   oldRoleId,
   newRoleId,
 ) {
-  if (!guildId || !discordUserId) return;
+  if (!guildId || !discordUserId) return null;
   const [oldIds, newIds] = await Promise.all([
     getDiscordRoleIdsForRole(oldRoleId),
     getDiscordRoleIdsForRole(newRoleId),
   ]);
   const toRemove = oldIds.filter((id) => !newIds.includes(id));
   const toAdd = newIds.filter((id) => !oldIds.includes(id));
-  await Promise.all([
+  const results = await Promise.all([
     ...toRemove.map((id) =>
       removeDiscordRoleFromMember(guildId, discordUserId, id),
     ),
     ...toAdd.map((id) => addDiscordRoleToMember(guildId, discordUserId, id)),
   ]);
+  return results.some((ok) => ok === false)
+    ? "Discord role sync failed — check bot permissions."
+    : null;
 }
 
 async function removeAllDiscordRolesForRole(guildId, discordUserId, roleId) {
-  if (!guildId || !discordUserId) return;
+  if (!guildId || !discordUserId) return null;
   const ids = await getDiscordRoleIdsForRole(roleId);
-  await Promise.all(
+  if (!ids.length) return null;
+  const results = await Promise.all(
     ids.map((id) => removeDiscordRoleFromMember(guildId, discordUserId, id)),
   );
+  return results.some((ok) => ok === false)
+    ? "Discord role removal failed — check bot permissions."
+    : null;
 }
 
 async function handleGetOrgDiscordRoles(request, orgId) {
