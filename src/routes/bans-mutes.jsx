@@ -106,6 +106,7 @@ function BansMutesPage() {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [actionResult, setActionResult] = useState(null);
 
   const manageableOrgIds = useMemo(
     () =>
@@ -197,6 +198,11 @@ function BansMutesPage() {
       { method: "DELETE", credentials: "include" },
     );
     if (res.ok) {
+      const body = await res.json().catch(() => null);
+      if (body?.bmDeleteError) {
+        setActionResult({ type: "warn", message: `Ban revoked, but BM delete failed: ${body.bmDeleteError}` });
+        setTimeout(() => setActionResult(null), 6000);
+      }
       loadBans();
     }
   };
@@ -224,6 +230,11 @@ function BansMutesPage() {
         <SiteNav />
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+            {actionResult && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+                {actionResult.message}
+              </div>
+            )}
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h1 className="text-xl font-bold tracking-tight">

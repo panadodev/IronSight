@@ -3003,7 +3003,7 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, bm_org_id, sync_perms_on_join, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -3016,6 +3016,8 @@ async function handleGetOrgDetails(request, orgId) {
       orgId: String(org.org_id),
       guildId: org.guild_id == null ? null : String(org.guild_id),
       bmOrgId: org.bm_org_id == null ? null : String(org.bm_org_id),
+      bmAutoSync: org.bm_auto_sync === true,
+      bmBanListId: org.bm_ban_list_id == null ? null : String(org.bm_ban_list_id),
       syncPermsOnJoin: org.sync_perms_on_join === true,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
@@ -3056,6 +3058,17 @@ async function handleUpdateOrgDetails(request, orgId) {
         ? null
         : String(bmOrgIdRaw).trim() || null;
 
+  const bmAutoSync =
+    body?.bmAutoSync === undefined ? undefined : body.bmAutoSync === true;
+
+  const bmBanListIdRaw = body?.bmBanListId;
+  const bmBanListId =
+    bmBanListIdRaw === undefined
+      ? undefined
+      : bmBanListIdRaw === null
+        ? null
+        : String(bmBanListIdRaw).trim() || null;
+
   // syncPermsOnJoin: omitted (undefined) → don't touch; otherwise coerce to boolean.
   const syncPermsOnJoin =
     body?.syncPermsOnJoin === undefined ? undefined : body.syncPermsOnJoin === true;
@@ -3089,9 +3102,11 @@ async function handleUpdateOrgDetails(request, orgId) {
      SET name = COALESCE($2, name),
          guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END,
          bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END,
-         sync_perms_on_join = CASE WHEN $7 THEN $8::boolean ELSE sync_perms_on_join END
+         bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END,
+         bm_ban_list_id = CASE WHEN $9 THEN $10::text ELSE bm_ban_list_id END,
+         sync_perms_on_join = CASE WHEN $11 THEN $12::boolean ELSE sync_perms_on_join END
      WHERE org_id = $1
-     RETURNING org_id, guild_id, bm_org_id, sync_perms_on_join, name, created_at`,
+     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, name, created_at`,
     [
       orgId,
       name,
@@ -3099,6 +3114,10 @@ async function handleUpdateOrgDetails(request, orgId) {
       guildId ?? null,
       bmOrgId !== undefined,
       bmOrgId ?? null,
+      bmAutoSync !== undefined,
+      bmAutoSync ?? false,
+      bmBanListId !== undefined,
+      bmBanListId ?? null,
       syncPermsOnJoin !== undefined,
       syncPermsOnJoin ?? false,
     ],
@@ -3115,6 +3134,8 @@ async function handleUpdateOrgDetails(request, orgId) {
       orgId: String(updated.org_id),
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       bmOrgId: updated.bm_org_id == null ? null : String(updated.bm_org_id),
+      bmAutoSync: updated.bm_auto_sync === true,
+      bmBanListId: updated.bm_ban_list_id == null ? null : String(updated.bm_ban_list_id),
       syncPermsOnJoin: updated.sync_perms_on_join === true,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
@@ -3122,6 +3143,126 @@ async function handleUpdateOrgDetails(request, orgId) {
   });
 }
 
+
+async function handleGetBmBanLists(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const orgRes = await pool.query(
+    "SELECT bm_org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org) return json({ error: "Organization not found" }, 404);
+
+  const { bm_org_id: bmOrgId } = org;
+  if (!bmOrgId) return json({ banLists: [] });
+
+  let data;
+  try {
+    const res = await bmFetch(
+      orgId,
+      `https://api.battlemetrics.com/ban-lists?filter[organization]=${encodeURIComponent(bmOrgId)}&page[size]=100`,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return json(
+        { error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}` },
+        502,
+      );
+    }
+    data = await res.json();
+  } catch (err) {
+    return json({ error: `Failed to reach BattleMetrics: ${err.message}` }, 502);
+  }
+
+  const banLists = (data?.data ?? []).map((item) => ({
+    id: String(item.id),
+    name: String(item.attributes?.name ?? item.id),
+  }));
+
+  return json({ banLists });
+}
+
+async function syncBanRecordToBattlemetrics(orgId, banId) {
+  const orgRes = await pool.query(
+    "SELECT bm_org_id, bm_ban_list_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.bm_org_id) return;
+
+  const banRes = await pool.query(
+    "SELECT ban_id, bm_ban_id, identifier, identifier_type, reason, expires_at FROM player_bans WHERE ban_id = $1 LIMIT 1",
+    [banId],
+  );
+  const ban = banRes.rows[0];
+  if (!ban) return;
+
+  // identifiers array is intentionally empty — record-only entry, no player lookup.
+  // autoAddEnabled: false and nativeEnabled: false ensure BM never natively bans the player.
+  const payload = {
+    data: {
+      type: "ban",
+      attributes: {
+        autoAddEnabled: false,
+        nativeEnabled: false,
+        reason: ban.reason || "No reason provided",
+        note: "",
+        expires: ban.expires_at ? new Date(ban.expires_at * 1000).toISOString() : null,
+        identifiers: [],
+        orgWide: false,
+      },
+      relationships: {
+        organization: {
+          data: { type: "organization", id: String(org.bm_org_id) },
+        },
+        ...(org.bm_ban_list_id
+          ? { banList: { data: { type: "banList", id: String(org.bm_ban_list_id) } } }
+          : {}),
+      },
+    },
+  };
+
+  try {
+    if (ban.bm_ban_id) {
+      await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/bans/${encodeURIComponent(ban.bm_ban_id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+    } else {
+      const res = await bmFetch(orgId, "https://api.battlemetrics.com/bans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const responseData = await res.json().catch(() => null);
+        const bmBanId = responseData?.data?.id;
+        if (bmBanId) {
+          await pool.query("UPDATE player_bans SET bm_ban_id = $2 WHERE ban_id = $1", [
+            banId,
+            String(bmBanId),
+          ]);
+        }
+      } else {
+        const text = await res.text().catch(() => "");
+        console.error(
+          `[bm-sync] POST /bans failed ${res.status}: ${text.slice(0, 200)}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[bm-sync] Failed to sync ban to BattleMetrics:", err.message);
+  }
+}
 
 async function handleGetOnlineStaff(request, orgId) {
   const { session, error } = await requireSession(request);
@@ -8012,6 +8153,18 @@ async function handleCreateBan(request, orgId) {
     );
   }
 
+  if (actionType !== "mute") {
+    const syncCheck = await pool.query(
+      "SELECT bm_auto_sync FROM organizations WHERE org_id = $1 LIMIT 1",
+      [orgId],
+    );
+    if (syncCheck.rows[0]?.bm_auto_sync === true) {
+      syncBanRecordToBattlemetrics(orgId, banId).catch((e) =>
+        console.error("[bm-sync] fire-and-forget failed:", e.message),
+      );
+    }
+  }
+
   return json({ ok: true, banId, rconResults }, 201);
 }
 
@@ -8100,14 +8253,14 @@ async function handleRevokeBan(request, orgId, banId) {
     return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
-    `SELECT ban_id, identifier, identifier_type, action_type
+    `SELECT ban_id, identifier, identifier_type, action_type, bm_ban_id
      FROM player_bans WHERE ban_id = $1 AND org_id = $2 AND revoked = FALSE`,
     [banId, orgId],
   );
   if (!banCheck.rows[0])
     return json({ error: "Ban not found or already revoked" }, 404);
 
-  const { identifier, identifier_type, action_type } = banCheck.rows[0];
+  const { identifier, identifier_type, action_type, bm_ban_id } = banCheck.rows[0];
 
   await pool.query(
     `UPDATE player_bans SET revoked = TRUE, revoked_at = unix_now(), revoked_by = $3
@@ -8175,7 +8328,24 @@ async function handleRevokeBan(request, orgId, banId) {
     }
   }
 
-  return json({ ok: true, rconResults });
+  let bmDeleteError = null;
+  if (bm_ban_id && action_type !== "mute") {
+    try {
+      const bmRes = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`,
+        { method: "DELETE" },
+      );
+      if (!bmRes.ok && bmRes.status !== 404) {
+        const text = await bmRes.text().catch(() => "");
+        bmDeleteError = `BM ${bmRes.status}: ${text.slice(0, 120)}`;
+      }
+    } catch (err) {
+      bmDeleteError = err.message;
+    }
+  }
+
+  return json({ ok: true, rconResults, ...(bmDeleteError ? { bmDeleteError } : {}) });
 }
 
 // Schedules (or cancels) a BullMQ delayed job to auto-revoke a ban/mute when
@@ -8196,7 +8366,7 @@ async function scheduleBanExpiry(banId, expiresAtUnix) {
 async function processBanExpireJob(job) {
   const { banId } = job.data;
   const banRes = await pool.query(
-    `SELECT ban_id, org_id, identifier, identifier_type, action_type
+    `SELECT ban_id, org_id, identifier, identifier_type, action_type, bm_ban_id
      FROM player_bans WHERE ban_id = $1 AND revoked = FALSE`,
     [banId],
   );
@@ -8209,7 +8379,7 @@ async function processBanExpireJob(job) {
     [banId],
   );
 
-  const { org_id, identifier, identifier_type, action_type } = ban;
+  const { org_id, identifier, identifier_type, action_type, bm_ban_id } = ban;
 
   auditLog({
     orgId: org_id,
@@ -8252,6 +8422,16 @@ async function processBanExpireJob(job) {
           err.message,
         );
       }
+    }
+
+    if (bm_ban_id) {
+      bmFetch(
+        org_id,
+        `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`,
+        { method: "DELETE" },
+      ).catch((err) =>
+        console.error("[ban-expire] BM delete failed:", err.message),
+      );
     }
   }
 }
@@ -10765,6 +10945,13 @@ async function _handleApiRequest(request) {
     }
     if (orgDetailsMatch && request.method === "PATCH") {
       return handleUpdateOrgDetails(request, orgDetailsMatch[1]);
+    }
+
+    const orgBmBanListsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bm-ban-lists$/,
+    );
+    if (orgBmBanListsMatch && request.method === "GET") {
+      return handleGetBmBanLists(request, orgBmBanListsMatch[1]);
     }
 
     if (pathname === "/api/roles" && request.method === "GET") {

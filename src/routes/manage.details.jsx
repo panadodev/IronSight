@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
+import { Switch } from "@/components/ui/switch";
 import {
   ExternalLink,
   Globe,
@@ -1004,6 +1005,10 @@ function ManageDetailsPage() {
   const [name, setName] = useState("");
   const [guildId, setGuildId] = useState("");
   const [bmOrgId, setBmOrgId] = useState("");
+  const [bmAutoSync, setBmAutoSync] = useState(false);
+  const [bmBanListId, setBmBanListId] = useState("");
+  const [bmBanLists, setBmBanLists] = useState([]);
+  const [bmBanListsLoading, setBmBanListsLoading] = useState(false);
   const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
 
@@ -1067,6 +1072,8 @@ function ManageDetailsPage() {
         setName(body.organization?.name ?? "");
         setGuildId(body.organization?.guildId ?? "");
         setBmOrgId(body.organization?.bmOrgId ?? "");
+        setBmAutoSync(body.organization?.bmAutoSync === true);
+        setBmBanListId(body.organization?.bmBanListId ?? "");
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1101,6 +1108,34 @@ function ManageDetailsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!orgId || !bmOrgId.trim()) {
+      setBmBanLists([]);
+      return;
+    }
+    let cancelled = false;
+    setBmBanListsLoading(true);
+    async function loadBmBanLists() {
+      try {
+        const res = await authFetch(`/api/orgs/${orgId}/bm-ban-lists`);
+        if (!res.ok) {
+          if (!cancelled) setBmBanLists([]);
+          return;
+        }
+        const body = await res.json();
+        if (!cancelled) setBmBanLists(Array.isArray(body?.banLists) ? body.banLists : []);
+      } catch {
+        if (!cancelled) setBmBanLists([]);
+      } finally {
+        if (!cancelled) setBmBanListsLoading(false);
+      }
+    }
+    loadBmBanLists();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, bmOrgId]);
+
   async function handleSave(event) {
     event.preventDefault();
     if (!orgId) return;
@@ -1117,6 +1152,8 @@ function ManageDetailsPage() {
           name: name.trim(),
           guildId: guildId.trim() || null,
           bmOrgId: bmOrgId.trim() || null,
+          bmAutoSync,
+          bmBanListId: bmBanListId || null,
         }),
       });
 
@@ -1130,6 +1167,8 @@ function ManageDetailsPage() {
       setName(body.organization?.name ?? name.trim());
       setGuildId(body.organization?.guildId ?? guildId.trim());
       setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
+      setBmAutoSync(body.organization?.bmAutoSync ?? bmAutoSync);
+      setBmBanListId(body.organization?.bmBanListId ?? bmBanListId);
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1252,6 +1291,64 @@ function ManageDetailsPage() {
               <strong>ID</strong>
             </p>
           </div>
+
+          {bmOrgId.trim() && (
+            <div className="space-y-1">
+              <Label htmlFor="bm-ban-list">BattleMetrics ban list</Label>
+              <Select
+                value={bmBanListId || "__none__"}
+                onValueChange={(v) => setBmBanListId(v === "__none__" ? "" : v)}
+                disabled={loading || saving || bmBanListsLoading}
+              >
+                <SelectTrigger id="bm-ban-list">
+                  <SelectValue
+                    placeholder={
+                      bmBanListsLoading ? "Loading ban lists…" : "None (org-wide)"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None (org-wide)</SelectItem>
+                  {bmBanLists.map((list) => (
+                    <SelectItem key={list.id} value={list.id}>
+                      {list.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Bans sync into this list. Leave empty to sync org-wide.
+              </p>
+            </div>
+          )}
+
+          {bmOrgId.trim() && (
+            <div className="flex items-start gap-3 rounded-md border border-border bg-surface/60 p-3">
+              <Switch
+                id="bm-auto-sync"
+                checked={bmAutoSync}
+                onCheckedChange={setBmAutoSync}
+                disabled={loading || saving}
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="bm-auto-sync" className="cursor-pointer">
+                  Auto-sync bans to BattleMetrics
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Mirror every new ban to BattleMetrics as a record-only entry.{" "}
+                  <a
+                    href="https://learn.battlemetrics.com/article/12-ban-sync"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-foreground"
+                  >
+                    Ban Sync
+                  </a>{" "}
+                  is disabled — BattleMetrics will never natively ban the player.
+                </p>
+              </div>
+            </div>
+          )}
 
           <Button type="submit" disabled={loading || saving}>
             {saving ? "Saving..." : "Save details"}
