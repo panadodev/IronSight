@@ -1,7 +1,7 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ShieldAlert, Edit3, X, Plus } from "lucide-react";
+import { ShieldAlert, Edit3, X, Plus, Trash2 } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { Input } from "@/components/ui/input";
@@ -87,6 +87,7 @@ function canAccessBansInOrg(hasOrgPermission, id) {
     hasOrgPermission(id, "bans_create") ||
     hasOrgPermission(id, "bans_modify") ||
     hasOrgPermission(id, "bans_delete") ||
+    hasOrgPermission(id, "bans_purge") ||
     hasOrgPermission(id, "bans_ip") ||
     hasOrgPermission(id, "bans_manage")
   );
@@ -201,6 +202,22 @@ function BansMutesPage() {
       const body = await res.json().catch(() => null);
       if (body?.bmDeleteError) {
         setActionResult({ type: "warn", message: `Ban revoked, but BM delete failed: ${body.bmDeleteError}` });
+        setTimeout(() => setActionResult(null), 6000);
+      }
+      loadBans();
+    }
+  };
+
+  const purge = async (record) => {
+    if (!confirm(`Permanently delete this ${record.actionType} record? This cannot be undone.`)) return;
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}/purge`,
+      { method: "DELETE", credentials: "include" },
+    );
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      if (body?.bmDeleteError) {
+        setActionResult({ type: "warn", message: `Record purged, but BM delete failed: ${body.bmDeleteError}` });
         setTimeout(() => setActionResult(null), 6000);
       }
       loadBans();
@@ -387,6 +404,15 @@ function BansMutesPage() {
                             title="Revoke"
                           >
                             <X className="size-3" />
+                          </button>
+                        )}
+                        {hasOrgPermission(r.orgId, "bans_purge") && (
+                          <button
+                            onClick={() => purge(r)}
+                            className="size-7 inline-flex items-center justify-center rounded ring-1 ring-danger/60 text-danger hover:bg-danger/20"
+                            title="Purge record"
+                          >
+                            <Trash2 className="size-3" />
                           </button>
                         )}
                       </div>

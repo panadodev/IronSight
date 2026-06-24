@@ -199,6 +199,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "toxicity_manage",
   "predefines_manage",
   "bans_delete",
+  "bans_purge",
   "players_view",
   "ip_read",
   "bans_manage",
@@ -8348,6 +8349,59 @@ async function handleRevokeBan(request, orgId, banId) {
   return json({ ok: true, rconResults, ...(bmDeleteError ? { bmDeleteError } : {}) });
 }
 
+async function handlePurgeBan(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_purge"))
+    return json({ error: "Forbidden" }, 403);
+
+  const banCheck = await pool.query(
+    `SELECT ban_id, action_type, bm_ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    [banId, orgId],
+  );
+  if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
+
+  const { action_type, bm_ban_id } = banCheck.rows[0];
+
+  scheduleBanExpiry(banId, null).catch(() => {});
+
+  let bmDeleteError = null;
+  if (bm_ban_id && action_type !== "mute") {
+    try {
+      const bmRes = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`,
+        { method: "DELETE" },
+      );
+      if (!bmRes.ok && bmRes.status !== 404) {
+        const text = await bmRes.text().catch(() => "");
+        bmDeleteError = `BM ${bmRes.status}: ${text.slice(0, 120)}`;
+      }
+    } catch (err) {
+      bmDeleteError = err.message;
+    }
+  }
+
+  await pool.query(
+    `DELETE FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    [banId, orgId],
+  );
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: action_type === "mute" ? "mute" : "ban",
+    resourceId: banId,
+    actionType: action_type === "mute" ? "MUTE_PURGED" : "BAN_PURGED",
+    actionCategory: "moderation",
+    severity: 4,
+    metadata: {},
+    ipAddress: getClientIp(request),
+  });
+
+  return json({ ok: true, ...(bmDeleteError ? { bmDeleteError } : {}) });
+}
+
 // Schedules (or cancels) a BullMQ delayed job to auto-revoke a ban/mute when
 // its expires_at elapses. Uses a deterministic jobId so re-scheduling on update
 // cleanly replaces the old job. Passing null for expiresAtUnix cancels any
@@ -11098,6 +11152,16 @@ async function _handleApiRequest(request) {
         request,
         orgBanDetailMatch[1],
         orgBanDetailMatch[2],
+      );
+
+    const orgBanPurgeMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/purge$/,
+    );
+    if (orgBanPurgeMatch && request.method === "DELETE")
+      return handlePurgeBan(
+        request,
+        orgBanPurgeMatch[1],
+        orgBanPurgeMatch[2],
       );
 
     // Scripts CRUD

@@ -1409,6 +1409,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('toxicity_manage',     'Manage toxicity filters'),
       ('predefines_manage',   'Manage ticket pre-defines'),
       ('bans_delete',         'Delete and revoke bans'),
+      ('bans_purge',          'Permanently delete ban records'),
       ('players_view',        'View player lookup and player list'),
       ('ip_read',             'View player IP addresses and location'),
       ('bans_manage',         'Issue and manage bans and mutes'),

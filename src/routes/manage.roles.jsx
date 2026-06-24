@@ -107,6 +107,11 @@ const PERMISSION_GROUPS = [
             desc: "Delete and revoke existing bans and mutes",
           },
           {
+            id: "bans_purge",
+            label: "Purge Ban Records",
+            desc: "Permanently delete ban records (also removes from BattleMetrics)",
+          },
+          {
             id: "bans_ip",
             label: "Issue IP Bans",
             desc: "Ban by IP and auto-ban evaders who rejoin (off by default)",
