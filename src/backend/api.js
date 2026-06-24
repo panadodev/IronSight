@@ -3183,21 +3183,26 @@ async function handleGetBmBanLists(request, orgId) {
   if (!canManageOrg(session, orgId))
     return json({ error: "Forbidden" }, 403);
 
-  const orgRes = await pool.query(
-    "SELECT bm_org_id FROM organizations WHERE org_id = $1 LIMIT 1",
-    [orgId],
-  );
-  const org = orgRes.rows[0];
-  if (!org) return json({ error: "Organization not found" }, 404);
+  const url = new URL(request.url);
+  const bmOrgIdParam = url.searchParams.get("bmOrgId")?.trim();
 
-  const { bm_org_id: bmOrgId } = org;
+  let bmOrgId = bmOrgIdParam;
+  if (!bmOrgId) {
+    const orgRes = await pool.query(
+      "SELECT bm_org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+      [orgId],
+    );
+    const org = orgRes.rows[0];
+    if (!org) return json({ error: "Organization not found" }, 404);
+    bmOrgId = org.bm_org_id;
+  }
   if (!bmOrgId) return json({ banLists: [] });
 
   let data;
   try {
     const res = await bmFetch(
       orgId,
-      `https://api.battlemetrics.com/ban-lists?filter[organization]=${encodeURIComponent(bmOrgId)}&page[size]=100`,
+      `https://api.battlemetrics.com/organizations/${encodeURIComponent(bmOrgId)}/relationships/banLists?page[size]=100`,
     );
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -8208,11 +8213,12 @@ async function handleUpdateBan(request, orgId, banId) {
     return json({ error: "Forbidden: ban modify permission required" }, 403);
 
   const banCheck = await pool.query(
-    `SELECT ban_id, action_type FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    `SELECT ban_id, action_type, bm_ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
     [banId, orgId],
   );
   if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
   const existingActionType = String(banCheck.rows[0].action_type);
+  const existingBmBanId = banCheck.rows[0].bm_ban_id;
 
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: "Invalid JSON" }, 400);
@@ -8273,6 +8279,12 @@ async function handleUpdateBan(request, orgId, banId) {
   if (updatedExpiresAt !== undefined) {
     scheduleBanExpiry(banId, updatedExpiresAt).catch((e) =>
       console.error("[ban-expire] reschedule failed:", e.message),
+    );
+  }
+
+  if (existingBmBanId && existingActionType !== "mute" && sets.length > 0) {
+    syncBanRecordToBattlemetrics(orgId, banId).catch((e) =>
+      console.error("[bm-sync] update patch failed:", e.message),
     );
   }
 
@@ -8510,15 +8522,6 @@ async function processBanExpireJob(job) {
       }
     }
 
-    if (bm_ban_id) {
-      bmFetch(
-        org_id,
-        `https://api.battlemetrics.com/bans/${encodeURIComponent(String(bm_ban_id))}`,
-        { method: "DELETE" },
-      ).catch((err) =>
-        console.error("[ban-expire] BM delete failed:", err.message),
-      );
-    }
   }
 }
 

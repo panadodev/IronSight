@@ -1154,7 +1154,9 @@ function ManageDetailsPage() {
     setBmBanListsLoading(true);
     async function loadBmBanLists() {
       try {
-        const res = await authFetch(`/api/orgs/${orgId}/bm-ban-lists`);
+        const res = await authFetch(
+          `/api/orgs/${orgId}/bm-ban-lists?bmOrgId=${encodeURIComponent(bmOrgId.trim())}`,
+        );
         if (!res.ok) {
           if (!cancelled) setBmBanLists([]);
           return;
