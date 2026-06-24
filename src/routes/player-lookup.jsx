@@ -8,7 +8,8 @@ import {
   OffensesTable,
   ServerHistorySection,
 } from "@/components/player-sidebar";
-import { BanDialog, LENGTH_OPTIONS } from "@/components/ban-dialog";
+import { NewBanDialog } from "@/components/new-ban-dialog";
+import { LENGTH_OPTIONS } from "@/components/ban-dialog";
 import { HINTS } from "@/components/hint";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
@@ -99,12 +100,6 @@ const BAN_STATUS_TONE = {
   success: "text-success bg-success/10 ring-success/30",
 };
 
-const REPORT_CATEGORIES = [
-  { id: "cheating", label: "Cheating" },
-  { id: "teaming", label: "Teaming" },
-  { id: "toxicity", label: "Toxicity" },
-  { id: "other", label: "Other" },
-];
 
 const Route = createFileRoute("/player-lookup")({
   head: () => ({
@@ -218,9 +213,8 @@ function PlayerLookupPage() {
   const [reports, setReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
 
-  const [banPickerOpen, setBanPickerOpen] = useState(false);
-  const [banCategory, setBanCategory] = useState(null);
-  const [muteOpen, setMuteOpen] = useState(false);
+  const [issueBanOpen, setIssueBanOpen] = useState(false);
+  const [issueBanActionType, setIssueBanActionType] = useState("ban");
   const [manageBansOpen, setManageBansOpen] = useState(false);
   const [manageMutesOpen, setManageMutesOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -408,63 +402,6 @@ function PlayerLookupPage() {
     refreshCooldownRef.current = setTimeout(() => setRefreshCooldown(false), 15000);
   };
 
-  const submitBan = async (sub) => {
-    if (banOrgId && steamId) {
-      let res;
-      try {
-        res = await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            actionType: "ban",
-            identifier: steamId,
-            identifierType: "steam_id",
-            category: banCategory || null,
-            reason: sub.reason,
-            note: sub.note,
-            expiresAt: lengthToExpiresAt(sub.length),
-            serverIds: [],
-          }),
-        });
-      } catch {
-        throw new Error("Network error — please try again");
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed to ban player (${res.status})`);
-      }
-    }
-  };
-
-  const submitMute = async (sub) => {
-    if (banOrgId && steamId) {
-      let res;
-      try {
-        res = await fetch(`/api/orgs/${encodeURIComponent(banOrgId)}/bans`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            actionType: "mute",
-            identifier: steamId,
-            identifierType: "steam_id",
-            category: "toxicity",
-            reason: sub.reason,
-            note: sub.note,
-            expiresAt: lengthToExpiresAt(sub.length),
-            serverIds: [],
-          }),
-        });
-      } catch {
-        throw new Error("Network error — please try again");
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed to mute player (${res.status})`);
-      }
-    }
-  };
 
   const displayName = playerData?.displayName ?? steamId ?? "";
 
@@ -747,47 +684,20 @@ function PlayerLookupPage() {
                           </>
                         )}
                         <button
-                          onClick={() => setMuteOpen(true)}
+                          onClick={() => { setIssueBanActionType("mute"); setIssueBanOpen(true); }}
                           className="flex items-center gap-2 px-3 py-2 bg-warning/15 text-warning ring-1 ring-warning/40 rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-warning/25"
                         >
                           <MicOff className="size-3.5" />
                           Mute
                         </button>
                         {!isSupportOnly && (
-                          <div className="relative">
-                            <button
-                              onClick={() => setBanPickerOpen((v) => !v)}
-                              className="flex items-center gap-2 px-3 py-2 bg-danger text-danger-foreground rounded-md text-xs font-semibold uppercase tracking-widest hover:opacity-90"
-                            >
-                              <Ban className="size-3.5" />
-                              Ban
-                            </button>
-                            {banPickerOpen && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={() => setBanPickerOpen(false)}
-                                />
-                                <div className="absolute right-0 top-full mt-1 z-50 w-44 bg-background ring-1 ring-border rounded-md shadow-lg p-1">
-                                  <p className="px-2 py-1.5 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-                                    Ban category
-                                  </p>
-                                  {REPORT_CATEGORIES.map((c) => (
-                                    <button
-                                      key={c.id}
-                                      onClick={() => {
-                                        setBanPickerOpen(false);
-                                        setBanCategory(c.id);
-                                      }}
-                                      className="w-full text-left px-2 py-1.5 text-xs hover:bg-surface rounded"
-                                    >
-                                      {c.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
+                          <button
+                            onClick={() => { setIssueBanActionType("ban"); setIssueBanOpen(true); }}
+                            className="flex items-center gap-2 px-3 py-2 bg-danger text-danger-foreground rounded-md text-xs font-semibold uppercase tracking-widest hover:opacity-90"
+                          >
+                            <Ban className="size-3.5" />
+                            Ban
+                          </button>
                         )}
                       </div>
                     </div>
@@ -948,14 +858,15 @@ function PlayerLookupPage() {
 
           {/* Dialogs */}
           {steamId && (
-            <BanDialog
-              open={muteOpen}
-              onOpenChange={setMuteOpen}
-              orgId={banOrgId}
-              category="toxicity"
-              subjectName={displayName}
-              onSubmit={submitMute}
-              mode="mute"
+            <NewBanDialog
+              open={issueBanOpen}
+              onClose={() => setIssueBanOpen(false)}
+              onCreated={() => setIssueBanOpen(false)}
+              defaultActionType={issueBanActionType}
+              defaultIdentifier={steamId}
+              manageableOrgIds={offenseOrgIds.length ? offenseOrgIds : (banOrgId ? [banOrgId] : [])}
+              orgs={orgs}
+              hasOrgPermission={hasOrgPermission}
             />
           )}
           {steamId && (
@@ -978,18 +889,6 @@ function PlayerLookupPage() {
           )}
         </main>
 
-        {steamId && banCategory && (
-          <BanDialog
-            open={banCategory !== null}
-            onOpenChange={(v) => {
-              if (!v) setBanCategory(null);
-            }}
-            orgId={banOrgId}
-            category={banCategory}
-            subjectName={displayName}
-            onSubmit={submitBan}
-          />
-        )}
       </div>
     </SteamRequiredGate>
   );
