@@ -1318,6 +1318,23 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS sync_perms_on_join BOOLEAN NOT NULL DEFAULT FALSE`,
   );
+
+  // Replace the hardcoded 4-tier rank system for note visibility with a specific
+  // role reference. NULL = visible to all players_view staff (same as old min_rank=1).
+  await pool.query(
+    `ALTER TABLE player_notes ADD COLUMN IF NOT EXISTS required_role_id TEXT`,
+  );
+
+  // Selected BM ban list for player ban lookups — when set, bans are filtered to
+  // only those in this specific BattleMetrics ban list.
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bm_ban_list_id TEXT`,
+  );
+
+  // Track when panel users were last seen (used for Online Staff popup).
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at BIGINT`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {

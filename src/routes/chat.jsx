@@ -18,7 +18,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Crown,
-  Eye,
   MessageSquare,
   ShieldAlert,
   Users,
@@ -215,10 +214,10 @@ function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump, onView
         </button>
         <button
           onClick={onViewPlayer}
-          className="shrink-0 text-muted-foreground hover:text-brand transition-colors mt-0.5"
+          className="shrink-0 text-[9px] font-mono text-muted-foreground hover:text-brand transition-colors mt-0.5 whitespace-nowrap"
           title={`Filter chat to ${flag.playerName ?? flag.steamId} on ${flag.serverName ?? "this server"}`}
         >
-          <Eye className="size-3.5" />
+          filter
         </button>
       </div>
 
@@ -1108,15 +1107,24 @@ function ChatPage() {
                 </div>
               )}
             </div>
-            <FlaggedMessagesPanel
-              orgId={activeServer?.ownerOrgId ?? selectedOrgIds[0]}
-              canResolve={hasOrgPermission(
+            {(hasOrgPermission(
+                activeServer?.ownerOrgId ?? selectedOrgIds[0],
+                "toxicity_manage",
+              ) ||
+              hasOrgPermission(
                 activeServer?.ownerOrgId ?? selectedOrgIds[0],
                 "flagged_messages_resolve",
-              )}
-              onJumpToMessage={onJumpToMessage}
-              onFilterToPlayer={onFilterToPlayer}
-            />
+              )) && (
+              <FlaggedMessagesPanel
+                orgId={activeServer?.ownerOrgId ?? selectedOrgIds[0]}
+                canResolve={hasOrgPermission(
+                  activeServer?.ownerOrgId ?? selectedOrgIds[0],
+                  "flagged_messages_resolve",
+                )}
+                onJumpToMessage={onJumpToMessage}
+                onFilterToPlayer={onFilterToPlayer}
+              />
+            )}
           </div>
         </main>
       </div>

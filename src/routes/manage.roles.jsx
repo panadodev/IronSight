@@ -139,6 +139,11 @@ const PERMISSION_GROUPS = [
     label: "Organization",
     perms: [
       {
+        id: "staff_online_view",
+        label: "View Online Staff",
+        desc: "See who is currently active on the panel (Online Staff popup)",
+      },
+      {
         id: "org_manage",
         label: "Manage Members",
         desc: "Add, remove, and change member roles",

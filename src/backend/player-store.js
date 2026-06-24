@@ -285,10 +285,19 @@ async function fetchBMRelatedIdentifiers(bmId, orgId) {
 }
 
 async function fetchBMPlayerBans(bmId, orgId) {
-  const url =
+  const orgRes = await pool.query(
+    "SELECT bm_ban_list_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  const bmBanListId = orgRes.rows[0]?.bm_ban_list_id ?? null;
+
+  let url =
     `https://api.battlemetrics.com/bans` +
     `?version=%5E0.1.0&filter[player]=${encodeURIComponent(bmId)}` +
     `&include=organization&page[size]=100`;
+  if (bmBanListId) {
+    url += `&filter[banList]=${encodeURIComponent(bmBanListId)}`;
+  }
   const resp = await bmFetch(orgId, url);
   if (!resp?.ok) return [];
 

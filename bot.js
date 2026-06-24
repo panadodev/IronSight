@@ -155,7 +155,7 @@ function connect(resume = false) {
           sessionId = null;
           seq = null;
         }
-        setTimeout(() => connect(!!d), 5000);
+        reconnect(!!d);
         break;
 
       case 0: // DISPATCH

@@ -9,19 +9,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const NOTE_RANK_OPTIONS = [
-  { value: 1, label: "Support and above" },
-  { value: 2, label: "Admin and above" },
-  { value: 3, label: "Sr. Admin and above" },
-  { value: 4, label: "Management only" },
-];
-
-function rankLabel(rank) {
-  return (
-    NOTE_RANK_OPTIONS.find((o) => o.value === rank)?.label ?? `Rank ${rank}+`
-  );
-}
-
 function timeAgo(unix) {
   const m = Math.floor((Date.now() / 1000 - unix) / 60);
   if (m < 1) return "just now";
@@ -34,13 +21,37 @@ function timeAgo(unix) {
   return `${mo}mo ago`;
 }
 
-function useEffectiveRank(orgId) {
-  const { rankOf, selectedOrgIds, maxRankAcross } = useAuth();
-  return orgId ? rankOf(orgId) : maxRankAcross(selectedOrgIds);
+const LEGACY_RANK_LABELS = {
+  1: "All staff",
+  2: "Admin and above",
+  3: "Sr. Admin and above",
+  4: "Management only",
+};
+
+function noteVisibilityLabel(note, roles) {
+  if (note.requiredRoleId) {
+    const role = roles.find((r) => r.roleId === note.requiredRoleId);
+    return role ? role.roleName : note.requiredRoleId;
+  }
+  return LEGACY_RANK_LABELS[note.minRank] ?? `Rank ${note.minRank}+`;
 }
 
-// Fetches a player's notes for an org. The backend already filters by the
-// caller's rank (min_rank), so whatever it returns is visible to this user.
+function useOrgNoteRoles(orgId) {
+  const [roles, setRoles] = useState([]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/note-roles`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setRoles(data?.roles ?? []))
+      .catch(() => {});
+  }, [orgId]);
+
+  return roles;
+}
+
 function usePlayerNotesApi(orgId, subjectId) {
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -72,7 +83,7 @@ function usePlayerNotesApi(orgId, subjectId) {
   return { notes, loading, reload };
 }
 
-function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange }) {
+function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange, roles }) {
   const [busy, setBusy] = useState(false);
 
   const togglePin = async () => {
@@ -147,7 +158,7 @@ function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange }) {
         <span>{timeAgo(note.createdAt)}</span>
         <span className="ml-auto inline-flex items-center gap-1">
           <Lock className="size-2.5" />
-          {rankLabel(note.minRank)}
+          {noteVisibilityLabel(note, roles)}
         </span>
         {note.pinned && (
           <span className="inline-flex items-center gap-0.5 text-warning">
@@ -163,15 +174,13 @@ function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange }) {
 function PlayerNotesSection({ subjectId, orgId }) {
   const { notes, loading, reload } = usePlayerNotesApi(orgId, subjectId);
   const { sessionUser } = useAuth();
-  const myRank = useEffectiveRank(orgId);
-  const [body, setBody] = useState("");
-  const [minRank, setMinRank] = useState(1);
-  const [saving, setSaving] = useState(false);
+  const { rankOf, selectedOrgIds, maxRankAcross } = useAuth();
+  const myRank = orgId ? rankOf(orgId) : maxRankAcross(selectedOrgIds);
+  const roles = useOrgNoteRoles(orgId);
 
-  const rankOptions = useMemo(
-    () => NOTE_RANK_OPTIONS.filter((o) => o.value <= Math.max(1, myRank)),
-    [myRank],
-  );
+  const [body, setBody] = useState("");
+  const [requiredRoleId, setRequiredRoleId] = useState("__all__");
+  const [saving, setSaving] = useState(false);
 
   const visible = useMemo(
     () =>
@@ -194,12 +203,16 @@ function PlayerNotesSection({ subjectId, orgId }) {
           method: "POST",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ body: trimmed, minRank, pinned: false }),
+          body: JSON.stringify({
+            body: trimmed,
+            requiredRoleId: requiredRoleId === "__all__" ? null : requiredRoleId,
+            pinned: false,
+          }),
         },
       );
       if (res.ok) {
         setBody("");
-        setMinRank(1);
+        setRequiredRoleId("__all__");
         reload();
       }
     } finally {
@@ -230,21 +243,21 @@ function PlayerNotesSection({ subjectId, orgId }) {
           className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-brand resize-y"
         />
         <div className="flex items-center gap-2">
-          <Select
-            value={String(minRank)}
-            onValueChange={(v) => setMinRank(Number(v))}
-          >
+          <Select value={requiredRoleId} onValueChange={setRequiredRoleId}>
             <SelectTrigger className="h-8 text-xs flex-1 bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {rankOptions.map((opt) => (
+              <SelectItem value="__all__" className="text-xs">
+                Visible to all staff
+              </SelectItem>
+              {roles.map((role) => (
                 <SelectItem
-                  key={opt.value}
-                  value={String(opt.value)}
+                  key={role.roleId}
+                  value={role.roleId}
                   className="text-xs"
                 >
-                  {opt.label}
+                  {role.roleName} only
                 </SelectItem>
               ))}
             </SelectContent>
@@ -279,6 +292,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
                 canManage={canManage}
                 canEdit={canManage}
                 onChange={reload}
+                roles={roles}
               />
             );
           })}
@@ -290,6 +304,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
 
 function PinnedPlayerNotesSection({ subjectId, orgId }) {
   const { notes } = usePlayerNotesApi(orgId, subjectId);
+  const roles = useOrgNoteRoles(orgId);
   const visible = useMemo(
     () =>
       notes.filter((n) => n.pinned).sort((a, b) => b.createdAt - a.createdAt),
@@ -320,7 +335,7 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
               <span>{timeAgo(n.createdAt)}</span>
               <span className="ml-auto inline-flex items-center gap-1">
                 <Lock className="size-2.5" />
-                {rankLabel(n.minRank)}
+                {noteVisibilityLabel(n, roles)}
               </span>
             </div>
           </li>

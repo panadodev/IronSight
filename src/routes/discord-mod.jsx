@@ -167,8 +167,6 @@ function DiscordModPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);
 
   // ── Members tab ───────────────────────────────────────────────────────────
   const [memberQuery, setMemberQuery] = useState("");
@@ -371,7 +369,6 @@ function DiscordModPage() {
       setModLog([]);
       setModLogOffset(0);
       setModLogHasMore(false);
-      setSyncResult(null);
       setBanSyncResult(null);
       setUnbanError(null);
       setUnbanBusy({});
@@ -456,27 +453,6 @@ function DiscordModPage() {
   }, [modLogHasMore, loadMoreModLog]);
 
   // ── Action handlers ───────────────────────────────────────────────────────
-  const handleSync = async () => {
-    if (!orgId || syncing) return;
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/discord/sync`,
-        { method: "POST", credentials: "include" },
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        setSyncResult({ error: data.error ?? "Sync failed" });
-      } else {
-        setSyncResult({ totalSynced: data.totalSynced });
-        await fetchChannels();
-        if (selectedChannel) await fetchMessages();
-      }
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const handleBanSync = async () => {
     if (!orgId || banSyncing) return;
@@ -650,21 +626,6 @@ function DiscordModPage() {
             </Select>
           )}
 
-          {tab === "messages" && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleSync}
-              disabled={syncing || !orgId}
-              className="gap-1.5 h-8"
-            >
-              <RefreshCw
-                className={`size-3.5 ${syncing ? "animate-spin" : ""}`}
-              />
-              {syncing ? "Syncing…" : "Sync Messages"}
-            </Button>
-          )}
-
           {tab === "bans" && (
             <Button
               size="sm"
@@ -682,20 +643,6 @@ function DiscordModPage() {
         </div>
 
         {/* Notification banners */}
-        {tab === "messages" && syncResult && (
-          <div
-            className={`mx-6 mt-3 px-3 py-2 rounded text-xs ring-1 ${
-              syncResult.error
-                ? "ring-danger/40 bg-danger/10 text-danger"
-                : "ring-success/40 bg-success/10 text-success"
-            }`}
-          >
-            {syncResult.error
-              ? `Sync error: ${syncResult.error}`
-              : `Synced ${syncResult.totalSynced} new message${syncResult.totalSynced !== 1 ? "s" : ""}.`}
-          </div>
-        )}
-
         {tab === "bans" && banSyncResult && (
           <div
             className={`mx-6 mt-3 px-3 py-2 rounded text-xs ring-1 ${

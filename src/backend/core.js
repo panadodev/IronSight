@@ -230,5 +230,16 @@ export async function requireSession(request) {
   if (!session) {
     return { error: json({ error: "Unauthorized" }, 401) };
   }
+  // Track presence for the Online Staff popup — fire-and-forget, 5-min TTL.
+  if (session.userId && redis) {
+    redis
+      .set(
+        `online:${session.userId}`,
+        String(Math.floor(Date.now() / 1000)),
+        "EX",
+        300,
+      )
+      .catch(() => {});
+  }
   return { session };
 }

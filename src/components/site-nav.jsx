@@ -30,7 +30,7 @@ import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META } from "@/lib/mock-data";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown, Lock, Menu } from "lucide-react";
+import { Building2, Check, ChevronDown, Lock, Menu, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 function SiteNav() {
   const { location } = useRouterState();
@@ -75,6 +75,9 @@ function SiteNav() {
   const [guildId, setGuildId] = useState("");
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [onlineStaffOpen, setOnlineStaffOpen] = useState(false);
+  const [onlineStaff, setOnlineStaff] = useState([]);
+  const [onlineStaffLoading, setOnlineStaffLoading] = useState(false);
   const isSysAdminSession = Boolean(sessionUser?.isSysAdmin);
 
   // Per-org permission helpers. A link should appear if the user has the
@@ -109,6 +112,7 @@ function SiteNav() {
     anyOrgHas("bans_ip");
   const canTriggers = anyOrgHas("triggers_manage");
   const canDiscordMod = anyOrgHas("discord_mod");
+  const canStaffOnline = anyOrgHas("staff_online_view");
   const canManageSection =
     canOrgManage ||
     canRoleManage ||
@@ -163,6 +167,26 @@ function SiteNav() {
       cancelled = true;
     };
   }, []);
+
+  const loadOnlineStaff = async () => {
+    const orgId = selectedOrgIds[0];
+    if (!orgId) return;
+    setOnlineStaffLoading(true);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/online-staff`,
+        { credentials: "include" },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setOnlineStaff(data.staff ?? []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setOnlineStaffLoading(false);
+    }
+  };
 
   const openProfile = () => {
     setProfileError("");
@@ -706,6 +730,52 @@ function SiteNav() {
           <span className="ml-auto text-[9px] font-mono uppercase tracking-widest text-brand">
             {effectiveView}
           </span>
+          {effectiveView === "staff" && canStaffOnline && (
+            <Popover
+              open={onlineStaffOpen}
+              onOpenChange={(open) => {
+                setOnlineStaffOpen(open);
+                if (open) loadOnlineStaff();
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  className="ml-1.5 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
+                  title="Online Staff"
+                >
+                  <Users className="size-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" side="bottom" className="w-52 p-2">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-1 pb-1.5 border-b border-border mb-1.5">
+                  Online Staff
+                </p>
+                {onlineStaffLoading ? (
+                  <p className="text-xs text-muted-foreground px-1 py-1">
+                    Loading…
+                  </p>
+                ) : onlineStaff.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-1 py-1 italic">
+                    No staff currently online.
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {onlineStaff.map((s) => (
+                      <li
+                        key={s.userId}
+                        className="flex items-center gap-2 px-1 py-1 rounded"
+                      >
+                        <span className="size-1.5 rounded-full bg-emerald-400 shrink-0" />
+                        <span className="text-xs text-foreground truncate">
+                          {s.username}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
 
         {/* Org selector (staff only) */}

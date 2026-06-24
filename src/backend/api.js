@@ -3003,7 +3003,7 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, sync_perms_on_join, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -3017,6 +3017,7 @@ async function handleGetOrgDetails(request, orgId) {
       guildId: org.guild_id == null ? null : String(org.guild_id),
       bmOrgId: org.bm_org_id == null ? null : String(org.bm_org_id),
       bmAutoSync: org.bm_auto_sync === true,
+      bmBanListId: org.bm_ban_list_id == null ? null : String(org.bm_ban_list_id),
       syncPermsOnJoin: org.sync_perms_on_join === true,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
@@ -3057,6 +3058,14 @@ async function handleUpdateOrgDetails(request, orgId) {
         ? null
         : String(bmOrgIdRaw).trim() || null;
 
+  const bmBanListIdRaw = body?.bmBanListId;
+  const bmBanListId =
+    bmBanListIdRaw === undefined
+      ? undefined
+      : bmBanListIdRaw === null
+        ? null
+        : String(bmBanListIdRaw).trim() || null;
+
   // bmAutoSync / syncPermsOnJoin: omitted (undefined) → don't touch; otherwise coerce to boolean.
   const bmAutoSync =
     body?.bmAutoSync === undefined ? undefined : body.bmAutoSync === true;
@@ -3093,9 +3102,10 @@ async function handleUpdateOrgDetails(request, orgId) {
          guild_id = CASE WHEN $3 THEN $4::text ELSE guild_id END,
          bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END,
          bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END,
-         sync_perms_on_join = CASE WHEN $9 THEN $10::boolean ELSE sync_perms_on_join END
+         sync_perms_on_join = CASE WHEN $9 THEN $10::boolean ELSE sync_perms_on_join END,
+         bm_ban_list_id = CASE WHEN $11 THEN $12::text ELSE bm_ban_list_id END
      WHERE org_id = $1
-     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, sync_perms_on_join, name, created_at`,
+     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, name, created_at`,
     [
       orgId,
       name,
@@ -3107,6 +3117,8 @@ async function handleUpdateOrgDetails(request, orgId) {
       bmAutoSync ?? false,
       syncPermsOnJoin !== undefined,
       syncPermsOnJoin ?? false,
+      bmBanListId !== undefined,
+      bmBanListId ?? null,
     ],
   );
 
@@ -3122,11 +3134,85 @@ async function handleUpdateOrgDetails(request, orgId) {
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       bmOrgId: updated.bm_org_id == null ? null : String(updated.bm_org_id),
       bmAutoSync: updated.bm_auto_sync === true,
+      bmBanListId: updated.bm_ban_list_id == null ? null : String(updated.bm_ban_list_id),
       syncPermsOnJoin: updated.sync_perms_on_join === true,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
   });
+}
+
+async function handleGetBmBanLists(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin access required" }, 403);
+
+  const orgRes = await pool.query(
+    "SELECT bm_org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  const bmOrgId = orgRes.rows[0]?.bm_org_id;
+  if (!bmOrgId)
+    return json({ error: "No BattleMetrics organization ID configured" }, 400);
+
+  const keys = await getAvailableExternalKeys(orgId, "battlemetrics");
+  if (!keys.length)
+    return json({ error: "No BattleMetrics API keys configured" }, 400);
+
+  const resp = await bmFetch(
+    orgId,
+    `https://api.battlemetrics.com/ban-lists?filter[organization]=${encodeURIComponent(bmOrgId)}&page[size]=100`,
+  );
+  if (!resp?.ok) {
+    const errText = await resp?.text?.().catch(() => "");
+    return json(
+      { error: `BattleMetrics API error ${resp?.status}: ${errText}` },
+      502,
+    );
+  }
+
+  const data = await resp.json();
+  return json({
+    banLists: (data.data ?? []).map((bl) => ({
+      id: String(bl.id),
+      name: String(bl.attributes?.name ?? bl.id),
+    })),
+  });
+}
+
+async function handleGetOnlineStaff(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "staff_online_view"))
+    return json({ error: "Forbidden: staff_online_view permission required" }, 403);
+
+  // Pull all non-admin/owner/disabled members, then check Redis presence.
+  const { rows } = await pool.query(
+    `SELECT u.user_id, u.username
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1
+       AND om.role_id NOT IN ('org_admin', 'org_owner', 'org_disabled')`,
+    [orgId],
+  );
+
+  const online = [];
+  await Promise.all(
+    rows.map(async (r) => {
+      const ts = await redis.get(`online:${r.user_id}`).catch(() => null);
+      if (ts) {
+        online.push({
+          userId: String(r.user_id),
+          username: String(r.username),
+          lastSeenAt: Number(ts),
+        });
+      }
+    }),
+  );
+
+  online.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  return json({ staff: online });
 }
 
 async function handleListRoles(request) {
@@ -5884,8 +5970,11 @@ async function handleDeleteAIModerationTrigger(request, orgId, triggerId) {
 async function handleListFlaggedMessages(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "toxicity_manage"))
-    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "toxicity_manage") &&
+    !orgHasPermission(session, orgId, "flagged_messages_resolve")
+  )
+    return json({ error: "Forbidden: toxicity_manage or flagged_messages_resolve permission required" }, 403);
 
   const url = new URL(request.url);
   const resolvedParam = url.searchParams.get("resolved");
@@ -10117,6 +10206,7 @@ function serializePlayerNote(row) {
     authorId: row.author_user_id ?? null,
     authorName: row.author_name ?? null,
     minRank: Number(row.min_rank),
+    requiredRoleId: row.required_role_id ?? null,
     pinned: Boolean(row.pinned),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -10130,19 +10220,46 @@ async function handleListPlayerNotes(request, orgId, steamId) {
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
 
-  // Server-side min_rank filter mirrors the previous client logic: only return
-  // notes the caller's rank in this org is allowed to see.
   const rank = sessionRankForOrg(session, orgId);
   const { rows } = await pool.query(
     `SELECT id, subject_steam_id, body, author_user_id, author_name,
-            min_rank, pinned, created_at, updated_at
+            min_rank, required_role_id, pinned, created_at, updated_at
      FROM player_notes
-     WHERE org_id = $1 AND subject_steam_id = $2 AND min_rank <= $3
+     WHERE org_id = $1 AND subject_steam_id = $2 AND (
+       $3 >= 4
+       OR (required_role_id IS NULL AND min_rank <= $3)
+       OR EXISTS (
+         SELECT 1 FROM organization_members
+         WHERE user_id = $4 AND org_id = $1 AND role_id = required_role_id
+       )
+     )
      ORDER BY pinned DESC, created_at DESC`,
-    [orgId, steamId, rank],
+    [orgId, steamId, rank, session.userId],
   );
 
   return json({ notes: rows.map(serializePlayerNote) });
+}
+
+async function handleGetOrgNoteRoles(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT role_id, role_name FROM roles
+     WHERE starts_with(role_id, $1 || '_')
+       AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
+     ORDER BY role_name ASC`,
+    [orgId],
+  );
+
+  return json({
+    roles: rows.map((r) => ({
+      roleId: String(r.role_id),
+      roleName: String(r.role_name),
+    })),
+  });
 }
 
 async function handleCreatePlayerNote(request, orgId, steamId) {
@@ -10174,26 +10291,33 @@ async function handleCreatePlayerNote(request, orgId, steamId) {
       400,
     );
 
-  const minRank = Number(body?.minRank ?? 1);
-  if (!Number.isInteger(minRank) || minRank < 1 || minRank > 4)
-    return json({ error: "minRank must be 1–4" }, 400);
-  // Can't create a note above your own rank (you'd lock yourself out).
-  if (minRank > sessionRankForOrg(session, orgId))
-    return json({ error: "Forbidden: minRank exceeds your rank" }, 403);
+  let requiredRoleId = null;
+  if (body?.requiredRoleId != null) {
+    const roleId = String(body.requiredRoleId).trim();
+    if (roleId) {
+      const roleCheck = await pool.query(
+        `SELECT role_id FROM roles WHERE role_id = $1 AND starts_with(role_id, $2 || '_') LIMIT 1`,
+        [roleId, orgId],
+      );
+      if (!roleCheck.rows[0])
+        return json({ error: "Role not found in this org" }, 400);
+      requiredRoleId = roleId;
+    }
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO player_notes
-       (org_id, subject_steam_id, body, author_user_id, author_name, min_rank, pinned)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (org_id, subject_steam_id, body, author_user_id, author_name, min_rank, required_role_id, pinned)
+     VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
      RETURNING id, subject_steam_id, body, author_user_id, author_name,
-               min_rank, pinned, created_at, updated_at`,
+               min_rank, required_role_id, pinned, created_at, updated_at`,
     [
       orgId,
       steamId,
       text,
       session.userId,
       session.username ?? null,
-      minRank,
+      requiredRoleId,
       Boolean(body?.pinned),
     ],
   );
@@ -10256,14 +10380,21 @@ async function handleUpdatePlayerNote(request, orgId, steamId, noteId) {
     params.push(Boolean(body.pinned));
     setClauses.push(`pinned = $${params.length}`);
   }
-  if (body?.minRank !== undefined) {
-    const minRank = Number(body.minRank);
-    if (!Number.isInteger(minRank) || minRank < 1 || minRank > 4)
-      return json({ error: "minRank must be 1–4" }, 400);
-    if (minRank > sessionRankForOrg(session, orgId))
-      return json({ error: "Forbidden: minRank exceeds your rank" }, 403);
-    params.push(minRank);
-    setClauses.push(`min_rank = $${params.length}`);
+  if (body?.requiredRoleId !== undefined) {
+    if (body.requiredRoleId === null || body.requiredRoleId === "") {
+      params.push(null);
+      setClauses.push(`required_role_id = $${params.length}`);
+    } else {
+      const roleId = String(body.requiredRoleId).trim();
+      const roleCheck = await pool.query(
+        `SELECT role_id FROM roles WHERE role_id = $1 AND starts_with(role_id, $2 || '_') LIMIT 1`,
+        [roleId, orgId],
+      );
+      if (!roleCheck.rows[0])
+        return json({ error: "Role not found in this org" }, 400);
+      params.push(roleId);
+      setClauses.push(`required_role_id = $${params.length}`);
+    }
   }
 
   if (setClauses.length === 0)
@@ -10275,7 +10406,7 @@ async function handleUpdatePlayerNote(request, orgId, steamId, noteId) {
     `UPDATE player_notes SET ${setClauses.join(", ")}
      WHERE id = $${params.length}
      RETURNING id, subject_steam_id, body, author_user_id, author_name,
-               min_rank, pinned, created_at, updated_at`,
+               min_rank, required_role_id, pinned, created_at, updated_at`,
     params,
   );
 
@@ -10874,6 +11005,18 @@ async function _handleApiRequest(request) {
       return handleListOrgTickets(request, orgTicketsMatch[1]);
     }
 
+    const orgBmBanListsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bm-ban-lists$/,
+    );
+    if (orgBmBanListsMatch && request.method === "GET")
+      return handleGetBmBanLists(request, orgBmBanListsMatch[1]);
+
+    const orgOnlineStaffMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/online-staff$/,
+    );
+    if (orgOnlineStaffMatch && request.method === "GET")
+      return handleGetOnlineStaff(request, orgOnlineStaffMatch[1]);
+
     const orgDetailsMatch = pathname.match(/^\/api\/orgs\/([a-zA-Z0-9_-]+)$/);
     if (orgDetailsMatch && request.method === "GET") {
       return handleGetOrgDetails(request, orgDetailsMatch[1]);
@@ -11407,7 +11550,13 @@ async function _handleApiRequest(request) {
     if (playerReportsMatch && request.method === "GET")
       return handleGetPlayerReports(request, playerReportsMatch[1]);
 
-    // Player notes (org-scoped, rank-gated)
+    const orgNoteRolesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/note-roles$/,
+    );
+    if (orgNoteRolesMatch && request.method === "GET")
+      return handleGetOrgNoteRoles(request, orgNoteRolesMatch[1]);
+
+    // Player notes (org-scoped, role-gated)
     const playerNotesMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/(\d+)\/notes$/,
     );
