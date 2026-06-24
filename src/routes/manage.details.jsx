@@ -1012,6 +1012,7 @@ function ManageDetailsPage() {
   const [bmOrgsError, setBmOrgsError] = useState("");
   const [bmBanLists, setBmBanLists] = useState([]);
   const [bmBanListsLoading, setBmBanListsLoading] = useState(false);
+  const [bmBanListsError, setBmBanListsError] = useState(false);
   const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
 
@@ -1148,23 +1149,25 @@ function ManageDetailsPage() {
   useEffect(() => {
     if (!orgId || !bmOrgId.trim()) {
       setBmBanLists([]);
+      setBmBanListsError(false);
       return;
     }
     let cancelled = false;
     setBmBanListsLoading(true);
+    setBmBanListsError(false);
     async function loadBmBanLists() {
       try {
         const res = await authFetch(
           `/api/orgs/${orgId}/bm-ban-lists?bmOrgId=${encodeURIComponent(bmOrgId.trim())}`,
         );
         if (!res.ok) {
-          if (!cancelled) setBmBanLists([]);
+          if (!cancelled) { setBmBanLists([]); setBmBanListsError(true); }
           return;
         }
         const body = await res.json();
         if (!cancelled) setBmBanLists(Array.isArray(body?.banLists) ? body.banLists : []);
       } catch {
-        if (!cancelled) setBmBanLists([]);
+        if (!cancelled) { setBmBanLists([]); setBmBanListsError(true); }
       } finally {
         if (!cancelled) setBmBanListsLoading(false);
       }
@@ -1363,30 +1366,47 @@ function ManageDetailsPage() {
           {bmOrgId.trim() && (
             <div className="space-y-1">
               <Label htmlFor="bm-ban-list">BattleMetrics ban list</Label>
-              <Select
-                value={bmBanListId || "__none__"}
-                onValueChange={(v) => setBmBanListId(v === "__none__" ? "" : v)}
-                disabled={loading || saving || bmBanListsLoading}
-              >
-                <SelectTrigger id="bm-ban-list">
-                  <SelectValue
-                    placeholder={
-                      bmBanListsLoading ? "Loading ban lists…" : "None (org-wide)"
-                    }
+              {bmBanListsLoading ? (
+                <p className="text-[11px] text-muted-foreground">Loading ban lists…</p>
+              ) : bmBanLists.length > 0 ? (
+                <Select
+                  value={bmBanListId || "__none__"}
+                  onValueChange={(v) => setBmBanListId(v === "__none__" ? "" : v)}
+                  disabled={loading || saving}
+                >
+                  <SelectTrigger id="bm-ban-list">
+                    <SelectValue placeholder="None (org-wide)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None (org-wide)</SelectItem>
+                    {bmBanLists.map((list) => (
+                      <SelectItem key={list.id} value={list.id}>
+                        {list.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <>
+                  <Input
+                    id="bm-ban-list"
+                    value={bmBanListId}
+                    onChange={(e) => setBmBanListId(e.target.value.trim())}
+                    placeholder="Ban list UUID (e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)"
+                    disabled={loading || saving}
                   />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None (org-wide)</SelectItem>
-                  {bmBanLists.map((list) => (
-                    <SelectItem key={list.id} value={list.id}>
-                      {list.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                Bans sync into this list. Leave empty to sync org-wide.
-              </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {bmBanListsError
+                      ? "Could not load ban lists — enter the UUID manually."
+                      : "No ban lists found — enter the UUID manually."}
+                  </p>
+                </>
+              )}
+              {!bmBanListsLoading && (
+                <p className="text-[11px] text-muted-foreground">
+                  Bans sync into this list. Leave empty to sync org-wide.
+                </p>
+              )}
             </div>
           )}
 
