@@ -2583,7 +2583,7 @@ function GlobalpingSection({ orgId }) {
             </div>
           )}
         </div>
-        {snaps.length > 0 && (
+        {snaps.length > 1 && (
           <div className="flex items-center gap-3">
             <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
               {currentSnap
@@ -2593,12 +2593,11 @@ function GlobalpingSection({ orgId }) {
             <input
               type="range"
               min={0}
-              max={Math.max(0, snaps.length - 1)}
+              max={snaps.length - 1}
               value={safeIndex}
               onChange={(e) => setSnapIndex(Number(e.target.value))}
-              disabled={snaps.length <= 1}
               aria-label="Latency history time"
-              className="flex-1 accent-emerald-500 disabled:opacity-50"
+              className="flex-1 accent-emerald-500"
             />
             <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
               {safeIndex >= snaps.length - 1

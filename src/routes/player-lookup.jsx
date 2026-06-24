@@ -64,6 +64,14 @@ function relativeTime(unix) {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function formatBanAge(days) {
+  if (days == null) return null;
+  if (days === 0) return "recent";
+  if (days < 30) return `${days}d ago`;
+  if (days < 365) return `~${Math.round(days / 30)}mo ago`;
+  return `~${(days / 365).toFixed(1)}yr ago`;
+}
+
 function steamIdColor(steamId) {
   let h = 0;
   for (let i = 0; i < steamId.length; i++)
@@ -522,16 +530,21 @@ function PlayerLookupPage() {
     const s = playerData.steam;
     const bm = playerData.bm;
 
+    const banAge = formatBanAge(s?.daysSinceLastBan);
     if (s?.vacBanned && (s.vacCount ?? 0) > 0)
       out.push({
         key: "vac",
         label: `VAC Banned (${s.vacCount})`,
+        detail: banAge
+          ? `${s.vacCount} VAC ban${s.vacCount !== 1 ? "s" : ""} · last ban ${banAge}`
+          : null,
         tone: "danger",
       });
     if ((s?.gameBanCount ?? 0) > 0)
       out.push({
         key: "game",
-        label: `Game Banned (${s.gameBanCount})`,
+        label: `Game Banned (${s.gameBanCount})${banAge ? ` · ${banAge}` : ""}`,
+        detail: `${s.gameBanCount} Steam game ban${s.gameBanCount !== 1 ? "s" : ""}${banAge ? ` · last ban ${banAge}` : ""}. Steam does not disclose which games.`,
         tone: "danger",
       });
     if (s?.communityBanned)
@@ -994,6 +1007,7 @@ function PlayerAlertsBanner({ alerts }) {
       {alerts.map((a) => (
         <span
           key={a.key}
+          title={a.detail ?? undefined}
           className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-1 rounded ring-1 ${ALERT_TONE[a.tone] ?? ALERT_TONE.warning}`}
         >
           {a.label}

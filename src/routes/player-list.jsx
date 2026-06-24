@@ -35,7 +35,6 @@ const SORT_LABEL = {
   kd: "K/D",
   rustHours: "Steam Hours",
   bmHours: "BM Hours",
-  ping: "Ping",
   name: "Name",
 };
 
@@ -430,7 +429,7 @@ function PlayerListPage() {
             {/* Table */}
             {(!loading || players.length > 0) && (
               <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                <div className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+                <div className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
                   <HeaderCell
                     label="Player"
                     k="name"
@@ -572,14 +571,6 @@ function PlayerListPage() {
                     align="right"
                   />
                   <div className="px-1 text-right">Proxy</div>
-                  <HeaderCell
-                    label="Ping"
-                    k="ping"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
                 </div>
 
                 <div className="divide-y divide-border/60">
@@ -588,7 +579,7 @@ function PlayerListPage() {
                     return (
                       <div
                         key={p.steamId}
-                        className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
+                        className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           {p.avatarUrl ? (
@@ -674,20 +665,6 @@ function PlayerListPage() {
                           >
                             {p.isProxy ? "YES" : "NO"}
                           </span>
-                        </div>
-                        <div
-                          className={
-                            "text-right font-mono " +
-                            (p.ping == null
-                              ? "text-muted-foreground/40"
-                              : p.ping > 150
-                                ? "text-danger"
-                                : p.ping > 80
-                                  ? "text-warning"
-                                  : "text-foreground")
-                          }
-                        >
-                          {p.ping != null ? p.ping : "—"}
                         </div>
                       </div>
                     );
