@@ -49,8 +49,11 @@ function BanDialog({
     : banCategory && orgBanConfigs[orgId]
       ? orgBanConfigs[orgId][banCategory]
       : null;
-  const reasons = config?.reasons ?? [];
-  const noteFormat = isOther ? "" : (config?.noteFormat ?? "");
+  const reasons = useMemo(() => config?.reasons ?? [], [config]);
+  const noteFormat = useMemo(
+    () => (isOther ? "" : (config?.noteFormat ?? "")),
+    [isOther, config],
+  );
   const [reasonId, setReasonId] = useState("");
   const [customReason, setCustomReason] = useState("");
   const [length, setLength] = useState("7d");
