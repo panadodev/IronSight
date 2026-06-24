@@ -191,24 +191,12 @@ function BansMutesPage() {
     );
   }, [tab, bans, mutes, query]);
 
-  // Surfaces incidental messages from row actions (e.g. a BattleMetrics delete
-  // that failed while revoking a synced ban).
-  const [actionResult, setActionResult] = useState(null);
-
   const revoke = async (record) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}`,
       { method: "DELETE", credentials: "include" },
     );
     if (res.ok) {
-      const body = await res.json().catch(() => null);
-      if (body?.bmDeleteError) {
-        setActionResult({
-          ok: false,
-          msg: `Ban revoked, but BM delete failed: ${body.bmDeleteError}`,
-        });
-        setTimeout(() => setActionResult(null), 6000);
-      }
       loadBans();
     }
   };
@@ -278,18 +266,6 @@ function BansMutesPage() {
                 )}
               </div>
             </div>
-
-            {actionResult && (
-              <div
-                className={`rounded-md px-3 py-2 text-sm ring-1 ${
-                  actionResult.ok
-                    ? "bg-emerald-500/10 ring-emerald-500/30 text-emerald-700"
-                    : "bg-danger/10 ring-danger/40 text-danger"
-                }`}
-              >
-                {actionResult.msg}
-              </div>
-            )}
 
             {/* Filters */}
             <div className="flex items-center gap-2 flex-wrap">

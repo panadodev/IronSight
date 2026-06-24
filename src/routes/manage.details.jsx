@@ -1004,10 +1004,6 @@ function ManageDetailsPage() {
   const [name, setName] = useState("");
   const [guildId, setGuildId] = useState("");
   const [bmOrgId, setBmOrgId] = useState("");
-  const [bmAutoSync, setBmAutoSync] = useState(false);
-  const [bmBanListId, setBmBanListId] = useState("");
-  const [bmBanLists, setBmBanLists] = useState([]);
-  const [bmBanListsLoading, setBmBanListsLoading] = useState(false);
   const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
 
@@ -1071,8 +1067,6 @@ function ManageDetailsPage() {
         setName(body.organization?.name ?? "");
         setGuildId(body.organization?.guildId ?? "");
         setBmOrgId(body.organization?.bmOrgId ?? "");
-        setBmAutoSync(body.organization?.bmAutoSync === true);
-        setBmBanListId(body.organization?.bmBanListId ?? "");
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1107,19 +1101,6 @@ function ManageDetailsPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!orgId || !bmOrgId.trim()) {
-      setBmBanLists([]);
-      return;
-    }
-    setBmBanListsLoading(true);
-    authFetch(`/api/orgs/${encodeURIComponent(orgId)}/bm-ban-lists`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setBmBanLists(data?.banLists ?? []))
-      .catch(() => setBmBanLists([]))
-      .finally(() => setBmBanListsLoading(false));
-  }, [orgId, bmOrgId]);
-
   async function handleSave(event) {
     event.preventDefault();
     if (!orgId) return;
@@ -1136,8 +1117,6 @@ function ManageDetailsPage() {
           name: name.trim(),
           guildId: guildId.trim() || null,
           bmOrgId: bmOrgId.trim() || null,
-          bmAutoSync,
-          bmBanListId: bmBanListId.trim() || null,
         }),
       });
 
@@ -1151,9 +1130,6 @@ function ManageDetailsPage() {
       setName(body.organization?.name ?? name.trim());
       setGuildId(body.organization?.guildId ?? guildId.trim());
       setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
-      if (body.organization?.bmAutoSync !== undefined)
-        setBmAutoSync(body.organization.bmAutoSync === true);
-      setBmBanListId(body.organization?.bmBanListId ?? "");
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1276,62 +1252,6 @@ function ManageDetailsPage() {
               <strong>ID</strong>
             </p>
           </div>
-
-          {bmOrgId.trim() && (
-            <div className="space-y-1">
-              <Label htmlFor="bm-ban-list">BattleMetrics ban list</Label>
-              <Select
-                value={bmBanListId || "__all__"}
-                onValueChange={(v) => setBmBanListId(v === "__all__" ? "" : v)}
-                disabled={loading || saving || bmBanListsLoading}
-              >
-                <SelectTrigger id="bm-ban-list">
-                  <SelectValue placeholder={bmBanListsLoading ? "Loading…" : "Select a ban list"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">— All bans (no filter) —</SelectItem>
-                  {bmBanLists.map((bl) => (
-                    <SelectItem key={bl.id} value={bl.id}>
-                      {bl.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                When set, player ban lookups will only show bans from this ban list.
-              </p>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setBmAutoSync((v) => !v)}
-            disabled={loading || saving}
-            className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-background p-3 text-left transition-colors hover:bg-surface/60 disabled:opacity-50"
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-medium">Auto-sync bans to BattleMetrics</p>
-              <p className="text-[11px] text-muted-foreground">
-                Mirror every new ban to BattleMetrics as a record-only ban — no
-                identifiers are attached, so BattleMetrics never bans the player
-                itself; it just shows in your BM ban history. Requires a
-                BattleMetrics organization ID and API key.
-              </p>
-            </div>
-            <span
-              className={
-                "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
-                (bmAutoSync ? "bg-brand" : "bg-muted")
-              }
-            >
-              <span
-                className={
-                  "inline-block size-4 rounded-full bg-background shadow transition-transform " +
-                  (bmAutoSync ? "translate-x-4" : "translate-x-0.5")
-                }
-              />
-            </span>
-          </button>
 
           <Button type="submit" disabled={loading || saving}>
             {saving ? "Saving..." : "Save details"}
