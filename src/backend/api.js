@@ -3233,7 +3233,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
   if (!org?.bm_org_id) return;
 
   const banRes = await pool.query(
-    "SELECT ban_id, bm_ban_id, identifier, identifier_type, reason, expires_at FROM player_bans WHERE ban_id = $1 LIMIT 1",
+    "SELECT ban_id, bm_ban_id, identifier, identifier_type, reason, note, expires_at FROM player_bans WHERE ban_id = $1 LIMIT 1",
     [banId],
   );
   const ban = banRes.rows[0];
@@ -3247,7 +3247,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         autoAddEnabled: false,
         nativeEnabled: false,
         reason: ban.reason || "No reason provided",
-        note: "",
+        note: ban.note || "",
         ...(ban.expires_at ? { expires: new Date(ban.expires_at * 1000).toISOString() } : {}),
         identifiers: ban.identifier
           ? [{ type: bmIdentifierType, identifier: String(ban.identifier), manual: true }]
