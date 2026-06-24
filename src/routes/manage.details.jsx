@@ -1007,6 +1007,9 @@ function ManageDetailsPage() {
   const [bmOrgId, setBmOrgId] = useState("");
   const [bmAutoSync, setBmAutoSync] = useState(false);
   const [bmBanListId, setBmBanListId] = useState("");
+  const [bmOrgs, setBmOrgs] = useState([]);
+  const [bmOrgsLoading, setBmOrgsLoading] = useState(false);
+  const [bmOrgsError, setBmOrgsError] = useState("");
   const [bmBanLists, setBmBanLists] = useState([]);
   const [bmBanListsLoading, setBmBanListsLoading] = useState(false);
   const [guilds, setGuilds] = useState([]);
@@ -1107,6 +1110,40 @@ function ManageDetailsPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setBmOrgsLoading(true);
+    setBmOrgsError("");
+    async function loadBmOrgs() {
+      try {
+        const res = await authFetch(`/api/orgs/${orgId}/bm-orgs`);
+        if (!res.ok) {
+          const body = await safeJson(res);
+          if (!cancelled) {
+            setBmOrgsError(body?.error ?? "Failed to load organizations.");
+            setBmOrgsLoading(false);
+          }
+          return;
+        }
+        const body = await res.json();
+        if (!cancelled) {
+          setBmOrgs(Array.isArray(body?.orgs) ? body.orgs : []);
+          setBmOrgsLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled && err?.code !== "AUTH_EXPIRED") {
+          setBmOrgsError(err?.message ?? "Failed to load organizations.");
+          setBmOrgsLoading(false);
+        }
+      }
+    }
+    loadBmOrgs();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
 
   useEffect(() => {
     if (!orgId || !bmOrgId.trim()) {
@@ -1278,18 +1315,47 @@ function ManageDetailsPage() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="bm-org-id">BattleMetrics organization ID</Label>
-            <Input
-              id="bm-org-id"
-              value={bmOrgId}
-              onChange={(e) => setBmOrgId(e.target.value)}
-              disabled={loading || saving}
-              placeholder="12345"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Found in your BattleMetrics URL: battlemetrics.com/rcon/orgs/
-              <strong>ID</strong>
-            </p>
+            <Label htmlFor="bm-org-id">BattleMetrics organization</Label>
+            {bmOrgsLoading ? (
+              <p className="text-xs text-muted-foreground py-1">
+                Loading organizations…
+              </p>
+            ) : bmOrgs.length > 0 ? (
+              <Select
+                value={bmOrgId || "__none__"}
+                onValueChange={(v) => setBmOrgId(v === "__none__" ? "" : v)}
+                disabled={loading || saving}
+              >
+                <SelectTrigger id="bm-org-id">
+                  <SelectValue placeholder="Select an organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Not linked —</SelectItem>
+                  {bmOrgs.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <>
+                <Input
+                  id="bm-org-id"
+                  value={bmOrgId}
+                  onChange={(e) => setBmOrgId(e.target.value)}
+                  disabled={loading || saving}
+                  placeholder="12345"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {bmOrgsError
+                    ? "Could not load organizations — enter ID manually. "
+                    : "Add a BattleMetrics API key below to auto-load organizations. "}
+                  Found in your BattleMetrics URL: battlemetrics.com/rcon/orgs/
+                  <strong>ID</strong>
+                </p>
+              </>
+            )}
           </div>
 
           {bmOrgId.trim() && (

@@ -3145,6 +3145,38 @@ async function handleUpdateOrgDetails(request, orgId) {
 }
 
 
+async function handleGetBmOrgs(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  let data;
+  try {
+    const res = await bmFetch(
+      orgId,
+      `https://api.battlemetrics.com/organizations?page[size]=100`,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return json(
+        { error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}` },
+        502,
+      );
+    }
+    data = await res.json();
+  } catch (err) {
+    return json({ error: `Failed to reach BattleMetrics: ${err.message}` }, 502);
+  }
+
+  const orgs = (data?.data ?? []).map((item) => ({
+    id: String(item.id),
+    name: String(item.attributes?.name ?? item.id),
+  }));
+
+  return json({ orgs });
+}
+
 async function handleGetBmBanLists(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -10999,6 +11031,13 @@ async function _handleApiRequest(request) {
     }
     if (orgDetailsMatch && request.method === "PATCH") {
       return handleUpdateOrgDetails(request, orgDetailsMatch[1]);
+    }
+
+    const orgBmOrgsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bm-orgs$/,
+    );
+    if (orgBmOrgsMatch && request.method === "GET") {
+      return handleGetBmOrgs(request, orgBmOrgsMatch[1]);
     }
 
     const orgBmBanListsMatch = pathname.match(
