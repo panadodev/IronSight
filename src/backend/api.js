@@ -3202,8 +3202,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
   const ban = banRes.rows[0];
   if (!ban) return;
 
-  // identifiers array is intentionally empty — record-only entry, no player lookup.
-  // autoAddEnabled: false and nativeEnabled: false ensure BM never natively bans the player.
+  const bmIdentifierType = ban.identifier_type === "steam_id" ? "steamID" : ban.identifier_type;
   const payload = {
     data: {
       type: "ban",
@@ -3212,9 +3211,10 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         nativeEnabled: false,
         reason: ban.reason || "No reason provided",
         note: "",
-        expires: ban.expires_at ? new Date(ban.expires_at * 1000).toISOString() : null,
-        identifiers: [],
-        orgWide: false,
+        ...(ban.expires_at ? { expires: new Date(ban.expires_at * 1000).toISOString() } : {}),
+        identifiers: ban.identifier
+          ? [{ type: bmIdentifierType, identifier: String(ban.identifier), manual: true }]
+          : [],
       },
       relationships: {
         organization: {
