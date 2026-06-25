@@ -12199,7 +12199,7 @@ async function checkServerHealthAlerts() {
   const staleThreshold = nowSec - STALE_PING_SECONDS;
 
   const staleRes = await pool.query(
-    `SELECT server_id, owner_org_id, server_name
+    `SELECT server_id, owner_org_id, server_name, last_health_ping
      FROM servers
      WHERE last_health_ping IS NOT NULL
        AND last_health_ping < $1`,
@@ -12208,7 +12208,7 @@ async function checkServerHealthAlerts() {
   if (staleRes.rows.length === 0) return;
 
   for (const server of staleRes.rows) {
-    const { server_id, owner_org_id, server_name } = server;
+    const { server_id, owner_org_id, server_name, last_health_ping } = server;
 
     // Check / update alert state for cooldown
     const stateRes = await pool.query(
@@ -12239,8 +12239,8 @@ async function checkServerHealthAlerts() {
       [nowSec, owner_org_id, server_id],
     );
 
-    const minutesSince = Math.round((nowSec - staleThreshold) / 60);
-    const msg = `⚠️ **IronSight Alert** — Server **${server_name}** has not sent a health ping in over ${minutesSince} minute${minutesSince !== 1 ? "s" : ""}. Check the Status page for details.`;
+    const lastPingUnix = Number(last_health_ping);
+    const msg = `⚠️ **IronSight Alert** — Server **${server_name}** has not sent a health ping since <t:${lastPingUnix}:R> (last seen <t:${lastPingUnix}:t>). Check the Status page for details.`;
     for (const { discord_id } of subsRes.rows) {
       await sendDiscordDm(discord_id, msg);
     }
