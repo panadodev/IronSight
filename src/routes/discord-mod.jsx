@@ -32,6 +32,7 @@ import {
   ShieldOff,
   UserCheck,
   Paperclip,
+  FileText,
   Search,
   Users,
   ShieldAlert,
@@ -89,6 +90,55 @@ function ActionLabel({ type }) {
     cls: "text-muted-foreground",
   };
   return <span className={`font-semibold text-xs ${cls}`}>{label}</span>;
+}
+
+function MessageAttachments({ attachments }) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      {attachments.map((att) => {
+        const isImage = att.content_type?.startsWith("image/") || /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(att.filename ?? "");
+        const isVideo = att.content_type?.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(att.filename ?? "");
+        if (isImage) {
+          return (
+            <a
+              key={att.id ?? att.url}
+              href={att.url}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 rounded overflow-hidden ring-1 ring-border hover:ring-brand/60 transition-all"
+            >
+              <img
+                src={att.proxy_url ?? att.url}
+                alt={att.filename ?? "attachment"}
+                className="max-h-36 max-w-[200px] object-contain bg-surface"
+                loading="lazy"
+              />
+            </a>
+          );
+        }
+        return (
+          <a
+            key={att.id ?? att.url}
+            href={att.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 px-2 py-1 rounded ring-1 ring-border hover:ring-brand/60 bg-surface/50 hover:bg-surface transition-colors text-xs text-muted-foreground hover:text-foreground max-w-[260px]"
+          >
+            {isVideo ? <Paperclip className="size-3 shrink-0 text-brand" /> : <FileText className="size-3 shrink-0" />}
+            <span className="truncate">{att.filename ?? "file"}</span>
+            {att.size != null && (
+              <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60">
+                {att.size < 1024 * 1024
+                  ? `${Math.round(att.size / 1024)}KB`
+                  : `${(att.size / 1024 / 1024).toFixed(1)}MB`}
+              </span>
+            )}
+          </a>
+        );
+      })}
+    </div>
+  );
 }
 
 function MemberAvatar({ avatar, username, size = 7 }) {
@@ -756,14 +806,7 @@ function DiscordModPage() {
                               </em>
                             )}
                           </p>
-                          {Array.isArray(msg.attachments) &&
-                            msg.attachments.length > 0 && (
-                              <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
-                                <Paperclip className="size-3" />
-                                {msg.attachments.length} attachment
-                                {msg.attachments.length !== 1 ? "s" : ""}
-                              </div>
-                            )}
+                          <MessageAttachments attachments={msg.attachments} />
                         </div>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <ActionButtons
