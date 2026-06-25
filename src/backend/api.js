@@ -209,7 +209,11 @@ const ASSIGNABLE_PERMISSIONS = [
   "triggers_manage",
   "server_admin",
   "discord_mod",
+  "staff_online_view",
+  "chat_view",
   "flagged_messages_resolve",
+  "flagged_messages_confirm",
+  "flagged_messages_clear",
 ];
 
 // Ban permissions were split from the legacy umbrella `bans_manage` into granular
@@ -5684,6 +5688,9 @@ function serializePredefine(row) {
     keyword: String(row.keyword),
     extraKeywords: Array.isArray(row.extra_keywords) ? row.extra_keywords : [],
     content: String(row.content),
+    ticketTypeIds: Array.isArray(row.ticket_type_ids)
+      ? row.ticket_type_ids.map(Number)
+      : [],
   };
 }
 
@@ -5706,7 +5713,7 @@ async function handleListOrgPredefines(request, orgId) {
   void session;
 
   const { rows } = await pool.query(
-    `SELECT predefine_id, keyword, extra_keywords, content
+    `SELECT predefine_id, keyword, extra_keywords, content, ticket_type_ids
      FROM org_predefines WHERE org_id = $1 ORDER BY keyword ASC`,
     [orgId],
   );
@@ -5738,16 +5745,28 @@ async function handleCreateOrgPredefine(request, orgId) {
   const keyword = String(body?.keyword ?? "").trim();
   const content = String(body?.content ?? "").trim();
   const extraKeywords = normalizeExtraKeywords(body?.extraKeywords);
+  const rawTicketTypeIds = Array.isArray(body?.ticketTypeIds)
+    ? body.ticketTypeIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    : [];
   if (!keyword) return json({ error: "Keyword is required." }, 400);
   if (!content) return json({ error: "Content is required." }, 400);
   if (keyword.length > 128)
     return json({ error: "Keyword must be 128 characters or fewer." }, 400);
 
+  let ticketTypeIds = [];
+  if (rawTicketTypeIds.length > 0) {
+    const ttRes = await pool.query(
+      `SELECT ticket_type_id FROM ticket_types WHERE org_id = $1 AND ticket_type_id = ANY($2)`,
+      [orgId, rawTicketTypeIds],
+    );
+    ticketTypeIds = ttRes.rows.map((r) => Number(r.ticket_type_id));
+  }
+
   const { rows } = await pool.query(
-    `INSERT INTO org_predefines (org_id, keyword, extra_keywords, content, created_by)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING predefine_id, keyword, extra_keywords, content`,
-    [orgId, keyword, extraKeywords, content, session.userId],
+    `INSERT INTO org_predefines (org_id, keyword, extra_keywords, content, ticket_type_ids, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING predefine_id, keyword, extra_keywords, content, ticket_type_ids`,
+    [orgId, keyword, extraKeywords, content, ticketTypeIds, session.userId],
   );
   return json({ predefine: serializePredefine(rows[0]) }, 201);
 }
@@ -5795,6 +5814,21 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
     params.push(normalizeExtraKeywords(body.extraKeywords));
     setClauses.push(`extra_keywords = $${params.length}`);
   }
+  if (body?.ticketTypeIds !== undefined) {
+    const rawIds = Array.isArray(body.ticketTypeIds)
+      ? body.ticketTypeIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      : [];
+    let validIds = [];
+    if (rawIds.length > 0) {
+      const ttRes = await pool.query(
+        `SELECT ticket_type_id FROM ticket_types WHERE org_id = $1 AND ticket_type_id = ANY($2)`,
+        [orgId, rawIds],
+      );
+      validIds = ttRes.rows.map((r) => Number(r.ticket_type_id));
+    }
+    params.push(validIds);
+    setClauses.push(`ticket_type_ids = $${params.length}`);
+  }
   if (setClauses.length === 0)
     return json({ error: "No fields to update" }, 400);
   setClauses.push(`updated_at = unix_now()`);
@@ -5804,7 +5838,7 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
   const { rows } = await pool.query(
     `UPDATE org_predefines SET ${setClauses.join(", ")}
      WHERE predefine_id = $${params.length - 1} AND org_id = $${params.length}
-     RETURNING predefine_id, keyword, extra_keywords, content`,
+     RETURNING predefine_id, keyword, extra_keywords, content, ticket_type_ids`,
     params,
   );
   return json({ predefine: serializePredefine(rows[0]) });
@@ -6093,9 +6127,11 @@ async function handleListFlaggedMessages(request, orgId) {
   if (error) return error;
   if (
     !orgHasPermission(session, orgId, "toxicity_manage") &&
-    !orgHasPermission(session, orgId, "flagged_messages_resolve")
+    !orgHasPermission(session, orgId, "flagged_messages_resolve") &&
+    !orgHasPermission(session, orgId, "flagged_messages_confirm") &&
+    !orgHasPermission(session, orgId, "flagged_messages_clear")
   )
-    return json({ error: "Forbidden: toxicity_manage or flagged_messages_resolve permission required" }, 403);
+    return json({ error: "Forbidden: requires toxicity_manage, flagged_messages_resolve, flagged_messages_confirm, or flagged_messages_clear" }, 403);
 
   const url = new URL(request.url);
   const resolvedParam = url.searchParams.get("resolved");
@@ -6157,13 +6193,34 @@ async function handleListFlaggedMessages(request, orgId) {
 async function handleResolveFlaggedMessage(request, orgId, flagId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "flagged_messages_resolve"))
-    return json({ error: "Forbidden: flagged_messages_resolve permission required" }, 403);
 
   const body = await request.json().catch(() => ({}));
   const type = body?.type;
   if (!["confirmed", "cleared"].includes(type))
     return json({ error: "type must be 'confirmed' or 'cleared'" }, 400);
+
+  const hasResolve = orgHasPermission(session, orgId, "flagged_messages_resolve");
+  const hasToxicity = orgHasPermission(session, orgId, "toxicity_manage");
+  const canConfirm =
+    hasResolve ||
+    hasToxicity ||
+    orgHasPermission(session, orgId, "flagged_messages_confirm");
+  const canClear =
+    hasResolve ||
+    hasToxicity ||
+    orgHasPermission(session, orgId, "flagged_messages_clear");
+
+  if (type === "confirmed" && !canConfirm)
+    return json({ error: "Forbidden: flagged_messages_confirm (or flagged_messages_resolve) permission required" }, 403);
+  if (type === "cleared" && !canClear)
+    return json({ error: "Forbidden: flagged_messages_clear (or flagged_messages_resolve) permission required" }, 403);
+
+  const rl = await checkRateLimit(
+    `rl:flag-resolve:${session.userId}`,
+    FLAG_RESOLVE_RATE_LIMIT_PER_MINUTE,
+    60,
+  );
+  if (rl) return rl;
 
   const { rows } = await pool.query(
     `UPDATE ai_chat_flags
@@ -9862,6 +9919,7 @@ const PLAYER_VIEW_RATE_LIMIT_PER_MINUTE = 120;
 const PLAYER_REFRESH_RATE_LIMIT_PER_MINUTE = 20;
 const PLAYER_NOTE_WRITE_RATE_LIMIT_PER_MINUTE = 30;
 const PUBLIC_READ_RATE_LIMIT_PER_MINUTE = 60;
+const FLAG_RESOLVE_RATE_LIMIT_PER_MINUTE = 60;
 
 async function handleGetPlayer(request, steamId) {
   const { session, error } = await requireSession(request);

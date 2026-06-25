@@ -38,7 +38,7 @@ const CATEGORY_LABELS = {
   "violence/graphic": "Graphic Violence",
 };
 
-function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage, onFilterToPlayer }) {
+function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, onFilterToPlayer }) {
   const [flags, setFlags] = useState([]);
   const [totalReviewed, setTotalReviewed] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -152,7 +152,8 @@ function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage, onFilterToPl
               <FlagCard
                 key={flag.flagId}
                 flag={flag}
-                canResolve={canResolve && !showResolved}
+                canConfirm={canConfirm && !showResolved}
+                canClear={canClear && !showResolved}
                 acting={actingIds.has(flag.flagId)}
                 onConfirm={() => act(flag.flagId, "confirmed")}
                 onClear={() => act(flag.flagId, "cleared")}
@@ -174,7 +175,7 @@ function FlaggedMessagesPanel({ orgId, canResolve, onJumpToMessage, onFilterToPl
   );
 }
 
-function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump, onViewPlayer }) {
+function FlagCard({ flag, canConfirm, canClear, acting, onConfirm, onClear, onJump, onViewPlayer }) {
   const scorePercent = Math.round(flag.score * 100);
   const label =
     CATEGORY_LABELS[flag.triggeredCategory] ?? flag.triggeredCategory;
@@ -248,28 +249,32 @@ function FlagCard({ flag, canResolve, acting, onConfirm, onClear, onJump, onView
         )}
       </div>
 
-      {canResolve && (
+      {(canConfirm || canClear) && (
         <div className="flex gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-[10px] px-2 flex-1 text-danger border-danger/30 hover:bg-danger/10"
-            disabled={acting}
-            onClick={onConfirm}
-            title="Keep flagged — AI was correct, but unlist from the queue"
-          >
-            Confirm
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-[10px] px-2 flex-1"
-            disabled={acting}
-            onClick={onClear}
-            title="Dismiss — not a real concern"
-          >
-            Clear
-          </Button>
+          {canConfirm && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[10px] px-2 flex-1 text-danger border-danger/30 hover:bg-danger/10"
+              disabled={acting}
+              onClick={onConfirm}
+              title="Keep flagged — AI was correct, but unlist from the queue"
+            >
+              Confirm
+            </Button>
+          )}
+          {canClear && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[10px] px-2 flex-1"
+              disabled={acting}
+              onClick={onClear}
+              title="Dismiss — not a real concern"
+            >
+              Clear
+            </Button>
+          )}
         </div>
       )}
       {flag.resolved && flag.resolvedByName && (
@@ -474,13 +479,15 @@ function ChatPage() {
     };
   }, []);
 
-  // Filter servers to only those in currently selected orgs
+  // Filter servers to only those in currently selected orgs where user has chat_view
   const availableServers = useMemo(
     () =>
-      selectedOrgIds.length > 0
-        ? servers.filter((s) => selectedOrgIds.includes(s.ownerOrgId))
-        : servers,
-    [servers, selectedOrgIds],
+      servers.filter(
+        (s) =>
+          (selectedOrgIds.length === 0 || selectedOrgIds.includes(s.ownerOrgId)) &&
+          hasOrgPermission(s.ownerOrgId, "chat_view"),
+      ),
+    [servers, selectedOrgIds, hasOrgPermission],
   );
 
   // When selected orgs change, reset server selection if the current one is no longer visible
@@ -1107,24 +1114,23 @@ function ChatPage() {
                 </div>
               )}
             </div>
-            {(hasOrgPermission(
-                activeServer?.ownerOrgId ?? selectedOrgIds[0],
-                "toxicity_manage",
-              ) ||
-              hasOrgPermission(
-                activeServer?.ownerOrgId ?? selectedOrgIds[0],
-                "flagged_messages_resolve",
-              )) && (
-              <FlaggedMessagesPanel
-                orgId={activeServer?.ownerOrgId ?? selectedOrgIds[0]}
-                canResolve={hasOrgPermission(
-                  activeServer?.ownerOrgId ?? selectedOrgIds[0],
-                  "flagged_messages_resolve",
-                )}
-                onJumpToMessage={onJumpToMessage}
-                onFilterToPlayer={onFilterToPlayer}
-              />
-            )}
+            {(() => {
+              const panelOrgId = activeServer?.ownerOrgId ?? selectedOrgIds[0];
+              const hasToxicity = hasOrgPermission(panelOrgId, "toxicity_manage");
+              const hasResolve = hasOrgPermission(panelOrgId, "flagged_messages_resolve");
+              const hasConfirm = hasOrgPermission(panelOrgId, "flagged_messages_confirm");
+              const hasClear = hasOrgPermission(panelOrgId, "flagged_messages_clear");
+              if (!hasToxicity && !hasResolve && !hasConfirm && !hasClear) return null;
+              return (
+                <FlaggedMessagesPanel
+                  orgId={panelOrgId}
+                  canConfirm={hasToxicity || hasResolve || hasConfirm}
+                  canClear={hasToxicity || hasResolve || hasClear}
+                  onJumpToMessage={onJumpToMessage}
+                  onFilterToPlayer={onFilterToPlayer}
+                />
+              );
+            })()}
           </div>
         </main>
       </div>

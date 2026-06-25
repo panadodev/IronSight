@@ -86,6 +86,11 @@ const PERMISSION_GROUPS = [
         desc: "See actual IP addresses and player country",
       },
       {
+        id: "chat_view",
+        label: "View Chat Logs",
+        desc: "Access the in-game chat log viewer",
+      },
+      {
         isParent: true,
         id: "_bans",
         label: "Bans / Mutes",
@@ -134,6 +139,29 @@ const PERMISSION_GROUPS = [
         desc: "Configure automated threat trigger rules",
       },
       {
+        isParent: true,
+        id: "_flagged",
+        label: "Flag Resolution",
+        desc: "Review and act on AI-flagged chat messages",
+        children: [
+          {
+            id: "flagged_messages_resolve",
+            label: "Full Resolution",
+            desc: "Can both confirm and dismiss any flagged message",
+          },
+          {
+            id: "flagged_messages_confirm",
+            label: "Confirm Only",
+            desc: "Mark flagged messages as confirmed violations",
+          },
+          {
+            id: "flagged_messages_clear",
+            label: "Clear Only",
+            desc: "Dismiss flagged messages as non-violations",
+          },
+        ],
+      },
+      {
         id: "discord_mod",
         label: "Discord Moderation",
         desc: "Use the Discord moderation tools",
@@ -179,6 +207,45 @@ const PERMISSION_GROUPS = [
         desc: "Permanently delete todos",
       },
     ],
+  },
+];
+
+const BUILTIN_ROLES = [
+  {
+    name: "Owner",
+    desc: "Full control. Can manage all members, roles, settings, and configurations.",
+    className: "ring-brand/30 bg-brand/5",
+    labelClass: "text-brand",
+    hasAllPerms: true,
+    hasServerAdmin: true,
+    perms: [],
+  },
+  {
+    name: "Admin",
+    desc: "Elevated access. Can manage members and use all staff tools.",
+    className: "ring-border bg-surface/40",
+    labelClass: "text-foreground",
+    hasAllPerms: true,
+    hasServerAdmin: true,
+    perms: [],
+  },
+  {
+    name: "Member",
+    desc: "Basic access. Standard staff member with no elevated privileges.",
+    className: "ring-border bg-surface/40",
+    labelClass: "text-foreground",
+    hasAllPerms: false,
+    hasServerAdmin: false,
+    perms: ["todo_write"],
+  },
+  {
+    name: "Disabled",
+    desc: "No access. Blocked from all staff-related functionality and panels.",
+    className: "ring-danger/30 bg-danger/5",
+    labelClass: "text-danger",
+    hasAllPerms: false,
+    hasServerAdmin: false,
+    perms: [],
   },
 ];
 
@@ -275,8 +342,12 @@ function ParentPermCheckbox({
 }
 
 function RolesPage() {
-  const { hasOrgPermission, sessionOrgAdminIds, sessionOrgPermissions } =
-    useAuth();
+  const {
+    hasOrgPermission,
+    sessionOrgAdminIds,
+    sessionOrgOwnerIds,
+    sessionOrgPermissions,
+  } = useAuth();
   const orgId = useManageOrgId();
 
   const [roles, setRoles] = useState([]);
@@ -288,6 +359,7 @@ function RolesPage() {
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [expandedBuiltin, setExpandedBuiltin] = useState(null);
   const [draftPerms, setDraftPerms] = useState({});
   const [draftTicketTypes, setDraftTicketTypes] = useState({});
   const [draftDiscordRoleIds, setDraftDiscordRoleIds] = useState({});
@@ -304,6 +376,10 @@ function RolesPage() {
   const canGrant = sessionOrgAdminIds.includes(orgId ?? "")
     ? () => true
     : (permId) => (sessionOrgPermissions[orgId ?? ""] ?? []).includes(permId);
+
+  const canExpandBuiltin =
+    sessionOrgOwnerIds.includes(orgId ?? "") ||
+    sessionOrgAdminIds.includes(orgId ?? "");
 
   async function loadRoles() {
     if (!orgId) return;
@@ -560,53 +636,158 @@ function RolesPage() {
         <p className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground px-0.5">
           Built-in roles
         </p>
-        {[
-          {
-            name: "Owner",
-            desc: "Full control. Can manage all members, roles, settings, and configurations.",
-            className: "ring-brand/30 bg-brand/5",
-            labelClass: "text-brand",
-          },
-          {
-            name: "Admin",
-            desc: "Elevated access. Can manage members and use all staff tools.",
-            className: "ring-border bg-surface/40",
-            labelClass: "text-foreground",
-          },
-          {
-            name: "Member",
-            desc: "Basic access. Standard staff member with no elevated privileges.",
-            className: "ring-border bg-surface/40",
-            labelClass: "text-foreground",
-          },
-          {
-            name: "Disabled",
-            desc: "No access. Blocked from all staff-related functionality and panels.",
-            className: "ring-danger/30 bg-danger/5",
-            labelClass: "text-danger",
-            icon: <Ban className="size-3 shrink-0" />,
-          },
-        ].map((r) => (
-          <div
-            key={r.name}
-            className={`flex items-center gap-3 rounded-md ring-1 px-3 py-2 ${r.className}`}
-          >
-            <div className="flex-1 min-w-0">
-              <p
-                className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}
-              >
-                {r.icon}
-                {r.name}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                {r.desc}
-              </p>
+        {BUILTIN_ROLES.map((r) => {
+          const isExpanded = expandedBuiltin === r.name;
+          return (
+            <div
+              key={r.name}
+              className={`rounded-md ring-1 overflow-hidden ${r.className}`}
+            >
+              <div className="flex items-center gap-3 px-3 py-2">
+                {canExpandBuiltin ? (
+                  <button
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                    onClick={() =>
+                      setExpandedBuiltin(isExpanded ? null : r.name)
+                    }
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+                    ) : (
+                      <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}
+                      >
+                        {r.name === "Disabled" && (
+                          <Ban className="size-3 shrink-0" />
+                        )}
+                        {r.name}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {r.desc}
+                      </p>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}
+                    >
+                      {r.name === "Disabled" && (
+                        <Ban className="size-3 shrink-0" />
+                      )}
+                      {r.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {r.desc}
+                    </p>
+                  </div>
+                )}
+                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 shrink-0">
+                  built-in
+                </span>
+              </div>
+
+              {isExpanded && canExpandBuiltin && (
+                <div className="border-t border-border p-3 space-y-4">
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Permissions shown are what this role grants by default.
+                    They cannot be changed.
+                  </p>
+
+                  {PERMISSION_GROUPS.map((group) => (
+                    <div key={group.label}>
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                        {group.label}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                        {group.perms.map((perm) => {
+                          if (perm.isParent) {
+                            const childIds = perm.children.map((c) => c.id);
+                            const allChecked =
+                              r.hasAllPerms ||
+                              childIds.every((id) => r.perms.includes(id));
+                            const someChecked =
+                              !allChecked &&
+                              childIds.some(
+                                (id) =>
+                                  r.hasAllPerms || r.perms.includes(id),
+                              );
+                            return (
+                              <div key={perm.id} className="col-span-full">
+                                <ParentPermCheckbox
+                                  allChecked={allChecked}
+                                  someChecked={someChecked}
+                                  label={perm.label}
+                                  desc={perm.desc}
+                                  disabled={true}
+                                  onClick={() => {}}
+                                />
+                                <div className="ml-6 border-l border-border/40 pl-2 mt-0.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                  {perm.children.map((child) => (
+                                    <PermCheckbox
+                                      key={child.id}
+                                      checked={
+                                        r.hasAllPerms ||
+                                        r.perms.includes(child.id)
+                                      }
+                                      disabled={true}
+                                      onClick={() => {}}
+                                      label={child.label}
+                                      desc={child.desc}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <PermCheckbox
+                              key={perm.id}
+                              checked={
+                                r.hasAllPerms || r.perms.includes(perm.id)
+                              }
+                              disabled={true}
+                              onClick={() => {}}
+                              label={perm.label}
+                              desc={perm.desc}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                      Server Admin (in-game)
+                    </p>
+                    <PermCheckbox
+                      checked={r.hasServerAdmin}
+                      disabled={true}
+                      onClick={() => {}}
+                      label="Admin on Server"
+                      desc="Grant in-game admin via RCON on assignment (moderatorid + usergroup admin); revoked on removal."
+                    />
+                    {r.hasServerAdmin && (
+                      <div className="ml-6 border-l border-border/40 pl-2 mt-0.5">
+                        <PermCheckbox
+                          checked={true}
+                          disabled={true}
+                          onClick={() => {}}
+                          label="All servers"
+                          desc="Apply to every imported server, including ones added later."
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-            <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 shrink-0">
-              built-in
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">

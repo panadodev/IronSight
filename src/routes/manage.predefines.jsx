@@ -13,6 +13,7 @@ function PredefinesPage() {
   const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
   const [items, setItems] = useState([]);
+  const [ticketTypes, setTicketTypes] = useState([]);
 
   const isAdmin =
     Boolean(sessionUser?.isSysAdmin) ||
@@ -35,17 +36,27 @@ function PredefinesPage() {
   }, [orgId]);
 
   useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setTicketTypes(data?.ticketTypes ?? []))
+      .catch(() => {});
+  }, [orgId]);
+
+  useEffect(() => {
     load();
   }, [load]);
 
-  const onAdd = async (input) => {
+  const onAdd = async ({ keyword, extraKeywords, content, ticketTypeIds }) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/predefines`,
       {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ keyword, extraKeywords, content, ticketTypeIds }),
       },
     );
     const body = await res.json().catch(() => null);
@@ -55,14 +66,14 @@ function PredefinesPage() {
     return { ok: true };
   };
 
-  const onUpdate = async (id, patch) => {
+  const onUpdate = async (id, { keyword, extraKeywords, content, ticketTypeIds }) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/predefines/${encodeURIComponent(id)}`,
       {
         method: "PATCH",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({ keyword, extraKeywords, content, ticketTypeIds }),
       },
     );
     const body = await res.json().catch(() => null);
@@ -95,6 +106,7 @@ function PredefinesPage() {
       <PredefinesPanel
         orgId={orgId}
         items={items}
+        ticketTypes={ticketTypes}
         onAdd={onAdd}
         onUpdate={onUpdate}
         onRemove={onRemove}

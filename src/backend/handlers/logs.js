@@ -36,10 +36,10 @@ export async function handleGetChatLogs(request) {
   const server = serverRes.rows[0];
 
   if (
-    !orgHasPermission(session, server.owner_org_id, "players_view") &&
+    !orgHasPermission(session, server.owner_org_id, "chat_view") &&
     !isConfiguredSysAdmin(session)
   ) {
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+    return json({ error: "Forbidden: chat_view permission required" }, 403);
   }
 
   const nowUnixTs = Math.floor(Date.now() / 1000);

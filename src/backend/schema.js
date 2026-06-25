@@ -1335,6 +1335,11 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at BIGINT`,
   );
+
+  // Pre-define ticket-type scoping: empty = applies to all types.
+  await pool.query(
+    `ALTER TABLE org_predefines ADD COLUMN IF NOT EXISTS ticket_type_ids INTEGER[] NOT NULL DEFAULT '{}'`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
@@ -1419,7 +1424,11 @@ export async function ensureRolePermissionSeed(pool) {
       ('triggers_manage',     'Configure threat triggers'),
       ('server_admin',        'Admin on Server (grants in-game admin via RCON)'),
       ('discord_mod',         'Use Discord moderation'),
-      ('flagged_messages_resolve', 'Resolve AI-flagged chat messages')
+      ('staff_online_view',   'View the online staff list'),
+      ('chat_view',           'View in-game chat logs'),
+      ('flagged_messages_resolve', 'Resolve AI-flagged chat messages (confirm and clear)'),
+      ('flagged_messages_confirm', 'Confirm AI-flagged chat messages as violations'),
+      ('flagged_messages_clear',   'Clear (dismiss) AI-flagged chat messages')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 

@@ -88,21 +88,63 @@ function ToxicityPanel({ orgId, config, onSave }) {
     </div>
   );
 }
-function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
+function TicketTypeToggle({ ticketTypes, selected, onChange }) {
+  if (!ticketTypes.length) return null;
+  return (
+    <div>
+      <p className="text-[10px] font-mono text-muted-foreground mb-1.5">
+        Ticket types (leave all off = applies to every type)
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {ticketTypes.map((tt) => {
+          const active = selected.includes(tt.ticketTypeId);
+          return (
+            <button
+              key={tt.ticketTypeId}
+              type="button"
+              onClick={() =>
+                onChange(
+                  active
+                    ? selected.filter((id) => id !== tt.ticketTypeId)
+                    : [...selected, tt.ticketTypeId],
+                )
+              }
+              className={`text-[10px] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
+                active
+                  ? "bg-brand text-brand-foreground ring-brand"
+                  : "text-muted-foreground ring-border hover:text-foreground"
+              }`}
+            >
+              {tt.name}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PredefinesPanel({ orgId, items, ticketTypes = [], onAdd, onUpdate, onRemove }) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ keyword: "", extras: "", content: "" });
+  const [draft, setDraft] = useState({
+    keyword: "",
+    extras: "",
+    content: "",
+    ticketTypeIds: [],
+  });
   const [err, setErr] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState({
     keyword: "",
     extras: "",
     content: "",
+    ticketTypeIds: [],
   });
   useEffect(() => {
     setQuery("");
     setAdding(false);
-    setDraft({ keyword: "", extras: "", content: "" });
+    setDraft({ keyword: "", extras: "", content: "", ticketTypeIds: [] });
     setErr(null);
     setEditingId(null);
   }, [orgId]);
@@ -128,12 +170,13 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
       keyword: draft.keyword,
       extraKeywords: splitCsv(draft.extras),
       content: draft.content,
+      ticketTypeIds: draft.ticketTypeIds,
     });
     if (!res?.ok) {
       setErr(res?.error ?? "Failed to add pre-define.");
       return;
     }
-    setDraft({ keyword: "", extras: "", content: "" });
+    setDraft({ keyword: "", extras: "", content: "", ticketTypeIds: [] });
     setErr(null);
     setAdding(false);
   };
@@ -143,6 +186,7 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
       keyword: p.keyword,
       extras: p.extraKeywords.join(", "),
       content: p.content,
+      ticketTypeIds: p.ticketTypeIds ?? [],
     });
   };
   const saveEdit = async () => {
@@ -151,6 +195,7 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
       keyword: editDraft.keyword,
       extraKeywords: splitCsv(editDraft.extras),
       content: editDraft.content,
+      ticketTypeIds: editDraft.ticketTypeIds,
     });
     if (!res?.ok) {
       setErr(res?.error ?? "Failed to save.");
@@ -159,6 +204,13 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
     setEditingId(null);
     setErr(null);
   };
+
+  const ttById = useMemo(() => {
+    const map = {};
+    for (const tt of ticketTypes) map[tt.ticketTypeId] = tt;
+    return map;
+  }, [ticketTypes]);
+
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
@@ -212,6 +264,11 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
             placeholder="Pre-define content — what gets pasted into the reply box."
             className="min-h-[80px] text-xs"
           />
+          <TicketTypeToggle
+            ticketTypes={ticketTypes}
+            selected={draft.ticketTypeIds}
+            onChange={(ids) => setDraft((d) => ({ ...d, ticketTypeIds: ids }))}
+          />
           {err && <p className="text-[11px] text-danger">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button
@@ -262,6 +319,13 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
                   }
                   className="min-h-[80px] text-xs"
                 />
+                <TicketTypeToggle
+                  ticketTypes={ticketTypes}
+                  selected={editDraft.ticketTypeIds}
+                  onChange={(ids) =>
+                    setEditDraft((d) => ({ ...d, ticketTypeIds: ids }))
+                  }
+                />
                 {err && <p className="text-[11px] text-danger">{err}</p>}
                 <div className="flex justify-end gap-2">
                   <Button
@@ -296,6 +360,20 @@ function PredefinesPanel({ orgId, items, onAdd, onUpdate, onRemove }) {
                 <p className="text-xs text-foreground/80 mt-1 line-clamp-2 whitespace-pre-wrap">
                   {p.content}
                 </p>
+                {p.ticketTypeIds?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {p.ticketTypeIds.map((id) =>
+                      ttById[id] ? (
+                        <span
+                          key={id}
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-brand/10 text-brand ring-1 ring-brand/20"
+                        >
+                          {ttById[id].name}
+                        </span>
+                      ) : null,
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button

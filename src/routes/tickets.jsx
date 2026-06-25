@@ -7,6 +7,7 @@ import {
   Copy,
   ExternalLink,
   Gamepad2,
+  LayoutList,
   Search,
   Shield,
   UserSearch,
@@ -168,6 +169,7 @@ function TicketsPage() {
   const [submitError, setSubmitError] = useState("");
   const [orgServers, setOrgServers] = useState([]);
   const [orgStaff, setOrgStaff] = useState([]);
+  const [orgPredefines, setOrgPredefines] = useState([]);
 
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;
@@ -248,6 +250,24 @@ function TicketsPage() {
       })
       .catch(() => {
         if (!cancelled) setOrgStaff([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrgId]);
+
+  useEffect(() => {
+    if (!selectedOrgId) return;
+    let cancelled = false;
+    fetch(`/api/orgs/${encodeURIComponent(selectedOrgId)}/predefines`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : { predefines: [] }))
+      .then((data) => {
+        if (!cancelled) setOrgPredefines(data.predefines ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgPredefines([]);
       });
     return () => {
       cancelled = true;
@@ -513,6 +533,7 @@ function TicketsPage() {
               detailLoading={detailLoading}
               sessionUser={sessionUser}
               orgStaff={orgStaff}
+              predefines={orgPredefines}
             />
           </main>
         ) : (
@@ -582,6 +603,99 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
         </div>
       </div>
     </button>
+  );
+}
+
+function PredefinesPicker({ predefines, ticketTypeId, onSelect }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const relevant = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return predefines.filter((p) => {
+      // Show if scoped to this ticket type, or unscoped (applies to all)
+      const typeMatch =
+        !p.ticketTypeIds?.length ||
+        (ticketTypeId != null && p.ticketTypeIds.includes(ticketTypeId));
+      if (!typeMatch) return false;
+      if (!q) return true;
+      return (
+        p.keyword.toLowerCase().includes(q) ||
+        p.extraKeywords.some((k) => k.toLowerCase().includes(q)) ||
+        p.content.toLowerCase().includes(q)
+      );
+    });
+  }, [predefines, ticketTypeId, query]);
+
+  if (!predefines.length) return null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => {
+          setOpen((v) => !v);
+          setQuery("");
+        }}
+        title="Insert pre-define"
+        className={`flex items-center gap-1 text-[10px] font-mono rounded px-2 py-0.5 ring-1 transition-colors ${
+          open
+            ? "bg-brand text-brand-foreground ring-brand"
+            : "bg-surface/60 ring-border text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        <LayoutList size={10} />
+        Pre-defines
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-1 left-0 z-20 w-72 bg-surface border border-border rounded-md shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-border">
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search pre-defines..."
+              className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {relevant.length === 0 ? (
+              <div className="px-3 py-3 text-[10px] font-mono text-muted-foreground">
+                No pre-defines{query ? " match your search" : " for this ticket type"}.
+              </div>
+            ) : (
+              relevant.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    onSelect(p.content);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-surface-bright transition-colors border-b border-border last:border-0"
+                >
+                  <p className="text-[10px] font-mono font-bold text-foreground">
+                    {p.keyword}
+                  </p>
+                  <p className="text-[9px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
+                    {p.content}
+                  </p>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -670,6 +784,7 @@ function TicketDetail({
   detailLoading,
   sessionUser,
   orgStaff,
+  predefines = [],
 }) {
   const isClaimed = ticket.assigned_to === sessionUser?.userId;
   const isClosed = ticket.status === "closed";
@@ -815,6 +930,21 @@ function TicketDetail({
               · Staff-only. Reporters never see these.
             </span>
           )}
+          <div className="ml-auto">
+            <PredefinesPicker
+              predefines={predefines}
+              ticketTypeId={ticket.ticket_type_id ?? null}
+              onSelect={(content) => {
+                if (composerMode === "reply") {
+                  onReplyChange(
+                    replyText ? `${replyText}\n\n${content}` : content,
+                  );
+                } else {
+                  onNoteChange(noteText ? `${noteText}\n\n${content}` : content);
+                }
+              }}
+            />
+          </div>
         </div>
         {submitError && (
           <p className="text-[10px] font-mono text-danger mb-2">
