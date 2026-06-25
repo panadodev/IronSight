@@ -231,7 +231,7 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 
 | Field             | Type          | Required | Description                                                                                                                          |
 | ----------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `event_type`      | string        | Yes      | One of: `ADMIN_COMMAND`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE`               |
+| `event_type`      | string        | Yes      | One of: `ADMIN_COMMAND`, `ADMIN_CONNECT`, `ADMIN_DISCONNECT`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE` |
 | `admin_steam_id`  | string        | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                       |
 | `admin_name`      | string        | No       | In-game display name of the admin (max 128 chars)                                                                                    |
 | `target_steam_id` | string        | No       | SteamID64 of the affected player (max 64 chars)                                                                                      |
@@ -250,6 +250,8 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 
 | Hook / callback               | `event_type` to send  | Recommended fields                                         |
 | ----------------------------- | --------------------- | ---------------------------------------------------------- |
+| `OnUserAuthorized` / admin join | `ADMIN_CONNECT`     | `admin_steam_id`, `admin_name`, `details.ip_address`, `coordinates`      |
+| Admin leave / disconnect      | `ADMIN_DISCONNECT`    | `admin_steam_id`, `admin_name`                                            |
 | `OnUserCommand` (chat `/cmd`) | `ADMIN_COMMAND`       | `admin_steam_id`, `admin_name`, `command`, `coordinates` (admin position) |
 | `OnServerCommand` (console)   | `RCON_COMMAND`        | `command`                                                  |
 | `OnPlayerKicked`              | `KICK`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates` |

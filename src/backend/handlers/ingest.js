@@ -556,6 +556,8 @@ export async function handleGetBlacklistedWordsForServer(request) {
 
 const VALID_SERVER_LOG_EVENT_TYPES = new Set([
   "ADMIN_COMMAND",
+  "ADMIN_CONNECT",
+  "ADMIN_DISCONNECT",
   "KICK",
   "BAN",
   "UNBAN",

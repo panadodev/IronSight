@@ -21,6 +21,8 @@ const Route = createFileRoute("/server-logs")({
 
 const EVENT_META = {
   ADMIN_COMMAND: { label: "Admin command", color: "hsl(210 80% 60%)" },
+  ADMIN_CONNECT: { label: "Admin connect", color: "hsl(160 70% 55%)" },
+  ADMIN_DISCONNECT: { label: "Admin disconnect", color: "hsl(220 50% 60%)" },
   KICK: { label: "Kick", color: "hsl(30 85% 60%)" },
   BAN: { label: "Ban", color: "hsl(0 80% 55%)" },
   UNBAN: { label: "Unban", color: "hsl(160 70% 55%)" },
