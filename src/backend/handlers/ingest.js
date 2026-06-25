@@ -554,19 +554,6 @@ export async function handleGetBlacklistedWordsForServer(request) {
   });
 }
 
-const VALID_SERVER_LOG_EVENT_TYPES = new Set([
-  "ADMIN_COMMAND",
-  "ADMIN_CONNECT",
-  "ADMIN_DISCONNECT",
-  "KICK",
-  "BAN",
-  "UNBAN",
-  "MUTE",
-  "UNMUTE",
-  "RCON_COMMAND",
-  "NOCLIP_TOGGLE",
-  "GODMODE_TOGGLE",
-]);
 
 export async function handleIngestServerLog(request) {
   const { server, error } = await authenticateServerKey(request);
@@ -587,17 +574,8 @@ export async function handleIngestServerLog(request) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const eventType = String(body?.event_type ?? "")
-    .trim()
-    .toUpperCase();
-  if (!VALID_SERVER_LOG_EVENT_TYPES.has(eventType)) {
-    return json(
-      {
-        error: `event_type must be one of: ${[...VALID_SERVER_LOG_EVENT_TYPES].join(", ")}`,
-      },
-      400,
-    );
-  }
+  const eventType = String(body?.event_type ?? "").trim().toUpperCase();
+  if (!eventType) return json({ error: "event_type is required" }, 400);
 
   const adminSteamId =
     body?.admin_steam_id != null
