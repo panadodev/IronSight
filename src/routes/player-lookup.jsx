@@ -73,6 +73,26 @@ function formatBanAge(days) {
   return `~${(days / 365).toFixed(1)}yr ago`;
 }
 
+function accountAge(unix) {
+  if (!unix) return "—";
+  const days = Math.floor((Date.now() / 1000 - unix) / 86400);
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.round(days / 30)}mo`;
+  return `${(days / 365).toFixed(1)}yr`;
+}
+
+function lastBanDisplay(steam) {
+  if (!steam) return "—";
+  const total = (steam.vacCount ?? 0) + (steam.gameBanCount ?? 0);
+  if (total === 0) return "Never";
+  const d = steam.daysSinceLastBan;
+  if (d == null) return "—";
+  if (d === 0) return "Today";
+  if (d < 30) return `${d}d ago`;
+  if (d < 365) return `~${Math.round(d / 30)}mo ago`;
+  return `~${(d / 365).toFixed(1)}yr ago`;
+}
+
 function steamIdColor(steamId) {
   let h = 0;
   for (let i = 0; i < steamId.length; i++)
@@ -707,94 +727,155 @@ function PlayerLookupPage() {
                     </div>
 
                     {!isSupportOnly && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-6">
-                        <Field
-                          label="S-Hours"
-                          hint={HINTS.steamHours}
-                          value={
-                            playerData.steam.dataPublic
-                              ? fmtNum(playerData.steam.rustHours)
-                              : "Private"
-                          }
-                        />
-                        <Field
-                          label="Steam Profile"
-                          hint={HINTS.steamVisibility}
-                          value={playerData.steam.profileVisibility ?? "—"}
-                          tone={
-                            playerData.steam.profileVisibility === "Public"
-                              ? "success"
-                              : playerData.steam.profileVisibility ===
-                                  "Friends Only"
-                                ? "warning"
-                                : playerData.steam.profileVisibility ===
-                                    "Private"
-                                  ? "danger"
-                                  : undefined
-                          }
-                        />
-                        <Field
-                          label="BM-Hours"
-                          hint={HINTS.bmHours}
-                          value={
-                            playerData.bm
-                              ? fmtNum(playerData.bm.rustHours)
-                              : "—"
-                          }
-                        />
-                        {playerData.bm && (
-                          <Field
-                            label="BM Profile"
-                            hint={HINTS.bmVisibility}
-                            value={playerData.bm.private ? "Private" : "Public"}
-                            tone={playerData.bm.private ? "danger" : "success"}
-                          />
-                        )}
-                        <Field
-                          label="AIM-TRAIN Hours"
-                          hint={HINTS.atHours}
-                          value={
-                            playerData.bm
-                              ? fmtNum(playerData.bm.aimtrainHours)
-                              : "—"
-                          }
-                        />
-                        <Field label="K.D" hint={HINTS.kd} value={kd ?? "—"} />
-                        <Field
-                          label="VAC / Game"
-                          value={vacSummary.value}
-                          tone={vacSummary.tone}
-                        />
-                        {playerData.bm && (
-                          <Field
-                            label="BM Reports"
-                            value={fmtNum(
-                              (playerData.bm.cheatingReports ?? 0) +
-                                (playerData.bm.teamingReports ?? 0) +
-                                (playerData.bm.otherReports ?? 0),
-                            )}
-                            tone={
-                              (playerData.bm.cheatingReports ?? 0) +
-                                (playerData.bm.teamingReports ?? 0) +
-                                (playerData.bm.otherReports ?? 0) >
-                              10
-                                ? "danger"
-                                : (playerData.bm.cheatingReports ?? 0) +
-                                      (playerData.bm.teamingReports ?? 0) +
-                                      (playerData.bm.otherReports ?? 0) >
-                                    0
+                      <div className="space-y-4">
+                        {/* Steam */}
+                        <div>
+                          <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">Steam</p>
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
+                            <Field
+                              label="Rust Hours"
+                              hint={HINTS.steamHours}
+                              value={
+                                playerData.steam.dataPublic
+                                  ? fmtNum(playerData.steam.rustHours)
+                                  : "Private"
+                              }
+                              tone={!playerData.steam.dataPublic ? "warning" : undefined}
+                            />
+                            <Field
+                              label="Acct Age"
+                              value={accountAge(playerData.steam.profileCreatedAt)}
+                              tone={
+                                playerData.steam.profileCreatedAt &&
+                                Date.now() / 1000 - playerData.steam.profileCreatedAt < 30 * 86400
                                   ? "warning"
                                   : undefined
-                            }
-                          />
+                              }
+                            />
+                            <Field
+                              label="Visibility"
+                              hint={HINTS.steamVisibility}
+                              value={playerData.steam.profileVisibility ?? "—"}
+                              tone={
+                                playerData.steam.profileVisibility === "Public"
+                                  ? "success"
+                                  : playerData.steam.profileVisibility === "Friends Only"
+                                    ? "warning"
+                                    : playerData.steam.profileVisibility === "Private"
+                                      ? "danger"
+                                      : undefined
+                              }
+                            />
+                            <Field
+                              label="VAC / Game"
+                              value={vacSummary.value}
+                              tone={vacSummary.tone}
+                            />
+                            <Field
+                              label="Last Ban"
+                              value={lastBanDisplay(playerData.steam)}
+                              tone={
+                                (playerData.steam.vacCount ?? 0) + (playerData.steam.gameBanCount ?? 0) > 0
+                                  ? "danger"
+                                  : undefined
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        {/* BattleMetrics */}
+                        {playerData.bm && (
+                          <div>
+                            <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">BattleMetrics</p>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
+                              <Field
+                                label="BM Hours"
+                                hint={HINTS.bmHours}
+                                value={fmtNum(playerData.bm.rustHours)}
+                              />
+                              <Field
+                                label="BM Acct Age"
+                                value={accountAge(playerData.bm.profileCreatedAt)}
+                              />
+                              <Field
+                                label="BM Profile"
+                                hint={HINTS.bmVisibility}
+                                value={playerData.bm.private ? "Private" : "Public"}
+                                tone={playerData.bm.private ? "danger" : "success"}
+                              />
+                              <Field
+                                label="Aim Train"
+                                hint={HINTS.atHours}
+                                value={fmtNum(playerData.bm.aimtrainHours)}
+                              />
+                              <Field
+                                label="Servers"
+                                value={fmtNum(playerData.bm.serverCount)}
+                              />
+                              <Field
+                                label="K/D"
+                                hint={HINTS.kd}
+                                value={kd ?? "—"}
+                                tone={
+                                  kd != null && Number(kd) >= 3
+                                    ? "warning"
+                                    : undefined
+                                }
+                              />
+                              <Field
+                                label="Kills"
+                                value={fmtNum(playerData.bm.kills)}
+                              />
+                              <Field
+                                label="Deaths"
+                                value={fmtNum(playerData.bm.deaths)}
+                              />
+                              <Field
+                                label="Cheat Reports"
+                                value={fmtNum(playerData.bm.cheatingReports)}
+                                tone={
+                                  (playerData.bm.cheatingReports ?? 0) > 5
+                                    ? "danger"
+                                    : (playerData.bm.cheatingReports ?? 0) > 0
+                                      ? "warning"
+                                      : undefined
+                                }
+                              />
+                              <Field
+                                label="Total Reports"
+                                value={fmtNum(
+                                  (playerData.bm.cheatingReports ?? 0) +
+                                    (playerData.bm.teamingReports ?? 0) +
+                                    (playerData.bm.otherReports ?? 0),
+                                )}
+                                tone={
+                                  (playerData.bm.cheatingReports ?? 0) +
+                                    (playerData.bm.teamingReports ?? 0) +
+                                    (playerData.bm.otherReports ?? 0) >
+                                  10
+                                    ? "danger"
+                                    : (playerData.bm.cheatingReports ?? 0) +
+                                          (playerData.bm.teamingReports ?? 0) +
+                                          (playerData.bm.otherReports ?? 0) >
+                                        0
+                                      ? "warning"
+                                      : undefined
+                                }
+                              />
+                            </div>
+                          </div>
                         )}
-                        <Field
-                          label="Proxy"
-                          value={isProxy ? "True" : "False"}
-                          tone={isProxy ? "danger" : "success"}
-                        />
-                        <Field label="Location" value={country ?? "—"} />
-                        <Field label="Last Seen" value={lastSeen ?? "Never"} />
+
+                        {/* General */}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
+                          <Field
+                            label="Proxy"
+                            value={isProxy ? "True" : "False"}
+                            tone={isProxy ? "danger" : "success"}
+                          />
+                          <Field label="Location" value={country ?? "—"} />
+                          <Field label="Last Seen" value={lastSeen ?? "Never"} />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -802,6 +883,14 @@ function PlayerLookupPage() {
 
                 {/* Risk alerts */}
                 {!isSupportOnly && <PlayerAlertsBanner alerts={alerts} />}
+
+                {/* Connection Points */}
+                {canSeeRealIp && (
+                  <ConnectionPointsSection
+                    ipHistory={playerData.ipHistory}
+                    tz={tz}
+                  />
+                )}
 
                 {/* Notes */}
                 <PlayerNotesSection
@@ -1234,6 +1323,151 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Connection Points ─────────────────────────────────────────────────────────
+
+function flagEmoji(isoCode) {
+  if (!isoCode || isoCode.length !== 2) return "🌐";
+  const base = 0x1f1e6 - 65;
+  return String.fromCodePoint(
+    isoCode.toUpperCase().charCodeAt(0) + base,
+    isoCode.toUpperCase().charCodeAt(1) + base,
+  );
+}
+
+const CONN_TYPE_META = {
+  residential: { label: "Residential", cls: "text-success bg-success/10 ring-success/30" },
+  business:    { label: "Business",    cls: "text-brand bg-brand/10 ring-brand/30" },
+  mobile:      { label: "Mobile",      cls: "text-foreground bg-surface ring-border" },
+  proxy_vpn:   { label: "VPN / Proxy", cls: "text-danger bg-danger/10 ring-danger/30" },
+  hosting:     { label: "Hosting",     cls: "text-warning bg-warning/10 ring-warning/30" },
+};
+
+function ConnectionPointsSection({ ipHistory, tz }) {
+  const [expanded, setExpanded] = useState(null);
+
+  const entries = (ipHistory ?? []).filter((e) => e.ipAddress);
+  if (!entries.length) return null;
+
+  const toggle = (ip) => setExpanded((prev) => (prev === ip ? null : ip));
+
+  return (
+    <section>
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+        <span>Previous Connection Points</span>
+        <span className="font-mono normal-case tracking-normal">{entries.length}</span>
+      </h3>
+      <div className="rounded-md ring-1 ring-border overflow-hidden divide-y divide-border">
+        {entries.map((entry) => {
+          const flag = flagEmoji(entry.isoCode);
+          const connMeta = CONN_TYPE_META[entry.connType] ?? null;
+          const isOpen = expanded === entry.ipAddress;
+          const lastSeenDate = entry.lastSeen
+            ? new Date(entry.lastSeen * 1000).toLocaleDateString(
+                undefined,
+                tz ? { timeZone: tz } : {},
+              )
+            : null;
+          const firstSeenDate = entry.firstSeen
+            ? new Date(entry.firstSeen * 1000).toLocaleDateString(
+                undefined,
+                tz ? { timeZone: tz } : {},
+              )
+            : null;
+
+          return (
+            <div key={entry.ipAddress}>
+              <button
+                type="button"
+                onClick={() => toggle(entry.ipAddress)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface/60 transition-colors"
+              >
+                <span className="text-base leading-none shrink-0" aria-hidden>
+                  {flag}
+                </span>
+                <span className="font-mono text-xs text-foreground shrink-0 w-36 truncate">
+                  {entry.ipAddress}
+                </span>
+                <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
+                  {entry.country ?? "Unknown location"}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {(entry.isProxy || entry.isVpn) && (
+                    <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-danger bg-danger/10 ring-danger/30">
+                      {entry.isVpn ? "VPN" : "Proxy"}
+                    </span>
+                  )}
+                  {connMeta && (
+                    <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${connMeta.cls}`}>
+                      {connMeta.label}
+                    </span>
+                  )}
+                  {lastSeenDate && (
+                    <span className="text-[10px] text-muted-foreground font-mono w-20 text-right">
+                      {lastSeenDate}
+                    </span>
+                  )}
+                  <svg
+                    className={`size-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+              </button>
+
+              {isOpen && (
+                <div className="px-4 pb-3 pt-1 bg-surface/30 border-t border-border">
+                  <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+                    {entry.asn && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">ASN</dt>
+                        <dd className="font-mono text-foreground">{entry.asn}</dd>
+                      </div>
+                    )}
+                    {entry.isp && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">ISP / Provider</dt>
+                        <dd className="font-mono text-foreground truncate" title={entry.isp}>{entry.isp}</dd>
+                      </div>
+                    )}
+                    {firstSeenDate && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">First Seen</dt>
+                        <dd className="font-mono text-foreground">{firstSeenDate}</dd>
+                      </div>
+                    )}
+                    {lastSeenDate && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Last Seen</dt>
+                        <dd className="font-mono text-foreground">{lastSeenDate}</dd>
+                      </div>
+                    )}
+                    {entry.serverName && (
+                      <div className="col-span-2">
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Server</dt>
+                        <dd className="font-mono text-foreground truncate" title={entry.serverName}>{entry.serverName}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Flagged</dt>
+                      <dd className={`font-mono ${(entry.isProxy || entry.isVpn) ? "text-danger" : "text-success"}`}>
+                        {entry.isVpn ? "VPN" : entry.isProxy ? "Proxy" : "Clean"}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

@@ -4096,6 +4096,7 @@ function filterPlayerIpData(playerData, canSeeIp) {
       ...entry,
       ipAddress: null,
       country: null,
+      isoCode: null,
       isp: null,
     }));
   }

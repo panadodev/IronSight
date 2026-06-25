@@ -953,6 +953,10 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS conn_type TEXT`,
   );
+  // ISO 3166-1 alpha-2 country code from proxycheck — needed for country flag display.
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS iso_code VARCHAR(2)`,
+  );
   // BattleMetrics name-identifier history for the subject (used for name matching).
   await pool.query(
     `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS bm_name_aliases JSONB`,

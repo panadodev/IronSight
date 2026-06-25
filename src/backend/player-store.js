@@ -825,7 +825,7 @@ async function runProxycheckForIps(ipList, orgId) {
   // Serve already-cached, non-expired entries from ip_metadata so we only
   // hit the Proxycheck API for IPs we haven't seen within the 30-day TTL.
   const { rows: cachedRows } = await pool.query(
-    `SELECT ip_address, is_proxy, is_vpn, conn_type, isp, country, asn
+    `SELECT ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn
      FROM ip_metadata
      WHERE ip_address = ANY($1) AND cache_expires_at > unix_now()`,
     [ipList],
@@ -839,6 +839,7 @@ async function runProxycheckForIps(ipList, orgId) {
       connType: r.conn_type,
       isp: r.isp,
       country: r.country,
+      isoCode: r.iso_code ?? null,
       asn: r.asn,
     };
   }
@@ -892,6 +893,7 @@ async function runProxycheckForIps(ipList, orgId) {
         // proxycheck's v2 ASN response uses `provider`/`organisation`, not `isp`.
         isp: meta.isp ?? meta.provider ?? meta.organisation ?? null,
         country: meta.country ?? null,
+        isoCode: meta.isocode ?? null,
         asn: meta.asn ?? null,
       };
     }
@@ -1273,11 +1275,11 @@ async function writeFriendsToCache(steamId, result, orgId) {
 async function writeProxycheckToCache(ipResults) {
   for (const [ip, meta] of Object.entries(ipResults)) {
     await pool.query(
-      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, conn_type, isp, country, asn)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (ip_address) DO UPDATE SET
          is_proxy  = $2, is_vpn = $3, conn_type = $4, isp = $5,
-         country   = $6, asn = $7,
+         country   = $6, iso_code = COALESCE($7, ip_metadata.iso_code), asn = $8,
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 2592000`,
       [
@@ -1287,6 +1289,7 @@ async function writeProxycheckToCache(ipResults) {
         meta.connType,
         meta.isp,
         meta.country,
+        meta.isoCode ?? null,
         meta.asn,
       ],
     );
@@ -1554,7 +1557,7 @@ export async function getPlayerCacheData(steamId) {
       ),
       pool.query(
         `SELECT pih.ip_address, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
-                im.is_proxy, im.conn_type, im.isp, im.country, im.asn
+                im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn
          FROM player_ip_history pih
          LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
          WHERE pih.steam_id = $1
@@ -1679,6 +1682,7 @@ export async function getPlayerCacheData(steamId) {
       connType: r.conn_type ?? null,
       isp: r.isp ?? null,
       country: r.country ?? null,
+      isoCode: r.iso_code ?? null,
       asn: r.asn ?? null,
       serverName: r.server_name ?? null,
       firstSeen: r.first_seen,

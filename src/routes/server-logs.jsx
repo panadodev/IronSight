@@ -31,6 +31,9 @@ const EVENT_META = {
   RCON_COMMAND: { label: "RCON command", color: "hsl(270 65% 60%)" },
   NOCLIP_TOGGLE: { label: "Noclip toggle", color: "hsl(55 85% 55%)" },
   GODMODE_TOGGLE: { label: "Godmode toggle", color: "hsl(300 70% 60%)" },
+  GIVE: { label: "⚠ Give", color: "hsl(38 95% 55%)" },
+  ENTITY: { label: "⚠ Entity", color: "hsl(38 95% 55%)" },
+  SPAWN: { label: "⚠ Spawn", color: "hsl(38 95% 55%)" },
 };
 
 function eventMeta(type) {
