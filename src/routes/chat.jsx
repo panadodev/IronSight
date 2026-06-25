@@ -14,6 +14,7 @@ import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
+  BadgeCheck,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -1074,14 +1075,22 @@ function ChatPage() {
                           team
                         </span>
                       )}
-                      <Link
-                        to="/player-lookup"
-                        search={{ steam: l.steamId }}
-                        className="font-semibold shrink-0 w-[140px] truncate hover:text-brand hover:underline"
-                        title={l.steamId}
-                      >
-                        {l.playerName ?? l.steamId}
-                      </Link>
+                      <span className="flex items-center gap-0.5 shrink-0 w-[140px]">
+                        <Link
+                          to="/player-lookup"
+                          search={{ steam: l.steamId }}
+                          className="font-semibold truncate hover:text-brand hover:underline"
+                          title={l.steamId}
+                        >
+                          {l.playerName ?? l.steamId}
+                        </Link>
+                        {l.panelLinked && (
+                          <BadgeCheck
+                            className="size-3 text-brand shrink-0"
+                            title="Linked panel account"
+                          />
+                        )}
+                      </span>
                       <div className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
                         <span
                           className={`break-words min-w-0 ${l.teamMessage ? "text-yellow-400/80" : "text-foreground/90"}`}

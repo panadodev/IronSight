@@ -10,6 +10,21 @@ import {
   isConfiguredSysAdmin,
 } from "../core.js";
 
+async function annotatePanelLinked(lines) {
+  if (lines.length === 0) return lines;
+  const steamIds = [...new Set(lines.map((l) => l.steamId))];
+  try {
+    const { rows } = await pool.query(
+      "SELECT steam_id FROM users WHERE steam_id = ANY($1)",
+      [steamIds],
+    );
+    const linked = new Set(rows.map((r) => String(r.steam_id)));
+    return lines.map((l) => ({ ...l, panelLinked: linked.has(l.steamId) }));
+  } catch {
+    return lines;
+  }
+}
+
 export async function handleGetChatLogs(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -102,7 +117,7 @@ export async function handleGetChatLogs(request) {
             .filter(Boolean);
           // after-poll returns ASC; normalize to DESC for consistency
           if (after != null) lines.reverse();
-          return json({ lines, hasMore });
+          return json({ lines: await annotatePanelLinked(lines), hasMore });
         }
       }
     } catch {
@@ -148,7 +163,7 @@ export async function handleGetChatLogs(request) {
   // after-poll returns ASC; normalize to DESC for consistency
   if (after != null) lines.reverse();
 
-  return json({ lines, hasMore });
+  return json({ lines: await annotatePanelLinked(lines), hasMore });
 }
 
 export async function handleGetPvpLogs(request) {
