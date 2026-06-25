@@ -10739,6 +10739,18 @@ const PLAYER_NOTE_WRITE_RATE_LIMIT_PER_MINUTE = 30;
 const PUBLIC_READ_RATE_LIMIT_PER_MINUTE = 60;
 const FLAG_RESOLVE_RATE_LIMIT_PER_MINUTE = 60;
 
+// Every org the session belongs to, selected org first. Used to let a player
+// refresh borrow API keys from a sibling org when the selected org has none.
+function sessionCandidateOrgIds(session, preferredOrgId) {
+  const set = new Set();
+  if (preferredOrgId) set.add(String(preferredOrgId));
+  for (const id of Object.keys(session.orgPermissions ?? {})) set.add(String(id));
+  for (const id of session.orgAdminOrgIds ?? []) set.add(String(id));
+  for (const id of session.orgOwnerOrgIds ?? []) set.add(String(id));
+  set.delete(SYSADMIN.globalOrgId);
+  return Array.from(set);
+}
+
 async function handleGetPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -10774,12 +10786,13 @@ async function handleGetPlayer(request, steamId) {
   });
 
   const canSeeIp = orgHasPermission(session, orgId, "ip_read");
+  const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
 
   // Redis first — avoids 6 PostgreSQL queries on the hot path
   const fromRedis = await getPlayerDataFromRedis(steamId);
   if (fromRedis) {
     if (fromRedis.isStale) {
-      refreshPlayerData(steamId, orgId).catch((err) =>
+      refreshPlayerData(steamId, orgId, candidateOrgIds).catch((err) =>
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
     }
@@ -10791,7 +10804,7 @@ async function handleGetPlayer(request, steamId) {
 
   if (!cached) {
     // No cache at all — kick off background refresh and tell the client to poll
-    refreshPlayerData(steamId, orgId).catch((err) =>
+    refreshPlayerData(steamId, orgId, candidateOrgIds).catch((err) =>
       console.error(`[player] bg refresh error for ${steamId}:`, err.message),
     );
     return json({ fetching: true });
@@ -10831,6 +10844,7 @@ async function handleRefreshPlayer(request, steamId) {
   if (rl) return rl;
 
   const canSeeIp = orgHasPermission(session, orgId, "ip_read");
+  const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
 
   // Clear Redis so the background refresh can acquire the lock and write fresh data
   try {
@@ -10840,7 +10854,7 @@ async function handleRefreshPlayer(request, steamId) {
   // Fire the refresh in the background; poll Redis for core data (written mid-refresh,
   // after BM/Steam calls complete) rather than awaiting the full ~4s pipeline.
   // Once the refresh completes, evaluate threat triggers against the fresh data.
-  refreshPlayerData(steamId, orgId)
+  refreshPlayerData(steamId, orgId, candidateOrgIds)
     .then(() => evaluateThreatTriggers(orgId, steamId, "refresh"))
     .catch((err) =>
       console.error(`[player:refresh] bg error for ${steamId}:`, err.message),

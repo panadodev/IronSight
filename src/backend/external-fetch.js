@@ -34,6 +34,28 @@ export async function getAvailableExternalKeys(orgId, service) {
   return keys;
 }
 
+// Given a set of candidate org IDs, returns a map of service ->
+// Set(orgIds-with-an-available-key). Used to pick which org's keys to spend on a
+// player lookup when the acting user belongs to several orgs (the selected org
+// may have no keys for a given service while a sibling org does).
+export async function availableKeyOrgsByService(candidateOrgIds) {
+  if (!candidateOrgIds?.length) return {};
+  const { rows } = await pool.query(
+    `SELECT DISTINCT org_id, service
+     FROM org_external_api_keys
+     WHERE enabled = TRUE
+       AND org_id = ANY($1::text[])
+       AND (rate_limited_until IS NULL OR rate_limited_until < unix_now())`,
+    [candidateOrgIds],
+  );
+  const map = {};
+  for (const r of rows) {
+    const service = String(r.service);
+    (map[service] ??= new Set()).add(String(r.org_id));
+  }
+  return map;
+}
+
 async function markExternalKeyRateLimited(keyId, retryAfterSeconds) {
   const secs = Math.min(Math.max(Number(retryAfterSeconds) || 60, 1), 7200);
   await pool.query(

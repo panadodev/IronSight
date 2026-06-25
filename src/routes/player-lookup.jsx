@@ -226,6 +226,10 @@ function PlayerLookupPage() {
   const [firstFetch, setFirstFetch] = useState(false);
   const pollRef = useRef(null);
   const pollAttemptsRef = useRef(0);
+  // Remembers the last (steamId, org) we fetched so the fetch effect can tell an
+  // org switch (→ force a fresh pull from the new org's keys) apart from a new
+  // player or first load (→ a normal cache-first GET).
+  const lastFetchRef = useRef({ steamId: null, orgId: null });
 
   const [offenses, setOffenses] = useState([]);
   const [offensesLoading, setOffensesLoading] = useState(false);
@@ -237,6 +241,10 @@ function PlayerLookupPage() {
   const [issueBanActionType, setIssueBanActionType] = useState("ban");
   const [manageBansOpen, setManageBansOpen] = useState(false);
   const [manageMutesOpen, setManageMutesOpen] = useState(false);
+  // Explicit "look up using this org" override. When the staffer belongs to
+  // several orgs, they pick which org's external API keys drive the lookup
+  // (the player cache itself is shared across orgs). null → use the default.
+  const [lookupOrgId, setLookupOrgId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(false);
   const refreshCooldownRef = useRef(null);
@@ -255,10 +263,21 @@ function PlayerLookupPage() {
   const canCreateBansInOrg = (id) =>
     hasOrgPermission(id, "bans_create") || hasOrgPermission(id, "bans_manage");
 
-  const fetchOrgId =
+  // Orgs the staffer may look players up from (one shared cache, but the lookup
+  // spends *this* org's BattleMetrics/Steam/Proxycheck keys).
+  const lookupOrgs = orgs.filter((o) => hasOrgPermission(o.id, "players_view"));
+
+  const defaultLookupOrgId =
     selectedOrgIds.find((id) => hasOrgPermission(id, "players_view")) ??
-    orgs.find((o) => hasOrgPermission(o.id, "players_view"))?.id ??
+    lookupOrgs[0]?.id ??
     null;
+
+  // Honour the explicit choice when it's still a valid lookup org; otherwise
+  // fall back to the default (selected org, then any org with the permission).
+  const fetchOrgId =
+    lookupOrgId && lookupOrgs.some((o) => o.id === lookupOrgId)
+      ? lookupOrgId
+      : defaultLookupOrgId;
 
   const banOrgId =
     selectedOrgIds.find(canCreateBansInOrg) ??
@@ -329,6 +348,14 @@ function PlayerLookupPage() {
 
   useEffect(() => {
     if (!orgsLoaded) return;
+    // Same player but a different org selected → the shared cache would just
+    // return the same row, so force a refresh to re-pull from the newly chosen
+    // org's API keys. New player / first load → normal cache-first GET.
+    const prev = lastFetchRef.current;
+    const orgSwitched =
+      prev.steamId === steamId && !!prev.orgId && prev.orgId !== fetchOrgId;
+    lastFetchRef.current = { steamId, orgId: fetchOrgId };
+
     setPlayerData(null);
     setFirstFetch(false);
     setOffenses([]);
@@ -338,7 +365,7 @@ function PlayerLookupPage() {
       pollRef.current = null;
     }
     pollAttemptsRef.current = 0;
-    fetchPlayer(false);
+    fetchPlayer(orgSwitched);
   }, [steamId, fetchOrgId, orgsLoaded]);
 
   useEffect(() => {
@@ -583,6 +610,20 @@ function PlayerLookupPage() {
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
+                {lookupOrgs.length > 1 && (
+                  <select
+                    value={fetchOrgId ?? ""}
+                    onChange={(e) => setLookupOrgId(e.target.value)}
+                    title="Look up using this organization's API keys"
+                    className="px-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm focus:outline-none focus:ring-brand max-w-[180px]"
+                  >
+                    {lookupOrgs.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="submit"
                   disabled={playerLoading || firstFetch}

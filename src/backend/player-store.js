@@ -8,6 +8,7 @@ import {
   steamApiFetch,
   proxycheckApiFetch,
   getAvailableExternalKeys,
+  availableKeyOrgsByService,
 } from "./external-fetch.js";
 
 // ── Player data fetchers ──────────────────────────────────────────────────────
@@ -1302,18 +1303,35 @@ async function writeProxycheckToCache(ipResults) {
 
 // ── Main player refresh orchestrator ─────────────────────────────────────────
 
-export async function refreshPlayerData(steamId, orgId) {
+export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) {
   const locked = await acquirePlayerFetchLock(steamId);
   if (!locked) {
     console.log(`[player:refresh] ${steamId} — already in progress, skipping`);
     return;
   }
 
-  console.log(`[player:refresh] ${steamId} org=${orgId} — starting`);
+  // When the acting user belongs to several orgs, the selected org may have no
+  // keys for a given service while a sibling org does. Resolve, per service, the
+  // first candidate org (selected org preferred) that actually has an available
+  // key — so a lookup from a key-less org still pulls intel from one that has
+  // tokens. Falls back to the selected org when nothing has keys.
+  const candidates = [
+    ...new Set([orgId, ...(candidateOrgIds ?? [])].filter(Boolean).map(String)),
+  ];
+  const keyOrgs = await availableKeyOrgsByService(candidates);
+  const pickOrg = (service) =>
+    candidates.find((o) => keyOrgs[service]?.has(o)) ?? orgId;
+  const steamOrg = pickOrg("steam");
+  const bmOrg = pickOrg("battlemetrics");
+  const proxyOrg = pickOrg("proxycheck");
+
+  console.log(
+    `[player:refresh] ${steamId} org=${orgId} — starting (steam=${steamOrg} bm=${bmOrg} proxy=${proxyOrg})`,
+  );
 
   try {
     const [steamData, bmIdResult] = await Promise.all([
-      fetchSteamPlayerData(steamId, orgId),
+      fetchSteamPlayerData(steamId, steamOrg),
       (async () => {
         const { rows } = await pool.query(
           `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
@@ -1333,18 +1351,18 @@ export async function refreshPlayerData(steamId, orgId) {
       await writeSteamDataToCache(steamId, steamData);
     } else {
       console.warn(
-        `[player:refresh] ${steamId} — steam fetch failed (no steam key for org ${orgId}?)`,
+        `[player:refresh] ${steamId} — steam fetch failed (no steam key for org ${steamOrg}?)`,
       );
       await ensurePlayerCacheRow(steamId);
     }
 
     if (!bmId) {
-      bmId = await findBMIdBySteamId(steamId, orgId);
+      bmId = await findBMIdBySteamId(steamId, bmOrg);
       if (bmId) {
         console.log(`[player:refresh] ${steamId} — resolved bmId=${bmId}`);
       } else {
         console.warn(
-          `[player:refresh] ${steamId} — BM ID not found (no BM key for org ${orgId}? player not in BM?)`,
+          `[player:refresh] ${steamId} — BM ID not found (no BM key for org ${bmOrg}? player not in BM?)`,
         );
       }
     }
@@ -1355,9 +1373,9 @@ export async function refreshPlayerData(steamId, orgId) {
 
     if (bmId) {
       const [bmDataResult, relResult, bansResult] = await Promise.allSettled([
-        fetchBMPlayerData(bmId, orgId),
-        fetchBMRelatedIdentifiers(bmId, orgId),
-        fetchBMPlayerBans(bmId, orgId),
+        fetchBMPlayerData(bmId, bmOrg),
+        fetchBMRelatedIdentifiers(bmId, bmOrg),
+        fetchBMPlayerBans(bmId, bmOrg),
       ]);
 
       if (bmDataResult.status === "rejected")
@@ -1403,23 +1421,23 @@ export async function refreshPlayerData(steamId, orgId) {
       // that follows, so they must complete first.
       const [subjectFriends, , ipResults, subjectGroups, subjectWindows] =
         await Promise.all([
-          fetchSteamFriends(steamId, orgId),
+          fetchSteamFriends(steamId, steamOrg),
           bmId
-            ? fetchBMActivity(bmId, orgId).then((r) =>
+            ? fetchBMActivity(bmId, bmOrg).then((r) =>
                 writeActivityToCache(steamId, r),
               )
             : Promise.resolve(null),
           ipsOnly.length
-            ? runProxycheckForIps(ipsOnly, orgId)
+            ? runProxycheckForIps(ipsOnly, proxyOrg)
             : Promise.resolve({}),
-          fetchSteamGroups(steamId, orgId),
+          fetchSteamGroups(steamId, steamOrg),
           // Grab the subject's COMPLETE session history (not just the recent
           // co-presence window) and cache all of it. refreshPlayerData is
           // fire-and-forget, so the extra BattleMetrics pages don't block the
           // request. maxPages is a generous safety cap (100 pages × 100 =
           // 10k sessions) — more than any realistic player has.
           bmId
-            ? fetchBMSessions(bmId, orgId, { maxPages: 100, sinceUnix: null })
+            ? fetchBMSessions(bmId, bmOrg, { maxPages: 100, sinceUnix: null })
             : Promise.resolve([]),
         ]);
 
@@ -1447,7 +1465,7 @@ export async function refreshPlayerData(steamId, orgId) {
       }
 
       await Promise.all([
-        writeFriendsToCache(steamId, subjectFriends, orgId),
+        writeFriendsToCache(steamId, subjectFriends, steamOrg),
         writeProxycheckToCache(ipResults),
         writeSessionWindowsToCache(steamId, subjectWindows),
       ]);
@@ -1456,7 +1474,7 @@ export async function refreshPlayerData(steamId, orgId) {
       if (bmId && relIdentifiers.relatedPlayers.length) {
         const altDetails = await fetchRelatedAccountDetails(
           relIdentifiers.relatedPlayers,
-          orgId,
+          bmOrg,
         );
         const subjectCtx = {
           aliases: bmData?.nameAliases ?? [],
