@@ -18,7 +18,16 @@ import {
   migrateTimestampsToUnix,
 } from "./schema.js";
 import { getClientIp, json, parseLimit, parseMaybeList } from "./http.js";
-import { pool, redis, queue, setPool, setRedis, setQueue } from "./runtime.js";
+import {
+  pool,
+  redis,
+  redisSub,
+  queue,
+  setPool,
+  setRedis,
+  setRedisSub,
+  setQueue,
+} from "./runtime.js";
 import {
   authenticateServerKey,
   checkRateLimit,
@@ -31,6 +40,7 @@ import {
   canManageOrg,
   canViewOrgAsOwner,
   orgHasPermission,
+  orgActorPosition,
   sessionRankForOrg,
   getSession,
   requireSession,
@@ -110,6 +120,10 @@ const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_ME_URL = "https://discord.com/api/users/@me";
 const STEAM_OPENID_URL = "https://steamcommunity.com/openid/login";
+
+// ticketId → Set<{ controller: ReadableStreamDefaultController, isStaff: boolean }>
+const ticketStreams = new Map();
+const sseEncoder = new TextEncoder();
 
 let initError = null;
 let initialized = false;
@@ -556,6 +570,37 @@ async function init() {
     const bullRedis = new Redis(env.redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
+    });
+
+    const redisSubClient = new Redis(env.redisUrl, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: true,
+    });
+    setRedisSub(redisSubClient);
+    redisSubClient.psubscribe("ticket-stream:*").catch((err) => {
+      console.error("[sse] redisSub psubscribe error:", err.message);
+    });
+    redisSubClient.on("pmessage", (_pattern, channel, raw) => {
+      const ticketId = parseInt(channel.slice("ticket-stream:".length), 10);
+      if (!Number.isFinite(ticketId)) return;
+      const set = ticketStreams.get(ticketId);
+      if (!set?.size) return;
+      let event;
+      try {
+        event = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      const chunk = sseEncoder.encode(`data: ${raw}\n\n`);
+      for (const entry of set) {
+        if (event.type === "new_message" && event.message?.isInternal && !entry.isStaff)
+          continue;
+        try {
+          entry.controller.enqueue(chunk);
+        } catch {
+          set.delete(entry);
+        }
+      }
     });
 
     setQueue(
@@ -2044,11 +2089,27 @@ async function handleGrantOrgAdmin(request, orgId) {
   return json({ ok: true, orgId, discordId });
 }
 
+// Hierarchy position of a role by id, mapping the built-in roles onto the
+// custom-role scale: Owner/Admin sit above everything (Infinity), member /
+// disabled at the bottom (0), custom roles use their stored position.
+async function roleHierarchyPosition(roleId) {
+  if (roleId === "org_owner" || roleId === "org_admin") return Infinity;
+  if (roleId === "org_member" || roleId === "org_disabled") return 0;
+  const res = await pool.query(
+    `SELECT position FROM roles WHERE role_id = $1 LIMIT 1`,
+    [roleId],
+  );
+  return res.rows[0] ? Number(res.rows[0].position) : 0;
+}
+
 async function handleCreateOrgRole(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "role_create")) {
-    return json({ error: "Forbidden: role_create permission required" }, 403);
+    return json(
+      { error: "Forbidden: role management permission required" },
+      403,
+    );
   }
 
   let body;
@@ -2090,19 +2151,34 @@ async function handleCreateOrgRole(request, orgId) {
     return json({ error: "A role with this name already exists" }, 409);
   }
 
-  // Create the role
+  // Create the role at the BOTTOM of the hierarchy (Discord convention): bump
+  // every existing custom role up one and insert the new one at position 1.
+  // A role created at the bottom is always below its creator, so no position
+  // ceiling check is needed here — the permission ceiling below is what matters.
+  const client = await pool.connect();
   try {
-    await pool.query(
-      `INSERT INTO roles (role_id, role_name)
-       VALUES ($1, $2)`,
+    await client.query(`BEGIN`);
+    await client.query(
+      `UPDATE roles SET position = position + 1
+       WHERE role_id LIKE ($1 || '_%')
+         AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')`,
+      [orgId],
+    );
+    await client.query(
+      `INSERT INTO roles (role_id, role_name, position)
+       VALUES ($1, $2, 1)`,
       [roleId, roleName],
     );
+    await client.query(`COMMIT`);
   } catch (err) {
+    await client.query(`ROLLBACK`).catch(() => {});
+    client.release();
     if (err.code === "23505") {
       return json({ error: "A role with this name already exists" }, 409);
     }
     throw err;
   }
+  client.release();
 
   // Add permissions to the role
   if (permissions.length > 0) {
@@ -2192,7 +2268,7 @@ async function handleListOrgRoles(request, orgId) {
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
 
   const { rows } = await pool.query(
-    `SELECT r.role_id, r.role_name, r.server_admin_all,
+    `SELECT r.role_id, r.role_name, r.server_admin_all, r.position,
             COALESCE(array_agg(DISTINCT rp.permission_id ORDER BY rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permissions,
             COALESCE(array_agg(DISTINCT ttr.ticket_type_id ORDER BY ttr.ticket_type_id) FILTER (WHERE ttr.ticket_type_id IS NOT NULL), '{}') AS ticket_type_ids,
             COALESCE(array_agg(DISTINCT rdr.discord_role_id ORDER BY rdr.discord_role_id) FILTER (WHERE rdr.discord_role_id IS NOT NULL), '{}') AS discord_role_ids,
@@ -2204,15 +2280,21 @@ async function handleListOrgRoles(request, orgId) {
      LEFT JOIN role_server_admin rsa ON rsa.role_id = r.role_id
      WHERE r.role_id LIKE ($1 || '_%')
        AND r.role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
-     GROUP BY r.role_id, r.role_name, r.server_admin_all
-     ORDER BY r.role_name ASC`,
+     GROUP BY r.role_id, r.role_name, r.server_admin_all, r.position
+     ORDER BY r.position DESC, r.role_name ASC`,
     [orgId],
   );
 
+  // Caller's own hierarchy position drives what the UI lets them edit/assign.
+  // null means "top of hierarchy" (owner/admin/global) — above every role.
+  const actorPos = await orgActorPosition(session, orgId);
+
   return json({
+    callerPosition: Number.isFinite(actorPos) ? actorPos : null,
     roles: rows.map((row) => ({
       roleId: String(row.role_id),
       roleName: String(row.role_name),
+      position: Number(row.position),
       permissions: Array.isArray(row.permissions) ? row.permissions : [],
       ticketTypeIds: Array.isArray(row.ticket_type_ids)
         ? row.ticket_type_ids.map(Number)
@@ -2232,7 +2314,10 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "role_create")) {
-    return json({ error: "Forbidden: role_create permission required" }, 403);
+    return json(
+      { error: "Forbidden: role management permission required" },
+      403,
+    );
   }
 
   if (!roleId.startsWith(`${orgId}_`)) {
@@ -2247,10 +2332,22 @@ async function handleUpdateOrgRole(request, orgId, roleId) {
   }
 
   const roleExists = await pool.query(
-    `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
+    `SELECT role_id, position FROM roles WHERE role_id = $1 LIMIT 1`,
     [roleId],
   );
   if (!roleExists.rows[0]) return json({ error: "Role not found" }, 404);
+
+  // Hierarchy: you cannot edit a role at or above your own position.
+  const actorPos = await orgActorPosition(session, orgId);
+  if (
+    actorPos !== Infinity &&
+    Number(roleExists.rows[0].position) >= actorPos
+  ) {
+    return json(
+      { error: "Cannot edit a role at or above your own in the hierarchy" },
+      403,
+    );
+  }
 
   if (body?.roleName !== undefined) {
     const roleName = String(body.roleName).trim();
@@ -2481,7 +2578,10 @@ async function handleDeleteOrgRole(request, orgId, roleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "role_create")) {
-    return json({ error: "Forbidden: role_create permission required" }, 403);
+    return json(
+      { error: "Forbidden: role management permission required" },
+      403,
+    );
   }
 
   if (!roleId.startsWith(`${orgId}_`)) {
@@ -2489,10 +2589,22 @@ async function handleDeleteOrgRole(request, orgId, roleId) {
   }
 
   const roleExists = await pool.query(
-    `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
+    `SELECT role_id, position FROM roles WHERE role_id = $1 LIMIT 1`,
     [roleId],
   );
   if (!roleExists.rows[0]) return json({ error: "Role not found" }, 404);
+
+  // Hierarchy: you cannot delete a role at or above your own position.
+  const actorPos = await orgActorPosition(session, orgId);
+  if (
+    actorPos !== Infinity &&
+    Number(roleExists.rows[0].position) >= actorPos
+  ) {
+    return json(
+      { error: "Cannot delete a role at or above your own in the hierarchy" },
+      403,
+    );
+  }
 
   // Revoke in-game admin for members on this role before they drop to
   // org_member (which has no server_admin). Best-effort.
@@ -2533,6 +2645,96 @@ async function handleDeleteOrgRole(request, orgId, roleId) {
     severity: 3,
     metadata: { roleId },
   });
+
+  return json({ ok: true });
+}
+
+// Move a custom role one step up or down the hierarchy by swapping positions
+// with its neighbour. Callers can only move roles below their own position, and
+// can never push a role to or above their own level.
+async function handleReorderOrgRole(request, orgId, roleId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "role_create")) {
+    return json(
+      { error: "Forbidden: role management permission required" },
+      403,
+    );
+  }
+  if (!roleId.startsWith(`${orgId}_`)) {
+    return json({ error: "Role does not belong to this organization" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+  const direction = String(body?.direction ?? "");
+  if (direction !== "up" && direction !== "down") {
+    return json({ error: "direction must be 'up' or 'down'" }, 400);
+  }
+
+  const cur = await pool.query(
+    `SELECT position FROM roles WHERE role_id = $1 LIMIT 1`,
+    [roleId],
+  );
+  if (!cur.rows[0]) return json({ error: "Role not found" }, 404);
+  const curPos = Number(cur.rows[0].position);
+
+  const actorPos = await orgActorPosition(session, orgId);
+  if (actorPos !== Infinity && curPos >= actorPos) {
+    return json(
+      { error: "Cannot move a role at or above your own in the hierarchy" },
+      403,
+    );
+  }
+
+  // "up" = next-higher position, "down" = next-lower position.
+  const neighbor = await pool.query(
+    direction === "up"
+      ? `SELECT role_id, position FROM roles
+          WHERE role_id LIKE ($1 || '_%')
+            AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
+            AND position > $2
+          ORDER BY position ASC LIMIT 1`
+      : `SELECT role_id, position FROM roles
+          WHERE role_id LIKE ($1 || '_%')
+            AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
+            AND position < $2
+          ORDER BY position DESC LIMIT 1`,
+    [orgId, curPos],
+  );
+  if (!neighbor.rows[0]) return json({ ok: true }); // already at the edge
+
+  const nbId = String(neighbor.rows[0].role_id);
+  const nbPos = Number(neighbor.rows[0].position);
+  if (actorPos !== Infinity && direction === "up" && nbPos >= actorPos) {
+    return json(
+      { error: "Cannot move a role above your own in the hierarchy" },
+      403,
+    );
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query(`BEGIN`);
+    await client.query(`UPDATE roles SET position = $1 WHERE role_id = $2`, [
+      nbPos,
+      roleId,
+    ]);
+    await client.query(`UPDATE roles SET position = $1 WHERE role_id = $2`, [
+      curPos,
+      nbId,
+    ]);
+    await client.query(`COMMIT`);
+  } catch (err) {
+    await client.query(`ROLLBACK`).catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return json({ ok: true });
 }
@@ -2585,6 +2787,23 @@ async function handleRemoveOrgMember(request, orgId, userId) {
     isConfiguredSysAdmin(session);
   if (beforeState.role_id === "org_owner" && !actorIsOwner) {
     return json({ error: "Only org owners can remove other owners" }, 403);
+  }
+
+  // Hierarchy: you cannot remove a member whose role sits at or above your own.
+  if (!actorIsOwner) {
+    const actorPos = await orgActorPosition(session, orgId);
+    if (actorPos !== Infinity) {
+      const targetPos = await roleHierarchyPosition(beforeState.role_id);
+      if (targetPos >= actorPos) {
+        return json(
+          {
+            error:
+              "Cannot remove a member at or above your own in the hierarchy",
+          },
+          403,
+        );
+      }
+    }
   }
 
   // Revoke in-game admin via RCON before dropping the membership.
@@ -2660,17 +2879,33 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
 
   const builtInRoles = ["org_member", "org_admin", "org_owner", "org_disabled"];
 
+  // Caller's hierarchy position gates which roles they can hand out and which
+  // members they can act on. Owner/admin/global are Infinity (top).
+  const actorPos = await orgActorPosition(session, orgId);
+
   if (!builtInRoles.includes(resolvedTeam)) {
     // Must be a valid custom role belonging to this org
     if (!resolvedTeam.startsWith(`${orgId}_`)) {
       return json({ error: "Invalid role" }, 400);
     }
     const customRoleRes = await pool.query(
-      `SELECT role_id FROM roles WHERE role_id = $1 LIMIT 1`,
+      `SELECT role_id, position FROM roles WHERE role_id = $1 LIMIT 1`,
       [resolvedTeam],
     );
     if (!customRoleRes.rows[0]) {
       return json({ error: "Invalid role" }, 400);
+    }
+
+    // Hierarchy: you cannot assign a role at or above your own position
+    // (Discord rule — you can only hand out roles below you).
+    if (
+      actorPos !== Infinity &&
+      Number(customRoleRes.rows[0].position) >= actorPos
+    ) {
+      return json(
+        { error: "Cannot assign a role at or above your own in the hierarchy" },
+        403,
+      );
     }
 
     // Prevent escalation-by-proxy: a non-admin/owner actor (e.g. a custom role
@@ -2735,6 +2970,21 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   // Admins cannot modify org owners
   if (beforeState.role_id === "org_owner" && !actorIsOwner) {
     return json({ error: "Only org owners can modify other owners" }, 403);
+  }
+
+  // Hierarchy: you cannot change the role of a member at or above your own
+  // position (can't demote a peer or someone above you).
+  if (actorPos !== Infinity) {
+    const targetCurrentPos = await roleHierarchyPosition(beforeState.role_id);
+    if (targetCurrentPos >= actorPos) {
+      return json(
+        {
+          error:
+            "Cannot change the role of a member at or above your own in the hierarchy",
+        },
+        403,
+      );
+    }
   }
 
   if (beforeState.role_id === resolvedTeam) {
@@ -4038,6 +4288,96 @@ async function handleCreateTicket(request) {
   return json({ ok: true, ticketId }, 201);
 }
 
+async function handleStreamTicket(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  let ticket = await getCachedTicket(id);
+  if (!ticket) {
+    ticket = await loadTicketFromDb(id);
+    if (!ticket) return json({ error: "Ticket not found" }, 404);
+    await cacheTicket(ticket);
+  }
+
+  if (ticket.created_by !== session.userId) {
+    if (isGlobalAdmin(session)) {
+      // ok
+    } else if (canManageOrg(session, ticket.org_id)) {
+      // ok
+    } else {
+      const perms = session.orgPermissions?.[ticket.org_id] ?? [];
+      const hasPermission =
+        perms.includes("tickets_view") || perms.includes("tickets_manage");
+      if (!hasPermission) return json({ error: "Forbidden" }, 403);
+
+      if (ticket.ticket_type_id !== null) {
+        const typeRes = await pool.query(
+          `SELECT 1 FROM organization_members om
+           JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+           WHERE om.org_id = $1 AND om.user_id = $2
+           LIMIT 1`,
+          [ticket.org_id, session.userId],
+        );
+        if (typeRes.rows.length > 0) {
+          const allowed = await pool.query(
+            `SELECT 1 FROM organization_members om
+             JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+             WHERE om.org_id = $1 AND om.user_id = $2 AND ttr.ticket_type_id = $3
+             LIMIT 1`,
+            [ticket.org_id, session.userId, ticket.ticket_type_id],
+          );
+          if (!allowed.rows[0]) return json({ error: "Forbidden" }, 403);
+        }
+      }
+    }
+  }
+
+  const isStaff =
+    isGlobalAdmin(session) ||
+    canManageOrg(session, ticket.org_id) ||
+    orgHasPermission(session, ticket.org_id, "tickets_view") ||
+    orgHasPermission(session, ticket.org_id, "tickets_manage");
+
+  let entry;
+  let heartbeat;
+  const stream = new ReadableStream({
+    start(controller) {
+      entry = { controller, isStaff };
+      if (!ticketStreams.has(id)) ticketStreams.set(id, new Set());
+      ticketStreams.get(id).add(entry);
+      controller.enqueue(sseEncoder.encode(": connected\n\n"));
+      heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(sseEncoder.encode(": ping\n\n"));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 25000);
+    },
+    cancel() {
+      clearInterval(heartbeat);
+      const set = ticketStreams.get(id);
+      if (set) {
+        set.delete(entry);
+        if (set.size === 0) ticketStreams.delete(id);
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
 async function handleGetTicket(request, ticketIdStr) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -4270,8 +4610,10 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   if (ticket.status === "closed" && !isInternal)
     return json({ error: "Cannot add messages to a closed ticket" }, 400);
 
-  await pool.query(
-    `INSERT INTO ticket_messages (ticket_id, user_id, message, is_internal) VALUES ($1, $2, $3, $4)`,
+  const {
+    rows: [insertedRow],
+  } = await pool.query(
+    `INSERT INTO ticket_messages (ticket_id, user_id, message, is_internal) VALUES ($1, $2, $3, $4) RETURNING message_id, created_at`,
     [id, session.userId, message, isInternal],
   );
 
@@ -4290,6 +4632,25 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   await invalidateTicketCache(id);
   const updated = await loadTicketFromDb(id);
   if (updated) await cacheTicket(updated);
+
+  redis
+    .publish(
+      `ticket-stream:${id}`,
+      JSON.stringify({
+        type: "new_message",
+        message: {
+          messageId: Number(insertedRow.message_id),
+          ticketId: id,
+          userId: session.userId,
+          username: session.username ?? null,
+          steamId: session.steamId ?? null,
+          message,
+          isInternal,
+          createdAt: Number(insertedRow.created_at),
+        },
+      }),
+    )
+    .catch(() => {});
 
   return json({ ok: true });
 }
@@ -4392,6 +4753,23 @@ async function handleUpdateTicket(request, ticketIdStr) {
   await invalidateTicketCache(id);
   const updated = await loadTicketFromDb(id);
   if (updated) await cacheTicket(updated);
+
+  if (updated) {
+    redis
+      .publish(
+        `ticket-stream:${id}`,
+        JSON.stringify({
+          type: "ticket_updated",
+          ticket: {
+            status: updated.status,
+            priority: updated.priority,
+            assigned_to: updated.assigned_to,
+            assigned_to_username: updated.assigned_to_username,
+          },
+        }),
+      )
+      .catch(() => {});
+  }
 
   return json({ ok: true });
 }
@@ -11298,6 +11676,11 @@ async function _handleApiRequest(request) {
       return handleUpdateTicket(request, ticketMatch[1]);
     }
 
+    const ticketStreamMatch = pathname.match(/^\/api\/tickets\/(\d+)\/stream$/);
+    if (ticketStreamMatch && request.method === "GET") {
+      return handleStreamTicket(request, ticketStreamMatch[1]);
+    }
+
     const ticketPlayerIntelMatch = pathname.match(
       /^\/api\/tickets\/(\d+)\/player-intel$/,
     );
@@ -11358,6 +11741,17 @@ async function _handleApiRequest(request) {
     }
     if (orgRolesMatch && request.method === "POST") {
       return handleCreateOrgRole(request, orgRolesMatch[1]);
+    }
+
+    const orgRoleReorderMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/roles\/([a-zA-Z0-9_-]+)\/reorder$/,
+    );
+    if (orgRoleReorderMatch && request.method === "POST") {
+      return handleReorderOrgRole(
+        request,
+        orgRoleReorderMatch[1],
+        orgRoleReorderMatch[2],
+      );
     }
 
     const orgRoleDetailMatch = pathname.match(

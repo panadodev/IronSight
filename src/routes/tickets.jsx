@@ -311,6 +311,32 @@ function TicketsPage() {
     if (res.ok) setSelectedMessages((await res.json()).messages ?? []);
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!selectedId) return;
+    const es = new EventSource(`/api/tickets/${selectedId}/stream`, {
+      withCredentials: true,
+    });
+    es.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        if (event.type === "new_message") {
+          setSelectedMessages((prev) =>
+            prev.some((m) => m.messageId === event.message.messageId)
+              ? prev
+              : [...prev, event.message],
+          );
+        } else if (event.type === "ticket_updated") {
+          setTickets((prev) =>
+            prev.map((t) =>
+              t.ticket_id === selectedId ? { ...t, ...event.ticket } : t,
+            ),
+          );
+        }
+      } catch {}
+    };
+    return () => es.close();
+  }, [selectedId]);
+
   const handlePostNote = useCallback(async () => {
     if (!noteText.trim() || !selectedId || submitting) return;
     setSubmitting(true);

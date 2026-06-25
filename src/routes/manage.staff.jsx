@@ -12,6 +12,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth-context";
 import { invalidateAuthMe } from "@/lib/auth-cache";
 import { useManageOrgId } from "@/lib/manage-org-store";
@@ -64,7 +75,7 @@ function roleColor(roleId, customRoles) {
 
 function roleLabel(roleId, customRoles) {
   if (roleId === "org_owner") return "Owner";
-  if (roleId === "org_admin") return "Admin";
+  if (roleId === "org_admin") return "Management";
   if (roleId === "org_member") return "Member";
   if (roleId === "org_disabled") return "Disabled";
   return customRoles.find((r) => r.roleId === roleId)?.roleName ?? roleId;
@@ -73,6 +84,16 @@ function roleLabel(roleId, customRoles) {
 function roleShort(roleId, customRoles) {
   const label = roleLabel(roleId, customRoles);
   return label.slice(0, 4).toUpperCase();
+}
+
+// Hierarchy position of a member's role. Owner/Management sit above every custom
+// role (Infinity); member/disabled at the bottom (0); custom roles use the
+// position the roles API returns.
+function memberPosition(roleId, customRoles) {
+  if (roleId === "org_owner" || roleId === "org_admin")
+    return Number.POSITIVE_INFINITY;
+  if (roleId === "org_member" || roleId === "org_disabled") return 0;
+  return customRoles.find((r) => r.roleId === roleId)?.position ?? 0;
 }
 
 function formatRelative(unixSec) {
@@ -193,6 +214,7 @@ function StaffPage() {
   const [members, setMembers] = useState([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [customRoles, setCustomRoles] = useState([]);
+  const [callerPosition, setCallerPosition] = useState(null);
   const [staffStats, setStaffStats] = useState(null);
 
   const [discordId, setDiscordId] = useState("");
@@ -241,6 +263,7 @@ function StaffPage() {
       if (res.ok) {
         const body = await res.json();
         setCustomRoles(body.roles ?? []);
+        setCallerPosition(body.callerPosition ?? null);
       }
     } catch {}
   }
@@ -284,7 +307,15 @@ function StaffPage() {
 
   const isAdmin =
     Boolean(sessionUser?.isSysAdmin) || hasOrgPermission(orgId, "org_manage");
-  const isOwner = sessionOrgOwnerIds.includes(orgId);
+  const isOwner =
+    Boolean(sessionUser?.isSysAdmin) || sessionOrgOwnerIds.includes(orgId);
+  // Caller's hierarchy position (null from the API = top: owner/admin/global).
+  const callerPos =
+    callerPosition == null ? Number.POSITIVE_INFINITY : callerPosition;
+  // Roles the caller may hand out: strictly below their own position.
+  const assignableRoles = customRoles.filter(
+    (r) => callerPos === Number.POSITIVE_INFINITY || (r.position ?? 0) < callerPos,
+  );
 
   async function handleAdd() {
     const id = discordId.trim();
@@ -542,9 +573,17 @@ function StaffPage() {
             const isDisabledRow = m.roleId === "org_disabled";
             const isMe = sessionUser?.userId === m.userId;
             const isChangingRole = changingRoleId === m.userId;
-            const canActOnRow = isOwner || !isOwnerRow;
+            const memberPos = memberPosition(m.roleId, customRoles);
+            // Hierarchy: owners act on anyone; everyone else only on members
+            // strictly below their own position (admins are Infinity, so they
+            // act on everyone except owners).
+            const canActOnRow = isOwner
+              ? true
+              : callerPos === Number.POSITIVE_INFINITY
+                ? !isOwnerRow
+                : memberPos < callerPos;
             const canChangeRole = !isMe && canActOnRow;
-            const canRemove = !isMe && (isOwner || !isOwnerRow);
+            const canRemove = !isMe && canActOnRow;
 
             return (
               <div
@@ -598,7 +637,7 @@ function StaffPage() {
                     </Link>
                   </Button>
 
-                  {!isMe && (
+                  {!isMe && canActOnRow && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -615,7 +654,7 @@ function StaffPage() {
                     <RoleSelect
                       value={m.roleId}
                       isOwner={isOwner}
-                      customRoles={customRoles}
+                      customRoles={assignableRoles}
                       disabled={isChangingRole}
                       onValueChange={(val) => handleRoleChange(m.userId, val)}
                     />
@@ -634,16 +673,40 @@ function StaffPage() {
                   )}
 
                   {canRemove && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      disabled={removingId === m.userId}
-                      onClick={() => handleRemove(m.userId)}
-                      className="size-7 text-danger/60 hover:text-danger hover:bg-danger/10"
-                      title="Remove from org"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={removingId === m.userId}
+                          className="size-7 text-danger/60 hover:text-danger hover:bg-danger/10"
+                          title="Remove from org"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Remove {m.username ?? "this member"}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            They lose all access to this organization and any
+                            in-game admin granted through their role is revoked.
+                            You can re-add them later.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-danger text-danger-foreground hover:bg-danger/90"
+                            onClick={() => handleRemove(m.userId)}
+                          >
+                            Remove member
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   )}
                 </div>
               </div>
@@ -956,23 +1019,15 @@ function StaffPage() {
             <Crown className="size-3 text-brand mt-0.5 shrink-0" />
             <p className="text-[11px] text-muted-foreground">
               <span className="text-foreground font-medium">Owner</span> — full
-              access to this org; can assign any role and manage other owners.
-              Cannot be removed by admins.
+              access to this org; can assign any role, manage other owners, and
+              configure role permissions. Cannot be removed by management.
             </p>
           </div>
           <div className="flex items-start gap-2">
             <ShieldCheck className="size-3 text-muted-foreground mt-0.5 shrink-0" />
             <p className="text-[11px] text-muted-foreground">
-              <span className="text-foreground font-medium">Admin</span> — can
-              add/remove non-owner staff and assign custom roles to them.
-            </p>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="size-3 mt-0.5 shrink-0" />
-            <p className="text-[11px] text-muted-foreground">
-              <span className="text-foreground font-medium">Member</span> — part
-              of the org with no additional panel permissions beyond assigned
-              custom roles.
+              <span className="text-foreground font-medium">Management</span> —
+              can add/remove non-owner staff and assign custom roles to them.
             </p>
           </div>
         </div>
@@ -997,8 +1052,7 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
               <SelectLabel className="text-[10px] font-mono uppercase tracking-widest px-2 py-1">
                 Built-in
               </SelectLabel>
-              <SelectItem value="org_member">Member</SelectItem>
-              <SelectItem value="org_admin">Admin</SelectItem>
+              <SelectItem value="org_admin">Management</SelectItem>
               <SelectItem value="org_owner">Owner</SelectItem>
             </SelectGroup>
             {customRoles.length > 0 && (
@@ -1025,13 +1079,11 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
           <>
             {value === "org_admin" && (
               <SelectItem value="org_admin" disabled>
-                Admin (current)
+                Management (current)
               </SelectItem>
             )}
-            <SelectItem value="org_member">Member</SelectItem>
             {customRoles.length > 0 && (
               <>
-                <SelectSeparator />
                 <SelectGroup>
                   <SelectLabel className="text-[10px] font-mono uppercase tracking-widest px-2 py-1">
                     Custom
@@ -1042,9 +1094,9 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
                     </SelectItem>
                   ))}
                 </SelectGroup>
+                <SelectSeparator />
               </>
             )}
-            <SelectSeparator />
             <SelectItem value="org_disabled" className="text-danger">
               Disabled
             </SelectItem>

@@ -1573,6 +1573,27 @@ export async function ensureRolePermissionSeed(pool) {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_role_server_admin_role_id ON role_server_admin(role_id)`,
   );
+
+  // Discord-style role hierarchy. Higher position = more authority. Owner/Admin
+  // are treated as top-of-hierarchy in code (above every custom role);
+  // org_member / org_disabled stay at 0 (bottom). Custom roles get distinct
+  // positive positions used to gate who can create/edit/assign which role.
+  await pool.query(
+    `ALTER TABLE roles ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0`,
+  );
+  // One-time backfill: give any custom role still at the default 0 a distinct
+  // positive position so existing roles form a stable initial order. Only
+  // touches rows left at 0 (new roles are inserted with an explicit position).
+  await pool.query(
+    `WITH ranked AS (
+       SELECT role_id, row_number() OVER (ORDER BY role_name, role_id) AS rn
+       FROM roles
+       WHERE role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
+         AND position = 0
+     )
+     UPDATE roles r SET position = ranked.rn
+     FROM ranked WHERE r.role_id = ranked.role_id`,
+  );
 }
 
 export async function migrateLegacyData(pool) {

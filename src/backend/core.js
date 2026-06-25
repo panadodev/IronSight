@@ -185,6 +185,25 @@ export function orgHasPermission(session, orgId, permissionId) {
   );
 }
 
+// Effective hierarchy position of the caller within an org. Owner/Admin and
+// global admins sit above every custom role (returns Infinity). A custom-role
+// holder gets their single role's stored position; anyone else is at the bottom
+// (0). Used to gate "can't act on a role/member at or above your own".
+export async function orgActorPosition(session, orgId) {
+  if (isGlobalAdmin(session)) return Infinity;
+  // canManageOrg == in orgAdminOrgIds, which holds both owners and admins.
+  if ((session.orgAdminOrgIds ?? []).includes(orgId)) return Infinity;
+  const res = await pool.query(
+    `SELECT r.position
+       FROM organization_members om
+       JOIN roles r ON r.role_id = om.role_id
+      WHERE om.org_id = $1 AND om.user_id = $2
+      LIMIT 1`,
+    [orgId, session.userId],
+  );
+  return res.rows[0] ? Number(res.rows[0].position) : 0;
+}
+
 export function sessionRankForOrg(session, orgId) {
   if (session.globalAdmin) return 4;
   if ((session.orgOwnerOrgIds ?? []).includes(orgId)) return 4;

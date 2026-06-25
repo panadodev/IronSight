@@ -2,10 +2,29 @@ import { GateRank, SectionHeader } from "@/components/manage-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
-import { Ban, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/manage/roles")({
@@ -179,12 +198,12 @@ const PERMISSION_GROUPS = [
       {
         id: "org_manage",
         label: "Manage Members",
-        desc: "Add, remove, and change member roles",
+        desc: "Add, remove, and change member roles below their own",
       },
       {
         id: "role_create",
         label: "Manage Roles",
-        desc: "Create and configure custom roles",
+        desc: "Create, edit, and reorder roles below their own in the hierarchy",
       },
       {
         id: "predefines_manage",
@@ -207,45 +226,6 @@ const PERMISSION_GROUPS = [
         desc: "Permanently delete todos",
       },
     ],
-  },
-];
-
-const BUILTIN_ROLES = [
-  {
-    name: "Owner",
-    desc: "Full control. Can manage all members, roles, settings, and configurations.",
-    className: "ring-brand/30 bg-brand/5",
-    labelClass: "text-brand",
-    hasAllPerms: true,
-    hasServerAdmin: true,
-    perms: [],
-  },
-  {
-    name: "Admin",
-    desc: "Elevated access. Can manage members and use all staff tools.",
-    className: "ring-border bg-surface/40",
-    labelClass: "text-foreground",
-    hasAllPerms: true,
-    hasServerAdmin: true,
-    perms: [],
-  },
-  {
-    name: "Member",
-    desc: "Basic access. Standard staff member with no elevated privileges.",
-    className: "ring-border bg-surface/40",
-    labelClass: "text-foreground",
-    hasAllPerms: false,
-    hasServerAdmin: false,
-    perms: ["todo_write"],
-  },
-  {
-    name: "Disabled",
-    desc: "No access. Blocked from all staff-related functionality and panels.",
-    className: "ring-danger/30 bg-danger/5",
-    labelClass: "text-danger",
-    hasAllPerms: false,
-    hasServerAdmin: false,
-    perms: [],
   },
 ];
 
@@ -343,7 +323,7 @@ function ParentPermCheckbox({
 
 function RolesPage() {
   const {
-    hasOrgPermission,
+    sessionUser,
     sessionOrgAdminIds,
     sessionOrgOwnerIds,
     sessionOrgPermissions,
@@ -359,7 +339,8 @@ function RolesPage() {
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
-  const [expandedBuiltin, setExpandedBuiltin] = useState(null);
+  const [callerPosition, setCallerPosition] = useState(null);
+  const [reorderingId, setReorderingId] = useState(null);
   const [draftPerms, setDraftPerms] = useState({});
   const [draftTicketTypes, setDraftTicketTypes] = useState({});
   const [draftDiscordRoleIds, setDraftDiscordRoleIds] = useState({});
@@ -370,16 +351,28 @@ function RolesPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [deleteErr, setDeleteErr] = useState(null);
 
-  const isAdmin = hasOrgPermission(orgId ?? "", "role_create");
-  const rank = isAdmin ? 4 : 0;
+  const isOwner =
+    sessionOrgOwnerIds.includes(orgId ?? "") ||
+    Boolean(sessionUser?.isSysAdmin);
+  // "Top of hierarchy" = owner, sysadmin, or org admin — sits above every
+  // custom role and bypasses the per-permission grant ceiling.
+  const isTop = isOwner || sessionOrgAdminIds.includes(orgId ?? "");
+  // null position from the API means "top of hierarchy".
+  const callerPos =
+    callerPosition == null ? Number.POSITIVE_INFINITY : callerPosition;
 
-  const canGrant = sessionOrgAdminIds.includes(orgId ?? "")
+  const canManageRoles =
+    isTop ||
+    (sessionOrgPermissions[orgId ?? ""] ?? []).includes("role_create");
+  const rank = canManageRoles ? 4 : 0;
+
+  const canGrant = isTop
     ? () => true
     : (permId) => (sessionOrgPermissions[orgId ?? ""] ?? []).includes(permId);
 
-  const canExpandBuiltin =
-    sessionOrgOwnerIds.includes(orgId ?? "") ||
-    sessionOrgAdminIds.includes(orgId ?? "");
+  // A role is editable only when it sits strictly below the caller.
+  const canEditRole = (role) =>
+    callerPos === Number.POSITIVE_INFINITY || (role.position ?? 0) < callerPos;
 
   async function loadRoles() {
     if (!orgId) return;
@@ -391,9 +384,28 @@ function RolesPage() {
       if (res.ok) {
         const body = await res.json();
         setRoles(body.roles ?? []);
+        setCallerPosition(body.callerPosition ?? null);
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleReorder(roleId, direction) {
+    setReorderingId(roleId);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(roleId)}/reorder`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ direction }),
+        },
+      );
+      if (res.ok) await loadRoles();
+    } finally {
+      setReorderingId(null);
     }
   }
 
@@ -632,164 +644,6 @@ function RolesPage() {
         blurb="Create custom roles with specific permission sets. Assign roles to staff from the Staff section."
       />
 
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground px-0.5">
-          Built-in roles
-        </p>
-        {BUILTIN_ROLES.map((r) => {
-          const isExpanded = expandedBuiltin === r.name;
-          return (
-            <div
-              key={r.name}
-              className={`rounded-md ring-1 overflow-hidden ${r.className}`}
-            >
-              <div className="flex items-center gap-3 px-3 py-2">
-                {canExpandBuiltin ? (
-                  <button
-                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                    onClick={() =>
-                      setExpandedBuiltin(isExpanded ? null : r.name)
-                    }
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-                    ) : (
-                      <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}
-                      >
-                        {r.name === "Disabled" && (
-                          <Ban className="size-3 shrink-0" />
-                        )}
-                        {r.name}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {r.desc}
-                      </p>
-                    </div>
-                  </button>
-                ) : (
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={`text-xs font-semibold flex items-center gap-1.5 ${r.labelClass}`}
-                    >
-                      {r.name === "Disabled" && (
-                        <Ban className="size-3 shrink-0" />
-                      )}
-                      {r.name}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {r.desc}
-                    </p>
-                  </div>
-                )}
-                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 shrink-0">
-                  built-in
-                </span>
-              </div>
-
-              {isExpanded && canExpandBuiltin && (
-                <div className="border-t border-border p-3 space-y-4">
-                  <p className="text-[10px] text-muted-foreground italic">
-                    Permissions shown are what this role grants by default.
-                    They cannot be changed.
-                  </p>
-
-                  {PERMISSION_GROUPS.map((group) => (
-                    <div key={group.label}>
-                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
-                        {group.label}
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                        {group.perms.map((perm) => {
-                          if (perm.isParent) {
-                            const childIds = perm.children.map((c) => c.id);
-                            const allChecked =
-                              r.hasAllPerms ||
-                              childIds.every((id) => r.perms.includes(id));
-                            const someChecked =
-                              !allChecked &&
-                              childIds.some(
-                                (id) =>
-                                  r.hasAllPerms || r.perms.includes(id),
-                              );
-                            return (
-                              <div key={perm.id} className="col-span-full">
-                                <ParentPermCheckbox
-                                  allChecked={allChecked}
-                                  someChecked={someChecked}
-                                  label={perm.label}
-                                  desc={perm.desc}
-                                  disabled={true}
-                                  onClick={() => {}}
-                                />
-                                <div className="ml-6 border-l border-border/40 pl-2 mt-0.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                                  {perm.children.map((child) => (
-                                    <PermCheckbox
-                                      key={child.id}
-                                      checked={
-                                        r.hasAllPerms ||
-                                        r.perms.includes(child.id)
-                                      }
-                                      disabled={true}
-                                      onClick={() => {}}
-                                      label={child.label}
-                                      desc={child.desc}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          }
-                          return (
-                            <PermCheckbox
-                              key={perm.id}
-                              checked={
-                                r.hasAllPerms || r.perms.includes(perm.id)
-                              }
-                              disabled={true}
-                              onClick={() => {}}
-                              label={perm.label}
-                              desc={perm.desc}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-
-                  <div>
-                    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
-                      Server Admin (in-game)
-                    </p>
-                    <PermCheckbox
-                      checked={r.hasServerAdmin}
-                      disabled={true}
-                      onClick={() => {}}
-                      label="Admin on Server"
-                      desc="Grant in-game admin via RCON on assignment (moderatorid + usergroup admin); revoked on removal."
-                    />
-                    {r.hasServerAdmin && (
-                      <div className="ml-6 border-l border-border/40 pl-2 mt-0.5">
-                        <PermCheckbox
-                          checked={true}
-                          disabled={true}
-                          onClick={() => {}}
-                          label="All servers"
-                          desc="Apply to every imported server, including ones added later."
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
         <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
           New role
@@ -821,8 +675,13 @@ function RolesPage() {
             No custom roles yet. Create one above.
           </p>
         ) : (
-          roles.map((role) => {
-            const isExpanded = expandedId === role.roleId;
+          [...roles]
+            .sort((a, b) => (b.position ?? 0) - (a.position ?? 0))
+            .map((role, idx, arr) => {
+            const editable = canEditRole(role);
+            const atTop = idx === 0;
+            const atBottom = idx === arr.length - 1;
+            const isExpanded = editable && expandedId === role.roleId;
             const draft = draftPerms[role.roleId] ?? role.permissions;
             const draftTT =
               draftTicketTypes[role.roleId] ?? role.ticketTypeIds ?? [];
@@ -857,10 +716,20 @@ function RolesPage() {
               >
                 <div className="flex items-center justify-between gap-2 p-2.5">
                   <button
-                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                    onClick={() => toggleExpand(role)}
+                    className={
+                      "flex items-center gap-2 flex-1 min-w-0 text-left " +
+                      (editable ? "" : "cursor-default")
+                    }
+                    onClick={() => editable && toggleExpand(role)}
+                    title={
+                      editable
+                        ? undefined
+                        : "This role sits at or above yours in the hierarchy — you can't edit it."
+                    }
                   >
-                    {isExpanded ? (
+                    {!editable ? (
+                      <Lock className="size-3.5 text-muted-foreground/60 shrink-0" />
+                    ) : isExpanded ? (
                       <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
                     ) : (
                       <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
@@ -894,16 +763,62 @@ function RolesPage() {
                     {deleteErr && expandedId === role.roleId && (
                       <p className="text-[11px] text-danger">{deleteErr}</p>
                     )}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-7 text-danger/60 hover:text-danger hover:bg-danger/10"
-                      disabled={deletingId === role.roleId}
-                      onClick={() => handleDelete(role.roleId)}
-                      title="Delete role"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                    {editable && (
+                      <div className="flex flex-col">
+                        <button
+                          className="text-muted-foreground/50 hover:text-foreground disabled:opacity-25 disabled:hover:text-muted-foreground/50"
+                          disabled={atTop || reorderingId === role.roleId}
+                          onClick={() => handleReorder(role.roleId, "up")}
+                          title="Move up (higher authority)"
+                        >
+                          <ArrowUp className="size-3" />
+                        </button>
+                        <button
+                          className="text-muted-foreground/50 hover:text-foreground disabled:opacity-25 disabled:hover:text-muted-foreground/50"
+                          disabled={atBottom || reorderingId === role.roleId}
+                          onClick={() => handleReorder(role.roleId, "down")}
+                          title="Move down (lower authority)"
+                        >
+                          <ArrowDown className="size-3" />
+                        </button>
+                      </div>
+                    )}
+                    {editable && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7 text-danger/60 hover:text-danger hover:bg-danger/10"
+                            disabled={deletingId === role.roleId}
+                            title="Delete role"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Delete “{role.roleName}”?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This permanently deletes the role. Any staff
+                              currently assigned to it will be reset to Member
+                              and lose its permissions. This cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-danger text-danger-foreground hover:bg-danger/90"
+                              onClick={() => handleDelete(role.roleId)}
+                            >
+                              Delete role
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 </div>
 

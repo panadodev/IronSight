@@ -5,6 +5,7 @@
 
 export let pool = null;
 export let redis = null;
+export let redisSub = null;
 export let queue = null;
 
 export function setPool(p) {
@@ -12,6 +13,9 @@ export function setPool(p) {
 }
 export function setRedis(r) {
   redis = r;
+}
+export function setRedisSub(r) {
+  redisSub = r;
 }
 export function setQueue(q) {
   queue = q;
