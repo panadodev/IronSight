@@ -50,6 +50,7 @@ import {
   handleGetChatLogs,
   handleGetPvpLogs,
   handleGetReports,
+  handleGetOrgRecentReports,
   handleGetTeamEvents,
   handleGetServerLogs,
 } from "./handlers/logs.js";
@@ -11636,6 +11637,13 @@ async function _handleApiRequest(request) {
     );
     if (orgPlayerListMatch && request.method === "GET")
       return handleGetOrgPlayerList(request, orgPlayerListMatch[1]);
+
+    // Org recent F7 reports (sidebar)
+    const orgRecentReportsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/recent-reports$/,
+    );
+    if (orgRecentReportsMatch && request.method === "GET")
+      return handleGetOrgRecentReports(request, orgRecentReportsMatch[1]);
 
     // Player lookup
     const playerMatch = pathname.match(/^\/api\/players\/(\d+)$/);

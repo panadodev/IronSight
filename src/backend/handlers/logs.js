@@ -346,6 +346,52 @@ export async function handleGetReports(request) {
   return json({ lines });
 }
 
+export async function handleGetOrgRecentReports(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const url = new URL(request.url);
+  const limit = parseLimit(url.searchParams.get("limit"), 50, 100);
+  const sinceParam = url.searchParams.get("since");
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const sinceUnix = sinceParam
+    ? Math.floor(Number(sinceParam))
+    : nowUnix - 24 * 3600;
+
+  if (!Number.isFinite(sinceUnix))
+    return json({ error: "Invalid since parameter" }, 400);
+
+  const { rows } = await pool.query(
+    `SELECT pr.id, pr.report_type, pr.report_reason, pr.report_description,
+            pr.reporter_name, pr.reporter_steam_id, pr.reported_steam_id,
+            pr.server_name, pr.created_at
+     FROM player_reports pr
+     JOIN servers s ON s.server_id = pr.server_id
+     WHERE s.owner_org_id = $1
+       AND pr.created_at >= $2
+     ORDER BY pr.created_at DESC
+     LIMIT $3`,
+    [orgId, sinceUnix, limit],
+  );
+
+  const reports = rows.map((row) => ({
+    id: String(row.id),
+    reportType: String(row.report_type),
+    reportReason: String(row.report_reason),
+    reportDescription: String(row.report_description),
+    reporterName: String(row.reporter_name),
+    reporterSteamId: String(row.reporter_steam_id),
+    reportedSteamId: String(row.reported_steam_id),
+    serverName: String(row.server_name),
+    createdAt: Number(row.created_at),
+  }));
+
+  return json({ reports });
+}
+
 export async function handleGetTeamEvents(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;

@@ -9,13 +9,14 @@ import {
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
   Check,
   ChevronDown,
   Copy,
+  Flag,
   KeyRound,
   RefreshCw,
   ShieldAlert,
@@ -85,6 +86,9 @@ function PlayerListPage() {
   const [cacheClearBusy, setCacheClearBusy] = useState(false);
   const [keyResetBusy, setKeyResetBusy] = useState(false);
 
+  const [recentReports, setRecentReports] = useState([]);
+  const [recentReportsLoading, setRecentReportsLoading] = useState(false);
+
   const PAGE_SIZE = 50;
   const intervalRef = useRef(null);
   const fetchingRef = useRef(false);
@@ -133,6 +137,34 @@ function PlayerListPage() {
     intervalRef.current = setInterval(fetchData, 30000);
     return () => clearInterval(intervalRef.current);
   }, [fetchData]);
+
+  const fetchRecentReports = useCallback(async () => {
+    if (!canAccess || selectedOrgIds.length === 0) return;
+    setRecentReportsLoading(true);
+    try {
+      const all = await Promise.all(
+        selectedOrgIds.map((orgId) =>
+          fetch(
+            `/api/orgs/${encodeURIComponent(orgId)}/recent-reports?limit=50`,
+            { credentials: "include" },
+          ).then((r) => (r.ok ? r.json() : { reports: [] })),
+        ),
+      );
+      const merged = all.flatMap((d) => d.reports ?? []);
+      merged.sort((a, b) => b.createdAt - a.createdAt);
+      setRecentReports(merged.slice(0, 50));
+    } catch {
+      // best-effort
+    } finally {
+      setRecentReportsLoading(false);
+    }
+  }, [canAccess, orgIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    fetchRecentReports();
+    const id = setInterval(fetchRecentReports, 30000);
+    return () => clearInterval(id);
+  }, [fetchRecentReports]);
 
   const visibleServers = useMemo(
     () => realServers.filter((s) => selectedOrgIds.includes(s.ownerOrgId)),
@@ -310,7 +342,8 @@ function PlayerListPage() {
     <SteamRequiredGate>
       <div className="h-screen w-full flex flex-col bg-background">
         <SiteNav />
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-hidden flex">
+          <div className="flex-1 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
@@ -711,9 +744,82 @@ function PlayerListPage() {
               </div>
             )}
           </div>
+          </div>
+
+          {/* Recent F7 reports sidebar */}
+          <RecentReportsSidebar
+            reports={recentReports}
+            loading={recentReportsLoading}
+          />
         </div>
       </div>
     </SteamRequiredGate>
+  );
+}
+
+function timeAgo(unix) {
+  const diff = Math.floor(Date.now() / 1000) - unix;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function RecentReportsSidebar({ reports, loading }) {
+  return (
+    <div className="w-72 shrink-0 border-l border-border flex flex-col overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2 shrink-0">
+        <Flag className="size-3.5 text-warning" />
+        <span className="text-xs font-semibold">Recent F7 Reports</span>
+        {loading && (
+          <span className="ml-auto text-[10px] font-mono text-muted-foreground animate-pulse">
+            updating…
+          </span>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto divide-y divide-border/60">
+        {reports.length === 0 && !loading && (
+          <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+            No reports in the last 24h
+          </div>
+        )}
+        {reports.map((r) => (
+          <div key={r.id} className="px-3 py-2.5 space-y-1 hover:bg-surface/40 transition-colors">
+            <div className="flex items-start justify-between gap-1">
+              <span className="text-[10px] font-mono text-muted-foreground truncate flex-1">
+                {r.serverName.replace(/^\[[^\]]+\]\s*/, "")}
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                {timeAgo(r.createdAt)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded ring-1 bg-warning/10 text-warning ring-warning/30">
+                {r.reportReason || r.reportType}
+              </span>
+            </div>
+            <div className="text-[11px] font-medium truncate">
+              <Link
+                to="/player-lookup"
+                search={{ steam: r.reportedSteamId }}
+                className="hover:text-brand transition-colors"
+              >
+                {r.reportedSteamId}
+              </Link>
+            </div>
+            <div className="text-[10px] text-muted-foreground truncate">
+              by {r.reporterName}
+            </div>
+            {r.reportDescription && (
+              <div className="text-[10px] text-muted-foreground line-clamp-2">
+                {r.reportDescription}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
