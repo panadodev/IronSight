@@ -1,6 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ScrollText, ChevronDown } from "lucide-react";
+import {
+  ArrowLeft,
+  ScrollText,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+} from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
@@ -179,6 +185,25 @@ function formatDetail(log) {
   return parts.join(" · ").slice(0, 100) || "—";
 }
 
+function compareLog(a, b, key) {
+  switch (key) {
+    case "createdAt":
+      return a.createdAt - b.createdAt;
+    case "eventType":
+      return eventMeta(a.eventType).label.localeCompare(
+        eventMeta(b.eventType).label,
+      );
+    case "serverName":
+      return (a.serverName ?? "").localeCompare(b.serverName ?? "");
+    case "admin":
+      return formatAdmin(a).localeCompare(formatAdmin(b));
+    case "target":
+      return formatTarget(a).localeCompare(formatTarget(b));
+    default:
+      return 0;
+  }
+}
+
 const PAGE_SIZE = 50;
 
 function ServerLogsPage() {
@@ -194,6 +219,8 @@ function ServerLogsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [serverFilter, setServerFilter] = useState("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [sortKey, setSortKey] = useState("createdAt");
+  const [sortDir, setSortDir] = useState("desc");
 
   useEffect(() => {
     if (!orgId) return;
@@ -246,7 +273,36 @@ function ServerLogsPage() {
     return result;
   }, [logs, typeFilter, serverFilter]);
 
-  const visibleLogs = filteredLogs.slice(0, visibleCount);
+  const sortedLogs = useMemo(() => {
+    const arr = [...filteredLogs];
+    arr.sort((a, b) => {
+      const cmp = compareLog(a, b, sortKey);
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+    return arr;
+  }, [filteredLogs, sortKey, sortDir]);
+
+  function handleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+    setVisibleCount(PAGE_SIZE);
+  }
+
+  function SortIcon({ col }) {
+    if (sortKey !== col)
+      return <ChevronsUpDown className="size-2.5 opacity-40" />;
+    return sortDir === "asc" ? (
+      <ChevronUp className="size-2.5" />
+    ) : (
+      <ChevronDown className="size-2.5" />
+    );
+  }
+
+  const visibleLogs = sortedLogs.slice(0, visibleCount);
   const isAdmin = sessionOrgAdminIds.includes(orgId);
   const totalInRange = logs.filter((l) => {
     const now = Date.now() / 1000;
@@ -376,21 +432,24 @@ function ServerLogsPage() {
                         <table className="w-full text-[11px] font-mono">
                           <thead>
                             <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
-                              <th className="px-2 py-1.5 text-left font-medium w-28">
-                                When
-                              </th>
-                              <th className="px-2 py-1.5 text-left font-medium w-32">
-                                Event
-                              </th>
-                              <th className="px-2 py-1.5 text-left font-medium w-24">
-                                Server
-                              </th>
-                              <th className="px-2 py-1.5 text-left font-medium w-36">
-                                Admin
-                              </th>
-                              <th className="px-2 py-1.5 text-left font-medium w-36">
-                                Target
-                              </th>
+                              {[
+                                { key: "createdAt", label: "When", cls: "w-28" },
+                                { key: "eventType", label: "Event", cls: "w-32" },
+                                { key: "serverName", label: "Server", cls: "w-24" },
+                                { key: "admin", label: "Admin", cls: "w-36" },
+                                { key: "target", label: "Target", cls: "w-36" },
+                              ].map(({ key, label, cls }) => (
+                                <th
+                                  key={key}
+                                  className={`px-2 py-1.5 text-left font-medium ${cls} cursor-pointer select-none hover:text-foreground`}
+                                  onClick={() => handleSort(key)}
+                                >
+                                  <span className="inline-flex items-center gap-1">
+                                    {label}
+                                    <SortIcon col={key} />
+                                  </span>
+                                </th>
+                              ))}
                               <th className="px-2 py-1.5 text-left font-medium">
                                 Detail
                               </th>
@@ -447,7 +506,7 @@ function ServerLogsPage() {
                         </table>
                       </div>
 
-                      {visibleCount < filteredLogs.length && (
+                      {visibleCount < sortedLogs.length && (
                         <button
                           onClick={() =>
                             setVisibleCount((n) => n + PAGE_SIZE)
@@ -455,7 +514,7 @@ function ServerLogsPage() {
                           className="mt-3 flex items-center gap-1 text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
                         >
                           <ChevronDown className="size-3" />
-                          Load more ({filteredLogs.length - visibleCount}{" "}
+                          Load more ({sortedLogs.length - visibleCount}{" "}
                           remaining)
                         </button>
                       )}

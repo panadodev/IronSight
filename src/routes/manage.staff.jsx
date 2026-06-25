@@ -449,7 +449,7 @@ function StaffPage() {
       });
   }, [filteredMembers, staffStats, sortCol, sortDir, customRoles]);
 
-  const rank = isAdmin ? 4 : 0;
+  const rank = isAdmin || isOwner ? 4 : 0;
   const orgStats = staffStats?.orgStats;
 
   return (

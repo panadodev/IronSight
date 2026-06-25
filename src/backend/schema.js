@@ -486,6 +486,11 @@ export async function ensureSchema(pool) {
     )
   `);
 
+  // Additive migration: server_name was added after initial table creation.
+  await pool.query(
+    `ALTER TABLE player_reports ADD COLUMN IF NOT EXISTS server_name TEXT NOT NULL DEFAULT ''`,
+  );
+
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_player_reports_server_id ON player_reports(server_id)`,
   );

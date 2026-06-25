@@ -436,6 +436,9 @@ function ThreatTriggersPage() {
               <BoughtAccountCard
                 bought={cur.boughtAccount}
                 onChange={setBought}
+                onSave={handleSave}
+                saving={saving}
+                dirty={dirty}
               />
 
               <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-surface/40 ring-1 ring-border rounded-md px-3 py-2">
@@ -679,7 +682,7 @@ function BlockCard({
   );
 }
 
-function BoughtAccountCard({ bought, onChange }) {
+function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
   const [term, setTerm] = useState("");
   const { hoursRule, nameRule } = bought;
 
@@ -710,11 +713,21 @@ function BoughtAccountCard({ bought, onChange }) {
             </p>
           </div>
         </div>
-        <Toggle
-          checked={bought.enabled}
-          onClick={() => onChange({ enabled: !bought.enabled })}
-          label={bought.enabled ? "Enabled" : "Disabled"}
-        />
+        <div className="flex items-center gap-2">
+          <Toggle
+            checked={bought.enabled}
+            onClick={() => onChange({ enabled: !bought.enabled })}
+            label={bought.enabled ? "Enabled" : "Disabled"}
+          />
+          <Button
+            size="sm"
+            disabled={!dirty || saving}
+            onClick={onSave}
+          >
+            <Save className="size-3.5" />
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
       </div>
 
       <div
