@@ -23,6 +23,7 @@ import { Route as PlayerLookupRouteImport } from './routes/player-lookup'
 import { Route as PlayerListRouteImport } from './routes/player-list'
 import { Route as PanelRouteImport } from './routes/panel'
 import { Route as MyReportsRouteImport } from './routes/my-reports'
+import { Route as MediaRouteImport } from './routes/media'
 import { Route as ManageRouteImport } from './routes/manage'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DocsRouteImport } from './routes/docs'
@@ -30,7 +31,6 @@ import { Route as DiscordModRouteImport } from './routes/discord-mod'
 import { Route as DbUsageRouteImport } from './routes/db-usage'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BansMutesRouteImport } from './routes/bans-mutes'
-import { Route as MediaRouteImport } from './routes/media'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SysAdminRolesRouteImport } from './routes/sys-admin.roles'
 import { Route as ManageToxicityRouteImport } from './routes/manage.toxicity'
@@ -111,6 +111,11 @@ const MyReportsRoute = MyReportsRouteImport.update({
   path: '/my-reports',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MediaRoute = MediaRouteImport.update({
+  id: '/media',
+  path: '/media',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ManageRoute = ManageRouteImport.update({
   id: '/manage',
   path: '/manage',
@@ -144,11 +149,6 @@ const ChatRoute = ChatRouteImport.update({
 const BansMutesRoute = BansMutesRouteImport.update({
   id: '/bans-mutes',
   path: '/bans-mutes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MediaRoute = MediaRouteImport.update({
-  id: '/media',
-  path: '/media',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -200,13 +200,13 @@ const ManageBanConfigsRoute = ManageBanConfigsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
-  '/media': typeof MediaRoute
   '/chat': typeof ChatRoute
   '/db-usage': typeof DbUsageRoute
   '/discord-mod': typeof DiscordModRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/manage': typeof ManageRouteWithChildren
+  '/media': typeof MediaRoute
   '/my-reports': typeof MyReportsRoute
   '/panel': typeof PanelRoute
   '/player-list': typeof PlayerListRoute
@@ -233,13 +233,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
-  '/media': typeof MediaRoute
   '/chat': typeof ChatRoute
   '/db-usage': typeof DbUsageRoute
   '/discord-mod': typeof DiscordModRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/manage': typeof ManageRouteWithChildren
+  '/media': typeof MediaRoute
   '/my-reports': typeof MyReportsRoute
   '/panel': typeof PanelRoute
   '/player-list': typeof PlayerListRoute
@@ -267,13 +267,13 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/bans-mutes': typeof BansMutesRoute
-  '/media': typeof MediaRoute
   '/chat': typeof ChatRoute
   '/db-usage': typeof DbUsageRoute
   '/discord-mod': typeof DiscordModRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/manage': typeof ManageRouteWithChildren
+  '/media': typeof MediaRoute
   '/my-reports': typeof MyReportsRoute
   '/panel': typeof PanelRoute
   '/player-list': typeof PlayerListRoute
@@ -302,13 +302,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/bans-mutes'
-    | '/media'
     | '/chat'
     | '/db-usage'
     | '/discord-mod'
     | '/docs'
     | '/login'
     | '/manage'
+    | '/media'
     | '/my-reports'
     | '/panel'
     | '/player-list'
@@ -335,13 +335,13 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/bans-mutes'
-    | '/media'
     | '/chat'
     | '/db-usage'
     | '/discord-mod'
     | '/docs'
     | '/login'
     | '/manage'
+    | '/media'
     | '/my-reports'
     | '/panel'
     | '/player-list'
@@ -368,13 +368,13 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/bans-mutes'
-    | '/media'
     | '/chat'
     | '/db-usage'
     | '/discord-mod'
     | '/docs'
     | '/login'
     | '/manage'
+    | '/media'
     | '/my-reports'
     | '/panel'
     | '/player-list'
@@ -402,13 +402,13 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BansMutesRoute: typeof BansMutesRoute
-  MediaRoute: typeof MediaRoute
   ChatRoute: typeof ChatRoute
   DbUsageRoute: typeof DbUsageRoute
   DiscordModRoute: typeof DiscordModRoute
   DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
   ManageRoute: typeof ManageRouteWithChildren
+  MediaRoute: typeof MediaRoute
   MyReportsRoute: typeof MyReportsRoute
   PanelRoute: typeof PanelRoute
   PlayerListRoute: typeof PlayerListRoute
@@ -526,6 +526,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MyReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/media': {
+      id: '/media'
+      path: '/media'
+      fullPath: '/media'
+      preLoaderRoute: typeof MediaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/manage': {
       id: '/manage'
       path: '/manage'
@@ -573,13 +580,6 @@ declare module '@tanstack/react-router' {
       path: '/bans-mutes'
       fullPath: '/bans-mutes'
       preLoaderRoute: typeof BansMutesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/media': {
-      id: '/media'
-      path: '/media'
-      fullPath: '/media'
-      preLoaderRoute: typeof MediaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -674,13 +674,13 @@ const ManageRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BansMutesRoute: BansMutesRoute,
-  MediaRoute: MediaRoute,
   ChatRoute: ChatRoute,
   DbUsageRoute: DbUsageRoute,
   DiscordModRoute: DiscordModRoute,
   DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,
   ManageRoute: ManageRouteWithChildren,
+  MediaRoute: MediaRoute,
   MyReportsRoute: MyReportsRoute,
   PanelRoute: PanelRoute,
   PlayerListRoute: PlayerListRoute,
