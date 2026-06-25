@@ -255,10 +255,11 @@ function OrgMediaSection({ orgId, orgName }) {
     try {
       const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
       if (typeFilter !== "all") params.set("type", typeFilter);
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media?${params}`, {
-        credentials: "include",
-      });
+      const url = `/api/orgs/${encodeURIComponent(orgId)}/media?${params}`;
+      console.log(`[media] fetch → ${url}`);
+      const res = await fetch(url, { credentials: "include" });
       const body = await res.json().catch(() => null);
+      console.log(`[media] ${res.status} ← org=${orgId} items=${body?.media?.length ?? "?"} total=${body?.total ?? "?"}`, body);
       if (!res.ok) {
         setError(body?.error ?? "Failed to load media.");
         return;
@@ -266,6 +267,7 @@ function OrgMediaSection({ orgId, orgName }) {
       setMedia(body.media ?? []);
       setTotal(body.total ?? 0);
     } catch (err) {
+      console.error(`[media] fetch failed org=${orgId}`, err);
       setError(err.message ?? "Failed to load media.");
     } finally {
       setLoading(false);
@@ -420,6 +422,10 @@ function OrgMediaSection({ orgId, orgName }) {
 
 function MediaPage() {
   const { orgs, orgsLoaded } = useAuth();
+
+  useEffect(() => {
+    console.log(`[media-page] orgsLoaded=${orgsLoaded} orgs=`, orgs.map((o) => ({ id: o.id, name: o.name })));
+  }, [orgsLoaded, orgs]);
 
   return (
     <SiteNav>

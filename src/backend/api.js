@@ -9266,15 +9266,23 @@ async function getZiplineConfig(orgId) {
      LIMIT 1`,
     [orgId],
   );
-  if (!rows[0]) return null;
+  if (!rows[0]) {
+    console.log(`[zipline] config org=${orgId}: org row not found`);
+    return null;
+  }
   const { zipline_url, key_encrypted } = rows[0];
-  if (!zipline_url || !key_encrypted) return null;
+  if (!zipline_url || !key_encrypted) {
+    console.log(`[zipline] config org=${orgId}: url=${zipline_url ? "set" : "MISSING"} token=${key_encrypted ? "set" : "MISSING"}`);
+    return null;
+  }
   let token;
   try {
     token = decryptExternalApiKey(String(key_encrypted));
-  } catch {
+  } catch (err) {
+    console.log(`[zipline] config org=${orgId}: token decryption failed`, err?.message);
     return null;
   }
+  console.log(`[zipline] config org=${orgId}: url=${zipline_url} token=<ok>`);
   return { baseUrl: zipline_url, token };
 }
 
@@ -9343,9 +9351,11 @@ async function handleListOrgMedia(request, orgId) {
     params,
   );
 
+  const total = Number(countRes.rows[0].total);
+  console.log(`[media] list org=${orgId} type=${fileType ?? "all"} offset=${offset} → ${rows.length} rows (total ${total})`);
   return json({
     media: rows.map(serializeMedia),
-    total: Number(countRes.rows[0].total),
+    total,
   });
 }
 
@@ -9381,6 +9391,7 @@ async function handleUploadMedia(request, orgId) {
   const uploadForm = new FormData();
   uploadForm.append("file", new Blob([fileBytes], { type: mimeType }), originalName);
 
+  console.log(`[zipline] upload org=${orgId} file="${originalName}" mime=${mimeType} size=${fileSize}B → POST ${cfg.baseUrl}/api/upload`);
   let ziplineRes;
   try {
     ziplineRes = await fetch(`${cfg.baseUrl}/api/upload`, {
@@ -9390,17 +9401,20 @@ async function handleUploadMedia(request, orgId) {
       signal: AbortSignal.timeout(120_000),
     });
   } catch (err) {
+    console.error(`[zipline] upload fetch error org=${orgId}`, err);
     return json({ error: `Zipline upload failed: ${String(err.message)}` }, 502);
   }
 
   if (!ziplineRes.ok) {
     const text = await ziplineRes.text().catch(() => "");
+    console.error(`[zipline] upload failed org=${orgId} status=${ziplineRes.status} body=${text.slice(0, 300)}`);
     return json({ error: `Zipline returned ${ziplineRes.status}: ${text.slice(0, 200)}` }, 502);
   }
 
   const ziplineBody = await ziplineRes.json().catch(() => null);
   const fileUrl = ziplineBody?.files?.[0]?.url ?? ziplineBody?.url ?? null;
   const fileId = String(ziplineBody?.files?.[0]?.id ?? ziplineBody?.id ?? "");
+  console.log(`[zipline] upload ok org=${orgId} url=${fileUrl} id=${fileId} body=`, JSON.stringify(ziplineBody).slice(0, 300));
   if (!fileUrl) return json({ error: "Zipline did not return a file URL" }, 502);
 
   const { rows } = await pool.query(
