@@ -1350,6 +1350,60 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE org_predefines ADD COLUMN IF NOT EXISTS ticket_type_ids INTEGER[] NOT NULL DEFAULT '{}'`,
   );
+
+  // ── Zipline media integration ─────────────────────────────────────────────
+  // Expand the external-key service constraint to include 'zipline'.
+  await pool.query(`
+    ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service
+  `);
+  await pool.query(`
+    ALTER TABLE org_external_api_keys ADD CONSTRAINT chk_ext_api_key_service
+      CHECK (service IN ('battlemetrics', 'steam', 'proxycheck', 'openai', 'zipline'))
+  `);
+
+  // Zipline instance base URL (not secret — stored in plain text on the org row).
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS zipline_url TEXT`,
+  );
+
+  // Soft-delete media that hasn't been accessed in this many months (NULL = never expire).
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS media_expiry_months INTEGER`,
+  );
+
+  // Per-org media metadata: one row per file uploaded to the org's Zipline instance.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_media (
+      media_id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id           TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      uploaded_by      UUID    REFERENCES users(user_id) ON DELETE SET NULL,
+      zipline_file_id  TEXT    NOT NULL,
+      zipline_url      TEXT    NOT NULL,
+      filename         TEXT    NOT NULL,
+      file_type        TEXT    NOT NULL,
+      mime_type        TEXT,
+      file_size        BIGINT,
+      title            TEXT    NOT NULL DEFAULT '',
+      uploaded_at      BIGINT  NOT NULL DEFAULT unix_now(),
+      last_accessed_at BIGINT,
+      deleted          BOOLEAN NOT NULL DEFAULT FALSE,
+      CONSTRAINT chk_media_file_type CHECK (file_type IN ('image', 'video', 'other'))
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_media_org_active
+     ON org_media(org_id, uploaded_at DESC)
+     WHERE deleted = FALSE`,
+  );
+
+  // Link evidence (media items) to bans.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ban_media_links (
+      ban_id   UUID NOT NULL REFERENCES player_bans(ban_id) ON DELETE CASCADE,
+      media_id UUID NOT NULL REFERENCES org_media(media_id) ON DELETE CASCADE,
+      PRIMARY KEY (ban_id, media_id)
+    )
+  `);
 }
 
 export async function migrateTimestampsToUnix(pool) {

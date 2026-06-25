@@ -65,6 +65,7 @@ const SERVICE_LABELS = {
   steam: "Steam Web API",
   proxycheck: "Proxycheck.io",
   openai: "OpenAI",
+  zipline: "Zipline",
 };
 
 const SERVICE_LINKS = {
@@ -72,6 +73,7 @@ const SERVICE_LINKS = {
   steam: "https://steamcommunity.com/dev/apikey",
   proxycheck: "https://proxycheck.io/dashboard/",
   openai: "https://platform.openai.com/api-keys",
+  zipline: "https://zipline.diced.sh",
 };
 
 const SERVICE_HINTS = {
@@ -83,6 +85,8 @@ const SERVICE_HINTS = {
     "Used to flag VPN / proxy connections on new player joins and during lookups.",
   openai:
     "Used for AI chat moderation — scores every ingested chat message and fires highlight/automute triggers configured on the Toxicity page.",
+  zipline:
+    "API token for your self-hosted Zipline instance. Required for the Media Gallery — staff upload evidence (clips, screenshots) and link them to bans.",
 };
 
 const SERVICE_PERMISSIONS = {
@@ -371,7 +375,7 @@ function ApiKeysSection({ orgId }) {
     }
   }
 
-  const keysByService = ["battlemetrics", "steam", "proxycheck", "openai"].reduce(
+  const keysByService = ["battlemetrics", "steam", "proxycheck", "openai", "zipline"].reduce(
     (acc, svc) => {
       acc[svc] = keys.filter((k) => k.service === svc);
       return acc;
@@ -399,7 +403,7 @@ function ApiKeysSection({ orgId }) {
         <p className="text-sm text-muted-foreground">Loading keys…</p>
       ) : (
         <div className="space-y-4">
-          {["battlemetrics", "steam", "proxycheck", "openai"].map((svc) => (
+          {["battlemetrics", "steam", "proxycheck", "openai", "zipline"].map((svc) => (
             <div
               key={svc}
               className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2 max-w-xl"
@@ -540,6 +544,7 @@ function ApiKeysSection({ orgId }) {
               <SelectItem value="steam">Steam Web API</SelectItem>
               <SelectItem value="proxycheck">Proxycheck.io</SelectItem>
               <SelectItem value="openai">OpenAI</SelectItem>
+              <SelectItem value="zipline">Zipline</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1015,6 +1020,8 @@ function ManageDetailsPage() {
   const [bmBanListsError, setBmBanListsError] = useState(false);
   const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
+  const [ziplineUrl, setZiplineUrl] = useState("");
+  const [mediaExpiryMonths, setMediaExpiryMonths] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1078,6 +1085,8 @@ function ManageDetailsPage() {
         setBmOrgId(body.organization?.bmOrgId ?? "");
         setBmAutoSync(body.organization?.bmAutoSync === true);
         setBmBanListId(body.organization?.bmBanListId ?? "");
+        setZiplineUrl(body.organization?.ziplineUrl ?? "");
+        setMediaExpiryMonths(body.organization?.mediaExpiryMonths != null ? String(body.organization.mediaExpiryMonths) : "");
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1196,6 +1205,8 @@ function ManageDetailsPage() {
           bmOrgId: bmOrgId.trim() || null,
           bmAutoSync,
           bmBanListId: bmBanListId || null,
+          ziplineUrl: ziplineUrl.trim() || null,
+          mediaExpiryMonths: mediaExpiryMonths ? parseInt(mediaExpiryMonths, 10) : null,
         }),
       });
 
@@ -1211,6 +1222,8 @@ function ManageDetailsPage() {
       setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
       setBmAutoSync(body.organization?.bmAutoSync ?? bmAutoSync);
       setBmBanListId(body.organization?.bmBanListId ?? bmBanListId);
+      setZiplineUrl(body.organization?.ziplineUrl ?? ziplineUrl.trim());
+      setMediaExpiryMonths(body.organization?.mediaExpiryMonths != null ? String(body.organization.mediaExpiryMonths) : "");
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1437,6 +1450,38 @@ function ManageDetailsPage() {
               </div>
             </div>
           )}
+
+          <div className="space-y-1">
+            <Label htmlFor="zipline-url">Zipline instance URL</Label>
+            <Input
+              id="zipline-url"
+              value={ziplineUrl}
+              onChange={(e) => setZiplineUrl(e.target.value)}
+              disabled={loading || saving}
+              placeholder="https://zipline.example.com"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Base URL of your self-hosted Zipline server. Add the API token below in the API Keys section.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="media-expiry">Media expiry (months)</Label>
+            <Input
+              id="media-expiry"
+              type="number"
+              min={1}
+              max={120}
+              value={mediaExpiryMonths}
+              onChange={(e) => setMediaExpiryMonths(e.target.value)}
+              disabled={loading || saving}
+              placeholder="Never (leave blank)"
+              className="w-40"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Media items not accessed in this many months will be automatically deleted. Leave blank to keep forever.
+            </p>
+          </div>
 
           <Button type="submit" disabled={loading || saving}>
             {saving ? "Saving..." : "Save details"}

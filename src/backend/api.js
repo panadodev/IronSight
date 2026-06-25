@@ -621,6 +621,14 @@ async function init() {
         console.error("[globalping] results job:", e.message),
       );
     }, 60 * 1000);
+    setInterval(
+      () => {
+        purgeExpiredMedia().catch((e) =>
+          console.error("[media-expiry] purge job:", e.message),
+        );
+      },
+      6 * 60 * 60 * 1000, // every 6 hours
+    );
   })().catch((error) => {
     initError = error;
     console.error("[startup] dependency ping failed", error);
@@ -3035,7 +3043,7 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, zipline_url, media_expiry_months, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -3051,6 +3059,8 @@ async function handleGetOrgDetails(request, orgId) {
       bmAutoSync: org.bm_auto_sync === true,
       bmBanListId: org.bm_ban_list_id == null ? null : String(org.bm_ban_list_id),
       syncPermsOnJoin: org.sync_perms_on_join === true,
+      ziplineUrl: org.zipline_url ?? null,
+      mediaExpiryMonths: org.media_expiry_months ?? null,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
     },
@@ -3105,6 +3115,22 @@ async function handleUpdateOrgDetails(request, orgId) {
   const syncPermsOnJoin =
     body?.syncPermsOnJoin === undefined ? undefined : body.syncPermsOnJoin === true;
 
+  const ziplineUrlRaw = body?.ziplineUrl;
+  const ziplineUrl =
+    ziplineUrlRaw === undefined
+      ? undefined
+      : ziplineUrlRaw === null
+        ? null
+        : String(ziplineUrlRaw).trim().replace(/\/+$/, "") || null;
+
+  const mediaExpiryMonthsRaw = body?.mediaExpiryMonths;
+  const mediaExpiryMonths =
+    mediaExpiryMonthsRaw === undefined
+      ? undefined
+      : mediaExpiryMonthsRaw === null
+        ? null
+        : Math.max(1, Math.min(120, parseInt(mediaExpiryMonthsRaw, 10))) || null;
+
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
   }
@@ -3136,9 +3162,12 @@ async function handleUpdateOrgDetails(request, orgId) {
          bm_org_id = CASE WHEN $5 THEN $6::text ELSE bm_org_id END,
          bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END,
          bm_ban_list_id = CASE WHEN $9 THEN $10::text ELSE bm_ban_list_id END,
-         sync_perms_on_join = CASE WHEN $11 THEN $12::boolean ELSE sync_perms_on_join END
+         sync_perms_on_join = CASE WHEN $11 THEN $12::boolean ELSE sync_perms_on_join END,
+         zipline_url = CASE WHEN $13 THEN $14::text ELSE zipline_url END,
+         media_expiry_months = CASE WHEN $15 THEN $16::integer ELSE media_expiry_months END
      WHERE org_id = $1
-     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, name, created_at`,
+     RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join,
+               zipline_url, media_expiry_months, name, created_at`,
     [
       orgId,
       name,
@@ -3152,6 +3181,10 @@ async function handleUpdateOrgDetails(request, orgId) {
       bmBanListId ?? null,
       syncPermsOnJoin !== undefined,
       syncPermsOnJoin ?? false,
+      ziplineUrl !== undefined,
+      ziplineUrl ?? null,
+      mediaExpiryMonths !== undefined,
+      mediaExpiryMonths ?? null,
     ],
   );
 
@@ -3169,6 +3202,8 @@ async function handleUpdateOrgDetails(request, orgId) {
       bmAutoSync: updated.bm_auto_sync === true,
       bmBanListId: updated.bm_ban_list_id == null ? null : String(updated.bm_ban_list_id),
       syncPermsOnJoin: updated.sync_perms_on_join === true,
+      ziplineUrl: updated.zipline_url ?? null,
+      mediaExpiryMonths: updated.media_expiry_months ?? null,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
@@ -8126,6 +8161,7 @@ async function handleCreateBan(request, orgId) {
     expiresAt,
     serverIds = [],
     category,
+    mediaIds = [],
   } = body;
 
   // Cap free-text fields to bound DB writes and RCON command size.
@@ -8201,6 +8237,24 @@ async function handleCreateBan(request, orgId) {
         [banId, sid],
       );
       validServerIds.push(sid);
+    }
+  }
+
+  if (Array.isArray(mediaIds) && mediaIds.length > 0) {
+    const safeMediaIds = mediaIds
+      .filter((id) => typeof id === "string" && /^[a-f0-9-]{36}$/.test(id))
+      .slice(0, 20);
+    if (safeMediaIds.length > 0) {
+      const validMedia = await pool.query(
+        `SELECT media_id FROM org_media WHERE media_id = ANY($1::uuid[]) AND org_id = $2 AND deleted = FALSE`,
+        [safeMediaIds, orgId],
+      );
+      for (const row of validMedia.rows) {
+        await pool.query(
+          `INSERT INTO ban_media_links (ban_id, media_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [banId, String(row.media_id)],
+        );
+      }
     }
   }
 
@@ -9030,9 +9084,9 @@ async function handleAddExternalKey(request, orgId) {
     .slice(0, 128);
   const priority = Number(body?.priority ?? 0);
 
-  if (!["battlemetrics", "steam", "proxycheck", "openai"].includes(service))
+  if (!["battlemetrics", "steam", "proxycheck", "openai", "zipline"].includes(service))
     return json(
-      { error: "service must be battlemetrics, steam, proxycheck, or openai" },
+      { error: "service must be battlemetrics, steam, proxycheck, openai, or zipline" },
       400,
     );
   if (!rawKey) return json({ error: "key is required" }, 400);
@@ -9198,6 +9252,287 @@ async function handleGetExternalKeyStats(request, orgId) {
   );
 
   return json({ stats, proxycheckUsage });
+}
+
+// ── Zipline media integration ─────────────────────────────────────────────────
+
+async function getZiplineConfig(orgId) {
+  const { rows } = await pool.query(
+    `SELECT o.zipline_url, k.key_encrypted
+     FROM organizations o
+     LEFT JOIN org_external_api_keys k
+       ON k.org_id = o.org_id AND k.service = 'zipline' AND k.enabled = TRUE
+     WHERE o.org_id = $1
+     LIMIT 1`,
+    [orgId],
+  );
+  if (!rows[0]) return null;
+  const { zipline_url, key_encrypted } = rows[0];
+  if (!zipline_url || !key_encrypted) return null;
+  let token;
+  try {
+    token = decryptExternalApiKey(String(key_encrypted));
+  } catch {
+    return null;
+  }
+  return { baseUrl: zipline_url, token };
+}
+
+function mediaFileType(mimeType) {
+  if (!mimeType) return "other";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  return "other";
+}
+
+function serializeMedia(r) {
+  return {
+    mediaId: String(r.media_id),
+    orgId: String(r.org_id),
+    uploadedBy: r.uploaded_by ? String(r.uploaded_by) : null,
+    uploadedByName: r.uploaded_by_name ?? null,
+    ziplineUrl: String(r.zipline_url),
+    filename: String(r.filename),
+    fileType: String(r.file_type),
+    mimeType: r.mime_type ?? null,
+    fileSize: r.file_size != null ? Number(r.file_size) : null,
+    title: r.title ?? "",
+    uploadedAt: Number(r.uploaded_at),
+    lastAccessedAt: r.last_accessed_at != null ? Number(r.last_accessed_at) : null,
+  };
+}
+
+async function handleListOrgMedia(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "players_view") &&
+      !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden" }, 403);
+
+  const url = new URL(request.url);
+  const limitParam = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)));
+  const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10));
+  const fileType = url.searchParams.get("type") ?? null;
+
+  const conditions = ["m.org_id = $1", "m.deleted = FALSE"];
+  const params = [orgId];
+  let paramIdx = 2;
+
+  if (fileType && ["image", "video", "other"].includes(fileType)) {
+    conditions.push(`m.file_type = $${paramIdx++}`);
+    params.push(fileType);
+  }
+
+  const where = conditions.join(" AND ");
+
+  const { rows } = await pool.query(
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.zipline_url, m.filename,
+            m.file_type, m.mime_type, m.file_size, m.title,
+            m.uploaded_at, m.last_accessed_at,
+            u.username AS uploaded_by_name
+     FROM org_media m
+     LEFT JOIN users u ON u.user_id = m.uploaded_by
+     WHERE ${where}
+     ORDER BY m.uploaded_at DESC
+     LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+    [...params, limitParam, offset],
+  );
+
+  const countRes = await pool.query(
+    `SELECT COUNT(*) AS total FROM org_media m WHERE ${where}`,
+    params,
+  );
+
+  return json({
+    media: rows.map(serializeMedia),
+    total: Number(countRes.rows[0].total),
+  });
+}
+
+async function handleUploadMedia(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
+    return json({ error: "Forbidden: bans_create permission required" }, 403);
+
+  const cfg = await getZiplineConfig(orgId);
+  if (!cfg) return json({ error: "Zipline is not configured for this organization. Add the Zipline URL and token in Manage → Details." }, 422);
+
+  let formData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return json({ error: "Expected multipart/form-data" }, 400);
+  }
+
+  const file = formData.get("file");
+  if (!file || typeof file.arrayBuffer !== "function")
+    return json({ error: "file field is required" }, 400);
+
+  const title = String(formData.get("title") ?? "").trim().slice(0, 255);
+  const originalName = file.name ?? "upload";
+  const mimeType = file.type || "application/octet-stream";
+  const fileSize = file.size ?? null;
+
+  const fileBytes = await file.arrayBuffer();
+  if (fileBytes.byteLength > 500 * 1024 * 1024)
+    return json({ error: "File too large (max 500 MB)" }, 413);
+
+  const uploadForm = new FormData();
+  uploadForm.append("file", new Blob([fileBytes], { type: mimeType }), originalName);
+
+  let ziplineRes;
+  try {
+    ziplineRes = await fetch(`${cfg.baseUrl}/api/upload`, {
+      method: "POST",
+      headers: { Authorization: cfg.token },
+      body: uploadForm,
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (err) {
+    return json({ error: `Zipline upload failed: ${String(err.message)}` }, 502);
+  }
+
+  if (!ziplineRes.ok) {
+    const text = await ziplineRes.text().catch(() => "");
+    return json({ error: `Zipline returned ${ziplineRes.status}: ${text.slice(0, 200)}` }, 502);
+  }
+
+  const ziplineBody = await ziplineRes.json().catch(() => null);
+  const fileUrl = ziplineBody?.files?.[0]?.url ?? ziplineBody?.url ?? null;
+  const fileId = String(ziplineBody?.files?.[0]?.id ?? ziplineBody?.id ?? "");
+  if (!fileUrl) return json({ error: "Zipline did not return a file URL" }, 502);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_media (org_id, uploaded_by, zipline_file_id, zipline_url, filename, file_type, mime_type, file_size, title)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     RETURNING media_id, org_id, uploaded_by, zipline_url, filename, file_type, mime_type, file_size, title, uploaded_at, last_accessed_at`,
+    [orgId, session.userId, fileId, fileUrl, originalName, mediaFileType(mimeType), mimeType, fileSize, title],
+  );
+
+  return json({ media: serializeMedia({ ...rows[0], uploaded_by_name: null }) }, 201);
+}
+
+async function handleDeleteMedia(request, orgId, mediaId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT media_id, uploaded_by, zipline_file_id FROM org_media WHERE media_id = $1 AND org_id = $2 AND deleted = FALSE`,
+    [mediaId, orgId],
+  );
+  if (!rows[0]) return json({ error: "Media not found" }, 404);
+
+  const row = rows[0];
+  const isOwner = String(row.uploaded_by) === String(session.userId);
+  if (!isOwner && !canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden: you can only delete your own uploads" }, 403);
+
+  const cfg = await getZiplineConfig(orgId);
+  if (cfg && row.zipline_file_id) {
+    try {
+      await fetch(`${cfg.baseUrl}/api/user/files`, {
+        method: "DELETE",
+        headers: { Authorization: cfg.token, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: isNaN(Number(row.zipline_file_id)) ? row.zipline_file_id : Number(row.zipline_file_id) }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch {
+      // best-effort — still soft-delete locally
+    }
+  }
+
+  await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [mediaId]);
+  return json({ ok: true });
+}
+
+async function handleGetMediaItem(request, orgId, mediaId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "players_view") &&
+      !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.zipline_url, m.filename,
+            m.file_type, m.mime_type, m.file_size, m.title,
+            m.uploaded_at, m.last_accessed_at,
+            u.username AS uploaded_by_name
+     FROM org_media m
+     LEFT JOIN users u ON u.user_id = m.uploaded_by
+     WHERE m.media_id = $1 AND m.org_id = $2 AND m.deleted = FALSE`,
+    [mediaId, orgId],
+  );
+  if (!rows[0]) return json({ error: "Media not found" }, 404);
+
+  await pool.query(`UPDATE org_media SET last_accessed_at = unix_now() WHERE media_id = $1`, [mediaId]);
+
+  return json({ media: serializeMedia(rows[0]) });
+}
+
+async function handleGetBanMedia(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "players_view") &&
+      !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
+    return json({ error: "Forbidden" }, 403);
+
+  const banCheck = await pool.query(
+    `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2 LIMIT 1`,
+    [banId, orgId],
+  );
+  if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.zipline_url, m.filename,
+            m.file_type, m.mime_type, m.file_size, m.title,
+            m.uploaded_at, m.last_accessed_at,
+            u.username AS uploaded_by_name
+     FROM ban_media_links bml
+     JOIN org_media m ON m.media_id = bml.media_id
+     LEFT JOIN users u ON u.user_id = m.uploaded_by
+     WHERE bml.ban_id = $1 AND m.deleted = FALSE`,
+    [banId],
+  );
+
+  return json({ media: rows.map(serializeMedia) });
+}
+
+async function purgeExpiredMedia() {
+  const { rows: orgs } = await pool.query(
+    `SELECT org_id, media_expiry_months FROM organizations WHERE media_expiry_months IS NOT NULL`,
+  );
+  for (const org of orgs) {
+    const thresholdSeconds = Math.floor(Date.now() / 1000) - org.media_expiry_months * 30 * 86400;
+    const { rows: expired } = await pool.query(
+      `SELECT media_id, zipline_file_id FROM org_media
+       WHERE org_id = $1 AND deleted = FALSE
+         AND COALESCE(last_accessed_at, uploaded_at) < $2`,
+      [org.org_id, thresholdSeconds],
+    );
+    if (!expired.length) continue;
+    const cfg = await getZiplineConfig(org.org_id);
+    for (const row of expired) {
+      if (cfg && row.zipline_file_id) {
+        try {
+          await fetch(`${cfg.baseUrl}/api/user/files`, {
+            method: "DELETE",
+            headers: { Authorization: cfg.token, "Content-Type": "application/json" },
+            body: JSON.stringify({ id: isNaN(Number(row.zipline_file_id)) ? row.zipline_file_id : Number(row.zipline_file_id) }),
+            signal: AbortSignal.timeout(15_000),
+          });
+        } catch {
+          // continue — still mark deleted locally
+        }
+      }
+      await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [row.media_id]);
+    }
+    if (expired.length > 0) {
+      console.log(`[media-expiry] purged ${expired.length} items for org ${org.org_id}`);
+    }
+  }
 }
 
 // ── Globalping config and results handlers ────────────────────────────────────
@@ -11597,6 +11932,29 @@ async function _handleApiRequest(request) {
     );
     if (orgGlobalpingLimitsMatch && request.method === "GET")
       return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
+
+    // Org media gallery (Zipline integration)
+    const orgMediaMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media$/,
+    );
+    if (orgMediaMatch && request.method === "GET")
+      return handleListOrgMedia(request, orgMediaMatch[1]);
+    if (orgMediaMatch && request.method === "POST")
+      return handleUploadMedia(request, orgMediaMatch[1]);
+
+    const orgMediaItemMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media\/([a-f0-9-]+)$/,
+    );
+    if (orgMediaItemMatch && request.method === "GET")
+      return handleGetMediaItem(request, orgMediaItemMatch[1], orgMediaItemMatch[2]);
+    if (orgMediaItemMatch && request.method === "DELETE")
+      return handleDeleteMedia(request, orgMediaItemMatch[1], orgMediaItemMatch[2]);
+
+    const banMediaMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/media$/,
+    );
+    if (banMediaMatch && request.method === "GET")
+      return handleGetBanMedia(request, banMediaMatch[1], banMediaMatch[2]);
 
     // Blacklisted words (management UI)
     const orgBlacklistedWordsMatch = pathname.match(

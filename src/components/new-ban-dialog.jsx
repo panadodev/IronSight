@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
+import { MediaPicker } from "@/components/media-picker";
+import { Film, Image, FileIcon, X, ImagePlus } from "lucide-react";
 
 export const DURATION_PRESETS = [
   { label: "1 Hour", value: "60" },
@@ -90,6 +92,9 @@ export function NewBanDialog({
   const [error, setError] = useState("");
   const [rconResults, setRconResults] = useState(null);
   const [servers, setServers] = useState(serversProp ?? []);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [linkedMediaIds, setLinkedMediaIds] = useState([]);
+  const [linkedMediaItems, setLinkedMediaItems] = useState([]);
 
   useEffect(() => {
     if (!open) return;
@@ -125,6 +130,8 @@ export function NewBanDialog({
     setNoteEdited(false);
     setError("");
     setRconResults(null);
+    setLinkedMediaIds([]);
+    setLinkedMediaItems([]);
   }, [open, manageableOrgIds, defaultActionType, defaultIdentifier]);
 
   useEffect(() => {
@@ -198,6 +205,7 @@ export function NewBanDialog({
           note,
           expiresAt: computeExpiresAt(duration),
           serverIds: selectedServerIds,
+          mediaIds: linkedMediaIds,
         }),
       });
       const body = await res.json().catch(() => null);
@@ -220,6 +228,7 @@ export function NewBanDialog({
   const categories = actionType === "mute" ? MUTE_CATEGORIES : BAN_CATEGORIES;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -517,6 +526,50 @@ export function NewBanDialog({
               />
             </div>
 
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Evidence
+              </Label>
+              {linkedMediaItems.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-1.5">
+                  {linkedMediaItems.map((item) => (
+                    <div
+                      key={item.mediaId}
+                      className="relative rounded-md ring-1 ring-border overflow-hidden w-16 h-16 bg-black/20 flex items-center justify-center shrink-0"
+                    >
+                      {item.fileType === "image" ? (
+                        <img src={item.ziplineUrl} alt={item.filename} className="w-full h-full object-cover" />
+                      ) : item.fileType === "video" ? (
+                        <Film className="size-5 text-muted-foreground" />
+                      ) : (
+                        <FileIcon className="size-5 text-muted-foreground" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLinkedMediaIds((ids) => ids.filter((id) => id !== item.mediaId));
+                          setLinkedMediaItems((items) => items.filter((i) => i.mediaId !== item.mediaId));
+                        }}
+                        className="absolute top-0.5 right-0.5 size-4 rounded-full bg-black/70 flex items-center justify-center text-white hover:bg-black"
+                      >
+                        <X className="size-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setMediaPickerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <ImagePlus className="size-3.5" />
+                {linkedMediaIds.length > 0
+                  ? `${linkedMediaIds.length} item${linkedMediaIds.length !== 1 ? "s" : ""} linked — change`
+                  : "Link evidence from gallery"}
+              </button>
+            </div>
+
             {error && (
               <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {error}
@@ -537,5 +590,19 @@ export function NewBanDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    {mediaPickerOpen && (
+      <MediaPicker
+        open={mediaPickerOpen}
+        onClose={() => setMediaPickerOpen(false)}
+        orgId={orgId}
+        selectedIds={linkedMediaIds}
+        onConfirm={(ids, items) => {
+          setLinkedMediaIds(ids);
+          setLinkedMediaItems(items);
+        }}
+      />
+    )}
+  </>
   );
 }
