@@ -238,9 +238,7 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
 }
 
 function MediaPage() {
-  const { orgs } = useAuth();
-
-  const accessibleOrgIds = (orgs ?? []).map((o) => o.id);
+  const { orgs, myOrgIds, orgsLoaded } = useAuth();
 
   const [orgId, setOrgId] = useState("");
   const [media, setMedia] = useState([]);
@@ -255,10 +253,10 @@ function MediaPage() {
   const LIMIT = 48;
 
   useEffect(() => {
-    if (!orgId && accessibleOrgIds.length > 0) {
-      setOrgId(accessibleOrgIds[0]);
+    if (orgsLoaded && !orgId && myOrgIds.length > 0) {
+      setOrgId(myOrgIds[0]);
     }
-  }, [accessibleOrgIds.join(",")]);
+  }, [orgsLoaded, myOrgIds, orgId]);
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -323,13 +321,13 @@ function MediaPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {accessibleOrgIds.length > 1 && (
+            {myOrgIds.length > 1 && (
               <select
                 value={orgId}
                 onChange={(e) => setOrgId(e.target.value)}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground"
               >
-                {accessibleOrgIds.map((id) => {
+                {myOrgIds.map((id) => {
                   const org = orgs?.find((o) => o.id === id);
                   return (
                     <option key={id} value={id}>
