@@ -1244,6 +1244,10 @@ export async function ensureSchema(pool) {
     ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service
   `);
   await pool.query(`
+    DELETE FROM org_external_api_keys
+    WHERE service NOT IN ('battlemetrics', 'steam', 'proxycheck', 'openai')
+  `);
+  await pool.query(`
     ALTER TABLE org_external_api_keys ADD CONSTRAINT chk_ext_api_key_service
       CHECK (service IN ('battlemetrics', 'steam', 'proxycheck', 'openai'))
   `);
@@ -1355,6 +1359,10 @@ export async function ensureSchema(pool) {
   // Expand the external-key service constraint to include 'zipline'.
   await pool.query(`
     ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service
+  `);
+  await pool.query(`
+    DELETE FROM org_external_api_keys
+    WHERE service NOT IN ('battlemetrics', 'steam', 'proxycheck', 'openai', 'zipline')
   `);
   await pool.query(`
     ALTER TABLE org_external_api_keys ADD CONSTRAINT chk_ext_api_key_service
