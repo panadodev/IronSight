@@ -237,29 +237,19 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
   );
 }
 
-function MediaPage() {
-  const { orgs, myOrgIds, orgsLoaded } = useAuth();
-
-  const [orgId, setOrgId] = useState("");
+function OrgMediaSection({ orgId, orgName }) {
+  const LIMIT = 24;
   const [media, setMedia] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [offset, setOffset] = useState(0);
-  const LIMIT = 48;
-
-  useEffect(() => {
-    if (orgsLoaded && !orgId && myOrgIds.length > 0) {
-      setOrgId(myOrgIds[0]);
-    }
-  }, [orgsLoaded, myOrgIds, orgId]);
 
   const load = useCallback(async () => {
-    if (!orgId) return;
     setLoading(true);
     setError("");
     try {
@@ -282,13 +272,8 @@ function MediaPage() {
     }
   }, [orgId, typeFilter, offset]);
 
-  useEffect(() => {
-    setOffset(0);
-  }, [orgId, typeFilter]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { setOffset(0); }, [orgId, typeFilter]);
+  useEffect(() => { load(); }, [load]);
 
   async function handleDelete(mediaId) {
     setDeletingId(mediaId);
@@ -311,52 +296,22 @@ function MediaPage() {
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
   return (
-    <SiteNav>
-      <div className="space-y-5 p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-lg font-semibold">Media Gallery</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Evidence clips and images uploaded by staff.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {myOrgIds.length > 1 && (
-              <select
-                value={orgId}
-                onChange={(e) => setOrgId(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground"
-              >
-                {myOrgIds.map((id) => {
-                  const org = orgs?.find((o) => o.id === id);
-                  return (
-                    <option key={id} value={id}>
-                      {org?.name ?? id}
-                    </option>
-                  );
-                })}
-              </select>
-            )}
-            <button
-              onClick={load}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 h-9 px-3 text-sm rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-            </button>
-            <Button onClick={() => setUploadOpen(true)}>
-              <Plus className="size-4" />
-              Upload
-            </Button>
-          </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap border-b border-border pb-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <h2 className="text-sm font-semibold truncate">{orgName}</h2>
+          {loading ? (
+            <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>
+          ) : total > 0 ? (
+            <span className="text-xs text-muted-foreground">{total} item{total !== 1 ? "s" : ""}</span>
+          ) : null}
         </div>
-
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {["all", "image", "video", "other"].map((t) => (
             <button
               key={t}
               onClick={() => setTypeFilter(t)}
-              className={`px-3 py-1 text-xs rounded-md ring-1 transition-colors capitalize ${
+              className={`px-2.5 py-1 text-[11px] rounded-md ring-1 transition-colors capitalize ${
                 typeFilter === t
                   ? "ring-brand/60 bg-brand/15 text-brand font-medium"
                   : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
@@ -365,69 +320,73 @@ function MediaPage() {
               {t === "all" ? "All" : t}
             </button>
           ))}
-          {total > 0 && (
-            <span className="ml-2 text-xs text-muted-foreground">{total} item{total !== 1 ? "s" : ""}</span>
-          )}
+          <button
+            onClick={load}
+            disabled={loading}
+            title="Refresh"
+            className="inline-flex items-center h-7 px-2 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <Button size="sm" className="h-7 text-xs px-3" onClick={() => setUploadOpen(true)}>
+            <Plus className="size-3.5" />
+            Upload
+          </Button>
         </div>
-
-        {error && (
-          <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </div>
-        )}
-
-        {loading && media.length === 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="rounded-lg ring-1 ring-border bg-surface/20 aspect-video animate-pulse" />
-            ))}
-          </div>
-        ) : media.length === 0 ? (
-          <div className="rounded-lg ring-1 ring-border bg-surface/20 py-16 text-center">
-            <FileIcon className="size-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">No media uploaded yet.</p>
-            <Button className="mt-4" onClick={() => setUploadOpen(true)}>
-              <Upload className="size-4" />
-              Upload first file
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {media.map((item) => (
-              <MediaCard
-                key={item.mediaId}
-                item={item}
-                onDelete={(id) => setConfirmDeleteId(id)}
-                deleting={deletingId === item.mediaId}
-              />
-            ))}
-          </div>
-        )}
-
-        {pages > 1 && (
-          <div className="flex items-center gap-2 justify-center pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Page {currentPage} of {pages}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={currentPage >= pages}
-              onClick={() => setOffset((o) => o + LIMIT)}
-            >
-              Next
-            </Button>
-          </div>
-        )}
       </div>
+
+      {error && (
+        <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+          {error}
+        </div>
+      )}
+
+      {loading && media.length === 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-lg ring-1 ring-border bg-surface/20 aspect-video animate-pulse" />
+          ))}
+        </div>
+      ) : media.length === 0 ? (
+        <div className="rounded-lg ring-1 ring-border bg-surface/20 py-10 flex flex-col items-center gap-2 text-center">
+          <FileIcon className="size-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No media uploaded yet.</p>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Upload clips, screenshots, or other evidence files. They'll appear here and can be linked to bans.
+          </p>
+          <Button size="sm" className="mt-1" onClick={() => setUploadOpen(true)}>
+            <Upload className="size-3.5" />
+            Upload first file
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {media.map((item) => (
+            <MediaCard
+              key={item.mediaId}
+              item={item}
+              onDelete={(id) => setConfirmDeleteId(id)}
+              deleting={deletingId === item.mediaId}
+            />
+          ))}
+        </div>
+      )}
+
+      {pages > 1 && (
+        <div className="flex items-center gap-2 justify-center pt-1">
+          <Button variant="ghost" size="sm" disabled={currentPage <= 1}
+            onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}>
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {currentPage} of {pages}
+          </span>
+          <Button variant="ghost" size="sm" disabled={currentPage >= pages}
+            onClick={() => setOffset((o) => o + LIMIT)}>
+            Next
+          </Button>
+        </div>
+      )}
 
       <UploadDialog
         open={uploadOpen}
@@ -448,19 +407,59 @@ function MediaPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2 justify-end pt-2">
-            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => handleDelete(confirmDeleteId)}
-              disabled={!!deletingId}
-            >
+            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => handleDelete(confirmDeleteId)} disabled={!!deletingId}>
               {deletingId ? "Deleting…" : "Delete"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MediaPage() {
+  const { orgs, orgsLoaded } = useAuth();
+
+  return (
+    <SiteNav>
+      <div className="space-y-6 p-6">
+        <div>
+          <h1 className="text-lg font-semibold">Media Gallery</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Evidence clips and images uploaded by staff. Upload files here and link them to bans as evidence.
+          </p>
+        </div>
+
+        {!orgsLoaded ? (
+          <div className="space-y-8">
+            {[0, 1].map((i) => (
+              <div key={i} className="space-y-3">
+                <div className="flex items-center gap-3 pb-3 border-b border-border">
+                  <div className="h-3.5 w-28 bg-surface/60 rounded animate-pulse" />
+                  <div className="h-3 w-14 bg-surface/40 rounded animate-pulse" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {Array.from({ length: 6 }).map((_, j) => (
+                    <div key={j} className="rounded-lg ring-1 ring-border bg-surface/20 aspect-video animate-pulse" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : orgs.length === 0 ? (
+          <div className="rounded-lg ring-1 ring-border bg-surface/20 py-16 text-center">
+            <FileIcon className="size-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">You don't have access to any organizations.</p>
+          </div>
+        ) : (
+          <div className="space-y-10">
+            {orgs.map((org) => (
+              <OrgMediaSection key={org.id} orgId={org.id} orgName={org.name} />
+            ))}
+          </div>
+        )}
+      </div>
     </SiteNav>
   );
 }
