@@ -115,9 +115,12 @@ async function fetchSteamPlayerData(steamId, orgId) {
         const visState =
           p.profilestate === 0 ? 0 : (p.communityvisibilitystate ?? 1);
         profileVisibility =
-          { 0: "Not Configured", 1: "Private", 2: "Private", 3: "Public" }[
-            visState
-          ] ?? "Private";
+          {
+            0: "Not Configured",
+            1: "Private",
+            2: "Friends Only",
+            3: "Public",
+          }[visState] ?? "Private";
         profileCreatedAt = p.timecreated ?? null;
       }
     } catch {

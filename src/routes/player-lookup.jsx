@@ -714,6 +714,22 @@ function PlayerLookupPage() {
                           }
                         />
                         <Field
+                          label="Steam Profile"
+                          hint={HINTS.steamVisibility}
+                          value={playerData.steam.profileVisibility ?? "—"}
+                          tone={
+                            playerData.steam.profileVisibility === "Public"
+                              ? "success"
+                              : playerData.steam.profileVisibility ===
+                                  "Friends Only"
+                                ? "warning"
+                                : playerData.steam.profileVisibility ===
+                                    "Private"
+                                  ? "danger"
+                                  : undefined
+                          }
+                        />
+                        <Field
                           label="BM-Hours"
                           hint={HINTS.bmHours}
                           value={
@@ -722,6 +738,14 @@ function PlayerLookupPage() {
                               : "—"
                           }
                         />
+                        {playerData.bm && (
+                          <Field
+                            label="BM Profile"
+                            hint={HINTS.bmVisibility}
+                            value={playerData.bm.private ? "Private" : "Public"}
+                            tone={playerData.bm.private ? "danger" : "success"}
+                          />
+                        )}
                         <Field
                           label="AIM-TRAIN Hours"
                           hint={HINTS.atHours}

@@ -24,6 +24,10 @@ export const HINTS = {
     "This ban was created automatically because the player connected from an IP that has an active IP ban.",
   ipBan:
     "Bans the IP address itself. Anyone who later connects from this IP is automatically given a linked ban record.",
+  steamVisibility:
+    "Steam profile visibility: Public = anyone can view; Friends Only = only Steam friends; Private = only the player themselves. Affects what data Steam exposes.",
+  bmVisibility:
+    "BattleMetrics profile privacy flag. When private, BM hides server history and player data from its public API.",
   bmAutoSync:
     "When on, every new ban is mirrored to BattleMetrics as a record-only ban (no identifiers attached), so it shows in your BM ban history without BattleMetrics also banning the player.",
 };
