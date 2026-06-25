@@ -415,6 +415,7 @@ function SiteNav() {
           matchSearch: (s) => s.tab === "status",
           show: canStatus,
         },
+        { to: "/media", label: "Media", show: true },
       ],
     },
     {
@@ -434,7 +435,6 @@ function SiteNav() {
           label: "Discord Mod",
           show: canDiscordMod,
         },
-        { to: "/media", label: "Media", show: true },
         { to: "/docs", label: "Docs", show: true },
       ],
     },

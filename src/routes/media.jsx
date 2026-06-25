@@ -238,11 +238,11 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
 }
 
 function MediaPage() {
-  const { sessionUser, orgs } = useAuth();
+  const { orgs } = useAuth();
 
   const accessibleOrgIds = (orgs ?? []).map((o) => o.id);
 
-  const [orgId, setOrgId] = useState(accessibleOrgIds[0] ?? "");
+  const [orgId, setOrgId] = useState("");
   const [media, setMedia] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -253,6 +253,12 @@ function MediaPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [offset, setOffset] = useState(0);
   const LIMIT = 48;
+
+  useEffect(() => {
+    if (!orgId && accessibleOrgIds.length > 0) {
+      setOrgId(accessibleOrgIds[0]);
+    }
+  }, [accessibleOrgIds.join(",")]);
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -301,16 +307,6 @@ function MediaPage() {
     } finally {
       setDeletingId(null);
     }
-  }
-
-  if (!sessionUser) {
-    return (
-      <SiteNav>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        </div>
-      </SiteNav>
-    );
   }
 
   const pages = Math.ceil(total / LIMIT);
