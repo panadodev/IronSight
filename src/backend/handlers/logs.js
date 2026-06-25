@@ -547,7 +547,7 @@ export async function handleGetServerLogs(request, orgId) {
     pool.query(
       `SELECT id, server_id, server_name, event_type,
               admin_steam_id, admin_name, target_steam_id, target_name,
-              command, details, created_at
+              command, details, coordinates, created_at
        FROM server_logs sl
        WHERE ${where}
        ORDER BY sl.created_at DESC
@@ -572,6 +572,7 @@ export async function handleGetServerLogs(request, orgId) {
       targetName: r.target_name,
       command: r.command,
       details: r.details ?? {},
+      coordinates: r.coordinates ?? null,
       createdAt: Number(r.created_at),
     })),
     total: parseInt(countRes.rows[0].total, 10),

@@ -232,10 +232,14 @@ function DiscordModPage() {
   // ── Bans tab ──────────────────────────────────────────────────────────────
   const [bans, setBans] = useState([]);
   const [bansLoading, setBansLoading] = useState(false);
+  const [bansTotal, setBansTotal] = useState(0);
+  const [bansOffset, setBansOffset] = useState(0);
+  const [bansHasMore, setBansHasMore] = useState(false);
+  const [loadingMoreBans, setLoadingMoreBans] = useState(false);
+  const loadingMoreBansRef = useRef(false);
   const [banSyncing, setBanSyncing] = useState(false);
   const [banSyncResult, setBanSyncResult] = useState(null);
   const [banFilter, setBanFilter] = useState("");
-  const [bansDisplayCount, setBansDisplayCount] = useState(50);
   const [unbanBusy, setUnbanBusy] = useState({});
   const [unbanError, setUnbanError] = useState(null);
   const bansSentinelRef = useRef(null);
@@ -373,19 +377,52 @@ function DiscordModPage() {
     }
   }, [orgId, modLogOffset, modLogHasMore]);
 
-  const fetchBans = useCallback(async () => {
+  const fetchBans = useCallback(async (query = "") => {
     if (!orgId) return;
     setBansLoading(true);
+    setBans([]);
+    setBansOffset(0);
+    setBansHasMore(false);
+    setBansTotal(0);
     try {
+      const params = new URLSearchParams({ limit: "100", offset: "0" });
+      if (query) params.set("query", query);
       const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/discord/bans`,
+        `/api/orgs/${encodeURIComponent(orgId)}/discord/bans?${params}`,
         { credentials: "include" },
       );
       if (!res.ok) return;
       const data = await res.json();
       setBans(data.bans ?? []);
+      setBansTotal(data.total ?? 0);
+      setBansHasMore(data.hasMore ?? false);
+      setBansOffset(data.bans?.length ?? 0);
     } finally {
       setBansLoading(false);
+    }
+  }, [orgId]);
+
+  const loadMoreBans = useCallback(async (query = "", currentOffset = 0) => {
+    if (!orgId || loadingMoreBansRef.current) return;
+    loadingMoreBansRef.current = true;
+    setLoadingMoreBans(true);
+    try {
+      const params = new URLSearchParams({ limit: "100", offset: String(currentOffset) });
+      if (query) params.set("query", query);
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/discord/bans?${params}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const more = data.bans ?? [];
+      setBans((prev) => [...prev, ...more]);
+      setBansTotal(data.total ?? 0);
+      setBansHasMore(data.hasMore ?? false);
+      setBansOffset((prev) => prev + more.length);
+    } finally {
+      loadingMoreBansRef.current = false;
+      setLoadingMoreBans(false);
     }
   }, [orgId]);
 
@@ -415,7 +452,9 @@ function DiscordModPage() {
       setHasMore(false);
       setMembers([]);
       setBans([]);
-      setBansDisplayCount(50);
+      setBansOffset(0);
+      setBansHasMore(false);
+      setBansTotal(0);
       setModLog([]);
       setModLogOffset(0);
       setModLogHasMore(false);
@@ -462,30 +501,25 @@ function DiscordModPage() {
 
   useEffect(() => {
     if (tab === "modlog") fetchModLog();
-    if (tab === "bans") {
-      setBansDisplayCount(50);
-      fetchBans();
-    }
+    if (tab === "bans") fetchBans(banFilter);
     if (tab === "members") memberSearchRef.current?.focus();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Infinite scroll: bans (client-side, data already loaded)
+  // Infinite scroll: bans (server-side pagination)
   useEffect(() => {
     if (tab !== "bans") return;
     const sentinel = bansSentinelRef.current;
     const container = bansScrollRef.current;
-    if (!sentinel || !container) return;
+    if (!sentinel || !container || !bansHasMore) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
-          setBansDisplayCount((prev) => prev + 50);
-        }
+        if (entries[0].isIntersecting) loadMoreBans(banFilter, bansOffset);
       },
       { root: container, threshold: 0.1 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [tab, bans.length, banFilter, bansDisplayCount]);
+  }, [tab, bansHasMore, bansOffset, banFilter, loadMoreBans]);
 
   // Infinite scroll: mod log (server-side)
   useEffect(() => {
@@ -518,7 +552,7 @@ function DiscordModPage() {
         setBanSyncResult({ error: data.error ?? "Sync failed" });
       } else {
         setBanSyncResult({ synced: data.synced });
-        await fetchBans();
+        await fetchBans(banFilter);
         if (tab === "modlog") await fetchModLog();
       }
     } finally {
@@ -549,7 +583,7 @@ function DiscordModPage() {
         setUnbanError(data.error ?? "Unban failed");
         return;
       }
-      await fetchBans();
+      await fetchBans(banFilter);
     } catch {
       setUnbanError("Network error — could not reach server");
     } finally {
@@ -603,28 +637,18 @@ function DiscordModPage() {
         setBans((prev) => prev.filter((b) => b.discordUserId !== targetId));
       }
       if (tab === "modlog") fetchModLog();
-      if (tab === "bans") fetchBans();
+      if (tab === "bans") fetchBans(banFilter);
     } finally {
       setActionLoading(false);
     }
   };
 
-  // ── Derived state ─────────────────────────────────────────────────────────
-  const filteredBans = useMemo(() => {
-    if (!banFilter.trim()) return bans;
-    const q = banFilter.toLowerCase();
-    return bans.filter(
-      (b) =>
-        b.username?.toLowerCase().includes(q) ||
-        b.discordUserId?.includes(q) ||
-        b.reason?.toLowerCase().includes(q),
-    );
-  }, [bans, banFilter]);
-
-  // Reset display count when filter changes
+  // Re-fetch bans from server when filter changes (debounced)
   useEffect(() => {
-    setBansDisplayCount(50);
-  }, [banFilter]);
+    if (tab !== "bans") return;
+    const timer = setTimeout(() => fetchBans(banFilter), 300);
+    return () => clearTimeout(timer);
+  }, [banFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (adminOrgs.length === 0) {
     return (
@@ -724,9 +748,9 @@ function DiscordModPage() {
               >
                 <Icon className="size-3.5" />
                 {label}
-                {id === "bans" && bans.length > 0 && (
+                {id === "bans" && bansTotal > 0 && (
                   <span className="ml-0.5 px-1 py-0 rounded text-[9px] font-mono bg-danger/15 text-danger">
-                    {bans.length}
+                    {bansTotal}
                   </span>
                 )}
               </button>
@@ -951,10 +975,10 @@ function DiscordModPage() {
                   Loading bans from Discord…
                 </span>
               </div>
-            ) : filteredBans.length === 0 ? (
+            ) : bans.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <p className="text-xs text-muted-foreground">
-                  {bans.length === 0
+                  {bansTotal === 0
                     ? "No active bans in this Discord server."
                     : "No bans match your filter."}
                 </p>
@@ -971,7 +995,7 @@ function DiscordModPage() {
                   <span>Source</span>
                   <span></span>
                 </div>
-                {filteredBans.slice(0, bansDisplayCount).map((b) => (
+                {bans.map((b) => (
                   <div
                     key={b.discordUserId}
                     className="grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
@@ -1019,7 +1043,7 @@ function DiscordModPage() {
                   ref={bansSentinelRef}
                   className="py-3 flex items-center justify-center"
                 >
-                  {bansDisplayCount < filteredBans.length && (
+                  {loadingMoreBans && (
                     <span className="text-xs text-muted-foreground">
                       Loading more…
                     </span>
@@ -1030,11 +1054,9 @@ function DiscordModPage() {
 
             {unbanError && <p className="text-xs text-danger">{unbanError}</p>}
 
-            {!bansLoading && bans.length > 0 && (
+            {!bansLoading && bansTotal > 0 && (
               <p className="text-[11px] text-muted-foreground shrink-0">
-                {filteredBans.length !== bans.length
-                  ? `${Math.min(bansDisplayCount, filteredBans.length)} of ${filteredBans.length} shown (${bans.length} total)`
-                  : `${Math.min(bansDisplayCount, bans.length)} of ${bans.length} ban${bans.length !== 1 ? "s" : ""} shown`}
+                {`${bans.length} of ${bansTotal} ban${bansTotal !== 1 ? "s" : ""} shown`}
                 {" · "}
                 Use "Sync from Discord" to import bans not made through this
                 panel.

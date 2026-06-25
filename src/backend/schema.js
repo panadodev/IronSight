@@ -582,6 +582,33 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_server_logs_admin_steam_id ON server_logs(admin_steam_id)`,
   );
 
+  await pool.query(
+    `ALTER TABLE server_logs ADD COLUMN IF NOT EXISTS coordinates TEXT`,
+  );
+
+  // -- Notification preferences -----------------------------------------------
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_notification_prefs (
+      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      PRIMARY KEY (user_id, org_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS server_alert_state (
+      org_id TEXT NOT NULL,
+      server_id UUID NOT NULL,
+      alert_type TEXT NOT NULL,
+      first_detected_at BIGINT NOT NULL,
+      last_notified_at BIGINT,
+      resolved_at BIGINT,
+      PRIMARY KEY (org_id, server_id, alert_type)
+    )
+  `);
+
   // -- Pterodactyl integration -----------------------------------------------
 
   await pool.query(`

@@ -450,6 +450,9 @@ function ServerLogsPage() {
                                   </span>
                                 </th>
                               ))}
+                              <th className="px-2 py-1.5 text-left font-medium w-28">
+                                Coords
+                              </th>
                               <th className="px-2 py-1.5 text-left font-medium">
                                 Detail
                               </th>
@@ -495,6 +498,12 @@ function ServerLogsPage() {
                                     title={formatTarget(log)}
                                   >
                                     {formatTarget(log)}
+                                  </td>
+                                  <td
+                                    className="px-2 py-1 text-muted-foreground/70 font-mono whitespace-nowrap text-[10px]"
+                                    title={log.coordinates ?? ""}
+                                  >
+                                    {log.coordinates ?? "—"}
                                   </td>
                                   <td className="px-2 py-1 text-muted-foreground">
                                     {formatDetail(log)}

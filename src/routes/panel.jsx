@@ -33,6 +33,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   Activity,
   AlertTriangle,
+  Bell,
+  BellOff,
   Building2,
   Check,
   ChevronDown,
@@ -2847,6 +2849,56 @@ function GlobalpingSection({ orgId }) {
   );
 }
 
+function NotificationToggle({ orgId }) {
+  const [enabled, setEnabled] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!orgId) return;
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/notification-prefs`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => setEnabled(!!d.enabled))
+      .catch(() => {});
+  }, [orgId]);
+
+  const toggle = async () => {
+    if (busy || enabled === null) return;
+    setBusy(true);
+    const next = !enabled;
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/notification-prefs`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: next }),
+        },
+      );
+      if (res.ok) setEnabled(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (enabled === null) return null;
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      title={enabled ? "Disable Discord DM alerts for this org" : "Enable Discord DM alerts for this org"}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium ring-1 transition-colors ${
+        enabled
+          ? "ring-brand/40 bg-brand/10 text-brand hover:bg-brand/20"
+          : "ring-border text-muted-foreground hover:text-foreground hover:bg-surface/50"
+      }`}
+    >
+      {enabled ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+      {enabled ? "Alerts on" : "Alerts off"}
+    </button>
+  );
+}
+
 function StatusTab({ orgId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3051,6 +3103,7 @@ function StatusTab({ orgId }) {
           {servers.length === 1 ? "" : "s"}
         </h3>
         <div className="flex items-center gap-3">
+          <NotificationToggle orgId={orgId} />
           {updatedAt && (
             <span className="text-[10px] font-mono text-muted-foreground">
               Updated {new Date(updatedAt).toLocaleTimeString()}
@@ -4119,17 +4172,20 @@ function ServersTab({ orgId, onServerUpdate }) {
               </span>
             )}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={loadRegistered}
-            disabled={regLoading}
-          >
-            <RefreshCw
-              className={`size-3.5 ${regLoading ? "animate-spin" : "mr-1"}`}
-            />
-            {!regLoading && "Refresh"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <NotificationToggle orgId={orgId} />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={loadRegistered}
+              disabled={regLoading}
+            >
+              <RefreshCw
+                className={`size-3.5 ${regLoading ? "animate-spin" : "mr-1"}`}
+              />
+              {!regLoading && "Refresh"}
+            </Button>
+          </div>
         </div>
         {regLoading ? (
           <p className="px-4 py-3 text-xs text-muted-foreground">Loading...</p>

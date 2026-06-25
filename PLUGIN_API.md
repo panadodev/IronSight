@@ -224,19 +224,21 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
   "target_steam_id": "76561198000000002",
   "target_name": "TargetName",
   "command": "/kick 76561198000000002 cheating",
+  "coordinates": { "x": 123.4, "y": 50.0, "z": -890.1 },
   "details": {}
 }
 ```
 
-| Field             | Type   | Required | Description                                                                                                                          |
-| ----------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `event_type`      | string | Yes      | One of: `ADMIN_COMMAND`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE`               |
-| `admin_steam_id`  | string | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                       |
-| `admin_name`      | string | No       | In-game display name of the admin (max 128 chars)                                                                                    |
-| `target_steam_id` | string | No       | SteamID64 of the affected player (max 64 chars)                                                                                      |
-| `target_name`     | string | No       | In-game display name of the affected player (max 128 chars)                                                                          |
-| `command`         | string | No       | The raw command string that was executed (max 1000 chars)                                                                            |
-| `details`         | object | No       | Any extra key/value context (e.g. `{ "duration": 3600, "reason": "cheating" }`). Max 4 KB when serialised as JSON.                  |
+| Field             | Type          | Required | Description                                                                                                                          |
+| ----------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `event_type`      | string        | Yes      | One of: `ADMIN_COMMAND`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE`               |
+| `admin_steam_id`  | string        | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                       |
+| `admin_name`      | string        | No       | In-game display name of the admin (max 128 chars)                                                                                    |
+| `target_steam_id` | string        | No       | SteamID64 of the affected player (max 64 chars)                                                                                      |
+| `target_name`     | string        | No       | In-game display name of the affected player (max 128 chars)                                                                          |
+| `command`         | string        | No       | The raw command string that was executed (max 1000 chars)                                                                            |
+| `coordinates`     | object/string | No       | World coordinates where the command was issued. Pass either `{ "x": float, "y": float, "z": float }` or a pre-formatted string (max 128 chars). Displayed in the Server Logs page. |
+| `details`         | object        | No       | Any extra key/value context (e.g. `{ "duration": 3600, "reason": "cheating" }`). Max 4 KB when serialised as JSON.                  |
 
 **Response**
 
@@ -248,15 +250,15 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 
 | Hook / callback               | `event_type` to send  | Recommended fields                                         |
 | ----------------------------- | --------------------- | ---------------------------------------------------------- |
-| `OnUserCommand` (chat `/cmd`) | `ADMIN_COMMAND`       | `admin_steam_id`, `admin_name`, `command`                  |
+| `OnUserCommand` (chat `/cmd`) | `ADMIN_COMMAND`       | `admin_steam_id`, `admin_name`, `command`, `coordinates` (admin position) |
 | `OnServerCommand` (console)   | `RCON_COMMAND`        | `command`                                                  |
-| `OnPlayerKicked`              | `KICK`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name` |
-| Ban issued (custom)           | `BAN`                 | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `details.reason`, `details.duration` |
+| `OnPlayerKicked`              | `KICK`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates` |
+| Ban issued (custom)           | `BAN`                 | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `details.reason`, `details.duration`, `coordinates` |
 | Unban issued (custom)         | `UNBAN`               | `admin_steam_id`, `admin_name`, `target_steam_id`          |
-| Mute issued (custom)          | `MUTE`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name` |
+| Mute issued (custom)          | `MUTE`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates` |
 | Unmute issued (custom)        | `UNMUTE`              | `admin_steam_id`, `admin_name`, `target_steam_id`          |
-| Noclip toggled                | `NOCLIP_TOGGLE`       | `admin_steam_id`, `admin_name`, `details.enabled`          |
-| Godmode toggled               | `GODMODE_TOGGLE`      | `admin_steam_id`, `admin_name`, `details.enabled`          |
+| Noclip toggled                | `NOCLIP_TOGGLE`       | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates` |
+| Godmode toggled               | `GODMODE_TOGGLE`      | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates` |
 
 ---
 

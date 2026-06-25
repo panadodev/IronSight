@@ -629,6 +629,14 @@ async function init() {
       },
       6 * 60 * 60 * 1000, // every 6 hours
     );
+    setInterval(
+      () => {
+        checkServerHealthAlerts().catch((e) =>
+          console.error("[health-alerts] job:", e.message),
+        );
+      },
+      60 * 1000, // every minute
+    );
   })().catch((error) => {
     initError = error;
     console.error("[startup] dependency ping failed", error);
@@ -2960,6 +2968,38 @@ async function handleGetStaffAuditLog(request, orgId) {
     limit,
     offset,
   });
+}
+
+async function handleGetNotificationPrefs(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const res = await pool.query(
+    `SELECT enabled FROM staff_notification_prefs WHERE user_id = $1 AND org_id = $2`,
+    [session.userId, orgId],
+  );
+  return json({ enabled: res.rows[0]?.enabled ?? false });
+}
+
+async function handlePutNotificationPrefs(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const enabled = !!body?.enabled;
+
+  await pool.query(
+    `INSERT INTO staff_notification_prefs (user_id, org_id, enabled)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, org_id) DO UPDATE SET enabled = EXCLUDED.enabled`,
+    [session.userId, orgId, enabled],
+  );
+  return json({ enabled });
 }
 
 async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
@@ -11376,6 +11416,16 @@ async function _handleApiRequest(request) {
       return handleGetServerLogs(request, orgServerLogsMatch[1]);
     }
 
+    const orgNotificationPrefsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/notification-prefs$/,
+    );
+    if (orgNotificationPrefsMatch && request.method === "GET") {
+      return handleGetNotificationPrefs(request, orgNotificationPrefsMatch[1]);
+    }
+    if (orgNotificationPrefsMatch && request.method === "PUT") {
+      return handlePutNotificationPrefs(request, orgNotificationPrefsMatch[1]);
+    }
+
     // Discord moderation routes
     const discordSyncMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/sync$/,
@@ -12120,6 +12170,91 @@ async function discordFetch(path, opts = {}) {
       ...(opts.headers ?? {}),
     },
   });
+}
+
+async function sendDiscordDm(discordUserId, content) {
+  if (!env.discordBotToken) return;
+  try {
+    const dmRes = await discordFetch("/users/@me/channels", {
+      method: "POST",
+      body: JSON.stringify({ recipient_id: discordUserId }),
+    });
+    if (!dmRes.ok) return;
+    const { id: channelId } = await dmRes.json();
+    await discordFetch(`/channels/${channelId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  } catch {
+    // DMs can fail silently (user has DMs disabled, etc.)
+  }
+}
+
+const STALE_PING_SECONDS = 3 * 60;
+const ALERT_COOLDOWN_SECONDS = 15 * 60;
+
+async function checkServerHealthAlerts() {
+  if (!pool || !redis) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const staleThreshold = nowSec - STALE_PING_SECONDS;
+
+  const staleRes = await pool.query(
+    `SELECT server_id, owner_org_id, server_name
+     FROM servers
+     WHERE last_health_ping IS NOT NULL
+       AND last_health_ping < $1`,
+    [staleThreshold],
+  );
+  if (staleRes.rows.length === 0) return;
+
+  for (const server of staleRes.rows) {
+    const { server_id, owner_org_id, server_name } = server;
+
+    // Check / update alert state for cooldown
+    const stateRes = await pool.query(
+      `INSERT INTO server_alert_state (org_id, server_id, alert_type, first_detected_at, last_notified_at)
+       VALUES ($1, $2, 'stale_ping', $3, NULL)
+       ON CONFLICT (org_id, server_id, alert_type) DO UPDATE
+         SET first_detected_at = LEAST(server_alert_state.first_detected_at, EXCLUDED.first_detected_at)
+       RETURNING last_notified_at`,
+      [owner_org_id, server_id, nowSec],
+    );
+    const lastNotified = stateRes.rows[0]?.last_notified_at;
+    if (lastNotified && nowSec - Number(lastNotified) < ALERT_COOLDOWN_SECONDS) continue;
+
+    // Get subscribed staff Discord IDs
+    const subsRes = await pool.query(
+      `SELECT u.discord_id
+       FROM staff_notification_prefs snp
+       JOIN users u ON u.user_id = snp.user_id
+       WHERE snp.org_id = $1 AND snp.enabled = TRUE AND u.discord_id IS NOT NULL`,
+      [owner_org_id],
+    );
+    if (subsRes.rows.length === 0) continue;
+
+    // Mark notified
+    await pool.query(
+      `UPDATE server_alert_state SET last_notified_at = $1
+       WHERE org_id = $2 AND server_id = $3 AND alert_type = 'stale_ping'`,
+      [nowSec, owner_org_id, server_id],
+    );
+
+    const minutesSince = Math.round((nowSec - staleThreshold) / 60);
+    const msg = `⚠️ **IronSight Alert** — Server **${server_name}** has not sent a health ping in over ${minutesSince} minute${minutesSince !== 1 ? "s" : ""}. Check the Status page for details.`;
+    for (const { discord_id } of subsRes.rows) {
+      await sendDiscordDm(discord_id, msg);
+    }
+  }
+
+  // Clear resolved alerts (server pinged recently again)
+  await pool.query(
+    `DELETE FROM server_alert_state
+     WHERE alert_type = 'stale_ping'
+       AND (org_id, server_id) IN (
+         SELECT owner_org_id, server_id FROM servers WHERE last_health_ping >= $1
+       )`,
+    [staleThreshold],
+  );
 }
 
 async function getGuildRoles(guildId) {
@@ -12998,6 +13133,11 @@ async function handleGetDiscordBans(request, orgId) {
   if (!org?.guild_id)
     return json({ error: "Organization has no guild_id configured" }, 400);
 
+  const url = new URL(request.url);
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "100", 10), 1), 500);
+  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
+  const query = (url.searchParams.get("query") ?? "").toLowerCase().trim();
+
   const allBans = await fetchAllDiscordBans(org.guild_id);
 
   // Determine which bans are already in our log and whether they were panel-issued or external
@@ -13011,16 +13151,30 @@ async function handleGetDiscordBans(request, orgId) {
   );
   const logMap = new Map(logged.map((r) => [r.target_discord_id, r]));
 
+  let mapped = allBans.map((b) => {
+    const log = logMap.get(b.user.id);
+    return {
+      discordUserId: b.user.id,
+      username: b.user.global_name ?? b.user.username,
+      reason: b.reason ?? null,
+      source: log ? (log.actor_user_id ? "panel" : "external") : "external",
+    };
+  });
+
+  if (query) {
+    mapped = mapped.filter(
+      (b) =>
+        b.username?.toLowerCase().includes(query) ||
+        b.discordUserId?.includes(query) ||
+        b.reason?.toLowerCase().includes(query),
+    );
+  }
+
+  const total = mapped.length;
   return json({
-    bans: allBans.map((b) => {
-      const log = logMap.get(b.user.id);
-      return {
-        discordUserId: b.user.id,
-        username: b.user.global_name ?? b.user.username,
-        reason: b.reason ?? null,
-        source: log ? (log.actor_user_id ? "panel" : "external") : "external",
-      };
-    }),
+    bans: mapped.slice(offset, offset + limit),
+    total,
+    hasMore: offset + limit < total,
   });
 }
 

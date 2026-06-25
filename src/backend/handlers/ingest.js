@@ -618,6 +618,20 @@ export async function handleIngestServerLog(request) {
       ? String(body.command).trim().slice(0, 1000) || null
       : null;
 
+  let coordinates = null;
+  if (body?.coordinates != null) {
+    if (typeof body.coordinates === "object" && !Array.isArray(body.coordinates)) {
+      const x = Number(body.coordinates.x);
+      const y = Number(body.coordinates.y);
+      const z = Number(body.coordinates.z);
+      if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+        coordinates = `${x.toFixed(1)} ${y.toFixed(1)} ${z.toFixed(1)}`;
+      }
+    } else {
+      coordinates = String(body.coordinates).trim().slice(0, 128) || null;
+    }
+  }
+
   let details = {};
   if (body?.details != null) {
     if (typeof body.details !== "object" || Array.isArray(body.details)) {
@@ -632,8 +646,8 @@ export async function handleIngestServerLog(request) {
   const insertRes = await pool.query(
     `INSERT INTO server_logs
        (org_id, server_id, server_name, event_type, admin_steam_id, admin_name,
-        target_steam_id, target_name, command, details)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        target_steam_id, target_name, command, details, coordinates)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id, created_at`,
     [
       server.owner_org_id,
@@ -646,6 +660,7 @@ export async function handleIngestServerLog(request) {
       targetName,
       command,
       JSON.stringify(details),
+      coordinates,
     ],
   );
   const row = insertRes.rows[0];
