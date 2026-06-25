@@ -1336,6 +1336,11 @@ export async function ensureSchema(pool) {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at BIGINT`,
   );
 
+  // Allow staff to hide themselves from other staff members' views.
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_private BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
+
   // Pre-define ticket-type scoping: empty = applies to all types.
   await pool.query(
     `ALTER TABLE org_predefines ADD COLUMN IF NOT EXISTS ticket_type_ids INTEGER[] NOT NULL DEFAULT '{}'`,

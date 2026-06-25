@@ -157,6 +157,7 @@ function SiteNav() {
           displayName: user.username,
           steamLinked: linkedSteam,
           discordLinked: linkedDiscord,
+          profilePrivate: Boolean(user.profilePrivate),
         }));
       }
 
@@ -202,6 +203,7 @@ function SiteNav() {
         : profile.discordLinked,
       timezone: timezoneStore.get(),
       enableHints: hintsStore.get(),
+      profilePrivate: Boolean(sessionUser?.profilePrivate),
     }));
     setProfileOpen(true);
   };
@@ -213,24 +215,33 @@ function SiteNav() {
     try {
       let nextSessionUser = sessionUser;
 
-      if (sessionUser && trimmedName && trimmedName !== sessionUser.username) {
+      const nameChanged =
+        sessionUser && trimmedName && trimmedName !== sessionUser.username;
+      const privacyChanged =
+        sessionUser &&
+        Boolean(draft.profilePrivate) !== Boolean(sessionUser.profilePrivate);
+
+      if (nameChanged || privacyChanged) {
         const res = await fetch("/api/auth/me", {
           method: "PATCH",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username: trimmedName }),
+          body: JSON.stringify({
+            username: trimmedName || sessionUser?.username,
+            profilePrivate: Boolean(draft.profilePrivate),
+          }),
         });
 
         if (!res.ok) {
           const body = await res.json().catch(() => null);
-          setProfileError(body?.error ?? "Failed to update name.");
+          setProfileError(body?.error ?? "Failed to update profile.");
           return;
         }
 
         const body = await res.json();
         nextSessionUser = body?.user ?? sessionUser;
         setSessionUser(nextSessionUser);
-        invalidateAuthMe(); // stale username in cache — evict so next load is fresh
+        invalidateAuthMe();
       }
 
       timezoneStore.set(draft.timezone ?? "");
@@ -1186,6 +1197,40 @@ function SiteNav() {
                     className={
                       "inline-block size-4 rounded-full bg-background shadow transition-transform " +
                       (draft.enableHints !== false
+                        ? "translate-x-4"
+                        : "translate-x-0.5")
+                    }
+                  />
+                </span>
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Privacy</Label>
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft({ ...draft, profilePrivate: !draft.profilePrivate })
+                }
+                className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-surface/60 p-3 text-left transition-colors hover:bg-surface"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Private profile</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Hide your presence from other staff members' online staff
+                    lists.
+                  </p>
+                </div>
+                <span
+                  className={
+                    "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
+                    (draft.profilePrivate ? "bg-brand" : "bg-muted")
+                  }
+                >
+                  <span
+                    className={
+                      "inline-block size-4 rounded-full bg-background shadow transition-transform " +
+                      (draft.profilePrivate
                         ? "translate-x-4"
                         : "translate-x-0.5")
                     }

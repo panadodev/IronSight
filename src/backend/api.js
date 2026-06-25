@@ -1287,6 +1287,12 @@ async function handleAuthMe(request) {
   // without requiring re-login.
   const freshAccess = await loadUserAccess(session.userId);
 
+  const userRow = await pool.query(
+    `SELECT profile_private FROM users WHERE user_id = $1 LIMIT 1`,
+    [session.userId],
+  );
+  const profilePrivate = Boolean(userRow.rows[0]?.profile_private);
+
   return json({
     user: {
       userId: session.userId,
@@ -1299,6 +1305,7 @@ async function handleAuthMe(request) {
       orgPermissions: freshAccess.orgPermissions ?? {},
       globalAdmin: isGlobalAdmin(session),
       isSysAdmin: isConfiguredSysAdmin(session),
+      profilePrivate,
     },
   });
 }
@@ -1321,13 +1328,18 @@ async function handleUpdateAuthMe(request) {
   if (username.length > 64) {
     return json({ error: "username must be 64 characters or fewer" }, 400);
   }
+  const profilePrivate =
+    body?.profilePrivate === true || body?.profilePrivate === false
+      ? Boolean(body.profilePrivate)
+      : null;
 
   await pool.query(
     `UPDATE users
      SET username = $2,
+         profile_private = COALESCE($3, profile_private),
          updated_at = unix_now()
      WHERE user_id = $1`,
-    [session.userId, username],
+    [session.userId, username, profilePrivate],
   );
 
   const cookies = parseCookie(request.headers.get("cookie") ?? "");
@@ -1352,6 +1364,12 @@ async function handleUpdateAuthMe(request) {
   const globalAdmin = isGlobalAdmin(session);
   const isSysAdmin = isConfiguredSysAdmin(session);
 
+  const updatedRow = await pool.query(
+    `SELECT profile_private FROM users WHERE user_id = $1 LIMIT 1`,
+    [session.userId],
+  );
+  const resolvedProfilePrivate = Boolean(updatedRow.rows[0]?.profile_private);
+
   return json({
     ok: true,
     user: {
@@ -1363,6 +1381,7 @@ async function handleUpdateAuthMe(request) {
       orgAdminOrgIds: session.orgAdminOrgIds,
       globalAdmin,
       isSysAdmin,
+      profilePrivate: resolvedProfilePrivate,
     },
   });
 }
@@ -1523,6 +1542,12 @@ async function handleTodoBootstrap(request) {
   const freshSession = { ...session, ...freshAccess };
   const canWrite = canWriteTodos(freshSession);
 
+  const bootstrapUserRow = await pool.query(
+    `SELECT profile_private FROM users WHERE user_id = $1 LIMIT 1`,
+    [session.userId],
+  );
+  const profilePrivate = Boolean(bootstrapUserRow.rows[0]?.profile_private);
+
   try {
     const cookies = parseCookie(request.headers.get("cookie") ?? "");
     const token = cookies[SESSION_COOKIE];
@@ -1559,6 +1584,7 @@ async function handleTodoBootstrap(request) {
       orgPermissions: freshAccess.orgPermissions ?? {},
       isSysAdmin: isConfiguredSysAdmin(session),
       globalAdmin: isConfiguredSysAdmin(session),
+      profilePrivate,
     },
     orgs: userOrgs,
     members,
@@ -3313,13 +3339,15 @@ async function handleGetOnlineStaff(request, orgId) {
     return json({ error: "Forbidden: staff_online_view permission required" }, 403);
 
   // Pull all non-admin/owner/disabled members, then check Redis presence.
+  // Exclude private profiles (unless the caller is the user themselves).
   const { rows } = await pool.query(
     `SELECT u.user_id, u.username
      FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1
-       AND om.role_id NOT IN ('org_admin', 'org_owner', 'org_disabled')`,
-    [orgId],
+       AND om.role_id NOT IN ('org_admin', 'org_owner', 'org_disabled')
+       AND (u.profile_private = FALSE OR u.user_id = $2)`,
+    [orgId, session.userId],
   );
 
   const online = [];
