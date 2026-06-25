@@ -66,7 +66,6 @@ function DocsPage() {
     selectedOrgIds,
     activeStaff,
     rankOf,
-    isOwner,
     orgsLoaded,
     hasStaffAccount,
   } = useAuth();
@@ -77,9 +76,9 @@ function DocsPage() {
   const effectiveOrgId = selectedOrgIds.includes(orgId)
     ? orgId
     : (selectedOrgIds[0] ?? orgs[0]?.id ?? "");
-  const myRank = isOwner ? 4 : rankOf(effectiveOrgId);
+  const myRank = rankOf(effectiveOrgId);
   const canEdit = myRank >= 3;
-  const canDelete = isOwner;
+  const canDelete = myRank >= 4;
   const orgCats = useMemo(
     () => categories.filter((c) => c.orgId === effectiveOrgId),
     [categories, effectiveOrgId],

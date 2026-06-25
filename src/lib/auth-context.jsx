@@ -463,9 +463,8 @@ function AuthProvider({ children }) {
       sessionOrgAdminIds,
       sessionOrgPermissions,
     );
-  const rankOf = (orgId) => (isOwner ? 4 : rankFromSession(orgId));
+  const rankOf = rankFromSession;
   const maxRankAcross = (orgIds) => {
-    if (isOwner) return 4;
     let max = 0;
     for (const id of orgIds) {
       const r = rankFromSession(id);

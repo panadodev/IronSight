@@ -135,7 +135,6 @@ function StaffDashboard() {
     rankOf,
     staff,
     selectedOrgIds,
-    isOwner,
     orgs,
     orgsLoaded,
   } = useAuth();
@@ -227,7 +226,6 @@ function StaffDashboard() {
   };
   const canSee = (t) => {
     const r = rankOf(ticketOrgId(t));
-    if (isOwner) return true;
     const minRank =
       t.type === "player_report" && t.category === "toxicity"
         ? 1
@@ -283,7 +281,6 @@ function StaffDashboard() {
     sortBy,
     queueView,
     activeRank,
-    isOwner,
     selectedOrgIds,
     playerQuery,
   ]);
@@ -643,7 +640,7 @@ function StaffDashboard() {
   };
   const canHide =
     selected !== null &&
-    (isOwner ||
+    (selectedOrgRank >= 4 ||
       (selected.restrictedRank === null
         ? selectedOrgRank >= TEAM_META[selected.team].rank
         : selectedOrgRank >= selected.restrictedRank));

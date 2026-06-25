@@ -502,6 +502,10 @@ function PlayerLookupPage() {
       });
     if (isProxy)
       out.push({ key: "vpn", label: "VPN / Proxy", tone: "warning" });
+    if (s?.profileVisibility && s.profileVisibility !== "Public")
+      out.push({ key: "steam_private", label: "Private Steam", tone: "warning" });
+    if (bm?.private)
+      out.push({ key: "bm_private", label: "Private BM", tone: "warning" });
     if (s?.profileCreatedAt && nowSec - s.profileCreatedAt < 30 * 86400)
       out.push({ key: "young", label: "New Steam Account", tone: "warning" });
 
