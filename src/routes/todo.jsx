@@ -157,10 +157,14 @@ function TodoPage() {
   // Create task dialog
   const [createTaskStaff, setCreateTaskStaff] = useState(null);
   const [createTaskOrgId, setCreateTaskOrgId] = useState("");
+  const [createTaskAssigneeDiscordId, setCreateTaskAssigneeDiscordId] =
+    useState("");
   const [createTaskTitle, setCreateTaskTitle] = useState("");
   const [createTaskDetails, setCreateTaskDetails] = useState("");
   const [createTaskPriority, setCreateTaskPriority] = useState("medium");
-  const [createTaskIsPublic, setCreateTaskIsPublic] = useState(false);
+  const [createTaskStatus, setCreateTaskStatus] = useState("todo");
+  const [createTaskVisibility, setCreateTaskVisibility] = useState("staff");
+  const [createTaskIsPersonal, setCreateTaskIsPersonal] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
 
   // Edit task dialog
@@ -170,6 +174,7 @@ function TodoPage() {
   const [selectedStatus, setSelectedStatus] = useState("todo");
   const [selectedPriority, setSelectedPriority] = useState("medium");
   const [selectedIsPublic, setSelectedIsPublic] = useState(false);
+  const [selectedIsPersonal, setSelectedIsPersonal] = useState(false);
   const [isSavingTodo, setIsSavingTodo] = useState(false);
 
   // Reassign confirm
@@ -278,6 +283,13 @@ function TodoPage() {
     [members, boardStaff],
   );
 
+  const assignableMembers = useMemo(() => {
+    if (!createTaskOrgId) return members;
+    return members.filter(
+      (m) => !m.orgIds || m.orgIds.includes(createTaskOrgId),
+    );
+  }, [members, createTaskOrgId]);
+
   function toggleBoardOrg(orgId) {
     setBoardOrgIds((cur) =>
       cur.includes(orgId) ? cur.filter((id) => id !== orgId) : [...cur, orgId],
@@ -328,11 +340,13 @@ function TodoPage() {
     setSelectedStatus(todo.status ?? "todo");
     setSelectedPriority(todo.priority ?? "medium");
     setSelectedIsPublic(todo.isPublic ?? false);
+    setSelectedIsPersonal(todo.isPersonal ?? false);
   }
 
   function closeEditDialog() {
     setSelectedTodo(null);
     setSelectedIsPublic(false);
+    setSelectedIsPersonal(false);
   }
 
   async function handleSaveTodo(e) {
@@ -349,6 +363,7 @@ function TodoPage() {
           status: selectedStatus,
           priority: selectedPriority,
           isPublic: selectedIsPublic,
+          isPersonal: selectedIsPersonal,
         }),
       });
       if (!res.ok) {
@@ -366,6 +381,7 @@ function TodoPage() {
                 status: selectedStatus,
                 priority: selectedPriority,
                 isPublic: selectedIsPublic,
+                isPersonal: selectedIsPersonal,
                 completedUnix:
                   selectedStatus === "completed"
                     ? Math.floor(Date.now() / 1000)
@@ -438,24 +454,33 @@ function TodoPage() {
 
   function openCreateDialog(staff) {
     setCreateTaskStaff(staff);
+    setCreateTaskAssigneeDiscordId(staff?.discordId ?? "");
     setCreateTaskOrgId(effectiveBoardOrgIds[0] ?? orgs[0]?.orgId ?? "");
     setCreateTaskTitle("");
     setCreateTaskDetails("");
     setCreateTaskPriority("medium");
-    setCreateTaskIsPublic(false);
+    setCreateTaskStatus("todo");
+    setCreateTaskVisibility("staff");
+    setCreateTaskIsPersonal(false);
   }
 
   function closeCreateDialog() {
     setCreateTaskStaff(null);
+    setCreateTaskAssigneeDiscordId("");
     setCreateTaskTitle("");
     setCreateTaskDetails("");
     setCreateTaskPriority("medium");
-    setCreateTaskIsPublic(false);
+    setCreateTaskStatus("todo");
+    setCreateTaskVisibility("staff");
+    setCreateTaskIsPersonal(false);
   }
 
   async function handleCreateTask(e) {
     e.preventDefault();
-    if (!createTaskStaff || !createTaskOrgId || !createTaskTitle.trim()) return;
+    const assigneeDiscordId =
+      createTaskAssigneeDiscordId || createTaskStaff?.discordId;
+    if (!assigneeDiscordId || !createTaskOrgId || !createTaskTitle.trim())
+      return;
     setIsCreatingTask(true);
     try {
       const res = await authFetch("/api/todo", {
@@ -464,11 +489,12 @@ function TodoPage() {
         body: JSON.stringify({
           title: createTaskTitle,
           details: createTaskDetails,
-          assigneeDiscordId: createTaskStaff.discordId,
+          assigneeDiscordId,
           orgId: createTaskOrgId,
-          status: "todo",
+          status: createTaskStatus,
           priority: createTaskPriority,
-          isPublic: createTaskIsPublic,
+          isPublic: createTaskVisibility === "public",
+          isPersonal: createTaskIsPersonal,
         }),
       });
       if (!res.ok) {
@@ -621,98 +647,189 @@ function TodoPage() {
         open={createTaskStaff !== null}
         onOpenChange={(open) => !open && closeCreateDialog()}
       >
-        <DialogContent>
+        <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Create Task</DialogTitle>
-            <DialogDescription>
-              Assign to {createTaskStaff?.username ?? ""}
+            <DialogTitle>New task</DialogTitle>
+            <DialogDescription className="font-mono text-[10px]">
+              Assign a card to a staff member.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleCreateTask} className="space-y-3 pt-1">
+          <form onSubmit={handleCreateTask} className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Organization</Label>
-              <Select
-                value={createTaskOrgId}
-                onValueChange={setCreateTaskOrgId}
-                disabled={isCreatingTask}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select org" />
-                </SelectTrigger>
-                <SelectContent>
-                  {orgs.map((o) => (
-                    <SelectItem key={o.orgId} value={o.orgId}>
-                      {o.name || o.orgId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Title</Label>
+              <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Title
+              </label>
               <Input
                 value={createTaskTitle}
                 onChange={(e) => setCreateTaskTitle(e.target.value)}
-                placeholder="Task title"
+                placeholder="Short summary…"
                 required
                 disabled={isCreatingTask}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Details</Label>
+              <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Details
+              </label>
               <Textarea
                 value={createTaskDetails}
                 onChange={(e) => setCreateTaskDetails(e.target.value)}
-                placeholder="Optional notes…"
-                rows={3}
+                placeholder="Context, links, what success looks like…"
+                rows={5}
+                className="font-mono text-xs"
                 disabled={isCreatingTask}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Priority</Label>
-              <Select
-                value={createTaskPriority}
-                onValueChange={setCreateTaskPriority}
-                disabled={isCreatingTask}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Org
+                </label>
+                <Select
+                  value={createTaskOrgId}
+                  onValueChange={setCreateTaskOrgId}
+                  disabled={isCreatingTask}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select org" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {orgs.map((o) => (
+                      <SelectItem key={o.orgId} value={o.orgId}>
+                        {o.name || o.orgId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Assignee
+                </label>
+                <Select
+                  value={createTaskAssigneeDiscordId}
+                  onValueChange={setCreateTaskAssigneeDiscordId}
+                  disabled={isCreatingTask}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select assignee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignableMembers.map((m) => {
+                      const roleRaw = m.orgRoles?.[createTaskOrgId];
+                      const roleLabel = !roleRaw
+                        ? null
+                        : roleRaw === "org_owner"
+                          ? "Owner"
+                          : roleRaw === "org_admin"
+                            ? "Admin"
+                            : roleRaw === "org_member"
+                              ? null
+                              : roleRaw;
+                      return (
+                        <SelectItem key={m.discordId} value={m.discordId}>
+                          {roleLabel
+                            ? `${m.username} · ${roleLabel}`
+                            : m.username}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Priority
+                </label>
+                <Select
+                  value={createTaskPriority}
+                  onValueChange={setCreateTaskPriority}
+                  disabled={isCreatingTask}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="urgent">P1 · Urgent</SelectItem>
+                    <SelectItem value="medium">P2 · Normal</SelectItem>
+                    <SelectItem value="low">P3 · Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Visible to
+                </label>
+                <Select
+                  value={createTaskVisibility}
+                  onValueChange={setCreateTaskVisibility}
+                  disabled={isCreatingTask || createTaskIsPersonal}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="staff">Support+</SelectItem>
+                    <SelectItem value="public">Everyone</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="flex items-center justify-between">
-              <Label>Visibility</Label>
-              <button
-                type="button"
-                onClick={() => setCreateTaskIsPublic((p) => !p)}
-                disabled={isCreatingTask}
-                className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded ring-1 transition-colors ${
-                  createTaskIsPublic
-                    ? "bg-brand/15 ring-brand/40 text-brand"
-                    : "ring-border text-muted-foreground hover:text-foreground"
+            <button
+              type="button"
+              onClick={() => setCreateTaskIsPersonal((p) => !p)}
+              disabled={isCreatingTask}
+              className="w-full flex items-start gap-2 text-left rounded-md ring-1 p-2.5 transition-colors bg-surface/40 ring-border hover:bg-surface/60"
+            >
+              <span
+                className={`size-4 rounded-sm grid place-items-center ring-1 mt-0.5 shrink-0 transition-colors ${
+                  createTaskIsPersonal
+                    ? "bg-brand ring-brand text-brand-foreground"
+                    : "ring-border text-transparent"
                 }`}
               >
-                {createTaskIsPublic ? (
-                  <>
-                    <Globe className="size-3" /> Public
-                  </>
-                ) : (
-                  <>
-                    <Lock className="size-3" /> Private
-                  </>
-                )}
-              </button>
+                <Check className="size-3" />
+              </span>
+              <span className="flex-1">
+                <span className="flex items-center gap-1.5 text-xs font-semibold">
+                  <Lock className="size-3" aria-hidden="true" /> Personal card
+                </span>
+                <span className="block text-[10px] text-muted-foreground mt-0.5">
+                  Only the assignee can see this card. Overrides the visibility
+                  tier — nobody else, including management, will see it.
+                </span>
+              </span>
+            </button>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Status
+              </label>
+              <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
+                {[
+                  { value: "todo", label: "todo" },
+                  { value: "in_progress", label: "in progress" },
+                  { value: "completed", label: "completed" },
+                ].map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setCreateTaskStatus(s.value)}
+                    disabled={isCreatingTask}
+                    className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors ${
+                      createTaskStatus === s.value
+                        ? "bg-brand text-brand-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex gap-2 justify-end pt-1">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 onClick={closeCreateDialog}
                 disabled={isCreatingTask}
               >
@@ -721,13 +838,15 @@ function TodoPage() {
               <Button
                 type="submit"
                 disabled={
-                  isCreatingTask || !createTaskOrgId || !createTaskTitle.trim()
+                  isCreatingTask ||
+                  !createTaskOrgId ||
+                  !createTaskAssigneeDiscordId ||
+                  !createTaskTitle.trim()
                 }
               >
                 {isCreatingTask && (
-                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                  <Loader2 className="size-3.5 animate-spin" />
                 )}
-                <Plus className="size-3.5 mr-1" />
                 Create
               </Button>
             </div>

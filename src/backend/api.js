@@ -766,11 +766,15 @@ async function loadUsersByOrgIds(orgIds) {
   if (!orgIds.length) return [];
 
   const { rows } = await pool.query(
-    `SELECT DISTINCT u.user_id, u.username, u.discord_id, u.steam_id
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id,
+            array_agg(DISTINCT om.org_id) AS org_ids,
+            json_object_agg(om.org_id, COALESCE(r.role_name, om.role_id)) AS org_roles
      FROM users u
      JOIN organization_members om ON om.user_id = u.user_id
+     LEFT JOIN roles r ON r.role_id = om.role_id
      WHERE om.org_id = ANY($1::text[])
-       AND om.org_id <> $2`,
+       AND om.org_id <> $2
+     GROUP BY u.user_id, u.username, u.discord_id, u.steam_id`,
     [orgIds, SYSADMIN.globalOrgId],
   );
 
@@ -779,6 +783,8 @@ async function loadUsersByOrgIds(orgIds) {
     username: String(row.username),
     discordId: row.discord_id == null ? null : String(row.discord_id),
     steamId: row.steam_id == null ? null : String(row.steam_id),
+    orgIds: row.org_ids ?? [],
+    orgRoles: row.org_roles ?? {},
   }));
 }
 
@@ -826,6 +832,7 @@ async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
             t.status,
             t.priority,
             t.is_public,
+            t.is_personal,
             assignee.discord_id AS assignee_discord_id,
             t.org_id,
             t.created_at AS created_unix,
@@ -836,10 +843,15 @@ async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
      LEFT JOIN users creator ON creator.user_id = t.created_by
      WHERE t.org_id = ANY($1::text[])
        AND (
-         t.is_public = true
-         OR t.assigned_to = $2
-         OR t.created_by = $2
-         OR t.org_id = ANY($3::text[])
+         t.assigned_to = $2
+         OR (
+           NOT COALESCE(t.is_personal, false)
+           AND (
+             t.is_public = true
+             OR t.created_by = $2
+             OR t.org_id = ANY($3::text[])
+           )
+         )
        )
      ORDER BY t.created_at DESC`,
     [orgIds, userId, adminOrgIds.length ? adminOrgIds : ["__never__"]],
@@ -852,6 +864,7 @@ async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
     status: row.status == null ? "todo" : String(row.status),
     priority: row.priority == null ? "medium" : String(row.priority),
     isPublic: Boolean(row.is_public),
+    isPersonal: Boolean(row.is_personal),
     assigneeDiscordId:
       row.assignee_discord_id == null ? null : String(row.assignee_discord_id),
     orgId: row.org_id == null ? "" : String(row.org_id),
@@ -1632,7 +1645,10 @@ async function handleCreateTodo(request) {
   const priority = VALID_PRIORITIES.includes(body?.priority)
     ? body.priority
     : "medium";
+  const VALID_STATUSES = ["todo", "in_progress", "completed", "blocked"];
+  const status = VALID_STATUSES.includes(body?.status) ? body.status : "todo";
   const isPublic = Boolean(body?.isPublic);
+  const isPersonal = Boolean(body?.isPersonal);
 
   if (!title || !orgId || !assigneeDiscordId) {
     return json(
@@ -1670,14 +1686,16 @@ async function handleCreateTodo(request) {
   const todoId = crypto.randomUUID();
   const createdUnix = nowUnix();
   await pool.query(
-    `INSERT INTO todos (todo_id, title, description, status, priority, is_public, assigned_to, org_id, created_by)
-     VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7, $8)`,
+    `INSERT INTO todos (todo_id, title, description, status, priority, is_public, is_personal, assigned_to, org_id, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       todoId,
       title,
       details,
+      status,
       priority,
       isPublic,
+      isPersonal,
       assignee.userId,
       orgId,
       session.userId,
@@ -1698,9 +1716,10 @@ async function handleCreateTodo(request) {
         id: todoId,
         title,
         details,
-        status: "todo",
+        status,
         priority,
         isPublic,
+        isPersonal,
         assigneeDiscordId,
         orgId,
         createdUnix,
@@ -1736,6 +1755,7 @@ async function handleUpdateTodo(request, todoId) {
       ? body.priority
       : null;
   const isPublic = body?.isPublic == null ? null : Boolean(body.isPublic);
+  const isPersonal = body?.isPersonal == null ? null : Boolean(body.isPersonal);
 
   const existingRes = await pool.query(
     "SELECT todo_id, org_id, status, completed_at FROM todos WHERE todo_id = $1 LIMIT 1",
@@ -1780,6 +1800,7 @@ async function handleUpdateTodo(request, todoId) {
          status = COALESCE($4, status),
          priority = COALESCE($6, priority),
          is_public = COALESCE($7, is_public),
+         is_personal = COALESCE($8, is_personal),
          assigned_to = COALESCE($5, assigned_to),
          completed_at = CASE
            WHEN $4 = 'completed' AND completed_at IS NULL THEN unix_now()
@@ -1788,7 +1809,7 @@ async function handleUpdateTodo(request, todoId) {
          END,
          updated_at = unix_now()
      WHERE todo_id = $1`,
-    [todoId, title, details, status, assigneeUserId, priority, isPublic],
+    [todoId, title, details, status, assigneeUserId, priority, isPublic, isPersonal],
   );
 
   return json({ ok: true });

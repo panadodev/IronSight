@@ -1443,6 +1443,12 @@ export async function ensureSchema(pool) {
       PRIMARY KEY (ban_id, media_id)
     )
   `);
+
+  // Personal card flag: when TRUE, only the assignee can see the todo
+  // (overrides is_public and admin visibility).
+  await pool.query(
+    `ALTER TABLE todos ADD COLUMN IF NOT EXISTS is_personal BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
