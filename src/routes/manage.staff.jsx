@@ -641,7 +641,7 @@ function StaffPage() {
                       {m.steamId ? `steam:${m.steamId}` : "no steam"} ·{" "}
                       {m.discordId ? `discord:${m.discordId}` : "no discord"}
                     </p>
-                    {isOwner && m.discordGuilds?.length > 0 && (
+                    {isOwner && !isOwnerRow && m.discordGuilds?.length > 0 && (
                       <GuildList guilds={m.discordGuilds} />
                     )}
                   </div>
