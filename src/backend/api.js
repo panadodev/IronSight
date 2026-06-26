@@ -1038,11 +1038,30 @@ async function exchangeDiscordCode(request, code) {
   }
 
   const me = await userRes.json();
+
+  let guilds = null;
+  try {
+    const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
+      headers: { authorization: `Bearer ${tokenBody.access_token}` },
+    });
+    if (guildsRes.ok) {
+      const raw = await guildsRes.json();
+      if (Array.isArray(raw)) {
+        guilds = raw.map((g) => ({
+          id: String(g.id),
+          name: String(g.name ?? ""),
+          icon: g.icon ?? null,
+        }));
+      }
+    }
+  } catch {}
+
   return {
     discordId: String(me.id),
     username: String(
       me.global_name || me.username || `user_${String(me.id).slice(-6)}`,
     ),
+    guilds,
   };
 }
 
@@ -1087,7 +1106,7 @@ async function handleDiscordStart(request) {
     client_id: env.discordClientId,
     response_type: "code",
     redirect_uri: getDiscordRedirectUri(request),
-    scope: "identify",
+    scope: "identify guilds",
     state,
   });
 
@@ -1114,7 +1133,7 @@ async function handlePublicDiscordStart(request) {
     client_id: env.discordClientId,
     response_type: "code",
     redirect_uri: getDiscordRedirectUri(request),
-    scope: "identify",
+    scope: "identify guilds",
     state,
   });
 
@@ -1153,12 +1172,18 @@ async function handleDiscordCallback(request) {
 
     const existing = existingRes.rows[0];
     if (existing?.steam_id) {
-      if (String(existing.username) !== discordUser.username) {
-        await pool.query(
-          "UPDATE users SET username = $1, updated_at = unix_now() WHERE user_id = $2",
-          [discordUser.username, String(existing.user_id)],
-        );
-      }
+      await pool.query(
+        `UPDATE users
+         SET username = $1,
+             discord_guilds = COALESCE($2, discord_guilds),
+             updated_at = unix_now()
+         WHERE user_id = $3`,
+        [
+          discordUser.username,
+          discordUser.guilds ? JSON.stringify(discordUser.guilds) : null,
+          String(existing.user_id),
+        ],
+      );
       return createSessionForUser(
         {
           userId: String(existing.user_id),
@@ -1171,6 +1196,16 @@ async function handleDiscordCallback(request) {
           ipAddress: getClientIp(request),
           userAgent: request.headers.get("user-agent") ?? null,
         },
+      );
+    }
+
+    // New user: cache guilds in Redis until Steam linking completes (15 min TTL).
+    if (discordUser.guilds && redis) {
+      await redis.set(
+        `discord:guilds:${discordUser.discordId}`,
+        JSON.stringify(discordUser.guilds),
+        "EX",
+        60 * 15,
       );
     }
 
@@ -1274,6 +1309,15 @@ async function handleSteamCallback(request) {
       );
     }
 
+    // Retrieve guild data cached during Discord OAuth step.
+    let cachedGuildsJson = null;
+    try {
+      if (redis) {
+        cachedGuildsJson = await redis.get(`discord:guilds:${pending.discordId}`);
+        if (cachedGuildsJson) await redis.del(`discord:guilds:${pending.discordId}`);
+      }
+    } catch {}
+
     const existingUserRes = await pool.query(
       "SELECT user_id, username, discord_id, steam_id FROM users WHERE discord_id = $1 LIMIT 1",
       [pending.discordId],
@@ -1285,9 +1329,10 @@ async function handleSteamCallback(request) {
         `UPDATE users
          SET username = $2,
              steam_id = $3,
+             discord_guilds = COALESCE($4, discord_guilds),
              updated_at = unix_now()
          WHERE user_id = $1`,
-        [String(existingUser.user_id), pending.username, steamId],
+        [String(existingUser.user_id), pending.username, steamId, cachedGuildsJson],
       );
 
       return createSessionForUser(
@@ -1308,9 +1353,9 @@ async function handleSteamCallback(request) {
     const userId = crypto.randomUUID();
     try {
       await pool.query(
-        `INSERT INTO users (user_id, username, discord_id, steam_id)
-         VALUES ($1, $2, $3, $4)`,
-        [userId, pending.username, pending.discordId, steamId],
+        `INSERT INTO users (user_id, username, discord_id, steam_id, discord_guilds)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, pending.username, pending.discordId, steamId, cachedGuildsJson],
       );
     } catch (err) {
       if (err.code === "23505")
@@ -3056,6 +3101,52 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   return json({ ok: true, orgId, userId, warnings: discordWarning ? [discordWarning] : [] });
 }
 
+async function handleRevokeUserSession(request, orgId, userId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !session.globalAdmin &&
+    !(session.orgOwnerOrgIds ?? []).includes(orgId)
+  ) {
+    return json({ error: "Forbidden: owner only" }, 403);
+  }
+
+  if (userId === session.userId) {
+    return json({ error: "Cannot revoke your own session" }, 400);
+  }
+
+  const memberCheck = await pool.query(
+    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+    [orgId, userId],
+  );
+  if (!memberCheck.rows[0]) {
+    return json({ error: "Member not found in this organization" }, 404);
+  }
+
+  const sessionsRes = await pool.query(
+    `SELECT session_id FROM sessions
+     WHERE user_id = $1 AND revoked = FALSE AND expires_at > unix_now()`,
+    [userId],
+  );
+
+  if (sessionsRes.rows.length > 0) {
+    const pipeline = redis.pipeline();
+    for (const row of sessionsRes.rows) {
+      pipeline.del(`session:${row.session_id}`);
+    }
+    await pipeline.exec();
+
+    await pool.query(
+      `UPDATE sessions SET revoked = TRUE
+       WHERE user_id = $1 AND revoked = FALSE`,
+      [userId],
+    );
+  }
+
+  return json({ ok: true, revokedCount: sessionsRes.rows.length });
+}
+
 async function handleGetOrgStaffStats(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -3169,7 +3260,7 @@ async function handleGetOrgMembers(request, orgId) {
   }
 
   const { rows } = await pool.query(
-    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, om.role_id
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, u.discord_guilds, om.role_id
      FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1`,
@@ -3183,6 +3274,7 @@ async function handleGetOrgMembers(request, orgId) {
       discordId: row.discord_id == null ? null : String(row.discord_id),
       steamId: row.steam_id == null ? null : String(row.steam_id),
       roleId: String(row.role_id),
+      discordGuilds: row.discord_guilds ?? null,
     })),
   });
 }
@@ -12790,6 +12882,17 @@ async function _handleApiRequest(request) {
         request,
         orgMemberDetailMatch[1],
         orgMemberDetailMatch[2],
+      );
+    }
+
+    const orgMemberRevokeSessionMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)\/revoke-session$/,
+    );
+    if (orgMemberRevokeSessionMatch && request.method === "POST") {
+      return handleRevokeUserSession(
+        request,
+        orgMemberRevokeSessionMatch[1],
+        orgMemberRevokeSessionMatch[2],
       );
     }
 

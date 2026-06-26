@@ -36,8 +36,10 @@ import {
   Crown,
   Eye,
   Gavel,
+  LogOut,
   ScrollText,
   Search,
+  Server,
   ShieldCheck,
   Ticket,
   Trash2,
@@ -224,6 +226,8 @@ function StaffPage() {
   const [removeErr, setRemoveErr] = useState(null);
   const [changingRoleId, setChangingRoleId] = useState(null);
 
+  const [revokingSessionId, setRevokingSessionId] = useState(null);
+
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [syncPermsOnJoin, setSyncPermsOnJoin] = useState(false);
@@ -396,6 +400,30 @@ function StaffPage() {
       await loadMembers();
     } finally {
       setChangingRoleId(null);
+    }
+  }
+
+  async function handleRevokeSession(userId) {
+    setRevokingSessionId(userId);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/revoke-session`,
+        { method: "POST", credentials: "include" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body?.error ?? "Failed to revoke session.");
+      } else {
+        toast.success(
+          body.revokedCount > 0
+            ? `Logged out — ${body.revokedCount} session${body.revokedCount === 1 ? "" : "s"} invalidated.`
+            : "No active sessions found.",
+        );
+      }
+    } catch {
+      toast.error("Network error.");
+    } finally {
+      setRevokingSessionId(null);
     }
   }
 
@@ -613,6 +641,9 @@ function StaffPage() {
                       {m.steamId ? `steam:${m.steamId}` : "no steam"} ·{" "}
                       {m.discordId ? `discord:${m.discordId}` : "no discord"}
                     </p>
+                    {isOwner && m.discordGuilds?.length > 0 && (
+                      <GuildList guilds={m.discordGuilds} />
+                    )}
                   </div>
                 </div>
 
@@ -648,6 +679,44 @@ function StaffPage() {
                       <Eye className="size-3" />
                       View as
                     </Button>
+                  )}
+
+                  {isOwner && !isMe && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={revokingSessionId === m.userId}
+                          className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1 text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10"
+                          title="Force logout — invalidates all active panel sessions"
+                        >
+                          <LogOut className="size-3" />
+                          Kick
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Force logout {m.username ?? "this member"}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            All active panel sessions for this user will be
+                            immediately invalidated. They will need to log in
+                            again with Discord.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-amber-600 text-white hover:bg-amber-500"
+                            onClick={() => handleRevokeSession(m.userId)}
+                          >
+                            Force logout
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   )}
 
                   {canChangeRole && (
@@ -1033,6 +1102,45 @@ function StaffPage() {
         </div>
       </div>
     </GateRank>
+  );
+}
+
+const GUILD_ICON_BASE = "https://cdn.discordapp.com/icons";
+
+function GuildList({ guilds }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mt-0.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+      >
+        <Server className="size-2.5 shrink-0" />
+        {guilds.length} Discord server{guilds.length !== 1 ? "s" : ""}
+        <span className="opacity-50">{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded && (
+        <div className="mt-1 flex flex-col gap-0.5 pl-3.5 max-h-32 overflow-y-auto">
+          {guilds.map((g) => (
+            <div key={g.id} className="flex items-center gap-1.5 min-w-0">
+              {g.icon ? (
+                <img
+                  src={`${GUILD_ICON_BASE}/${g.id}/${g.icon}.webp?size=16`}
+                  alt=""
+                  className="size-3 rounded-full shrink-0"
+                />
+              ) : (
+                <div className="size-3 rounded-full bg-muted shrink-0" />
+              )}
+              <span className="text-[10px] text-muted-foreground truncate">
+                {g.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

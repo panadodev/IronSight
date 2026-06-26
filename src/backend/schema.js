@@ -1593,6 +1593,12 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_doc_article_versions_article
      ON doc_article_versions(article_id, saved_at DESC)`,
   );
+
+  // Discord guild memberships captured at OAuth sign-in (identify+guilds scope).
+  // Updated on each login; null until the user re-authenticates after this migration.
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_guilds JSONB`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
