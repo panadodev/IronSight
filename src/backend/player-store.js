@@ -826,7 +826,8 @@ async function runProxycheckForIps(ipList, orgId) {
   // Serve already-cached, non-expired entries from ip_metadata so we only
   // hit the Proxycheck API for IPs we haven't seen within the 30-day TTL.
   const { rows: cachedRows } = await pool.query(
-    `SELECT ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn
+    `SELECT ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn,
+            latitude, longitude
      FROM ip_metadata
      WHERE ip_address = ANY($1) AND cache_expires_at > unix_now()`,
     [ipList],
@@ -842,6 +843,8 @@ async function runProxycheckForIps(ipList, orgId) {
       country: r.country,
       isoCode: r.iso_code ?? null,
       asn: r.asn,
+      latitude: r.latitude ?? null,
+      longitude: r.longitude ?? null,
     };
   }
 
@@ -887,6 +890,8 @@ async function runProxycheckForIps(ipList, orgId) {
       const connType = classifyConnType(meta);
       if (connType) classified++;
       else unknown++;
+      const lat = Number(meta.latitude);
+      const lng = Number(meta.longitude);
       results[ip] = {
         isProxy: meta.proxy === "yes",
         isVpn: (meta.type ?? "") === "VPN",
@@ -896,6 +901,8 @@ async function runProxycheckForIps(ipList, orgId) {
         country: meta.country ?? null,
         isoCode: meta.isocode ?? null,
         asn: meta.asn ?? null,
+        latitude: Number.isFinite(lat) ? lat : null,
+        longitude: Number.isFinite(lng) ? lng : null,
       };
     }
   }
@@ -1088,7 +1095,7 @@ async function writeBMSessionsToCache(steamId, sessions) {
   );
 }
 
-async function writeBMBansToCache(steamId, bansInput) {
+async function writeBMBansToCache(steamId, bansInput, observedByOrg = null) {
   const bans = dedupBy(bansInput, (b) => b.bmBanId);
   if (!bans.length) return;
   await pool.query(
@@ -1118,9 +1125,21 @@ async function writeBMBansToCache(steamId, bansInput) {
       bans.map((b) => b.permanent),
     ],
   );
+
+  // Record which of our orgs' BM keys saw these bans. Unlike the old global
+  // cache (which clobbered on every refresh), this unions visibility per org so
+  // an org with a wider ban-network view never overwrites another's.
+  if (observedByOrg) {
+    await pool.query(
+      `INSERT INTO player_bm_ban_observations (bm_ban_id, org_id, steam_id, observed_at)
+       SELECT unnest($1::text[]), $2, $3, unix_now()
+       ON CONFLICT (bm_ban_id, org_id) DO UPDATE SET observed_at = unix_now()`,
+      [bans.map((b) => b.bmBanId), observedByOrg, steamId],
+    );
+  }
 }
 
-async function writeIpsToHistory(steamId, ipsInput) {
+async function writeIpsToHistory(steamId, ipsInput, sourceOrgId = null) {
   const ips = dedupBy(ipsInput, (x) => x.ip);
   if (!ips.length) return;
   await pool.query(
@@ -1131,6 +1150,18 @@ async function writeIpsToHistory(steamId, ipsInput) {
        is_vpn    = COALESCE(EXCLUDED.is_vpn, player_ip_history.is_vpn)`,
     [ips.map(() => steamId), ips.map((x) => x.ip), ips.map((x) => x.isProxy)],
   );
+
+  // Attribute the observation to the org whose lookup surfaced these IPs, so the
+  // player lookup can tag each IP with its source org(s) for filtering/sharing.
+  if (sourceOrgId) {
+    await pool.query(
+      `INSERT INTO player_ip_observations (steam_id, ip_address, org_id, last_seen)
+       SELECT unnest($1::text[]), unnest($2::text[]), $3, unix_now()
+       ON CONFLICT (steam_id, ip_address, org_id) DO UPDATE SET
+         last_seen = unix_now()`,
+      [ips.map(() => steamId), ips.map((x) => x.ip), sourceOrgId],
+    );
+  }
 }
 
 async function writeRelatedAccountsToCache(steamId, accounts) {
@@ -1276,11 +1307,13 @@ async function writeFriendsToCache(steamId, result, orgId) {
 async function writeProxycheckToCache(ipResults) {
   for (const [ip, meta] of Object.entries(ipResults)) {
     await pool.query(
-      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn, latitude, longitude)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (ip_address) DO UPDATE SET
          is_proxy  = $2, is_vpn = $3, conn_type = $4, isp = $5,
          country   = $6, iso_code = COALESCE($7, ip_metadata.iso_code), asn = $8,
+         latitude  = COALESCE($9, ip_metadata.latitude),
+         longitude = COALESCE($10, ip_metadata.longitude),
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 2592000`,
       [
@@ -1292,6 +1325,8 @@ async function writeProxycheckToCache(ipResults) {
         meta.country,
         meta.isoCode ?? null,
         meta.asn,
+        meta.latitude ?? null,
+        meta.longitude ?? null,
       ],
     );
     await pool.query(
@@ -1369,39 +1404,63 @@ export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) 
 
     let bmData = null;
     let relIdentifiers = { ips: [], relatedPlayers: [] };
-    let bmBans = [];
 
     if (bmId) {
-      const [bmDataResult, relResult, bansResult] = await Promise.allSettled([
+      // Profile + related identifiers are intrinsic to the player (same whatever
+      // token asks), so fetch them once with the primary BM org.
+      const [bmDataResult, relResult] = await Promise.allSettled([
         fetchBMPlayerData(bmId, bmOrg),
         fetchBMRelatedIdentifiers(bmId, bmOrg),
-        fetchBMPlayerBans(bmId, bmOrg),
       ]);
 
       if (bmDataResult.status === "rejected")
         console.warn(`[player:refresh] ${steamId} — BM player data failed: ${bmDataResult.reason?.message}`);
       if (relResult.status === "rejected")
         console.warn(`[player:refresh] ${steamId} — BM related identifiers failed: ${relResult.reason?.message}`);
-      if (bansResult.status === "rejected")
-        console.warn(`[player:refresh] ${steamId} — BM bans failed: ${bansResult.reason?.message}`);
 
       bmData = bmDataResult.status === "fulfilled" ? bmDataResult.value : null;
       relIdentifiers =
         relResult.status === "fulfilled"
           ? (relResult.value ?? { ips: [], relatedPlayers: [] })
           : { ips: [], relatedPlayers: [] };
-      bmBans = bansResult.status === "fulfilled" ? (bansResult.value ?? []) : [];
-
-      console.log(
-        `[player:refresh] ${steamId} bmId=${bmId} — bmData ok=${!!bmData} ips=${relIdentifiers.ips.length} relatedPlayers=${relIdentifiers.relatedPlayers.length} bans=${bmBans.length}`,
-      );
 
       if (bmData) {
         await writeBMDataToCache(steamId, bmId, bmData);
         await writeBMSessionsToCache(steamId, bmData.sessions);
       }
-      await writeIpsToHistory(steamId, relIdentifiers.ips);
-      await writeBMBansToCache(steamId, bmBans);
+      await writeIpsToHistory(steamId, relIdentifiers.ips, orgId);
+
+      // Pool external-ban visibility across every candidate org that has a BM
+      // key. Different tokens subscribe to different ban networks, so we query
+      // each and write its result tagged with that org (the observations table),
+      // unioning coverage instead of letting one key clobber another's view.
+      // Fetch in parallel, persist sequentially to avoid concurrent upserts onto
+      // the same ban rows.
+      const bmKeyOrgs = [...(keyOrgs.battlemetrics ?? new Set())];
+      const poolOrgs = bmKeyOrgs.length ? bmKeyOrgs : [bmOrg].filter(Boolean);
+      const fetched = await Promise.allSettled(
+        poolOrgs.map((po) =>
+          fetchBMPlayerBans(bmId, po).then((bans) => ({
+            po,
+            bans: bans ?? [],
+          })),
+        ),
+      );
+      let totalBans = 0;
+      for (const r of fetched) {
+        if (r.status !== "fulfilled") {
+          console.warn(
+            `[player:refresh] ${steamId} — pooled BM bans failed: ${r.reason?.message}`,
+          );
+          continue;
+        }
+        await writeBMBansToCache(steamId, r.value.bans, r.value.po);
+        totalBans += r.value.bans.length;
+      }
+
+      console.log(
+        `[player:refresh] ${steamId} bmId=${bmId} — bmData ok=${!!bmData} ips=${relIdentifiers.ips.length} relatedPlayers=${relIdentifiers.relatedPlayers.length} bans=${totalBans} across ${poolOrgs.length} org(s)`,
+      );
     }
 
     // Write core data (Steam + BM profile/sessions/bans/IPs) to Redis immediately
@@ -1562,10 +1621,16 @@ export async function getPlayerCacheData(steamId) {
         [steamId],
       ),
       pool.query(
-        `SELECT bm_ban_id, bm_org_id, bm_org_name, reason, note,
-                expires_at, banned_at, permanent, cached_at
-         FROM player_bm_bans_cache WHERE steam_id = $1
-         ORDER BY banned_at DESC NULLS LAST`,
+        `SELECT b.bm_ban_id, b.bm_org_id, b.bm_org_name, b.reason, b.note,
+                b.expires_at, b.banned_at, b.permanent, b.cached_at,
+                COALESCE(
+                  (SELECT array_agg(DISTINCT o.org_id)
+                   FROM player_bm_ban_observations o
+                   WHERE o.bm_ban_id = b.bm_ban_id),
+                  '{}'
+                ) AS source_org_ids
+         FROM player_bm_bans_cache b WHERE b.steam_id = $1
+         ORDER BY b.banned_at DESC NULLS LAST`,
         [steamId],
       ),
       pool.query(
@@ -1575,7 +1640,14 @@ export async function getPlayerCacheData(steamId) {
       ),
       pool.query(
         `SELECT pih.ip_address, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
-                im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn
+                im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn,
+                COALESCE(
+                  (SELECT array_agg(DISTINCT o.org_id)
+                   FROM player_ip_observations o
+                   WHERE o.steam_id = pih.steam_id
+                     AND o.ip_address = pih.ip_address),
+                  '{}'
+                ) AS source_org_ids
          FROM player_ip_history pih
          LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
          WHERE pih.steam_id = $1
@@ -1682,6 +1754,9 @@ export async function getPlayerCacheData(steamId) {
       expiresAt: r.expires_at ?? null,
       bannedAt: r.banned_at ?? null,
       permanent: Boolean(r.permanent),
+      sourceOrgIds: Array.isArray(r.source_org_ids)
+        ? r.source_org_ids.map(String)
+        : [],
     })),
     friends: {
       public: friendsMetaRow?.friends_public ?? null,
@@ -1705,6 +1780,9 @@ export async function getPlayerCacheData(steamId) {
       serverName: r.server_name ?? null,
       firstSeen: r.first_seen,
       lastSeen: r.last_seen,
+      sourceOrgIds: Array.isArray(r.source_org_ids)
+        ? r.source_org_ids.map(String)
+        : [],
     })),
     relatedAccounts: related.rows.map((r) => ({
       relatedBmId: String(r.related_bm_id),

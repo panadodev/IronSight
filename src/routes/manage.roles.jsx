@@ -185,6 +185,11 @@ const PERMISSION_GROUPS = [
         label: "Discord Moderation",
         desc: "Use the Discord moderation tools",
       },
+      {
+        id: "discord_warn",
+        label: "Warn via Discord DM",
+        desc: "DM a player a warning (without timeout/kick/ban powers)",
+      },
     ],
   },
   {

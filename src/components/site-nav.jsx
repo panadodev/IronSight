@@ -477,6 +477,11 @@ function SiteNav() {
           show: canOrgManage,
         },
         {
+          to: "/manage/sharing",
+          label: "Sharing",
+          show: canOrgManage,
+        },
+        {
           to: "/threat-triggers",
           label: "Triggers",
           show: canTriggers,
@@ -1218,8 +1223,8 @@ function SiteNav() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Private profile</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Hide your presence from other staff members' online staff
-                    lists.
+                    Stop other staff from looking up your player profile. Your
+                    online status stays visible to the team.
                   </p>
                 </div>
                 <span

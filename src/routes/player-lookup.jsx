@@ -216,6 +216,7 @@ function PlayerLookupPage() {
   } = useAuth();
   const tz = useTimezone();
   const search = Route.useSearch();
+  const navigate = Route.useNavigate();
 
   const [input, setInput] = useState(search.steam ?? "");
   const [steamId, setSteamId] = useState(search.steam ?? null);
@@ -241,18 +242,19 @@ function PlayerLookupPage() {
   const [issueBanActionType, setIssueBanActionType] = useState("ban");
   const [manageBansOpen, setManageBansOpen] = useState(false);
   const [manageMutesOpen, setManageMutesOpen] = useState(false);
-  // Explicit "look up using this org" override. When the staffer belongs to
-  // several orgs, they pick which org's external API keys drive the lookup
-  // (the player cache itself is shared across orgs). null → use the default.
-  const [lookupOrgId, setLookupOrgId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(false);
   const refreshCooldownRef = useRef(null);
 
+  // The URL `steam` param is the single source of truth. Submitting the form
+  // navigates (below); this effect mirrors the resulting URL into local state.
+  // Driving steamId from a manual setState *and* the URL races: the stale param
+  // would overwrite the new submission and snap the page back to the old player.
   useEffect(() => {
-    if (search.steam && search.steam !== steamId) {
-      setSteamId(search.steam);
-      setInput(search.steam);
+    const next = search.steam ?? null;
+    if (next !== steamId) {
+      setSteamId(next);
+      setInput(next ?? "");
     }
   }, [search.steam, steamId]);
 
@@ -263,21 +265,14 @@ function PlayerLookupPage() {
   const canCreateBansInOrg = (id) =>
     hasOrgPermission(id, "bans_create") || hasOrgPermission(id, "bans_manage");
 
-  // Orgs the staffer may look players up from (one shared cache, but the lookup
-  // spends *this* org's BattleMetrics/Steam/Proxycheck keys).
+  // Orgs the staffer may look players up from. The player cache + the returned
+  // data are shared across orgs (the server resolves visibility per the caller's
+  // orgs and any 'ips' shares), so we no longer make the staffer pick a key —
+  // the fetch org is just whichever org's keys back a refresh. Keep it *stable*
+  // (not tied to the org selection) so toggling orgs filters client-side instead
+  // of refetching.
   const lookupOrgs = orgs.filter((o) => hasOrgPermission(o.id, "players_view"));
-
-  const defaultLookupOrgId =
-    selectedOrgIds.find((id) => hasOrgPermission(id, "players_view")) ??
-    lookupOrgs[0]?.id ??
-    null;
-
-  // Honour the explicit choice when it's still a valid lookup org; otherwise
-  // fall back to the default (selected org, then any org with the permission).
-  const fetchOrgId =
-    lookupOrgId && lookupOrgs.some((o) => o.id === lookupOrgId)
-      ? lookupOrgId
-      : defaultLookupOrgId;
+  const fetchOrgId = lookupOrgs[0]?.id ?? null;
 
   const banOrgId =
     selectedOrgIds.find(canCreateBansInOrg) ??
@@ -289,9 +284,9 @@ function PlayerLookupPage() {
   // No ban permission anywhere → view-only (hide ban/mute actions).
   const isSupportOnly = !banOrgId;
 
-  const canSeeRealIp = fetchOrgId
-    ? hasOrgPermission(fetchOrgId, "ip_read")
-    : false;
+  // IP access spans all the caller's orgs (matches the server, which shows IPs
+  // when the caller has ip_read anywhere). Per-IP source filtering happens below.
+  const canSeeRealIp = orgs.some((o) => hasOrgPermission(o.id, "ip_read"));
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
@@ -368,34 +363,26 @@ function PlayerLookupPage() {
     fetchPlayer(orgSwitched);
   }, [steamId, fetchOrgId, orgsLoaded]);
 
+  // One combined fetch resolves bans + mutes across every org the caller is
+  // entitled to (their own orgs + 'bans'/'mutes' shares), each tagged with its
+  // source org. The active org selection then filters the *view* client-side
+  // (below), so toggling orgs doesn't refetch.
   useEffect(() => {
-    if (!steamId || !offenseOrgIds.length) {
+    if (!steamId) {
       setOffenses([]);
       return;
     }
     let cancelled = false;
     setOffensesLoading(true);
-    const fetches = offenseOrgIds.flatMap((orgId) => [
-      fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/bans?type=ban&identifier=${encodeURIComponent(steamId)}`,
-        { credentials: "include" },
-      )
-        .then((r) => r.json())
-        .then((b) => b.bans ?? [])
-        .catch(() => []),
-      fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/bans?type=mute&identifier=${encodeURIComponent(steamId)}`,
-        { credentials: "include" },
-      )
-        .then((r) => r.json())
-        .then((b) => b.bans ?? [])
-        .catch(() => []),
-    ]);
-    Promise.all(fetches)
-      .then((groups) => {
-        if (!cancelled) {
-          setOffenses(groups.flat().sort((a, b) => b.issuedAt - a.issuedAt));
-        }
+    fetch(`/api/players/${encodeURIComponent(steamId)}/offenses`, {
+      credentials: "include",
+    })
+      .then((r) => r.json())
+      .then((b) => {
+        if (!cancelled)
+          setOffenses(
+            (b.offenses ?? []).sort((a, b) => b.issuedAt - a.issuedAt),
+          );
       })
       .catch(() => {
         if (!cancelled) setOffenses([]);
@@ -406,19 +393,21 @@ function PlayerLookupPage() {
     return () => {
       cancelled = true;
     };
-  }, [steamId, JSON.stringify(offenseOrgIds)]);
+  }, [steamId]);
 
+  // Reports are entitlement-scoped server-side across all the caller's orgs +
+  // 'reports' shares, each tagged with its source org — fetch once per player,
+  // then filter the view by the active org selection (below).
   useEffect(() => {
-    if (!steamId || !fetchOrgId) {
+    if (!steamId) {
       setReports([]);
       return;
     }
     let cancelled = false;
     setReportsLoading(true);
-    fetch(
-      `/api/players/${encodeURIComponent(steamId)}/reports?orgId=${encodeURIComponent(fetchOrgId)}`,
-      { credentials: "include" },
-    )
+    fetch(`/api/players/${encodeURIComponent(steamId)}/reports`, {
+      credentials: "include",
+    })
       .then((r) => r.json())
       .then((b) => {
         if (!cancelled) setReports(b.reports ?? []);
@@ -432,12 +421,20 @@ function PlayerLookupPage() {
     return () => {
       cancelled = true;
     };
-  }, [steamId, fetchOrgId]);
+  }, [steamId]);
 
   const submit = (e) => {
     e.preventDefault();
     const trimmed = input.trim();
-    if (/^\d{17}$/.test(trimmed)) setSteamId(trimmed);
+    if (!/^\d{17}$/.test(trimmed)) return;
+    // Update the URL; the sync effect picks it up and drives the fetch. Using
+    // navigate keeps the address bar, state, and any shared link consistent.
+    if (trimmed === search.steam) {
+      // Same ID re-submitted (URL won't change → effect won't fire): refetch.
+      fetchPlayer(false);
+    } else {
+      navigate({ search: { steam: trimmed } });
+    }
   };
 
   const handleRefresh = async () => {
@@ -461,6 +458,30 @@ function PlayerLookupPage() {
     playerData?.ipHistory?.some((ip) => ip.isProxy || ip.isVpn) ?? false;
 
   const country = playerData?.ipHistory?.[0]?.country ?? null;
+
+  // Client-side org filter for Connection Points: the server already returns
+  // only IPs the caller is entitled to (own ip_read orgs + 'ips' shares), each
+  // tagged with its source org(s). The dropdown then scopes the *view*: hide an
+  // IP only when all its sources are own-orgs the user has currently unchecked.
+  // Untagged (legacy) IPs and IPs sourced from a foreign org via a share stay
+  // visible regardless of the toggle.
+  const ownOrgIdSet = new Set(orgs.map((o) => o.id));
+  const selectedSet = new Set(selectedOrgIds);
+  // Shared rule for every source-tagged dataset (IPs, offenses, external bans):
+  // hide a row only when all its sources are own-orgs the user has unchecked;
+  // shared-in (foreign) and untagged rows stay visible.
+  const filterBySource = (rows) =>
+    (rows ?? []).filter((e) => {
+      const src = Array.isArray(e.sourceOrgIds) ? e.sourceOrgIds : [];
+      if (src.length === 0) return true;
+      const ownSources = src.filter((o) => ownOrgIdSet.has(o));
+      if (ownSources.length === 0) return true;
+      return ownSources.some((o) => selectedSet.has(o));
+    });
+
+  const visibleIpHistory = filterBySource(playerData?.ipHistory);
+  const visibleBmBans = filterBySource(playerData?.bmBans);
+  const visibleReports = filterBySource(reports);
 
   // Steam VAC / game bans (GetPlayerBans). vacBanned is null until first fetched.
   const vacSummary = (() => {
@@ -487,8 +508,18 @@ function PlayerLookupPage() {
     return `${Math.floor(diffH / 24)}d ago — ${s.serverName ?? "Server"}`;
   })();
 
-  const offenseRows = offenses.map((ban) => {
+  // Same org-scoping rule as IPs: hide an offense only when its source is one of
+  // the caller's own orgs that's currently unchecked. Offenses from a shared-in
+  // (foreign) org stay visible regardless of the toggle.
+  const visibleOffenses = offenses.filter((o) => {
+    if (!o.orgId) return true;
+    if (!ownOrgIdSet.has(o.orgId)) return true; // shared-in → always shown
+    return selectedSet.has(o.orgId);
+  });
+
+  const offenseRows = visibleOffenses.map((ban) => {
     const st = banRecordStatus(ban);
+    const foreign = ban.orgId && !ownOrgIdSet.has(ban.orgId);
     return {
       id: ban.banId,
       type: ban.actionType === "ban" ? "Ban" : "Mute",
@@ -496,7 +527,11 @@ function PlayerLookupPage() {
       statusTone: st.tone,
       reason: ban.reason ?? "—",
       when: relativeTime(ban.issuedAt),
-      by: ban.issuedByName ?? "unknown",
+      // Surface the source org as provenance; flag shared-in records so staff
+      // know they belong to (and are managed by) another org.
+      by:
+        (ban.issuedByName ?? "unknown") +
+        (ban.orgName ? ` · ${ban.orgName}${foreign ? " (shared)" : ""}` : ""),
       note: ban.note ?? "",
     };
   });
@@ -567,13 +602,13 @@ function PlayerLookupPage() {
         tone: "warning",
       });
 
-    const hasActiveBan = offenses.some(
+    const hasActiveBan = visibleOffenses.some(
       (o) =>
         o.actionType === "ban" &&
         !o.revoked &&
         (!o.expiresAt || o.expiresAt > nowSec),
     );
-    const hasActiveMute = offenses.some(
+    const hasActiveMute = visibleOffenses.some(
       (o) =>
         o.actionType === "mute" &&
         !o.revoked &&
@@ -610,20 +645,6 @@ function PlayerLookupPage() {
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
-                {lookupOrgs.length > 1 && (
-                  <select
-                    value={fetchOrgId ?? ""}
-                    onChange={(e) => setLookupOrgId(e.target.value)}
-                    title="Look up using this organization's API keys"
-                    className="px-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm focus:outline-none focus:ring-brand max-w-[180px]"
-                  >
-                    {lookupOrgs.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
                 <button
                   type="submit"
                   disabled={playerLoading || firstFetch}
@@ -669,7 +690,9 @@ function PlayerLookupPage() {
                 </button>
               </div>
             </div>
-          ) : !playerData ? null : (
+          ) : !playerData ? null : playerData.protected ? (
+            <ProtectedStaffProfile playerData={playerData} steamId={steamId} />
+          ) : (
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
                 {/* Profile header */}
@@ -928,7 +951,7 @@ function PlayerLookupPage() {
                 {/* Connection Points */}
                 {canSeeRealIp && (
                   <ConnectionPointsSection
-                    ipHistory={playerData.ipHistory}
+                    ipHistory={visibleIpHistory}
                     tz={tz}
                   />
                 )}
@@ -963,7 +986,7 @@ function PlayerLookupPage() {
                 {/* Previous In-Game Reports */}
                 {!isSupportOnly && (
                   <PlayerReportsSection
-                    reports={reports}
+                    reports={visibleReports}
                     loading={reportsLoading}
                     tz={tz}
                   />
@@ -973,7 +996,7 @@ function PlayerLookupPage() {
                 {!isSupportOnly && (
                   <ExternalBansSection
                     subjectId={playerData.steamId}
-                    bans={playerData.bmBans}
+                    bans={visibleBmBans}
                   />
                 )}
 
@@ -1049,6 +1072,48 @@ function PlayerLookupPage() {
 
       </div>
     </SteamRequiredGate>
+  );
+}
+
+// Shown when the looked-up Steam ID belongs to a staff member who enabled a
+// private profile. Their intel is withheld from peers, but online presence on
+// the panel stays visible.
+function ProtectedStaffProfile({ playerData, steamId }) {
+  const online = Boolean(playerData.online);
+  return (
+    <div className="flex-1 grid place-items-center px-6">
+      <div className="max-w-md w-full text-center space-y-5">
+        <Avatar
+          steamId={steamId}
+          displayName={playerData.displayName}
+          size={72}
+        />
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">
+            {playerData.displayName ?? steamId}
+          </h2>
+          <p className="text-[11px] font-mono text-muted-foreground uppercase">
+            {steamId}
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full ring-1 ring-border bg-surface/60 text-xs">
+          <span
+            className={
+              "size-2 rounded-full " +
+              (online ? "bg-success animate-pulse" : "bg-muted-foreground/40")
+            }
+          />
+          <span className={online ? "text-success" : "text-muted-foreground"}>
+            {online ? "Online on the panel" : "Offline"}
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          This staff member has a{" "}
+          <span className="text-foreground font-medium">private profile</span>.
+          Their player intel is hidden from other staff.
+        </p>
+      </div>
+    </div>
   );
 }
 

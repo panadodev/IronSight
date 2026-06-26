@@ -36,6 +36,7 @@ import { Route as SysAdminRolesRouteImport } from './routes/sys-admin.roles'
 import { Route as ManageToxicityRouteImport } from './routes/manage.toxicity'
 import { Route as ManageTicketsRouteImport } from './routes/manage.tickets'
 import { Route as ManageStaffRouteImport } from './routes/manage.staff'
+import { Route as ManageSharingRouteImport } from './routes/manage.sharing'
 import { Route as ManageRolesRouteImport } from './routes/manage.roles'
 import { Route as ManagePredefinesRouteImport } from './routes/manage.predefines'
 import { Route as ManageDetailsRouteImport } from './routes/manage.details'
@@ -176,6 +177,11 @@ const ManageStaffRoute = ManageStaffRouteImport.update({
   path: '/staff',
   getParentRoute: () => ManageRoute,
 } as any)
+const ManageSharingRoute = ManageSharingRouteImport.update({
+  id: '/sharing',
+  path: '/sharing',
+  getParentRoute: () => ManageRoute,
+} as any)
 const ManageRolesRoute = ManageRolesRouteImport.update({
   id: '/roles',
   path: '/roles',
@@ -225,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
   '/manage/roles': typeof ManageRolesRoute
+  '/manage/sharing': typeof ManageSharingRoute
   '/manage/staff': typeof ManageStaffRoute
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
@@ -258,6 +265,7 @@ export interface FileRoutesByTo {
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
   '/manage/roles': typeof ManageRolesRoute
+  '/manage/sharing': typeof ManageSharingRoute
   '/manage/staff': typeof ManageStaffRoute
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
@@ -292,6 +300,7 @@ export interface FileRoutesById {
   '/manage/details': typeof ManageDetailsRoute
   '/manage/predefines': typeof ManagePredefinesRoute
   '/manage/roles': typeof ManageRolesRoute
+  '/manage/sharing': typeof ManageSharingRoute
   '/manage/staff': typeof ManageStaffRoute
   '/manage/tickets': typeof ManageTicketsRoute
   '/manage/toxicity': typeof ManageToxicityRoute
@@ -327,6 +336,7 @@ export interface FileRouteTypes {
     | '/manage/details'
     | '/manage/predefines'
     | '/manage/roles'
+    | '/manage/sharing'
     | '/manage/staff'
     | '/manage/tickets'
     | '/manage/toxicity'
@@ -360,6 +370,7 @@ export interface FileRouteTypes {
     | '/manage/details'
     | '/manage/predefines'
     | '/manage/roles'
+    | '/manage/sharing'
     | '/manage/staff'
     | '/manage/tickets'
     | '/manage/toxicity'
@@ -393,6 +404,7 @@ export interface FileRouteTypes {
     | '/manage/details'
     | '/manage/predefines'
     | '/manage/roles'
+    | '/manage/sharing'
     | '/manage/staff'
     | '/manage/tickets'
     | '/manage/toxicity'
@@ -617,6 +629,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManageStaffRouteImport
       parentRoute: typeof ManageRoute
     }
+    '/manage/sharing': {
+      id: '/manage/sharing'
+      path: '/sharing'
+      fullPath: '/manage/sharing'
+      preLoaderRoute: typeof ManageSharingRouteImport
+      parentRoute: typeof ManageRoute
+    }
     '/manage/roles': {
       id: '/manage/roles'
       path: '/roles'
@@ -653,6 +672,7 @@ interface ManageRouteChildren {
   ManageDetailsRoute: typeof ManageDetailsRoute
   ManagePredefinesRoute: typeof ManagePredefinesRoute
   ManageRolesRoute: typeof ManageRolesRoute
+  ManageSharingRoute: typeof ManageSharingRoute
   ManageStaffRoute: typeof ManageStaffRoute
   ManageTicketsRoute: typeof ManageTicketsRoute
   ManageToxicityRoute: typeof ManageToxicityRoute
@@ -663,6 +683,7 @@ const ManageRouteChildren: ManageRouteChildren = {
   ManageDetailsRoute: ManageDetailsRoute,
   ManagePredefinesRoute: ManagePredefinesRoute,
   ManageRolesRoute: ManageRolesRoute,
+  ManageSharingRoute: ManageSharingRoute,
   ManageStaffRoute: ManageStaffRoute,
   ManageTicketsRoute: ManageTicketsRoute,
   ManageToxicityRoute: ManageToxicityRoute,

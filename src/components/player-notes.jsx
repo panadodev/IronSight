@@ -83,6 +83,42 @@ function usePlayerNotesApi(orgId, subjectId) {
   return { notes, loading, reload };
 }
 
+// Combined notes across all the caller's orgs + notes shared in by other orgs.
+// Each note carries its own `orgId`, an `orgName`, and a `shared` flag so the
+// lookup can attribute it, gate management per its source org, and filter by the
+// active org selection. Used on the player lookup page (the per-org hook above
+// still backs the single-org ticket view).
+function usePlayerNotesCombined(subjectId) {
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (!subjectId) {
+      setNotes([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/players/${encodeURIComponent(subjectId)}/notes`,
+        { credentials: "include" },
+      );
+      const body = await res.json().catch(() => ({}));
+      setNotes(res.ok ? (body.notes ?? []) : []);
+    } catch {
+      setNotes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [subjectId]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return { notes, loading, reload };
+}
+
 function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange, roles }) {
   const [busy, setBusy] = useState(false);
 
@@ -156,6 +192,11 @@ function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange, roles 
         <span>{note.authorName ?? "unknown"}</span>
         <span>·</span>
         <span>{timeAgo(note.createdAt)}</span>
+        {note.shared && note.orgName && (
+          <span className="inline-flex items-center gap-0.5 text-brand">
+            shared · {note.orgName}
+          </span>
+        )}
         <span className="ml-auto inline-flex items-center gap-1">
           <Lock className="size-2.5" />
           {noteVisibilityLabel(note, roles)}
@@ -172,29 +213,41 @@ function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange, roles 
 }
 
 function PlayerNotesSection({ subjectId, orgId }) {
-  const { notes, loading, reload } = usePlayerNotesApi(orgId, subjectId);
-  const { sessionUser } = useAuth();
-  const { rankOf, selectedOrgIds, maxRankAcross } = useAuth();
-  const myRank = orgId ? rankOf(orgId) : maxRankAcross(selectedOrgIds);
+  // List spans all the caller's orgs + shared-in notes; create still targets the
+  // active org (`orgId`).
+  const { notes, loading, reload } = usePlayerNotesCombined(subjectId);
+  const { sessionUser, rankOf, orgs, selectedOrgIds } = useAuth();
   const roles = useOrgNoteRoles(orgId);
 
   const [body, setBody] = useState("");
-  const [requiredRoleId, setRequiredRoleId] = useState("__all__");
+  // Encodes the note's visibility as either "rank:<1-4>" (a sensitivity level,
+  // shareable cross-org) or "role:<roleId>" (gated to one org role, never shared).
+  const [visibility, setVisibility] = useState("rank:1");
   const [saving, setSaving] = useState(false);
 
-  const visible = useMemo(
-    () =>
-      [...notes].sort((a, b) => {
+  // Same dropdown-scoping rule as the rest of the lookup: hide a note only when
+  // all its sources are own-orgs the user has unchecked; shared-in notes stay.
+  const visible = useMemo(() => {
+    const ownSet = new Set(orgs.map((o) => o.id));
+    const selectedSet = new Set(selectedOrgIds);
+    return [...notes]
+      .filter((n) => {
+        const src = n.sourceOrgIds ?? (n.orgId ? [n.orgId] : []);
+        const ownSources = src.filter((o) => ownSet.has(o));
+        if (ownSources.length === 0) return true;
+        return ownSources.some((o) => selectedSet.has(o));
+      })
+      .sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         return b.createdAt - a.createdAt;
-      }),
-    [notes],
-  );
+      });
+  }, [notes, orgs, selectedOrgIds]);
 
   const submit = async (e) => {
     e.preventDefault();
     const trimmed = body.trim();
     if (!trimmed || !orgId || saving) return;
+    const isRole = visibility.startsWith("role:");
     setSaving(true);
     try {
       const res = await fetch(
@@ -205,14 +258,15 @@ function PlayerNotesSection({ subjectId, orgId }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             body: trimmed,
-            requiredRoleId: requiredRoleId === "__all__" ? null : requiredRoleId,
+            minRank: isRole ? 1 : Number(visibility.slice(5)),
+            requiredRoleId: isRole ? visibility.slice(5) : null,
             pinned: false,
           }),
         },
       );
       if (res.ok) {
         setBody("");
-        setRequiredRoleId("__all__");
+        setVisibility("rank:1");
         reload();
       }
     } finally {
@@ -243,18 +297,20 @@ function PlayerNotesSection({ subjectId, orgId }) {
           className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-brand resize-y"
         />
         <div className="flex items-center gap-2">
-          <Select value={requiredRoleId} onValueChange={setRequiredRoleId}>
+          <Select value={visibility} onValueChange={setVisibility}>
             <SelectTrigger className="h-8 text-xs flex-1 bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all__" className="text-xs">
-                Visible to all staff
-              </SelectItem>
+              {[1, 2, 3, 4].map((r) => (
+                <SelectItem key={r} value={`rank:${r}`} className="text-xs">
+                  {LEGACY_RANK_LABELS[r]}
+                </SelectItem>
+              ))}
               {roles.map((role) => (
                 <SelectItem
                   key={role.roleId}
-                  value={role.roleId}
+                  value={`role:${role.roleId}`}
                   className="text-xs"
                 >
                   {role.roleName} only
@@ -282,12 +338,15 @@ function PlayerNotesSection({ subjectId, orgId }) {
         <ul className="space-y-2">
           {visible.map((n) => {
             const isAuthor = n.authorId && n.authorId === sessionUser?.userId;
-            const canManage = isAuthor || myRank >= 4;
+            // Shared-in notes are read-only; own notes follow the usual rule
+            // (author, or rank 4 in that note's org).
+            const canManage =
+              !n.shared && (isAuthor || rankOf(n.orgId) >= 4);
             return (
               <NoteCard
                 key={n.id}
                 note={n}
-                orgId={orgId}
+                orgId={n.orgId ?? orgId}
                 subjectId={subjectId}
                 canManage={canManage}
                 canEdit={canManage}

@@ -73,6 +73,7 @@ import {
   WORLD_LAND_PATH,
   WORLD_MAP_HEIGHT,
   WORLD_MAP_WIDTH,
+  projectLatLng,
 } from "@/lib/world-map";
 const PANEL_TABS = ["rcon", "scripts", "presets", "status", "servers"];
 const Route = createFileRoute("/panel")({
@@ -278,7 +279,7 @@ function PanelPage() {
               />
             )}
             {tab === "presets" && (
-              <PresetsTab
+              <PluginsTab
                 key={activeOrg.id}
                 servers={servers}
                 orgId={activeOrg.id}
@@ -358,6 +359,10 @@ function RconTab({ servers, orgId }) {
   const [sending, setSending] = useState(false);
   const [pendingScript, setPendingScript] = useState(null);
   const [scripts, setScripts] = useState([]);
+  // Live console feed state. `liveRef` mirrors `live` so the async send/runScript
+  // closures can read the current value without re-creating themselves.
+  const [live, setLive] = useState(false);
+  const liveRef = useRef(false);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -374,6 +379,51 @@ function RconTab({ servers, orgId }) {
   }, [lines]);
 
   const log = (line) => setLines((prev) => [...prev, line]);
+
+  // Live console feed: subscribe to the server's RCON console over SSE. Rust
+  // broadcasts console output to every connected RCON client, so anything that
+  // happens on the server — including commands sent from this panel — streams in
+  // here, letting staff confirm a command actually took effect.
+  const feedEligible = Boolean(
+    servers.find((s) => s.id === selected)?.rconConfigured,
+  );
+  useEffect(() => {
+    liveRef.current = false;
+    setLive(false);
+    if (!selected || !feedEligible) return;
+    const es = new EventSource(
+      `/api/servers/${selected}/rcon/console/stream`,
+      { withCredentials: true },
+    );
+    es.onopen = () => {
+      liveRef.current = true;
+      setLive(true);
+    };
+    es.onmessage = (ev) => {
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      if (msg.type === "log") {
+        const text = String(msg.message ?? "");
+        if (text.trim()) log(`[FEED] ${text}`);
+      } else if (msg.type === "status") {
+        liveRef.current = msg.message === "connected";
+        setLive(liveRef.current);
+      }
+    };
+    es.onerror = () => {
+      // EventSource auto-reconnects; reflect the dropped state meanwhile.
+      liveRef.current = false;
+      setLive(false);
+    };
+    return () => {
+      liveRef.current = false;
+      es.close();
+    };
+  }, [selected, feedEligible]);
 
   const execCommand = async (serverId, command) => {
     const res = await fetch(`/api/servers/${serverId}/rcon/exec`, {
@@ -405,7 +455,9 @@ function RconTab({ servers, orgId }) {
     log(`> ${c}`);
     try {
       const { response, consoleLogs } = await execCommand(selected, c);
-      for (const l of consoleLogs) log(`[LOG] ${l}`);
+      // When the live feed is connected it already streams these broadcasts, so
+      // skip them here to avoid double-printing each console line.
+      if (!liveRef.current) for (const l of consoleLogs) log(`[LOG] ${l}`);
       if (response) {
         let display;
         try {
@@ -437,7 +489,7 @@ function RconTab({ servers, orgId }) {
         log(`> ${c}`);
         try {
           const { response, consoleLogs } = await execCommand(selected, c);
-          for (const l of consoleLogs) log(`[LOG] ${l}`);
+          if (!liveRef.current) for (const l of consoleLogs) log(`[LOG] ${l}`);
           if (response) {
             let display;
             try {
@@ -524,6 +576,30 @@ function RconTab({ servers, orgId }) {
                 RCON not configured
               </Badge>
             )}
+            {server?.rconConfigured && (
+              <Badge
+                variant="outline"
+                className={
+                  "text-[9px] font-mono shrink-0 flex items-center gap-1 " +
+                  (live
+                    ? "border-success/40 text-success"
+                    : "border-muted-foreground/30 text-muted-foreground")
+                }
+                title={
+                  live
+                    ? "Live console feed connected"
+                    : "Console feed reconnecting…"
+                }
+              >
+                <span
+                  className={
+                    "size-1.5 rounded-full " +
+                    (live ? "bg-success animate-pulse" : "bg-muted-foreground/50")
+                  }
+                />
+                {live ? "LIVE" : "OFFLINE"}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <ScriptPickerButton
@@ -561,7 +637,9 @@ function RconTab({ servers, orgId }) {
                         ? "text-destructive"
                         : l.includes("[LOG]")
                           ? "text-foreground/70"
-                          : "text-muted-foreground"
+                          : l.includes("[FEED]")
+                            ? "text-sky-300/70"
+                            : "text-muted-foreground"
               }
             >
               {l}
@@ -1399,6 +1477,612 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
     </Dialog>
   );
 }
+// Container for the two plugin views: the org-wide Registry (version/risk/tag
+// management, deploy by group tag) and the per-server Files browser (live Oxide
+// status, config editing, .cs upload on a single server).
+function PluginsTab({ servers, orgId }) {
+  const [view, setView] = useState("registry");
+  const SUBTABS = [
+    { id: "registry", label: "Registry", icon: Layers },
+    { id: "files", label: "Server Files", icon: ScrollText },
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="inline-flex items-center gap-0.5 ring-1 ring-border rounded-md bg-surface/40 p-0.5">
+        {SUBTABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setView(id)}
+            className={
+              "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors " +
+              (view === id
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground")
+            }
+          >
+            <Icon className="size-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "registry" ? (
+        <OrgPluginsTab orgId={orgId} />
+      ) : (
+        <PresetsTab servers={servers} orgId={orgId} />
+      )}
+    </div>
+  );
+}
+
+// Org-wide plugin registry: lists every plugin once (not per server) with its
+// installed vs latest umod version, a risk group, the server group tags it
+// deploys to, and which servers those tags resolve to. Push/unload act over all
+// tag-matched servers at once.
+const RISK_META = {
+  1: { on: "bg-success/20 ring-success/50 text-success", title: "Low risk" },
+  2: { on: "bg-warning/20 ring-warning/50 text-warning", title: "Medium risk" },
+  3: {
+    on: "bg-destructive/20 ring-destructive/50 text-destructive",
+    title: "High risk",
+  },
+};
+
+function OrgPluginsTab({ orgId }) {
+  const tz = useTimezone();
+  const [plugins, setPlugins] = useState([]);
+  const [availableTags, setAvailableTags] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState({});
+  const [checking, setChecking] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/plugins`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      setPlugins(data.plugins ?? []);
+      setAvailableTags(data.availableTags ?? []);
+      setError(null);
+    } catch {
+      setError("Failed to load plugins.");
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    setLoading(true);
+    load();
+  }, [load]);
+
+  const withBusy = async (id, fn) => {
+    setBusy((b) => ({ ...b, [id]: true }));
+    try {
+      await fn();
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }));
+    }
+  };
+
+  const patchPlugin = (id, patch) =>
+    withBusy(id, async () => {
+      const res = await fetch(`/api/orgs/${orgId}/plugins/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) await load();
+    });
+
+  const setTags = (p, tags) => patchPlugin(p.id, { assignedTags: tags });
+
+  const pushPlugin = (p, action) =>
+    withBusy(p.id, async () => {
+      const res = await fetch(`/api/orgs/${orgId}/plugins/${p.id}/push`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) await load();
+    });
+
+  const removePlugin = (p) =>
+    withBusy(p.id, async () => {
+      const res = await fetch(`/api/orgs/${orgId}/plugins/${p.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) await load();
+    });
+
+  const checkUpdates = async () => {
+    setChecking(true);
+    try {
+      await fetch(`/api/orgs/${orgId}/plugins/refresh-versions`, {
+        method: "POST",
+        credentials: "include",
+      });
+      await load();
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const fmtDate = (unix) =>
+    unix
+      ? new Date(unix * 1000).toLocaleDateString(
+          undefined,
+          tz ? { timeZone: tz } : {},
+        )
+      : null;
+
+  const COLS = "grid grid-cols-[1.6fr_1fr_0.7fr_1.7fr_1.2fr_auto] gap-3";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs text-muted-foreground max-w-xl">
+          Every plugin across this org's servers, with its uMod version, risk
+          group, and the server group tags it deploys to. Push or unload acts on
+          every server matching the plugin's tags.
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs"
+            onClick={checkUpdates}
+            disabled={checking}
+            title="Look up the latest versions on umod.org"
+          >
+            <RefreshCw
+              className={"size-3.5 mr-1.5 " + (checking ? "animate-spin" : "")}
+            />
+            Check for updates
+          </Button>
+          <Button
+            size="sm"
+            className="text-xs"
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="size-3.5 mr-1.5" />
+            Add plugin
+          </Button>
+        </div>
+      </div>
+
+      {loading && (
+        <p className="text-sm text-muted-foreground py-4">Loading plugins…</p>
+      )}
+      {!loading && error && (
+        <div className="ring-1 ring-destructive/40 rounded-md bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+      {!loading && !error && plugins.length === 0 && (
+        <p className="text-sm text-muted-foreground py-4">
+          No plugins registered yet. Add one to start tracking versions and
+          deployments.
+        </p>
+      )}
+
+      {!loading && !error && plugins.length > 0 && (
+        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+          <div
+            className={`${COLS} px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground`}
+          >
+            <div>Plugin</div>
+            <div>Version</div>
+            <div>Risk</div>
+            <div>Group tags</div>
+            <div>Servers</div>
+            <div />
+          </div>
+          {plugins.map((p) => {
+            const outdated =
+              p.latestVersion &&
+              p.installedVersion &&
+              p.latestVersion !== p.installedVersion;
+            const unassignedTags = availableTags.filter(
+              (t) => !p.assignedTags.includes(t),
+            );
+            const serverCount = p.servers?.length ?? 0;
+            const isBusy = !!busy[p.id];
+            return (
+              <div
+                key={p.id}
+                className={`${COLS} px-3 py-2.5 border-b border-border last:border-0 items-center`}
+              >
+                {/* Plugin */}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold truncate">
+                      {p.name}
+                    </span>
+                    <span
+                      className={
+                        "inline-flex items-center rounded-md border py-0.5 px-1.5 font-semibold text-[9px] font-mono h-4 " +
+                        (p.source === "custom"
+                          ? "border-brand/40 text-brand bg-brand/5"
+                          : "border-border text-muted-foreground")
+                      }
+                    >
+                      {p.source}
+                    </span>
+                  </div>
+                  {p.umodSlug ? (
+                    <a
+                      href={`https://umod.org/plugins/${encodeURIComponent(p.umodSlug)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] font-mono text-muted-foreground truncate hover:text-foreground inline-flex items-center gap-0.5"
+                    >
+                      umod.org/{p.umodSlug}
+                      <ExternalLink className="size-2.5" />
+                    </a>
+                  ) : (
+                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                      custom upload
+                    </div>
+                  )}
+                </div>
+
+                {/* Version */}
+                <div>
+                  <div className="text-xs font-mono flex items-center gap-1.5">
+                    {p.installedVersion ?? "—"}
+                    {outdated && (
+                      <>
+                        <span className="text-muted-foreground/50">→</span>
+                        <span className="text-warning">{p.latestVersion}</span>
+                        <span className="size-1.5 rounded-full bg-warning animate-pulse" />
+                      </>
+                    )}
+                  </div>
+                  {fmtDate(p.latestUpdatedAt) && (
+                    <div className="text-[10px] text-muted-foreground">
+                      {fmtDate(p.latestUpdatedAt)}
+                    </div>
+                  )}
+                </div>
+
+                {/* Risk */}
+                <div className="inline-flex items-center gap-0.5 ring-1 ring-border rounded p-0.5 w-fit">
+                  {[1, 2, 3].map((r) => (
+                    <button
+                      key={r}
+                      disabled={isBusy}
+                      onClick={() => r !== p.risk && patchPlugin(p.id, { risk: r })}
+                      title={RISK_META[r].title}
+                      className={
+                        "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                        (p.risk === r
+                          ? RISK_META[r].on
+                          : "bg-surface ring-border text-muted-foreground hover:text-foreground")
+                      }
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Group tags */}
+                <div className="flex gap-1 flex-wrap items-center">
+                  {p.assignedTags.map((t) => (
+                    <button
+                      key={t}
+                      disabled={isBusy}
+                      onClick={() =>
+                        setTags(
+                          p,
+                          p.assignedTags.filter((x) => x !== t),
+                        )
+                      }
+                      title={`Remove ${t}`}
+                      className="group inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 bg-brand/15 ring-brand/40 text-brand hover:bg-destructive/15 hover:ring-destructive/40 hover:text-destructive transition-colors"
+                    >
+                      {t}
+                      <X className="size-2.5 opacity-0 group-hover:opacity-100" />
+                    </button>
+                  ))}
+                  {unassignedTags.length > 0 && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          disabled={isBusy}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono ring-1 ring-dashed ring-border text-muted-foreground hover:text-foreground hover:ring-brand/40"
+                          title="Add group tag"
+                        >
+                          <Plus className="size-2.5" /> tag
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-40 p-1">
+                        {unassignedTags.map((t) => (
+                          <button
+                            key={t}
+                            onClick={() => setTags(p, [...p.assignedTags, t])}
+                            className="w-full text-left px-2 py-1 rounded text-xs font-mono hover:bg-surface"
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                  {p.assignedTags.length === 0 &&
+                    unassignedTags.length === 0 && (
+                      <span className="text-[10px] text-muted-foreground italic">
+                        no server tags
+                      </span>
+                    )}
+                </div>
+
+                {/* Servers */}
+                <div className="min-w-0">
+                  {serverCount === 0 ? (
+                    <span className="text-[10px] text-muted-foreground italic">
+                      none
+                    </span>
+                  ) : (
+                    <div
+                      className="flex flex-wrap gap-1"
+                      title={p.servers.map((s) => s.name).join(", ")}
+                    >
+                      {p.servers.slice(0, 3).map((s) => (
+                        <span
+                          key={s.id}
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground truncate max-w-[90px]"
+                        >
+                          {s.name}
+                        </span>
+                      ))}
+                      {serverCount > 3 && (
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          +{serverCount - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1">
+                  <button
+                    disabled={isBusy || serverCount === 0}
+                    onClick={() => pushPlugin(p, "unload")}
+                    title={`Unload on ${serverCount} server(s)`}
+                    className="inline-flex items-center justify-center size-7 rounded hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <Power className="size-3.5 text-success" />
+                  </button>
+                  <button
+                    disabled={isBusy || serverCount === 0 || !outdated}
+                    onClick={() => pushPlugin(p, "reload")}
+                    title={
+                      outdated
+                        ? `Push update to ${serverCount} server(s)`
+                        : "Up to date"
+                    }
+                    className={
+                      "inline-flex items-center gap-1 h-8 rounded-md px-3 text-xs font-medium disabled:opacity-50 disabled:pointer-events-none " +
+                      (outdated
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "ring-1 ring-border bg-background text-muted-foreground")
+                    }
+                  >
+                    <RefreshCw className="size-3.5" />
+                    {outdated ? `Update (${serverCount})` : "Up to date"}
+                  </button>
+                  <button
+                    disabled={isBusy}
+                    onClick={() => removePlugin(p)}
+                    title="Remove from registry"
+                    className="inline-flex items-center justify-center size-7 rounded hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <AddPluginDialog
+        open={addOpen}
+        orgId={orgId}
+        availableTags={availableTags}
+        onClose={() => setAddOpen(false)}
+        onCreated={() => {
+          setAddOpen(false);
+          load();
+        }}
+      />
+    </div>
+  );
+}
+
+function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
+  const [name, setName] = useState("");
+  const [source, setSource] = useState("umod");
+  const [umodSlug, setUmodSlug] = useState("");
+  const [installedVersion, setInstalledVersion] = useState("");
+  const [risk, setRisk] = useState(2);
+  const [tags, setTags] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setSource("umod");
+      setUmodSlug("");
+      setInstalledVersion("");
+      setRisk(2);
+      setTags([]);
+      setError("");
+    }
+  }, [open]);
+
+  const save = async () => {
+    if (!name.trim()) {
+      setError("Name is required.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/plugins`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          source,
+          umodSlug: source === "umod" ? umodSlug.trim() : undefined,
+          installedVersion: installedVersion.trim() || undefined,
+          risk,
+          assignedTags: tags,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? `Failed (${res.status})`);
+        return;
+      }
+      onCreated();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add plugin</DialogTitle>
+          <DialogDescription>
+            Track a plugin's version and deploy it to servers by group tag.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label>Plugin name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="AdminMenu"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>Source</Label>
+              <Select value={source} onValueChange={setSource}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="umod">uMod</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Risk</Label>
+              <Select
+                value={String(risk)}
+                onValueChange={(v) => setRisk(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 · Low</SelectItem>
+                  <SelectItem value="2">2 · Medium</SelectItem>
+                  <SelectItem value="3">3 · High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {source === "umod" && (
+            <div className="space-y-1.5">
+              <Label>uMod slug</Label>
+              <Input
+                value={umodSlug}
+                onChange={(e) => setUmodSlug(e.target.value)}
+                placeholder="admin-menu"
+                className="font-mono"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                The slug from umod.org/plugins/&lt;slug&gt; — used to look up the
+                latest version.
+              </p>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>Installed version (optional)</Label>
+            <Input
+              value={installedVersion}
+              onChange={(e) => setInstalledVersion(e.target.value)}
+              placeholder="2.1.3"
+              className="font-mono"
+            />
+          </div>
+          {availableTags.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Group tags</Label>
+              <div className="flex flex-wrap gap-1">
+                {availableTags.map((t) => {
+                  const on = tags.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() =>
+                        setTags(
+                          on ? tags.filter((x) => x !== t) : [...tags, t],
+                        )
+                      }
+                      className={
+                        "px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                        (on
+                          ? "bg-brand/15 ring-brand/40 text-brand"
+                          : "bg-surface ring-border text-muted-foreground hover:text-foreground")
+                      }
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Adding…" : "Add plugin"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PresetsTab({ servers, orgId }) {
   const pteroServers = servers.filter((s) => s.pteroIdentifier);
   const [selectedServerId, setSelectedServerId] = useState(
@@ -2388,30 +3072,44 @@ function WorldLatencyMap({ snapshot, countries }) {
 }
 
 function WorldPlayerMap({ players }) {
-  const byCountry = {};
+  // Prefer precise proxycheck lat/long when we have it (plot at the real
+  // connection point), clustering co-located players to ~1° cells so dense
+  // regions stay readable. Players without geo fall back to a country centroid;
+  // those without even a country are surfaced as an "unknown" count.
+  const clusters = new Map();
+  let unknownCount = 0;
   for (const p of players) {
-    const cc = p.country ?? "__unknown__";
-    if (!byCountry[cc]) byCountry[cc] = [];
-    byCountry[cc].push(p);
+    let key, x, y, label;
+    if (Number.isFinite(p.lat) && Number.isFinite(p.lng)) {
+      const rLat = Math.round(p.lat);
+      const rLng = Math.round(p.lng);
+      key = `geo:${rLat}:${rLng}`;
+      const proj = projectLatLng(rLat, rLng);
+      x = proj.x;
+      y = proj.y;
+      label = p.country
+        ? COUNTRY_NAMES[p.country] ?? p.country
+        : `${rLat}, ${rLng}`;
+    } else if (p.country && COUNTRY_CENTROIDS[p.country]) {
+      const c = COUNTRY_CENTROIDS[p.country];
+      key = `cc:${p.country}`;
+      x = c.x;
+      y = c.y;
+      label = COUNTRY_NAMES[p.country] ?? c.name ?? p.country;
+    } else {
+      unknownCount += 1;
+      continue;
+    }
+    const entry = clusters.get(key) ?? { x, y, label, players: [] };
+    entry.players.push(p);
+    clusters.set(key, entry);
   }
 
-  const points = Object.entries(byCountry)
-    .map(([cc, group]) => {
-      if (cc === "__unknown__") return null;
-      const c = COUNTRY_CENTROIDS[cc];
-      if (!c) return null;
-      return {
-        cc,
-        x: c.x,
-        y: c.y,
-        name: COUNTRY_NAMES[cc] ?? c.name ?? cc,
-        count: group.length,
-        players: group,
-      };
-    })
-    .filter(Boolean);
-
-  const unknownCount = byCountry["__unknown__"]?.length ?? 0;
+  const points = [...clusters.entries()].map(([id, e]) => ({
+    id,
+    ...e,
+    count: e.players.length,
+  }));
 
   return (
     <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden relative">
@@ -2434,7 +3132,7 @@ function WorldPlayerMap({ players }) {
             .join(", ");
           const extra = p.count > 5 ? ` +${p.count - 5} more` : "";
           return (
-            <g key={p.cc}>
+            <g key={p.id}>
               <circle cx={p.x} cy={p.y} r={radius * 1.8} className="fill-emerald-500/15" />
               <circle
                 cx={p.x}
@@ -2457,7 +3155,7 @@ function WorldPlayerMap({ players }) {
                   {p.count}
                 </text>
               )}
-              <title>{`${p.name}: ${p.count} player${p.count === 1 ? "" : "s"}\n${names}${extra}`}</title>
+              <title>{`${p.label}: ${p.count} player${p.count === 1 ? "" : "s"}\n${names}${extra}`}</title>
             </g>
           );
         })}
@@ -3203,9 +3901,16 @@ function StatusTab({ orgId }) {
                         <span className="text-muted-foreground uppercase tracking-widest">
                           CPU used
                         </span>
-                        <span className="text-muted-foreground">
-                          {agg.usedCpu.toFixed(0)}%
-                          {agg.allocCpu > 0 ? ` / ${agg.allocCpu}%` : ""}
+                        {/* Pterodactyl reports cpu_absolute as percent-of-one-core
+                            (100% = 1 core), so the per-node sum is total cores in
+                            use. Showing it as cores avoids a misleading "650%".
+                            Allocation is the summed per-server cpu limit, also in
+                            core-equivalents. */}
+                        <span className="text-muted-foreground tabular-nums">
+                          {(agg.usedCpu / 100).toFixed(2)} cores
+                          {agg.allocCpu > 0
+                            ? ` / ${(agg.allocCpu / 100).toFixed(1)}`
+                            : ""}
                         </span>
                       </div>
                       <UsageBar

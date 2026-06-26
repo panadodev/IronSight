@@ -957,6 +957,90 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS iso_code VARCHAR(2)`,
   );
+  // Precise geolocation from proxycheck (&asn=1 returns lat/long) — lets the
+  // status-page map plot where players actually connect from, not just a country
+  // centroid.
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`,
+  );
+
+  // ── Cross-org data sharing ───────────────────────────────────────────────────
+  // Directed, per-category read grants: owner_org_id shares the listed data
+  // categories (bans / ips / notes / …) with grantee_org_id. A pending grant
+  // becomes active when the grantee accepts (mutual consent). Sharing is by
+  // reference — the underlying records stay owned by owner_org_id and are
+  // resolved at read time, never copied.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_share_grants (
+      grant_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      owner_org_id  TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      grantee_org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      categories    TEXT[] NOT NULL DEFAULT '{}',
+      status        TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','active','revoked')),
+      created_by    UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      created_at    BIGINT NOT NULL DEFAULT unix_now(),
+      accepted_at   BIGINT,
+      revoked_at    BIGINT,
+      UNIQUE (owner_org_id, grantee_org_id)
+    )
+  `);
+  // Max note sensitivity level (player_notes.min_rank, 1=all staff … 4=management)
+  // the owner shares when 'notes' is in categories. Notes above this level, or
+  // gated to a specific org role, are never shared (roles don't cross orgs).
+  await pool.query(
+    `ALTER TABLE org_share_grants ADD COLUMN IF NOT EXISTS notes_share_level INTEGER NOT NULL DEFAULT 1`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_share_grants_grantee
+     ON org_share_grants(grantee_org_id, status)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_share_grants_owner
+     ON org_share_grants(owner_org_id, status)`,
+  );
+
+  // Per-org observations of a player IP. The intrinsic IP facts live once in
+  // player_ip_history / ip_metadata; this records WHICH orgs saw the player on
+  // that IP, so the lookup can attribute each IP to its source org(s) and the
+  // org filter / sharing model can include or hide it accordingly.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_ip_observations (
+      steam_id    TEXT NOT NULL,
+      ip_address  TEXT NOT NULL,
+      org_id      TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      server_id   UUID,
+      first_seen  BIGINT NOT NULL DEFAULT unix_now(),
+      last_seen   BIGINT NOT NULL DEFAULT unix_now(),
+      PRIMARY KEY (steam_id, ip_address, org_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_ip_observations_lookup
+     ON player_ip_observations(steam_id, ip_address)`,
+  );
+
+  // Which of OUR orgs' BattleMetrics keys surfaced a given external ban. The
+  // intrinsic ban facts live once in player_bm_bans_cache (keyed by bm_ban_id);
+  // this records the observing org so the lookup unions bans across the caller's
+  // orgs (fixing the old global last-writer-wins cache) and can attribute / share
+  // / filter them by source org.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_bm_ban_observations (
+      bm_ban_id   TEXT NOT NULL,
+      org_id      TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      steam_id    TEXT NOT NULL,
+      observed_at BIGINT NOT NULL DEFAULT unix_now(),
+      PRIMARY KEY (bm_ban_id, org_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_bm_ban_observations_steam
+     ON player_bm_ban_observations(steam_id)`,
+  );
   // BattleMetrics name-identifier history for the subject (used for name matching).
   await pool.query(
     `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS bm_name_aliases JSONB`,
@@ -1533,6 +1617,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('triggers_manage',     'Configure threat triggers'),
       ('server_admin',        'Admin on Server (grants in-game admin via RCON)'),
       ('discord_mod',         'Use Discord moderation'),
+      ('discord_warn',        'Warn players via Discord DM'),
       ('staff_online_view',   'View the online staff list'),
       ('chat_view',           'View in-game chat logs'),
       ('flagged_messages_resolve', 'Resolve AI-flagged chat messages (confirm and clear)'),

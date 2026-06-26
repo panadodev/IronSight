@@ -37,6 +37,7 @@ import {
   Users,
   ShieldAlert,
   Download,
+  MessageSquareWarning,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -160,40 +161,60 @@ function MemberAvatar({ avatar, username, size = 7 }) {
   );
 }
 
-function ActionButtons({ discordId, username, onAction, compact = false }) {
+function ActionButtons({
+  discordId,
+  username,
+  onAction,
+  compact = false,
+  fullMod = true,
+  canWarn = true,
+}) {
   const cls = compact
     ? "p-1 rounded text-muted-foreground transition-colors"
     : "p-1.5 rounded text-muted-foreground transition-colors";
   return (
     <div className="flex items-center gap-0.5">
-      <button
-        onClick={() => onAction(discordId, username, "timeout")}
-        title="Timeout"
-        className={`${cls} hover:bg-amber-500/10 hover:text-amber-400`}
-      >
-        <Clock className="size-3.5" />
-      </button>
-      <button
-        onClick={() => onAction(discordId, username, "mute")}
-        title="Voice Mute"
-        className={`${cls} hover:bg-amber-500/10 hover:text-amber-400`}
-      >
-        <VolumeX className="size-3.5" />
-      </button>
-      <button
-        onClick={() => onAction(discordId, username, "kick")}
-        title="Kick"
-        className={`${cls} hover:bg-orange-500/10 hover:text-orange-400`}
-      >
-        <UserMinus className="size-3.5" />
-      </button>
-      <button
-        onClick={() => onAction(discordId, username, "ban")}
-        title="Ban"
-        className={`${cls} hover:bg-danger/10 hover:text-danger`}
-      >
-        <Ban className="size-3.5" />
-      </button>
+      {canWarn && (
+        <button
+          onClick={() => onAction(discordId, username, "warn")}
+          title="Warn (DM)"
+          className={`${cls} hover:bg-sky-500/10 hover:text-sky-400`}
+        >
+          <MessageSquareWarning className="size-3.5" />
+        </button>
+      )}
+      {fullMod && (
+        <>
+          <button
+            onClick={() => onAction(discordId, username, "timeout")}
+            title="Timeout"
+            className={`${cls} hover:bg-amber-500/10 hover:text-amber-400`}
+          >
+            <Clock className="size-3.5" />
+          </button>
+          <button
+            onClick={() => onAction(discordId, username, "mute")}
+            title="Voice Mute"
+            className={`${cls} hover:bg-amber-500/10 hover:text-amber-400`}
+          >
+            <VolumeX className="size-3.5" />
+          </button>
+          <button
+            onClick={() => onAction(discordId, username, "kick")}
+            title="Kick"
+            className={`${cls} hover:bg-orange-500/10 hover:text-orange-400`}
+          >
+            <UserMinus className="size-3.5" />
+          </button>
+          <button
+            onClick={() => onAction(discordId, username, "ban")}
+            title="Ban"
+            className={`${cls} hover:bg-danger/10 hover:text-danger`}
+          >
+            <Ban className="size-3.5" />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -202,12 +223,23 @@ function DiscordModPage() {
   const { hasOrgPermission, orgs } = useAuth();
   const tz = useTimezone();
 
+  // The page is reachable by full Discord moderators and by warn-only staff.
+  // Warn-only staff get a trimmed view (Members tab + Warn action) so they can
+  // nudge a member without seeing message/ban history or destructive actions.
   const adminOrgs = useMemo(
-    () => orgs.filter((o) => hasOrgPermission(o.id, "discord_mod")),
+    () =>
+      orgs.filter(
+        (o) =>
+          hasOrgPermission(o.id, "discord_mod") ||
+          hasOrgPermission(o.id, "discord_warn"),
+      ),
     [orgs, hasOrgPermission],
   );
 
   const [orgId, setOrgId] = useState(() => adminOrgs[0]?.id ?? "");
+  const fullMod = orgId ? hasOrgPermission(orgId, "discord_mod") : false;
+  const canWarn =
+    fullMod || (orgId ? hasOrgPermission(orgId, "discord_warn") : false);
   const [tab, setTab] = useState("messages");
 
   // ── Messages tab ──────────────────────────────────────────────────────────
@@ -604,6 +636,56 @@ function DiscordModPage() {
     const targetId = actionTarget.discordId;
     setActionLoading(true);
     setActionError("");
+
+    // Warn is a DM, not a guild action — it has its own endpoint and reports
+    // whether the message actually reached the user.
+    if (actionType === "warn") {
+      const message = actionReason.trim();
+      if (!message) {
+        setActionError("A warning message is required.");
+        setActionLoading(false);
+        return;
+      }
+      try {
+        let res;
+        try {
+          res = await fetch(
+            `/api/orgs/${encodeURIComponent(orgId)}/discord/warn`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                targetDiscordId: targetId,
+                targetUsername: actionTarget.username,
+                message,
+              }),
+            },
+          );
+        } catch {
+          setActionError("Network error — please try again");
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setActionError(data.error ?? `Warn failed (${res.status})`);
+          return;
+        }
+        if (data.delivered === false) {
+          // Sent attempt succeeded server-side but the user blocks DMs.
+          setActionError(
+            "Couldn't DM this user — they have DMs disabled or don't share a server with the bot.",
+          );
+          return;
+        }
+        setActionTarget(null);
+        if (tab === "modlog") fetchModLog();
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
     try {
       const body = {
         action: actionType,
@@ -663,12 +745,20 @@ function DiscordModPage() {
     );
   }
 
-  const TABS = [
-    { id: "messages", label: "Messages", icon: Hash },
-    { id: "members", label: "Members", icon: Users },
-    { id: "bans", label: "Bans", icon: ShieldAlert },
-    { id: "modlog", label: "Mod Log", icon: ShieldOff },
-  ];
+  const TABS = fullMod
+    ? [
+        { id: "messages", label: "Messages", icon: Hash },
+        { id: "members", label: "Members", icon: Users },
+        { id: "bans", label: "Bans", icon: ShieldAlert },
+        { id: "modlog", label: "Mod Log", icon: ShieldOff },
+      ]
+    : [{ id: "members", label: "Members", icon: Users }];
+
+  // Keep the active tab within what this user is allowed to see (warn-only staff
+  // can land here with the default "messages" tab they have no access to).
+  useEffect(() => {
+    if (!TABS.some((t) => t.id === tab)) setTab(TABS[0].id);
+  }, [fullMod, tab]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -837,6 +927,8 @@ function DiscordModPage() {
                             discordId={msg.authorDiscordId}
                             username={msg.authorUsername}
                             onAction={openAction}
+                            fullMod={fullMod}
+                            canWarn={canWarn}
                           />
                         </div>
                       </div>
@@ -934,6 +1026,8 @@ function DiscordModPage() {
                       username={m.username}
                       onAction={openAction}
                       compact
+                      fullMod={fullMod}
+                      canWarn={canWarn}
                     />
                   </div>
                 ))}
@@ -1163,7 +1257,9 @@ function DiscordModPage() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Moderate member</DialogTitle>
+            <DialogTitle>
+              {fullMod ? "Moderate member" : "Warn member"}
+            </DialogTitle>
             <DialogDescription>
               {actionTarget?.username} ({actionTarget?.discordId})
             </DialogDescription>
@@ -1174,13 +1270,18 @@ function DiscordModPage() {
               <Label>Action</Label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { value: "timeout", label: "Timeout", icon: Clock },
-                  { value: "untimeout", label: "Untimeout", icon: ShieldOff },
-                  { value: "mute", label: "Voice Mute", icon: VolumeX },
-                  { value: "unmute", label: "Unmute", icon: Volume2 },
-                  { value: "kick", label: "Kick", icon: UserMinus },
-                  { value: "ban", label: "Ban", icon: Ban },
-                  { value: "unban", label: "Unban", icon: UserCheck },
+                  { value: "warn", label: "Warn (DM)", icon: MessageSquareWarning },
+                  ...(fullMod
+                    ? [
+                        { value: "timeout", label: "Timeout", icon: Clock },
+                        { value: "untimeout", label: "Untimeout", icon: ShieldOff },
+                        { value: "mute", label: "Voice Mute", icon: VolumeX },
+                        { value: "unmute", label: "Unmute", icon: Volume2 },
+                        { value: "kick", label: "Kick", icon: UserMinus },
+                        { value: "ban", label: "Ban", icon: Ban },
+                        { value: "unban", label: "Unban", icon: UserCheck },
+                      ]
+                    : []),
                 ].map(({ value, label, icon: Icon }) => (
                   <button
                     key={value}
@@ -1224,14 +1325,29 @@ function DiscordModPage() {
             )}
 
             <div className="space-y-1.5">
-              <Label>Reason (optional)</Label>
+              <Label>
+                {actionType === "warn"
+                  ? "Message to send (DM'd to the player)"
+                  : "Reason (optional)"}
+              </Label>
               <Textarea
                 value={actionReason}
                 onChange={(e) => setActionReason(e.target.value)}
-                placeholder="Reason for this action…"
-                rows={2}
+                placeholder={
+                  actionType === "warn"
+                    ? "e.g. Please stop using racial slurs in chat — next time is a mute."
+                    : "Reason for this action…"
+                }
+                rows={actionType === "warn" ? 4 : 2}
+                maxLength={actionType === "warn" ? 1800 : undefined}
                 className="text-sm resize-none"
               />
+              {actionType === "warn" && (
+                <p className="text-[10px] text-muted-foreground">
+                  The bot DMs this to the player. If they have DMs disabled we'll
+                  tell you it couldn't be delivered.
+                </p>
+              )}
             </div>
 
             {actionError && (
@@ -1252,7 +1368,13 @@ function DiscordModPage() {
                   : "default"
               }
             >
-              {actionLoading ? "Applying…" : "Apply"}
+              {actionLoading
+                ? actionType === "warn"
+                  ? "Sending…"
+                  : "Applying…"
+                : actionType === "warn"
+                  ? "Send warning"
+                  : "Apply"}
             </Button>
           </DialogFooter>
         </DialogContent>

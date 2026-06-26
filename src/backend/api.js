@@ -224,6 +224,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "triggers_manage",
   "server_admin",
   "discord_mod",
+  "discord_warn",
   "staff_online_view",
   "chat_view",
   "flagged_messages_resolve",
@@ -3686,15 +3687,15 @@ async function handleGetOnlineStaff(request, orgId) {
     return json({ error: "Forbidden: staff_online_view permission required" }, 403);
 
   // Pull all non-admin/owner/disabled members, then check Redis presence.
-  // Exclude private profiles (unless the caller is the user themselves).
+  // Privacy ("private profile") now blocks player lookups, NOT presence — staff
+  // still appear here as online so the team can see who's around.
   const { rows } = await pool.query(
     `SELECT u.user_id, u.username
      FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1
-       AND om.role_id NOT IN ('org_admin', 'org_owner', 'org_disabled')
-       AND (u.profile_private = FALSE OR u.user_id = $2)`,
-    [orgId, session.userId],
+       AND om.role_id NOT IN ('org_admin', 'org_owner', 'org_disabled')`,
+    [orgId],
   );
 
   const online = [];
@@ -4475,6 +4476,81 @@ function filterPlayerIpData(playerData, canSeeIp) {
     }));
   }
   return result;
+}
+
+// Member orgs where the caller holds `permissionId` (admins/owners pass).
+function orgsWithPermission(session, permissionId) {
+  const out = new Set();
+  for (const orgId of sessionCandidateOrgIds(session, null)) {
+    if (orgHasPermission(session, orgId, permissionId)) out.add(orgId);
+  }
+  return out;
+}
+
+// Source orgs whose player IPs the caller may see:
+//   "ALL"  → sysadmin, no source filtering
+//   null   → caller has no ip_read anywhere → redact all IPs
+//   Set    → own ip_read orgs ∪ orgs that shared 'ips' to one of them
+async function entitledIpSourceOrgs(session) {
+  if (isConfiguredSysAdmin(session)) return "ALL";
+  const ipReadOrgs = [...orgsWithPermission(session, "ip_read")];
+  if (!ipReadOrgs.length) return null;
+  const result = new Set(ipReadOrgs);
+  const { rows } = await pool.query(
+    `SELECT DISTINCT owner_org_id FROM org_share_grants
+     WHERE status = 'active' AND 'ips' = ANY(categories)
+       AND grantee_org_id = ANY($1)`,
+    [ipReadOrgs],
+  );
+  for (const r of rows) result.add(String(r.owner_org_id));
+  return result;
+}
+
+// Drop IP-history entries whose source orgs are all outside `entitledOrgs`.
+// Untagged (legacy) entries have no source and stay visible to any IP reader.
+// The caller already established the player has IP access (entitlement !== null).
+function filterIpHistoryBySource(playerData, entitledOrgs) {
+  if (!playerData || !Array.isArray(playerData.ipHistory)) return playerData;
+  const result = { ...playerData };
+  result.ipHistory = playerData.ipHistory.filter((e) => {
+    const src = Array.isArray(e.sourceOrgIds) ? e.sourceOrgIds : [];
+    if (src.length === 0) return true;
+    return src.some((o) => entitledOrgs.has(o));
+  });
+  return result;
+}
+
+// One-shot IP visibility resolution for the player bundle: full redact when the
+// caller has no IP access, source-scoped filter otherwise, untouched for sysadmin.
+function applyIpEntitlement(playerData, entitlement) {
+  if (entitlement === null) return filterPlayerIpData(playerData, false);
+  if (entitlement === "ALL") return playerData;
+  return filterIpHistoryBySource(playerData, entitlement);
+}
+
+// External (BattleMetrics) bans are unioned across the caller's orgs: each is
+// tagged with the orgs whose BM key observed it. Show a ban when any observing
+// org is entitled (member org with players_view, or a 'bm_bans' share). Untagged
+// (legacy, pre-observation) bans stay visible. `entitledOrgs` null = sysadmin.
+function filterBmBansBySource(playerData, entitledOrgs) {
+  if (!playerData || !Array.isArray(playerData.bmBans)) return playerData;
+  if (entitledOrgs === null) return playerData;
+  const result = { ...playerData };
+  result.bmBans = playerData.bmBans.filter((b) => {
+    const src = Array.isArray(b.sourceOrgIds) ? b.sourceOrgIds : [];
+    if (src.length === 0) return true;
+    return src.some((o) => entitledOrgs.has(o));
+  });
+  return result;
+}
+
+// Apply both source-scoped slices (IPs + external bans) to the shared bundle for
+// this caller. Computed at read so the cached bundle stays org-agnostic.
+function applyShareEntitlement(playerData, ipEntitlement, bmEntitlement) {
+  return filterBmBansBySource(
+    applyIpEntitlement(playerData, ipEntitlement),
+    bmEntitlement,
+  );
 }
 
 async function handleGetTicketPlayerIntel(request, ticketIdStr) {
@@ -6949,27 +7025,56 @@ async function handleListPlugins(request, orgId) {
     );
   }
 
-  const { rows } = await pool.query(
-    `SELECT plugin_id, name, source, umod_slug, installed_version, latest_version,
-            latest_updated_at, assigned_tags, risk, enabled, created_at
-     FROM org_plugins WHERE org_id = $1 ORDER BY name ASC`,
-    [orgId],
-  );
+  const [{ rows }, serversRes] = await Promise.all([
+    pool.query(
+      `SELECT plugin_id, name, source, umod_slug, installed_version, latest_version,
+              latest_updated_at, assigned_tags, risk, enabled, created_at
+       FROM org_plugins WHERE org_id = $1 ORDER BY name ASC`,
+      [orgId],
+    ),
+    pool.query(
+      `SELECT server_id::text AS server_id, server_name, tags
+       FROM servers WHERE owner_org_id = $1`,
+      [orgId],
+    ),
+  ]);
+
+  // Surface which servers each plugin lands on: a server is a target when any of
+  // its group tags is in the plugin's assigned tags (same rule getServersForRcon
+  // uses for push/unload). Lets the UI show a "which servers" column.
+  const allServers = serversRes.rows.map((s) => ({
+    id: s.server_id,
+    name: s.server_name,
+    tags: Array.isArray(s.tags) ? s.tags : [],
+  }));
+  const serversForTags = (assigned) => {
+    const set = new Set(assigned);
+    return allServers
+      .filter((s) => s.tags.some((t) => set.has(t)))
+      .map((s) => ({ id: s.id, name: s.name }));
+  };
 
   return json({
-    plugins: rows.map((r) => ({
-      id: r.plugin_id,
-      name: r.name,
-      source: r.source,
-      umodSlug: r.umod_slug ?? null,
-      installedVersion: r.installed_version ?? null,
-      latestVersion: r.latest_version ?? null,
-      latestUpdatedAt: r.latest_updated_at ?? null,
-      assignedTags: Array.isArray(r.assigned_tags) ? r.assigned_tags : [],
-      risk: r.risk,
-      enabled: r.enabled,
-      createdAt: r.created_at,
-    })),
+    plugins: rows.map((r) => {
+      const assignedTags = Array.isArray(r.assigned_tags) ? r.assigned_tags : [];
+      return {
+        id: r.plugin_id,
+        name: r.name,
+        source: r.source,
+        umodSlug: r.umod_slug ?? null,
+        installedVersion: r.installed_version ?? null,
+        latestVersion: r.latest_version ?? null,
+        latestUpdatedAt: r.latest_updated_at ?? null,
+        assignedTags,
+        risk: r.risk,
+        enabled: r.enabled,
+        createdAt: r.created_at,
+        servers: serversForTags(assignedTags),
+      };
+    }),
+    // All distinct group tags configured across the org's servers, so the UI can
+    // offer them when assigning tags to a plugin.
+    availableTags: [...new Set(allServers.flatMap((s) => s.tags))].sort(),
   });
 }
 
@@ -7156,6 +7261,15 @@ async function handlePluginPush(request, orgId, pluginId) {
     );
   }
 
+  // action "reload" (default) pushes/updates the plugin; "unload" stops it.
+  let action = "reload";
+  try {
+    const body = await request.json();
+    if (body?.action === "unload") action = "unload";
+  } catch {
+    /* no body → default reload */
+  }
+
   const pluginRes = await pool.query(
     `SELECT name, assigned_tags, latest_version FROM org_plugins
      WHERE plugin_id = $1 AND org_id = $2`,
@@ -7167,6 +7281,7 @@ async function handlePluginPush(request, orgId, pluginId) {
   // Strip control chars before interpolating into the RCON console command.
   const safeName = String(name).replace(/[\r\n\x00-\x1f]/g, "");
   const tags = Array.isArray(assigned_tags) ? assigned_tags : [];
+  const command = action === "unload" ? "oxide.unload" : "oxide.reload";
 
   const results = { pushed: [], failed: [] };
 
@@ -7183,7 +7298,7 @@ async function handlePluginPush(request, orgId, pluginId) {
         }
         const rconUrl = `ws://${s.rcon_host}:${s.rcon_port}/${encodeURIComponent(password)}`;
         try {
-          await executeRconCommand(rconUrl, `oxide.reload ${safeName}`);
+          await executeRconCommand(rconUrl, `${command} ${safeName}`);
           results.pushed.push(s.server_id);
         } catch {
           results.failed.push(s.server_id);
@@ -7192,14 +7307,15 @@ async function handlePluginPush(request, orgId, pluginId) {
     );
   }
 
-  if (latest_version) {
+  // Only a real reload marks the installed version as caught up to latest.
+  if (action === "reload" && latest_version) {
     await pool.query(
       `UPDATE org_plugins SET installed_version = latest_version WHERE plugin_id = $1`,
       [pluginId],
     );
   }
 
-  return json({ ok: true, ...results });
+  return json({ ok: true, action, ...results });
 }
 
 async function handleUnloadRisk(request, orgId) {
@@ -7276,6 +7392,74 @@ async function handleUnloadRisk(request, orgId) {
   );
 
   return json({ ok: true, ...results });
+}
+
+// Look up a plugin's latest published version from umod.org. uMod exposes a JSON
+// document per plugin slug; we read the latest release version + timestamp.
+async function fetchUmodLatest(slug) {
+  try {
+    const res = await fetch(
+      `https://umod.org/plugins/${encodeURIComponent(slug)}.json`,
+      { headers: { accept: "application/json" } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data) return null;
+    const version =
+      data.latest_release_version ?? data.version ?? data.tag ?? null;
+    const at = data.latest_release_at ?? data.updated_at ?? null;
+    const updatedAt = at ? Math.floor(new Date(at).getTime() / 1000) : null;
+    if (!version) return null;
+    return {
+      version: String(version),
+      updatedAt: Number.isFinite(updatedAt) ? updatedAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Refresh latest-version info for all of an org's umod-sourced plugins by
+// scraping their umod plugin pages. Custom-uploaded plugins are skipped (no
+// upstream to check). Best-effort: individual lookups that fail are ignored.
+async function handleRefreshPluginVersions(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!orgHasPermission(session, orgId, "presets_manage")) {
+    return json(
+      { error: "Forbidden: presets_manage permission required" },
+      403,
+    );
+  }
+
+  // Outward-facing scrape against umod — cap per-org so it can't be hammered.
+  const rl = await checkRateLimit(`rl:plugin-versions:${orgId}`, 6, 60);
+  if (rl) return rl;
+
+  const { rows } = await pool.query(
+    `SELECT plugin_id, umod_slug FROM org_plugins
+     WHERE org_id = $1 AND source = 'umod' AND umod_slug IS NOT NULL`,
+    [orgId],
+  );
+
+  let updated = 0;
+  await Promise.allSettled(
+    rows.map(async (p) => {
+      const latest = await fetchUmodLatest(p.umod_slug);
+      if (!latest) return;
+      await pool.query(
+        `UPDATE org_plugins
+         SET latest_version = $2,
+             latest_updated_at = COALESCE($3, latest_updated_at)
+         WHERE plugin_id = $1`,
+        [p.plugin_id, latest.version, latest.updatedAt],
+      );
+      updated += 1;
+    }),
+  );
+
+  return json({ ok: true, checked: rows.length, updated });
 }
 
 // ── Plugin Configs (Pterodactyl file discovery) ────────────────────────────────
@@ -8525,6 +8709,146 @@ async function handleExecRconCommand(request, serverId) {
   });
 }
 
+// Live console feed (SSE). Opens a passive RCON WebSocket and forwards every
+// console message to the browser. Rust's WebRcon broadcasts console output
+// (Identifier -1) to ALL connected clients, so commands issued through the exec
+// endpoint also surface here — giving staff a constant feed to confirm a command
+// actually took effect, not just that the request returned 200.
+async function handleRconConsoleStream(request, serverId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const serverRes = await pool.query(
+    `SELECT owner_org_id, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1`,
+    [serverId],
+  );
+  if (!serverRes.rows[0]) return json({ error: "Server not found" }, 404);
+
+  const { owner_org_id, rcon_host, rcon_port, rcon_password_enc } =
+    serverRes.rows[0];
+
+  if (!orgHasPermission(session, owner_org_id, "rcon_access")) {
+    return json({ error: "Forbidden: rcon_access permission required" }, 403);
+  }
+
+  // Lenient cap — EventSource auto-reconnects, so each (re)connect counts. This
+  // only stops a wildly looping client from opening RCON sockets unbounded.
+  const rl = await checkRateLimit(
+    `rl:rcon-stream:${session.userId}:${serverId}`,
+    20,
+    60,
+  );
+  if (rl) return rl;
+
+  if (!rcon_host || !rcon_port || !rcon_password_enc) {
+    return json({ error: "RCON not configured for this server" }, 400);
+  }
+
+  let rconPassword;
+  try {
+    rconPassword = decryptPterodactylApiKey(rcon_password_enc);
+  } catch {
+    return json({ error: "RCON credentials corrupted" }, 500);
+  }
+
+  const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(rconPassword)}`;
+
+  let ws;
+  let heartbeat;
+  let maxLifetime;
+  let closed = false;
+  let cleanup = () => {};
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const enqueue = (chunk) => {
+        try {
+          controller.enqueue(sseEncoder.encode(chunk));
+          return true;
+        } catch {
+          cleanup();
+          return false;
+        }
+      };
+      const sendEvent = (obj) => enqueue(`data: ${JSON.stringify(obj)}\n\n`);
+
+      cleanup = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        clearTimeout(maxLifetime);
+        try {
+          ws?.close();
+        } catch {
+          /* noop */
+        }
+        try {
+          controller.close();
+        } catch {
+          /* noop */
+        }
+      };
+
+      enqueue(": connected\n\n");
+
+      try {
+        ws = new WebSocket(rconUrl);
+      } catch {
+        sendEvent({ type: "error", message: "Failed to open RCON connection" });
+        cleanup();
+        return;
+      }
+
+      ws.addEventListener("open", () => {
+        sendEvent({ type: "status", message: "connected" });
+      });
+
+      ws.addEventListener("message", (event) => {
+        try {
+          const msg = JSON.parse(String(event.data));
+          sendEvent({
+            type: "log",
+            message: String(msg.Message ?? ""),
+            identifier: msg.Identifier ?? null,
+          });
+        } catch {
+          sendEvent({ type: "log", message: String(event.data ?? "") });
+        }
+      });
+
+      ws.addEventListener("error", () => {
+        sendEvent({ type: "error", message: "RCON connection error" });
+      });
+
+      ws.addEventListener("close", ({ code }) => {
+        sendEvent({ type: "status", message: `disconnected (${code})` });
+        cleanup();
+      });
+
+      heartbeat = setInterval(() => {
+        enqueue(": ping\n\n");
+      }, 25000);
+
+      // Cap one feed session so a forgotten tab can't pin an RCON socket open
+      // forever; the browser's EventSource reconnects transparently afterward.
+      maxLifetime = setTimeout(cleanup, 30 * 60 * 1000);
+    },
+    cancel() {
+      cleanup();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
 // ── Ban / Mute handlers ──────────────────────────────────────────────────────
 
 async function handleListOrgBans(request, orgId) {
@@ -8576,6 +8900,86 @@ async function handleListOrgBans(request, orgId) {
       revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
       serverIds: Array.isArray(r.server_ids) ? r.server_ids : [],
       sourceIpBanId: r.source_ip_ban_id ? String(r.source_ip_ban_id) : null,
+    })),
+  });
+}
+
+// Source orgs whose `category` records the caller may read, given a base
+// permission gate (e.g. ban access): member orgs that pass `permFn`, plus orgs
+// that shared `category` with one of them. Returns null for sysadmin (no filter).
+async function entitledOrgsForCategory(session, category, permFn) {
+  if (isConfiguredSysAdmin(session)) return null;
+  const baseOrgs = sessionCandidateOrgIds(session, null).filter((o) =>
+    permFn(o),
+  );
+  const result = new Set(baseOrgs);
+  if (baseOrgs.length) {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT owner_org_id FROM org_share_grants
+       WHERE status = 'active' AND $2 = ANY(categories)
+         AND grantee_org_id = ANY($1)`,
+      [baseOrgs, category],
+    );
+    for (const r of rows) result.add(String(r.owner_org_id));
+  }
+  return result;
+}
+
+// Combined ban + mute history for a player across every org the caller is
+// entitled to — their own orgs (with ban access) plus orgs that shared 'bans' /
+// 'mutes' with them. Each row is tagged with its source org so the lookup page
+// can show provenance and filter by the active org selection. Read-only across
+// the sharing boundary: revoking/editing still goes through the owning org.
+async function handleGetPlayerOffenses(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const banOrgs = await entitledOrgsForCategory(session, "bans", (o) =>
+    canAccessBans(session, o),
+  );
+  const muteOrgs = await entitledOrgsForCategory(session, "mutes", (o) =>
+    canAccessBans(session, o),
+  );
+
+  const isSys = banOrgs === null; // sysadmin → no org filter
+  const banArr = isSys ? [] : [...banOrgs];
+  const muteArr = isSys ? [] : [...muteOrgs];
+  if (!isSys && banArr.length === 0 && muteArr.length === 0)
+    return json({ offenses: [] });
+
+  const { rows } = await pool.query(
+    `SELECT b.ban_id, b.org_id, b.action_type, b.category, b.reason, b.note,
+            b.expires_at, b.issued_at, b.revoked, b.revoked_at,
+            u.username AS issued_by_name, o.name AS org_name
+     FROM player_bans b
+     LEFT JOIN users u ON u.user_id = b.issued_by
+     LEFT JOIN organizations o ON o.org_id = b.org_id
+     WHERE b.identifier = $1 AND b.identifier_type = 'steam_id'
+       AND (
+         (b.action_type = 'ban'  AND ($2::boolean OR b.org_id = ANY($3)))
+         OR
+         (b.action_type = 'mute' AND ($4::boolean OR b.org_id = ANY($5)))
+       )
+     ORDER BY b.issued_at DESC
+     LIMIT 500`,
+    [steamId, isSys, banArr, isSys, muteArr],
+  );
+
+  return json({
+    offenses: rows.map((r) => ({
+      banId: String(r.ban_id),
+      orgId: String(r.org_id),
+      orgName: r.org_name ?? null,
+      actionType: String(r.action_type),
+      category: r.category ?? null,
+      reason: r.reason ?? "",
+      note: r.note ?? "",
+      expiresAt: r.expires_at ? Number(r.expires_at) : null,
+      issuedAt: Number(r.issued_at),
+      issuedByName: r.issued_by_name ?? null,
+      revoked: Boolean(r.revoked),
+      revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
     })),
   });
 }
@@ -10560,6 +10964,17 @@ async function handleIngestPlayerConnect(request) {
       [steamId, ip, server.server_id, server.server_name],
     );
 
+    // Attribute the sighting to the server's org (derived from the server row so
+    // it's robust regardless of the in-memory shape) for source-org filtering.
+    await pool.query(
+      `INSERT INTO player_ip_observations (steam_id, ip_address, org_id, server_id, last_seen)
+       SELECT $1, $2, s.owner_org_id, $3, unix_now()
+       FROM servers s WHERE s.server_id = $3
+       ON CONFLICT (steam_id, ip_address, org_id) DO UPDATE SET
+         last_seen = unix_now(), server_id = EXCLUDED.server_id`,
+      [steamId, ip, server.server_id],
+    );
+
     // IP-ban evasion enforcement (fire-and-forget so connect stays fast).
     enforceIpBanEvasion(server, steamId, ip, playerName).catch((err) =>
       console.error("[ip-ban-evasion] unhandled:", err.message),
@@ -10751,6 +11166,260 @@ function sessionCandidateOrgIds(session, preferredOrgId) {
   return Array.from(set);
 }
 
+// ── Cross-org data sharing ─────────────────────────────────────────────────────
+
+// Data categories an org can grant another org read access to. Each org-relative
+// datum belongs to one category; a grant carries a subset of these.
+const SHARE_CATEGORIES = [
+  "bans",
+  "mutes",
+  "ips",
+  "notes",
+  "reports",
+  "sessions",
+  "bm_bans",
+  "alts",
+];
+
+async function getShareVersion() {
+  try {
+    return (await redis.get("share:ver")) ?? "0";
+  } catch {
+    return "0";
+  }
+}
+
+// Any grant create/accept/revoke bumps this so the short-TTL resolution cache
+// (keyed by version) is busted immediately rather than waiting for the TTL.
+async function bumpShareVersion() {
+  try {
+    await redis.incr("share:ver");
+  } catch {
+    /* fail-open: stale reads self-heal within the cache TTL */
+  }
+}
+
+// The set of *source* org ids whose `category` data the session may read: the
+// caller's own member orgs, plus any org with an ACTIVE grant of that category to
+// one of them. Briefly cached — the grant graph changes rarely and a version
+// bump busts the cache on any change.
+async function resolveEntitledOrgs(session, category) {
+  const memberOrgs = sessionCandidateOrgIds(session, null);
+  const base = new Set(memberOrgs);
+  if (!memberOrgs.length) return base;
+
+  const ver = await getShareVersion();
+  const cacheKey = `share:resolve:${ver}:${category}:${[...memberOrgs]
+    .sort()
+    .join(",")}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return new Set(JSON.parse(cached));
+  } catch {
+    /* fall through to DB */
+  }
+
+  const { rows } = await pool.query(
+    `SELECT DISTINCT owner_org_id FROM org_share_grants
+     WHERE status = 'active'
+       AND grantee_org_id = ANY($1)
+       AND $2 = ANY(categories)`,
+    [memberOrgs, category],
+  );
+  for (const r of rows) base.add(String(r.owner_org_id));
+
+  const arr = [...base];
+  try {
+    await redis.set(cacheKey, JSON.stringify(arr), "EX", 30);
+  } catch {
+    /* non-critical */
+  }
+  return new Set(arr);
+}
+
+function serializeShareGrant(r, selfOrgId) {
+  return {
+    id: r.grant_id,
+    ownerOrgId: r.owner_org_id,
+    ownerOrgName: r.owner_org_name ?? null,
+    granteeOrgId: r.grantee_org_id,
+    granteeOrgName: r.grantee_org_name ?? null,
+    categories: Array.isArray(r.categories) ? r.categories : [],
+    notesShareLevel: r.notes_share_level ?? 1,
+    status: r.status,
+    // Direction relative to the org viewing the list, so the UI can label it.
+    direction: r.owner_org_id === selfOrgId ? "outgoing" : "incoming",
+    createdAt: r.created_at,
+    acceptedAt: r.accepted_at ?? null,
+  };
+}
+
+async function handleListShareGrants(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin/owner required" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT g.*, ow.name AS owner_org_name, gr.name AS grantee_org_name
+     FROM org_share_grants g
+     LEFT JOIN organizations ow ON ow.org_id = g.owner_org_id
+     LEFT JOIN organizations gr ON gr.org_id = g.grantee_org_id
+     WHERE (g.owner_org_id = $1 OR g.grantee_org_id = $1)
+       AND g.status <> 'revoked'
+     ORDER BY g.created_at DESC`,
+    [orgId],
+  );
+  return json({
+    grants: rows.map((r) => serializeShareGrant(r, orgId)),
+    categories: SHARE_CATEGORIES,
+  });
+}
+
+async function handleCreateShareGrant(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin/owner required" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const granteeOrgId = String(body?.granteeOrgId ?? "").trim();
+  if (!granteeOrgId) return json({ error: "granteeOrgId is required" }, 400);
+  if (granteeOrgId === orgId)
+    return json({ error: "Cannot share with the same org" }, 400);
+
+  const categories = Array.isArray(body?.categories)
+    ? [...new Set(body.categories.map(String))].filter((c) =>
+        SHARE_CATEGORIES.includes(c),
+      )
+    : [];
+  if (!categories.length)
+    return json({ error: "At least one valid category is required" }, 400);
+
+  // Note share ceiling (only meaningful when 'notes' is shared): clamp to the
+  // valid min_rank range 1–4.
+  const notesShareLevel = Math.min(
+    4,
+    Math.max(1, Number.parseInt(body?.notesShareLevel ?? 1, 10) || 1),
+  );
+
+  const granteeRes = await pool.query(
+    `SELECT 1 FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [granteeOrgId],
+  );
+  if (!granteeRes.rows[0])
+    return json({ error: "Grantee organization not found" }, 404);
+
+  // Re-offering an existing grant updates its categories and resets it to
+  // pending so the grantee re-confirms what they're now receiving.
+  const { rows } = await pool.query(
+    `INSERT INTO org_share_grants
+       (owner_org_id, grantee_org_id, categories, notes_share_level, status, created_by)
+     VALUES ($1, $2, $3, $4, 'pending', $5)
+     ON CONFLICT (owner_org_id, grantee_org_id) DO UPDATE SET
+       categories = EXCLUDED.categories,
+       notes_share_level = EXCLUDED.notes_share_level,
+       status = 'pending',
+       created_by = EXCLUDED.created_by,
+       created_at = unix_now(),
+       accepted_at = NULL,
+       revoked_at = NULL
+     RETURNING grant_id`,
+    [orgId, granteeOrgId, categories, notesShareLevel, session.userId],
+  );
+  await bumpShareVersion();
+  return json({ ok: true, grantId: rows[0].grant_id });
+}
+
+async function handleAcceptShareGrant(request, orgId, grantId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin/owner required" }, 403);
+
+  // Only the grantee can accept, and only a pending grant.
+  const { rows } = await pool.query(
+    `UPDATE org_share_grants
+     SET status = 'active', accepted_at = unix_now()
+     WHERE grant_id = $1 AND grantee_org_id = $2 AND status = 'pending'
+     RETURNING grant_id`,
+    [grantId, orgId],
+  );
+  if (!rows[0])
+    return json({ error: "No pending grant to accept" }, 404);
+  await bumpShareVersion();
+  return json({ ok: true });
+}
+
+async function handleRevokeShareGrant(request, orgId, grantId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin/owner required" }, 403);
+
+  // Either side can tear down the arrangement.
+  const { rows } = await pool.query(
+    `DELETE FROM org_share_grants
+     WHERE grant_id = $1 AND (owner_org_id = $2 OR grantee_org_id = $2)
+     RETURNING grant_id`,
+    [grantId, orgId],
+  );
+  if (!rows[0]) return json({ error: "Grant not found" }, 404);
+  await bumpShareVersion();
+  return json({ ok: true });
+}
+
+// Privacy: when a staffer enables "private profile", other staff must not be
+// able to pull their player intel — only the person themselves and the platform
+// sysadmin can. Their online presence stays visible (returned in the protected
+// payload). Returns the matching staff identity for a steamId, or null.
+async function getStaffIdentityForSteamId(steamId) {
+  const { rows } = await pool.query(
+    `SELECT user_id, username, profile_private
+     FROM users WHERE steam_id = $1 LIMIT 1`,
+    [steamId],
+  );
+  if (!rows[0]) return null;
+  return {
+    userId: String(rows[0].user_id),
+    username: rows[0].username ?? null,
+    profilePrivate: Boolean(rows[0].profile_private),
+  };
+}
+
+// True when `session` is allowed to bypass another staffer's privacy (it's their
+// own profile, or the caller is the configured sysadmin).
+function canBypassStaffPrivacy(session, staff) {
+  return (
+    staff.userId === String(session.userId) || isConfiguredSysAdmin(session)
+  );
+}
+
+// Short-circuit payload for a protected lookup: no profile intel, just identity
+// and live online presence (5-min presence key set on every authed request).
+async function buildProtectedPlayerPayload(steamId, staff) {
+  let lastSeenAt = null;
+  try {
+    const ts = await redis.get(`online:${staff.userId}`);
+    if (ts) lastSeenAt = Number(ts);
+  } catch {
+    /* presence unknown → treat as offline */
+  }
+  return json({
+    protected: true,
+    steamId,
+    displayName: staff.username,
+    online: lastSeenAt != null,
+    lastSeenAt,
+  });
+}
+
 async function handleGetPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -10763,6 +11432,15 @@ async function handleGetPlayer(request, steamId) {
 
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  // Privacy gate — a private staffer can't be looked up by their peers.
+  const staffIdentity = await getStaffIdentityForSteamId(steamId);
+  if (
+    staffIdentity?.profilePrivate &&
+    !canBypassStaffPrivacy(session, staffIdentity)
+  ) {
+    return buildProtectedPlayerPayload(steamId, staffIdentity);
+  }
 
   // Every view writes an audit row; cap per-user so the endpoint can't be used
   // to flood the audit log or the read pool.
@@ -10785,7 +11463,13 @@ async function handleGetPlayer(request, steamId) {
     ipAddress: getClientIp(request),
   });
 
-  const canSeeIp = orgHasPermission(session, orgId, "ip_read");
+  // IP + external-ban visibility is resolved across all the caller's orgs (+
+  // shares), not a single org — each datum is tagged with its source org(s) so
+  // the client can filter by the active org selection.
+  const ipEntitlement = await entitledIpSourceOrgs(session);
+  const bmEntitlement = await entitledOrgsForCategory(session, "bm_bans", (o) =>
+    orgHasPermission(session, o, "players_view"),
+  );
   const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
 
   // Redis first — avoids 6 PostgreSQL queries on the hot path
@@ -10796,7 +11480,7 @@ async function handleGetPlayer(request, steamId) {
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
     }
-    return json(filterPlayerIpData(fromRedis, canSeeIp));
+    return json(applyShareEntitlement(fromRedis, ipEntitlement, bmEntitlement));
   }
 
   // Redis miss — fall back to PostgreSQL
@@ -10817,7 +11501,7 @@ async function handleGetPlayer(request, steamId) {
     );
   }
 
-  return json(filterPlayerIpData(cached, canSeeIp));
+  return json(applyShareEntitlement(cached, ipEntitlement, bmEntitlement));
 }
 
 async function handleRefreshPlayer(request, steamId) {
@@ -10833,6 +11517,16 @@ async function handleRefreshPlayer(request, steamId) {
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
 
+  // Privacy gate — never spend external API calls refreshing a peer's private
+  // profile; return the same protected payload as the read path.
+  const staffIdentity = await getStaffIdentityForSteamId(steamId);
+  if (
+    staffIdentity?.profilePrivate &&
+    !canBypassStaffPrivacy(session, staffIdentity)
+  ) {
+    return buildProtectedPlayerPayload(steamId, staffIdentity);
+  }
+
   // Force-refresh triggers external BattleMetrics/Steam/Proxycheck calls against
   // the org's rotating keys. Cap per-user to prevent cost amplification / hammering
   // those upstream APIs (and our own pool) by spamming distinct Steam IDs.
@@ -10843,7 +11537,10 @@ async function handleRefreshPlayer(request, steamId) {
   );
   if (rl) return rl;
 
-  const canSeeIp = orgHasPermission(session, orgId, "ip_read");
+  const ipEntitlement = await entitledIpSourceOrgs(session);
+  const bmEntitlement = await entitledOrgsForCategory(session, "bm_bans", (o) =>
+    orgHasPermission(session, o, "players_view"),
+  );
   const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
 
   // Clear Redis so the background refresh can acquire the lock and write fresh data
@@ -10863,7 +11560,8 @@ async function handleRefreshPlayer(request, steamId) {
   for (let i = 0; i < 6; i++) {
     await new Promise((r) => setTimeout(r, 500));
     const fresh = await getPlayerDataFromRedis(steamId);
-    if (fresh) return json(filterPlayerIpData(fresh, canSeeIp));
+    if (fresh)
+      return json(applyShareEntitlement(fresh, ipEntitlement, bmEntitlement));
   }
 
   // Core data not yet in Redis — tell the client to poll (same as a first-time fetch)
@@ -11068,23 +11766,37 @@ async function handleGetPlayerReports(request, steamId) {
 
   if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
 
-  const url = new URL(request.url);
-  const orgId = url.searchParams.get("orgId");
-  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+  // Privacy gate — a private staffer's reports are part of their hidden profile.
+  const staffIdentity = await getStaffIdentityForSteamId(steamId);
+  if (
+    staffIdentity?.profilePrivate &&
+    !canBypassStaffPrivacy(session, staffIdentity)
+  ) {
+    return json({ reports: [], protected: true });
+  }
 
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  // Reports are resolved across every org the caller may view (own orgs with
+  // players_view + 'reports' shares), each tagged with its source org so the
+  // client can filter by the active org selection.
+  const reportOrgs = await entitledOrgsForCategory(session, "reports", (o) =>
+    orgHasPermission(session, o, "players_view"),
+  );
+  const isSys = reportOrgs === null;
+  const orgArr = isSys ? [] : [...reportOrgs];
+  if (!isSys && orgArr.length === 0) return json({ reports: [] });
 
   const { rows } = await pool.query(
     `SELECT pr.id, pr.report_type, pr.report_reason, pr.report_description,
-            pr.reporter_name, pr.reporter_steam_id, pr.server_name, pr.created_at
+            pr.reporter_name, pr.reporter_steam_id, pr.server_name, pr.created_at,
+            s.owner_org_id, o.name AS org_name
      FROM player_reports pr
      JOIN servers s ON s.server_id = pr.server_id
+     LEFT JOIN organizations o ON o.org_id = s.owner_org_id
      WHERE pr.reported_steam_id = $1
-       AND s.owner_org_id = $2
+       AND ($2::boolean OR s.owner_org_id = ANY($3))
      ORDER BY pr.created_at DESC
      LIMIT 200`,
-    [steamId, orgId],
+    [steamId, isSys, orgArr],
   );
 
   const reports = rows.map((row) => ({
@@ -11096,6 +11808,9 @@ async function handleGetPlayerReports(request, steamId) {
     reporterSteamId: String(row.reporter_steam_id),
     serverName: String(row.server_name),
     createdAt: Number(row.created_at),
+    orgId: row.owner_org_id ? String(row.owner_org_id) : null,
+    orgName: row.org_name ?? null,
+    sourceOrgIds: row.owner_org_id ? [String(row.owner_org_id)] : [],
   }));
 
   return json({ reports });
@@ -11145,6 +11860,90 @@ async function handleListPlayerNotes(request, orgId, steamId) {
   );
 
   return json({ notes: rows.map(serializePlayerNote) });
+}
+
+// Combined notes across every org the caller may view: their own orgs (rank-gated
+// as usual) plus notes shared in by other orgs. A sharing org chooses a ceiling
+// (notes_share_level) — only its notes at/below that min_rank and NOT gated to a
+// specific role are shared, since roles don't translate across orgs. Shared notes
+// are read-only to the grantee and tagged with their source org.
+async function handleListPlayerNotesCombined(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  // Privacy gate — a private staffer's notes are part of their hidden profile.
+  const staffIdentity = await getStaffIdentityForSteamId(steamId);
+  if (
+    staffIdentity?.profilePrivate &&
+    !canBypassStaffPrivacy(session, staffIdentity)
+  ) {
+    return json({ notes: [], protected: true });
+  }
+
+  const memberOrgs = [...orgsWithPermission(session, "players_view")];
+  if (!memberOrgs.length) return json({ notes: [] });
+
+  const byId = new Map();
+
+  // Own-org notes, rank-gated by the caller's rank in each org (same rule as the
+  // single-org endpoint).
+  for (const org of memberOrgs) {
+    const rank = sessionRankForOrg(session, org);
+    const { rows } = await pool.query(
+      `SELECT n.id, n.org_id, n.subject_steam_id, n.body, n.author_user_id,
+              n.author_name, n.min_rank, n.required_role_id, n.pinned,
+              n.created_at, n.updated_at, o.name AS org_name
+       FROM player_notes n
+       LEFT JOIN organizations o ON o.org_id = n.org_id
+       WHERE n.org_id = $1 AND n.subject_steam_id = $2 AND (
+         $3 >= 4
+         OR (n.required_role_id IS NULL AND n.min_rank <= $3)
+         OR EXISTS (
+           SELECT 1 FROM organization_members
+           WHERE user_id = $4 AND org_id = $1 AND role_id = n.required_role_id
+         )
+       )`,
+      [org, steamId, rank, session.userId],
+    );
+    for (const r of rows) byId.set(String(r.id), { row: r, shared: false });
+  }
+
+  // Shared-in notes: orgs that granted 'notes' to one of the caller's orgs, only
+  // up to that grant's level and excluding role-gated notes.
+  const { rows: sharedRows } = await pool.query(
+    `SELECT DISTINCT ON (n.id)
+            n.id, n.org_id, n.subject_steam_id, n.body, n.author_user_id,
+            n.author_name, n.min_rank, n.required_role_id, n.pinned,
+            n.created_at, n.updated_at, o.name AS org_name
+     FROM org_share_grants g
+     JOIN player_notes n ON n.org_id = g.owner_org_id
+     LEFT JOIN organizations o ON o.org_id = g.owner_org_id
+     WHERE g.status = 'active' AND 'notes' = ANY(g.categories)
+       AND g.grantee_org_id = ANY($1)
+       AND n.subject_steam_id = $2
+       AND n.required_role_id IS NULL
+       AND n.min_rank <= g.notes_share_level
+     ORDER BY n.id`,
+    [memberOrgs, steamId],
+  );
+  for (const r of sharedRows) {
+    const id = String(r.id);
+    if (!byId.has(id)) byId.set(id, { row: r, shared: true });
+  }
+
+  const notes = [...byId.values()].map(({ row, shared }) => ({
+    ...serializePlayerNote(row),
+    orgId: String(row.org_id),
+    orgName: row.org_name ?? null,
+    shared,
+    sourceOrgIds: [String(row.org_id)],
+  }));
+  notes.sort(
+    (a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt,
+  );
+
+  return json({ notes });
 }
 
 async function handleGetOrgNoteRoles(request, orgId) {
@@ -11212,10 +12011,17 @@ async function handleCreatePlayerNote(request, orgId, steamId) {
     }
   }
 
+  // Sensitivity level (min_rank 1–4: all-staff → management-only), which also
+  // determines whether the note is eligible for cross-org sharing. A role-gated
+  // note is visible only to that role, so its level is moot — pin it at 1.
+  const minRank = requiredRoleId
+    ? 1
+    : Math.min(4, Math.max(1, Number.parseInt(body?.minRank ?? 1, 10) || 1));
+
   const { rows } = await pool.query(
     `INSERT INTO player_notes
        (org_id, subject_steam_id, body, author_user_id, author_name, min_rank, required_role_id, pinned)
-     VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, subject_steam_id, body, author_user_id, author_name,
                min_rank, required_role_id, pinned, created_at, updated_at`,
     [
@@ -11224,6 +12030,7 @@ async function handleCreatePlayerNote(request, orgId, steamId) {
       text,
       session.userId,
       session.username ?? null,
+      minRank,
       requiredRoleId,
       Boolean(body?.pinned),
     ],
@@ -11494,7 +12301,7 @@ async function handleGetOrgPlayerList(request, orgId) {
   if (allSteamIds.length > 0) {
     const ipRes = await pool.query(
       `SELECT DISTINCT ON (pih.steam_id)
-              pih.steam_id, im.is_proxy, im.country
+              pih.steam_id, im.is_proxy, im.country, im.latitude, im.longitude
        FROM player_ip_history pih
        LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
        WHERE pih.steam_id = ANY($1)
@@ -11556,6 +12363,8 @@ async function handleGetOrgPlayerList(request, orgId) {
       reportCount,
       isProxy: ip?.is_proxy ?? false,
       country: ip?.country ?? null,
+      lat: ip?.latitude != null ? Number(ip.latitude) : null,
+      lng: ip?.longitude != null ? Number(ip.longitude) : null,
       avatarUrl: cache.avatar_url ?? null,
       bmBans: Number(cache.bm_rust_bans_count ?? 0),
       accountAgeDays,
@@ -11885,6 +12694,13 @@ async function _handleApiRequest(request) {
       return handleDiscordModAction(request, discordModMatch[1]);
     }
 
+    const discordWarnMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/warn$/,
+    );
+    if (discordWarnMatch && request.method === "POST") {
+      return handleDiscordWarn(request, discordWarnMatch[1]);
+    }
+
     const discordModLogMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/discord\/mod-log$/,
     );
@@ -12164,6 +12980,41 @@ async function _handleApiRequest(request) {
     if (orgPluginUnloadRiskMatch && request.method === "POST")
       return handleUnloadRisk(request, orgPluginUnloadRiskMatch[1]);
 
+    const orgPluginRefreshMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins\/refresh-versions$/,
+    );
+    if (orgPluginRefreshMatch && request.method === "POST")
+      return handleRefreshPluginVersions(request, orgPluginRefreshMatch[1]);
+
+    // Cross-org data sharing arrangements
+    const orgSharesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/shares$/,
+    );
+    if (orgSharesMatch && request.method === "GET")
+      return handleListShareGrants(request, orgSharesMatch[1]);
+    if (orgSharesMatch && request.method === "POST")
+      return handleCreateShareGrant(request, orgSharesMatch[1]);
+
+    const orgShareAcceptMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/shares\/([a-f0-9-]+)\/accept$/,
+    );
+    if (orgShareAcceptMatch && request.method === "POST")
+      return handleAcceptShareGrant(
+        request,
+        orgShareAcceptMatch[1],
+        orgShareAcceptMatch[2],
+      );
+
+    const orgShareMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/shares\/([a-f0-9-]+)$/,
+    );
+    if (orgShareMatch && request.method === "DELETE")
+      return handleRevokeShareGrant(
+        request,
+        orgShareMatch[1],
+        orgShareMatch[2],
+      );
+
     const orgPluginPushMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/plugins\/([a-f0-9-]+)\/push$/,
     );
@@ -12255,6 +13106,12 @@ async function _handleApiRequest(request) {
     );
     if (serverRconExecMatch && request.method === "POST")
       return handleExecRconCommand(request, serverRconExecMatch[1]);
+
+    const serverRconStreamMatch = pathname.match(
+      /^\/api\/servers\/([a-f0-9-]+)\/rcon\/console\/stream$/,
+    );
+    if (serverRconStreamMatch && request.method === "GET")
+      return handleRconConsoleStream(request, serverRconStreamMatch[1]);
 
     const orgPteroMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ptero$/,
@@ -12530,6 +13387,20 @@ async function _handleApiRequest(request) {
     );
     if (playerReportsMatch && request.method === "GET")
       return handleGetPlayerReports(request, playerReportsMatch[1]);
+
+    // Combined ban/mute history across the caller's orgs + shared-in orgs
+    const playerOffensesMatch = pathname.match(
+      /^\/api\/players\/(\d+)\/offenses$/,
+    );
+    if (playerOffensesMatch && request.method === "GET")
+      return handleGetPlayerOffenses(request, playerOffensesMatch[1]);
+
+    // Combined notes across the caller's orgs + shared-in (level-filtered)
+    const playerNotesCombinedMatch = pathname.match(
+      /^\/api\/players\/(\d+)\/notes$/,
+    );
+    if (playerNotesCombinedMatch && request.method === "GET")
+      return handleListPlayerNotesCombined(request, playerNotesCombinedMatch[1]);
 
     const orgNoteRolesMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/note-roles$/,
@@ -13471,6 +14342,124 @@ async function handleDiscordModAction(request, orgId) {
   return json({ ok: true, action, targetDiscordId });
 }
 
+// Open a DM channel with the user and send `content`. Returns a delivery status:
+//   "delivered"    — message accepted by Discord
+//   "dms_disabled" — user blocks DMs / shares no guild with the bot (code 50007)
+//   "error"        — anything else (bad token, rate limit, network)
+async function deliverDiscordDm(discordUserId, content) {
+  try {
+    const dmRes = await discordFetch("/users/@me/channels", {
+      method: "POST",
+      body: JSON.stringify({ recipient_id: discordUserId }),
+    });
+    if (!dmRes.ok) {
+      let detail = null;
+      try {
+        detail = await dmRes.json();
+      } catch {
+        /* empty */
+      }
+      if (detail?.code === 50007) return { status: "dms_disabled", detail };
+      return { status: "error", detail };
+    }
+    const channel = await dmRes.json();
+    const msgRes = await discordFetch(`/channels/${channel.id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+    if (msgRes.ok) return { status: "delivered" };
+    let detail = null;
+    try {
+      detail = await msgRes.json();
+    } catch {
+      /* empty */
+    }
+    // 50007 = "Cannot send messages to this user" → DMs closed to the bot.
+    if (detail?.code === 50007) return { status: "dms_disabled", detail };
+    return { status: "error", detail };
+  } catch (err) {
+    return { status: "error", detail: String(err?.message ?? err) };
+  }
+}
+
+// Warn a player via Discord DM. Gated by its own lower-privilege permission so a
+// warner can nudge a member without the power to timeout/kick/ban. We attempt the
+// DM and report whether it actually reached the user (DMs may be disabled).
+async function handleDiscordWarn(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (
+    !orgHasPermission(session, orgId, "discord_warn") &&
+    !orgHasPermission(session, orgId, "discord_mod")
+  ) {
+    return json(
+      { error: "Forbidden: discord_warn or discord_mod permission required" },
+      403,
+    );
+  }
+  if (!env.discordBotToken) {
+    return json({ error: "DISCORD_BOT_TOKEN is not configured" }, 503);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const targetDiscordId = String(body?.targetDiscordId ?? "").trim();
+  const targetUsername = String(body?.targetUsername ?? "").trim();
+  const message = String(body?.message ?? "").trim();
+  if (!/^\d{5,25}$/.test(targetDiscordId)) {
+    return json({ error: "Valid targetDiscordId is required" }, 400);
+  }
+  if (!message) return json({ error: "message is required" }, 400);
+  if (message.length > 1800) {
+    return json({ error: "message must be 1800 characters or fewer" }, 400);
+  }
+
+  // Per-user cap — warning is an outward-facing action that hits Discord.
+  const rl = await checkRateLimit(`rl:discord-warn:${session.userId}`, 20, 60);
+  if (rl) return rl;
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const guildId = orgRes.rows[0]?.guild_id;
+  if (!guildId) {
+    return json({ error: "Organization has no guild_id configured" }, 400);
+  }
+
+  const result = await deliverDiscordDm(targetDiscordId, message);
+  if (result.status === "error") {
+    return json({ error: "Discord API error", details: result.detail }, 502);
+  }
+  const delivered = result.status === "delivered";
+
+  await pool.query(
+    `INSERT INTO discord_mod_log
+       (org_id, guild_id, target_discord_id, target_username,
+        action_type, reason, duration_seconds, expires_at, actor_user_id)
+     VALUES ($1,$2,$3,$4,'WARN',$5,NULL,NULL,$6)`,
+    [orgId, guildId, targetDiscordId, targetUsername, message, session.userId],
+  );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "discord_member",
+    resourceId: targetDiscordId,
+    actionType: "DISCORD_WARN",
+    actionCategory: "discord_moderation",
+    severity: 2,
+    metadata: { targetDiscordId, targetUsername, message, delivered },
+  });
+
+  return json({ ok: true, action: "warn", targetDiscordId, delivered });
+}
+
 async function deleteUserDiscordMessagesFromGuild(
   guildId,
   orgId,
@@ -13666,8 +14655,16 @@ async function handleSyncDiscordBans(request, orgId) {
 async function handleSearchDiscordMembers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod"))
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  // Warners need to find who to DM; the member list is low-exposure (names/IDs),
+  // so it's open to discord_warn as well as full discord_mod.
+  if (
+    !orgHasPermission(session, orgId, "discord_mod") &&
+    !orgHasPermission(session, orgId, "discord_warn")
+  )
+    return json(
+      { error: "Forbidden: discord_mod or discord_warn permission required" },
+      403,
+    );
   if (!env.discordBotToken)
     return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
