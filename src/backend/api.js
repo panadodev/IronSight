@@ -5356,10 +5356,54 @@ async function handleImportPteroServer(request, orgId) {
     [serverId, serverName, orgId, apiKeyHash, session.userId, pteroIdentifier],
   );
 
+  // Best-effort: pull RCON config from Pterodactyl Client API and pre-configure
+  // the server. Failures are silently ignored so the import always succeeds.
+  let rconInfo = null;
+  if (pteroIdentifier && !getPterodactylSecurityConfigError()) {
+    try {
+      const credentials = await loadPterodactylCredentials(orgId);
+      if (credentials) {
+        const config = await fetchPteroRconConfig(
+          credentials.panelUrl,
+          credentials.apiKey,
+          pteroIdentifier,
+        );
+        if (config) {
+          const encryptedPass = encryptPterodactylApiKey(config.rconPassword);
+          const params = [config.ip, config.rconPort, encryptedPass, serverId];
+          let sql = `UPDATE servers SET rcon_host = $1, rcon_port = $2, rcon_password_enc = $3`;
+          if (config.gamePort) {
+            params.splice(3, 0, config.gamePort);
+            sql += `, game_port = $4 WHERE server_id = $5`;
+          } else {
+            sql += ` WHERE server_id = $4`;
+          }
+          await pool.query(sql, params);
+          rconInfo = {
+            rconHost: config.ip,
+            rconPort: config.rconPort,
+            gamePort: config.gamePort ?? null,
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return json(
     {
       ok: true,
-      server: { serverId, serverName, ownerOrgId: orgId, pteroIdentifier },
+      server: {
+        serverId,
+        serverName,
+        ownerOrgId: orgId,
+        pteroIdentifier,
+        rconConfigured: Boolean(rconInfo),
+        rconHost: rconInfo?.rconHost ?? null,
+        rconPort: rconInfo?.rconPort ?? null,
+        gamePort: rconInfo?.gamePort ?? null,
+      },
       apiKey: plainApiKey,
     },
     201,
@@ -5533,6 +5577,70 @@ async function fetchPteroServerResources(panelUrl, apiKey, identifier) {
       uptime: r.uptime ?? 0,
     },
   };
+}
+
+// Fetch RCON config for a specific server via the Pterodactyl Client API.
+// Uses the startup variables endpoint for RCON_PORT / RCON_PASSWORD, and the
+// server details endpoint for the primary allocation IP and game port.
+// Returns null on any failure (Application-only keys will 403 the client endpoints).
+async function fetchPteroRconConfig(panelUrl, apiKey, identifier) {
+  const enc = encodeURIComponent(identifier);
+  const [serverRes, startupRes] = await Promise.allSettled([
+    fetch(`${panelUrl}/api/client/servers/${enc}?include=allocations`, {
+      headers: PTERO_HEADERS(apiKey),
+      signal: AbortSignal.timeout(8000),
+    }),
+    fetch(`${panelUrl}/api/client/servers/${enc}/startup`, {
+      headers: PTERO_HEADERS(apiKey),
+      signal: AbortSignal.timeout(8000),
+    }),
+  ]);
+
+  if (
+    serverRes.status !== "fulfilled" ||
+    !serverRes.value.ok ||
+    startupRes.status !== "fulfilled" ||
+    !startupRes.value.ok
+  )
+    return null;
+
+  let serverData, startupData;
+  try {
+    [serverData, startupData] = await Promise.all([
+      serverRes.value.json(),
+      startupRes.value.json(),
+    ]);
+  } catch {
+    return null;
+  }
+
+  const allocs =
+    serverData?.attributes?.relationships?.allocations?.data ?? [];
+  const defaultAlloc =
+    allocs.find((a) => a?.attributes?.is_default) ?? allocs[0] ?? null;
+  const rawIp =
+    defaultAlloc?.attributes?.ip_alias || defaultAlloc?.attributes?.ip || null;
+  // Skip obviously-unroutable bindings
+  const ip = rawIp && rawIp !== "0.0.0.0" ? rawIp : null;
+  const gamePort = defaultAlloc?.attributes?.port
+    ? Number(defaultAlloc.attributes.port)
+    : null;
+
+  const vars = startupData?.attributes?.variables?.data ?? [];
+  const varMap = Object.fromEntries(
+    vars
+      .filter((v) => v?.attributes?.env_variable)
+      .map((v) => [
+        v.attributes.env_variable,
+        v.attributes.server_value ?? v.attributes.default_value ?? "",
+      ]),
+  );
+
+  const rconPort = varMap.RCON_PORT ? Number(varMap.RCON_PORT) : null;
+  const rconPassword = varMap.RCON_PASSWORD || null;
+
+  if (!ip || !rconPort || !rconPassword) return null;
+  return { ip, gamePort, rconPort, rconPassword };
 }
 
 // Combined status payload: node inventory + servers + best-effort live stats.
