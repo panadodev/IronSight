@@ -1492,6 +1492,25 @@ export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) 
     // preventing a concurrent refresh from acquiring the lock and then having its
     // Redis write overwritten by this chain finishing late.
     const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
+
+    // Also classify any IPs that arrived via server ingest (handleIngestConnect)
+    // but have never been through proxycheck — these have no ip_metadata row or
+    // an expired one. Players with no BM ID (existingBmId=none) would otherwise
+    // never get country/ISP data populated for their connection points.
+    const uncheckedRows = await pool.query(
+      `SELECT pih.ip_encrypted
+       FROM player_ip_history pih
+       LEFT JOIN ip_metadata im
+         ON im.ip_hash = pih.ip_hash AND im.cache_expires_at > unix_now()
+       WHERE pih.steam_id = $1 AND im.ip_hash IS NULL`,
+      [steamId],
+    );
+    const bmIpSet = new Set(ipsOnly);
+    for (const row of uncheckedRows.rows) {
+      const plain = decryptIp(row.ip_encrypted);
+      if (plain && !bmIpSet.has(plain)) ipsOnly.push(plain);
+    }
+
     const sinceUnix = Math.floor(Date.now() / 1000) - 90 * 86400;
     try {
       // Phase A: subject-side enrichment. Proxycheck (IP classification),
