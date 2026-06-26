@@ -827,7 +827,9 @@ function PlayerLookupPage() {
                                     ? "warning"
                                     : playerData.steam.profileVisibility === "Private"
                                       ? "danger"
-                                      : undefined
+                                      : playerData.steam.profileVisibility === "Not Configured"
+                                        ? "warning"
+                                        : undefined
                               }
                             />
                             <Field

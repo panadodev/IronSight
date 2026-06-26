@@ -1,122 +1,115 @@
 ﻿import { Queue, Worker } from "bullmq";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
-import {
-  env,
-  SYSADMIN,
-  SESSION_COOKIE,
-  PENDING_LINK_COOKIE,
-} from "./config.js";
-import {
-  isValidSteamId,
-  sanitizeNext,
-  sanitizeReportedPlayers,
-} from "./validation.js";
-import {
-  ensureSchema,
-  ensureRolePermissionSeed,
-  migrateTimestampsToUnix,
-} from "./schema.js";
-import { getClientIp, json, parseLimit, parseMaybeList } from "./http.js";
-import {
-  pool,
-  redis,
-  redisSub,
-  queue,
-  setPool,
-  setRedis,
-  setRedisSub,
-  setQueue,
-} from "./runtime.js";
-import {
-  authenticateServerKey,
-  checkRateLimit,
-  auditLog,
-  redirect,
-  canWriteTodos,
-  isGlobalAdmin,
-  isConfiguredSysAdmin,
-  requireConfiguredSysAdmin,
-  canManageOrg,
-  canViewOrgAsOwner,
-  orgHasPermission,
-  orgActorPosition,
-  sessionRankForOrg,
-  getSession,
-  requireSession,
-} from "./core.js";
-import {
-  handleServerHealthCheck,
-  handleIngestChatMessage,
-  handleIngestPvp,
-  handleIngestReport,
-  handleIngestTeamEvent,
-  handleMuteCheck,
-  handleIngestMuteSync,
-  handleGetBlacklistedWordsForServer,
-  handleIngestServerLog,
-} from "./handlers/ingest.js";
-import {
-  handleGetChatLogs,
-  handleGetPvpLogs,
-  handleGetReports,
-  handleGetOrgRecentReports,
-  handleGetTeamEvents,
-  handleGetServerLogs,
-} from "./handlers/logs.js";
-import {
-  ticketCacheKey,
-  cacheTicket,
-  getCachedTicket,
-  invalidateTicketCache,
-  loadTicketFromDb,
-  loadTicketMessages,
-} from "./ticket-store.js";
-import {
-  diagIncoming,
-  diagOutgoing,
-  diagErrors,
-  diagRecordIncoming,
-  diagRecordOutgoing,
-} from "./diagnostics.js";
-import {
-  getPterodactylEncryptionKey,
-  encryptPterodactylApiKey,
-  decryptPterodactylApiKey,
-  encryptExternalApiKey,
-  decryptExternalApiKey,
-  ipHmac,
-  encryptIp,
-  decryptIp,
-} from "./crypto-keys.js";
-import {
-  getAvailableExternalKeys,
-  bmFetch,
-  steamApiFetch,
-  proxycheckApiFetch,
-} from "./external-fetch.js";
-import {
-  refreshPlayerData,
-  getPlayerCacheData,
-  getPlayerDataFromRedis,
-  ensurePlayerCacheRow,
-  playerRedisKey,
-} from "./player-store.js";
-import {
-  getThreatTriggerConfigOrDefault,
-  saveThreatTriggerConfig,
-  evaluateThreatTriggers,
-  TRIGGER_FACTS,
-} from "./threat-triggers.js";
-import {
-  getOrgOpenAIKey,
-  getOrgModerationRateInfo,
-  AI_MODERATION_CATEGORIES,
-} from "./ai-moderation.js";
 import "dotenv/config";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import { Pool } from "pg";
+import {
+  AI_MODERATION_CATEGORIES,
+  getOrgModerationRateInfo,
+  getOrgOpenAIKey,
+} from "./ai-moderation.js";
+import {
+  env,
+  PENDING_LINK_COOKIE,
+  SESSION_COOKIE,
+  SYSADMIN,
+} from "./config.js";
+import {
+  auditLog,
+  authenticateServerKey,
+  canManageOrg,
+  canWriteTodos,
+  checkRateLimit,
+  isConfiguredSysAdmin,
+  isGlobalAdmin,
+  orgActorPosition,
+  orgHasPermission,
+  redirect,
+  requireConfiguredSysAdmin,
+  requireSession,
+  sessionRankForOrg
+} from "./core.js";
+import {
+  decryptExternalApiKey,
+  decryptIp,
+  decryptPterodactylApiKey,
+  encryptExternalApiKey,
+  encryptIp,
+  encryptPterodactylApiKey,
+  getPterodactylEncryptionKey,
+  ipHmac,
+} from "./crypto-keys.js";
+import {
+  diagErrors,
+  diagIncoming,
+  diagOutgoing,
+  diagRecordIncoming,
+  diagRecordOutgoing,
+} from "./diagnostics.js";
+import {
+  bmFetch
+} from "./external-fetch.js";
+import {
+  handleGetBlacklistedWordsForServer,
+  handleIngestChatMessage,
+  handleIngestMuteSync,
+  handleIngestPvp,
+  handleIngestReport,
+  handleIngestServerLog,
+  handleIngestTeamEvent,
+  handleMuteCheck,
+  handleServerHealthCheck,
+} from "./handlers/ingest.js";
+import {
+  handleGetChatLogs,
+  handleGetOrgRecentReports,
+  handleGetPvpLogs,
+  handleGetReports,
+  handleGetServerLogs,
+  handleGetTeamEvents,
+} from "./handlers/logs.js";
+import { getClientIp, json, parseLimit } from "./http.js";
+import {
+  ensurePlayerCacheRow,
+  getPlayerCacheData,
+  getPlayerDataFromRedis,
+  playerRedisKey,
+  refreshPlayerData,
+} from "./player-store.js";
+import {
+  pool,
+  queue,
+  redis,
+  setPool,
+  setQueue,
+  setRedis,
+  setRedisSub
+} from "./runtime.js";
+import {
+  ensureRolePermissionSeed,
+  ensureSchema,
+  migrateTimestampsToUnix,
+} from "./schema.js";
+import {
+  evaluateThreatTriggers,
+  getThreatTriggerConfigOrDefault,
+  saveThreatTriggerConfig,
+  TRIGGER_FACTS,
+} from "./threat-triggers.js";
+import {
+  cacheTicket,
+  getCachedTicket,
+  invalidateTicketCache,
+  loadTicketFromDb,
+  loadTicketMessages
+} from "./ticket-store.js";
+import {
+  isValidSteamId,
+  sanitizeNext,
+  sanitizeReportedPlayers,
+} from "./validation.js";
 
 const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
@@ -13699,7 +13692,7 @@ async function sendDiscordDm(discordUserId, content) {
   }
 }
 
-const STALE_PING_SECONDS = 3 * 60;
+const STALE_PING_SECONDS = 10 * 60;
 const ALERT_COOLDOWN_SECONDS = 15 * 60;
 
 async function checkServerHealthAlerts() {

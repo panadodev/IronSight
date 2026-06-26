@@ -114,8 +114,10 @@ async function fetchSteamPlayerData(steamId, orgId) {
         summaryOk = true;
         displayName = p.personaname ?? null;
         avatarUrl = p.avatarmedium ?? null;
-        const visState =
-          p.profilestate === 0 ? 0 : (p.communityvisibilitystate ?? 1);
+        // profilestate is absent (undefined) for unconfigured accounts, not 0.
+        // Treat any falsy value as "not configured" so we don't fall through
+        // to communityvisibilitystate=3 (which Steam still returns) and show "Public".
+        const visState = p.profilestate ? (p.communityvisibilitystate ?? 1) : 0;
         profileVisibility =
           {
             0: "Not Configured",
