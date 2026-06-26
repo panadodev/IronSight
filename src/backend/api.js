@@ -11953,10 +11953,10 @@ async function handleGetOrgNoteRoles(request, orgId) {
     return json({ error: "Forbidden: players_view permission required" }, 403);
 
   const { rows } = await pool.query(
-    `SELECT role_id, role_name FROM roles
-     WHERE starts_with(role_id, $1 || '_')
+    `SELECT role_id, role_name, position FROM roles
+     WHERE role_id LIKE ($1 || '_%')
        AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
-     ORDER BY role_name ASC`,
+     ORDER BY position DESC, role_name ASC`,
     [orgId],
   );
 
