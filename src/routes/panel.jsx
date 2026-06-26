@@ -3126,11 +3126,6 @@ function WorldPlayerMap({ players }) {
         />
         {points.map((p) => {
           const radius = Math.max(4, Math.min(12, 4 + Math.log(p.count + 1) * 3));
-          const names = p.players
-            .slice(0, 5)
-            .map((pl) => pl.name || pl.steamId)
-            .join(", ");
-          const extra = p.count > 5 ? ` +${p.count - 5} more` : "";
           return (
             <g key={p.id}>
               <circle cx={p.x} cy={p.y} r={radius * 1.8} className="fill-emerald-500/15" />
@@ -3155,7 +3150,7 @@ function WorldPlayerMap({ players }) {
                   {p.count}
                 </text>
               )}
-              <title>{`${p.label}: ${p.count} player${p.count === 1 ? "" : "s"}\n${names}${extra}`}</title>
+              <title>{`${p.label}: ${p.count} player${p.count === 1 ? "" : "s"}`}</title>
             </g>
           );
         })}
@@ -3361,7 +3356,7 @@ function GlobalpingSection({ orgId }) {
             title="Server to plot on the map"
             className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
-            {servers.map((s) => (
+            {(playerMode ? (playerData?.servers ?? servers) : servers).map((s) => (
               <option key={s.serverId} value={s.serverId}>
                 {s.serverName}
               </option>
@@ -3407,7 +3402,9 @@ function GlobalpingSection({ orgId }) {
           {playerMode ? (
             <>
               <WorldPlayerMap
-                players={(playerData?.players ?? []).filter((p) => p.isOnline)}
+                players={(playerData?.players ?? []).filter(
+                  (p) => p.isOnline && (!mapServerId || p.serverId === mapServerId),
+                )}
               />
               {playerLoading && (
                 <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">

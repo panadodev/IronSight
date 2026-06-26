@@ -62,6 +62,21 @@ export const TRIGGER_FACTS = [
     type: "number",
     unit: "reports",
   },
+  { id: "bmKills", label: "BattleMetrics kills", type: "number", unit: "kills" },
+  {
+    id: "bmDeaths",
+    label: "BattleMetrics deaths",
+    type: "number",
+    unit: "deaths",
+  },
+  { id: "bmKdr", label: "BattleMetrics K/D ratio", type: "number", unit: "KDR" },
+  {
+    id: "bmTeamingReports",
+    label: "BattleMetrics teaming reports",
+    type: "number",
+    unit: "reports",
+  },
+  { id: "steamCommunityBanned", label: "Steam community banned", type: "bool" },
 ];
 
 const FACT_TYPE = new Map(TRIGGER_FACTS.map((f) => [f.id, f.type]));
@@ -216,7 +231,9 @@ export async function computePlayerFacts(orgId, steamId) {
     pool.query(
       `SELECT display_name, steam_profile_created_at, steam_rust_hours,
               steam_vac_count, steam_game_ban_count, steam_days_since_last_ban,
+              steam_community_banned,
               bm_rust_hours, bm_rust_bans_count, bm_cheating_reports,
+              bm_kills, bm_deaths, bm_teaming_reports,
               bm_name_aliases
        FROM player_cache WHERE steam_id = $1`,
       [steamId],
@@ -285,6 +302,17 @@ export async function computePlayerFacts(orgId, steamId) {
       f7Last1h: Number(reports.last1h) || 0,
       f7Last24h: Number(reports.last24h) || 0,
       f7Total: Number(reports.total) || 0,
+      bmKills: p?.bm_kills != null ? Number(p.bm_kills) : 0,
+      bmDeaths: p?.bm_deaths != null ? Number(p.bm_deaths) : 0,
+      bmKdr: (() => {
+        const k = p?.bm_kills != null ? Number(p.bm_kills) : null;
+        const d = p?.bm_deaths != null ? Number(p.bm_deaths) : null;
+        if (k === null || d === null) return null;
+        return d > 0 ? k / d : null;
+      })(),
+      bmTeamingReports:
+        p?.bm_teaming_reports != null ? Number(p.bm_teaming_reports) : 0,
+      steamCommunityBanned: Boolean(p?.steam_community_banned),
     },
   };
 }

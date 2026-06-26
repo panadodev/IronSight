@@ -772,7 +772,7 @@ function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
               <p className="text-xs font-semibold">Known name match</p>
               <p className="text-[10px] text-muted-foreground">
                 Flag if a current or past name contains any of these terms
-                (case-insensitive substring, e.g. "igliii").
+                (case-insensitive substring).
               </p>
             </div>
             <Toggle
@@ -786,7 +786,7 @@ function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
               value={term}
               onChange={(e) => setTerm(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addTerm()}
-              placeholder="Name or term, e.g. igliii"
+              placeholder="Name or term"
               className="h-8 text-xs flex-1"
             />
             <Button size="sm" variant="outline" onClick={addTerm}>
@@ -869,3 +869,4 @@ function NumField({ label, value, onChange, suffix }) {
 }
 
 export { Route };
+
