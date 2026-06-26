@@ -11187,6 +11187,12 @@ async function handleIngestPlayerConnect(request) {
      VALUES ($1, $2, $3, $4, unix_now())`,
     [server.owner_org_id, server.server_id, steamId, playerName],
   );
+  await pool.query(
+    `INSERT INTO org_player_sightings (org_id, steam_id, last_seen_at)
+     VALUES ($1, $2, unix_now())
+     ON CONFLICT (org_id, steam_id) DO UPDATE SET last_seen_at = unix_now()`,
+    [server.owner_org_id, steamId],
+  );
 
   console.log(
     `[ingest:connect] player=${playerName ?? steamId} server=${server.server_name} refresh=${needsRefresh}(${refreshReason})`,
