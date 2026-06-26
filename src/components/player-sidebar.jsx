@@ -2408,6 +2408,5 @@ export {
   PlayerSidebar,
   ServerHistorySection,
   TeammatesSection,
-  deriveStats,
   pingTone,
 };
