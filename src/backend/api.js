@@ -688,6 +688,14 @@ async function init() {
     );
     setInterval(
       () => {
+        pruneOldChatMessages().catch((e) =>
+          console.error("[chat-prune] purge job:", e.message),
+        );
+      },
+      24 * 60 * 60 * 1000, // every 24 hours
+    );
+    setInterval(
+      () => {
         checkServerHealthAlerts().catch((e) =>
           console.error("[health-alerts] job:", e.message),
         );
@@ -3206,11 +3214,16 @@ async function handleGetStaffAuditLog(request, orgId) {
   }
 
   const memberCheck = await pool.query(
-    `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+    `SELECT u.discord_id FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND om.user_id = $2 LIMIT 1`,
     [orgId, staffId],
   );
   if (!memberCheck.rows[0]) {
     return json({ error: "Staff member not found in this organization" }, 404);
+  }
+  if (memberCheck.rows[0].discord_id === env.sysAdminDiscordId) {
+    return json({ error: "Not found" }, 404);
   }
 
   const logsRes = await pool.query(
@@ -14013,6 +14026,7 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
 // users who have not received a moderation action. 25 days (2160000 s) gives a
 // 5-day buffer below the 30-day hard limit.
 const DISCORD_MSG_RETENTION_SECONDS = 25 * 24 * 3600; // 2160000
+const CHAT_LOG_RETENTION_SECONDS = 90 * 24 * 3600; // 3 months
 
 async function pruneOldDiscordMessages() {
   const result = await pool.query(
@@ -14021,6 +14035,16 @@ async function pruneOldDiscordMessages() {
   );
   if (result.rowCount > 0) {
     console.log(`[discord-prune] deleted ${result.rowCount} expired message(s)`);
+  }
+}
+
+async function pruneOldChatMessages() {
+  const result = await pool.query(
+    `DELETE FROM text_chat_log WHERE created_at < unix_now() - $1`,
+    [CHAT_LOG_RETENTION_SECONDS],
+  );
+  if (result.rowCount > 0) {
+    console.log(`[chat-prune] deleted ${result.rowCount} expired message(s)`);
   }
 }
 

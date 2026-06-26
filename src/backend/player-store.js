@@ -990,7 +990,7 @@ async function writeSteamDataToCache(steamId, data) {
        avatar_url               = COALESCE($3, avatar_url),
        steam_profile_visibility = COALESCE($4, steam_profile_visibility),
        steam_profile_created_at = COALESCE($5, steam_profile_created_at),
-       steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE NULL END,
+       steam_rust_hours         = CASE WHEN $6 THEN $7::NUMERIC ELSE NULL END,
        steam_data_public        = $6,
        steam_vac_banned          = COALESCE($8, steam_vac_banned),
        steam_vac_count           = COALESCE($9, steam_vac_count),
