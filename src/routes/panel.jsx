@@ -4366,6 +4366,28 @@ function ServersTab({ orgId, onServerUpdate }) {
         serverName: pteroServer.name,
         apiKey: data.apiKey,
       });
+      // Update local registered list directly so importedIdentifiers reflects
+      // the new server immediately (GET /api/servers has a 30s Redis cache).
+      setRegisteredServers((prev) =>
+        prev.some((s) => s.serverId === data.server.serverId)
+          ? prev
+          : [
+              ...prev,
+              {
+                serverId: data.server.serverId,
+                serverName: data.server.serverName,
+                ownerOrgId: data.server.ownerOrgId,
+                pteroIdentifier: data.server.pteroIdentifier,
+                rconConfigured: false,
+                rconHost: null,
+                rconPort: null,
+                gamePort: null,
+                tags: [],
+                lastHealthPing: null,
+                createdAt: null,
+              },
+            ],
+      );
       // Keep the parent's shared server list in sync so sibling tabs (RCON,
       // presets, status) see the newly imported server immediately.
       onServerUpdate?.((prev) =>
@@ -4386,7 +4408,6 @@ function ServersTab({ orgId, onServerUpdate }) {
               },
             ],
       );
-      loadRegistered();
     } catch {
       alert("Network error during import");
     } finally {
