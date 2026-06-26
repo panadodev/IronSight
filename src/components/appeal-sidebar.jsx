@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Ban, MicOff } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { PinnedPlayerNotesSection } from "@/components/player-notes";
-import { fmtNum, getPlayer, STATUS_LABEL } from "@/lib/mock-data";
+import { fmtNum, STATUS_LABEL } from "@/lib/constants";
 import {
   deriveStats,
   pingTone,
@@ -335,7 +335,14 @@ function InGamePermissionsSection({ steamId }) {
 function AppealSidebar({ ticket, team }) {
   const { selectedOrgIds, hasOrgPermission } = useAuth();
   const canSeeIp = selectedOrgIds.some((id) => hasOrgPermission(id, "ip_read"));
-  const appellant = getPlayer(ticket.reporterId);
+  const appellant = {
+    name: ticket.reporterName ?? ticket.reporterId ?? "Unknown",
+    steamId: ticket.reporterId ?? "",
+    avatar: null,
+    playtimeHours: null,
+    country: null,
+    lastSeen: null,
+  };
   const assignee = ticket.assigneeId ? ticket.assigneeId : "Unassigned";
   const isAppeal = ticket.type === "ban_appeal";
   const isVip = ticket.type === "vip_issue";
@@ -493,7 +500,7 @@ function AppealSidebar({ ticket, team }) {
         {(isSupport || isAppeal) && (
           <ServerHistorySection
             subjectId={appellant.steamId}
-            isOnline={appellant.lastSeen.startsWith("Now")}
+            isOnline={false}
           />
         )}
 
@@ -502,7 +509,7 @@ function AppealSidebar({ ticket, team }) {
         {isVip && (
           <ServerHistorySection
             subjectId={appellant.steamId}
-            isOnline={appellant.lastSeen.startsWith("Now")}
+            isOnline={false}
           />
         )}
 

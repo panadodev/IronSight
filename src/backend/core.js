@@ -174,8 +174,7 @@ export function canManageOrg(session, orgId) {
 }
 
 export function canViewOrgAsOwner(session, orgId) {
-  // Check if user is org owner
-  return session.orgAdminOrgIds.includes(orgId);
+  return (session.orgOwnerOrgIds ?? []).includes(orgId) || isGlobalAdmin(session);
 }
 
 export function orgHasPermission(session, orgId, permissionId) {
@@ -209,7 +208,11 @@ export function sessionRankForOrg(session, orgId) {
   if ((session.orgOwnerOrgIds ?? []).includes(orgId)) return 4;
   if ((session.orgAdminOrgIds ?? []).includes(orgId)) return 4;
   const perms = (session.orgPermissions ?? {})[orgId] ?? [];
-  if (perms.length > 0) return 3;
+  // Rank 3 = has moderation/management permissions beyond the baseline org_member
+  // grant (todo_write). A plain org_member should be rank 1.
+  const BASELINE_MEMBER_PERMS = new Set(["todo_write"]);
+  const hasElevatedPerm = perms.some((p) => !BASELINE_MEMBER_PERMS.has(p));
+  if (hasElevatedPerm) return 3;
   return 1;
 }
 

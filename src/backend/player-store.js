@@ -10,6 +10,7 @@ import {
   getAvailableExternalKeys,
   availableKeyOrgsByService,
 } from "./external-fetch.js";
+import { ipHmac, encryptIp, decryptIp } from "./crypto-keys.js";
 
 // ── Player data fetchers ──────────────────────────────────────────────────────
 
@@ -823,19 +824,25 @@ function classifyConnType(meta) {
 async function runProxycheckForIps(ipList, orgId) {
   if (!ipList.length) return {};
 
-  // Serve already-cached, non-expired entries from ip_metadata so we only
-  // hit the Proxycheck API for IPs we haven't seen within the 30-day TTL.
+  // Hash the IPs for the cache query (ip_metadata is keyed by HMAC hash).
+  // The in-memory results map stays keyed by plaintext IP so callers can
+  // correlate results back to their BM/connect-event data without decrypting.
+  const ipHashMap = Object.fromEntries(ipList.map((ip) => [ip, ipHmac(ip)]));
+  const hashToIp = Object.fromEntries(ipList.map((ip) => [ipHmac(ip), ip]));
+
   const { rows: cachedRows } = await pool.query(
-    `SELECT ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn,
+    `SELECT ip_hash, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn,
             latitude, longitude
      FROM ip_metadata
-     WHERE ip_address = ANY($1) AND cache_expires_at > unix_now()`,
-    [ipList],
+     WHERE ip_hash = ANY($1) AND cache_expires_at > unix_now()`,
+    [Object.values(ipHashMap)],
   );
 
   const results = {};
   for (const r of cachedRows) {
-    results[r.ip_address] = {
+    const ip = hashToIp[r.ip_hash];
+    if (!ip) continue;
+    results[ip] = {
       isProxy: r.is_proxy,
       isVpn: r.is_vpn,
       connType: r.conn_type,
@@ -916,7 +923,10 @@ async function runProxycheckForIps(ipList, orgId) {
 
 export const playerRedisKey = (steamId) => `player:data:${steamId}`;
 const playerFetchLock = (steamId) => `player:fetching:${steamId}`;
-const PLAYER_REDIS_TTL = 30 * 24 * 3600; // 30 days — matches PostgreSQL cache_expires_at
+// Redis is a hot cache layer; PostgreSQL is the permanent store. 14-day TTL
+// ensures Redis doesn't grow unboundedly while still serving most active players
+// from cache. PostgreSQL cache_expires_at stays at 30 days (2592000 seconds).
+const PLAYER_REDIS_TTL = 14 * 24 * 3600; // 14 days
 
 export async function getPlayerDataFromRedis(steamId) {
   try {
@@ -980,7 +990,7 @@ async function writeSteamDataToCache(steamId, data) {
        avatar_url               = COALESCE($3, avatar_url),
        steam_profile_visibility = COALESCE($4, steam_profile_visibility),
        steam_profile_created_at = COALESCE($5, steam_profile_created_at),
-       steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE steam_rust_hours END,
+       steam_rust_hours         = CASE WHEN $6 THEN $7 ELSE NULL END,
        steam_data_public        = $6,
        steam_vac_banned          = COALESCE($8, steam_vac_banned),
        steam_vac_count           = COALESCE($9, steam_vac_count),
@@ -1142,24 +1152,24 @@ async function writeBMBansToCache(steamId, bansInput, observedByOrg = null) {
 async function writeIpsToHistory(steamId, ipsInput, sourceOrgId = null) {
   const ips = dedupBy(ipsInput, (x) => x.ip);
   if (!ips.length) return;
+  const hashes = ips.map((x) => ipHmac(x.ip));
+  const encrypted = ips.map((x) => encryptIp(x.ip));
   await pool.query(
-    `INSERT INTO player_ip_history (steam_id, ip_address, is_vpn, last_seen)
-     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::boolean[]), unix_now()
-     ON CONFLICT (steam_id, ip_address) DO UPDATE SET
+    `INSERT INTO player_ip_history (steam_id, ip_hash, ip_encrypted, is_vpn, last_seen)
+     SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::boolean[]), unix_now()
+     ON CONFLICT (steam_id, ip_hash) DO UPDATE SET
        last_seen = unix_now(),
        is_vpn    = COALESCE(EXCLUDED.is_vpn, player_ip_history.is_vpn)`,
-    [ips.map(() => steamId), ips.map((x) => x.ip), ips.map((x) => x.isProxy)],
+    [ips.map(() => steamId), hashes, encrypted, ips.map((x) => x.isProxy)],
   );
 
-  // Attribute the observation to the org whose lookup surfaced these IPs, so the
-  // player lookup can tag each IP with its source org(s) for filtering/sharing.
   if (sourceOrgId) {
     await pool.query(
-      `INSERT INTO player_ip_observations (steam_id, ip_address, org_id, last_seen)
+      `INSERT INTO player_ip_observations (steam_id, ip_hash, org_id, last_seen)
        SELECT unnest($1::text[]), unnest($2::text[]), $3, unix_now()
-       ON CONFLICT (steam_id, ip_address, org_id) DO UPDATE SET
+       ON CONFLICT (steam_id, ip_hash, org_id) DO UPDATE SET
          last_seen = unix_now()`,
-      [ips.map(() => steamId), ips.map((x) => x.ip), sourceOrgId],
+      [ips.map(() => steamId), hashes, sourceOrgId],
     );
   }
 }
@@ -1249,7 +1259,13 @@ async function writeFriendsToCache(steamId, result, orgId) {
     [steamId, result.isPublic, result.friends?.length ?? 0],
   );
 
-  if (!result.isPublic || !result.friends?.length) return;
+  if (!result.isPublic) {
+    // Account went private — purge stale friend rows so we don't serve
+    // outdated relationship data from before privacy was enabled.
+    await pool.query(`DELETE FROM player_friends WHERE steam_id = $1`, [steamId]);
+    return;
+  }
+  if (!result.friends?.length) return;
 
   const friends = [...new Set(result.friends)];
   const nowUnix = Math.floor(Date.now() / 1000);
@@ -1306,18 +1322,21 @@ async function writeFriendsToCache(steamId, result, orgId) {
 
 async function writeProxycheckToCache(ipResults) {
   for (const [ip, meta] of Object.entries(ipResults)) {
+    const hash = ipHmac(ip);
+    const enc = encryptIp(ip);
     await pool.query(
-      `INSERT INTO ip_metadata (ip_address, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn, latitude, longitude)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (ip_address) DO UPDATE SET
-         is_proxy  = $2, is_vpn = $3, conn_type = $4, isp = $5,
-         country   = $6, iso_code = COALESCE($7, ip_metadata.iso_code), asn = $8,
-         latitude  = COALESCE($9, ip_metadata.latitude),
-         longitude = COALESCE($10, ip_metadata.longitude),
+      `INSERT INTO ip_metadata (ip_hash, ip_encrypted, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn, latitude, longitude)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (ip_hash) DO UPDATE SET
+         is_proxy  = $3, is_vpn = $4, conn_type = $5, isp = $6,
+         country   = $7, iso_code = COALESCE($8, ip_metadata.iso_code), asn = $9,
+         latitude  = COALESCE($10, ip_metadata.latitude),
+         longitude = COALESCE($11, ip_metadata.longitude),
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 2592000`,
       [
-        ip,
+        hash,
+        enc,
         meta.isProxy,
         meta.isVpn,
         meta.connType,
@@ -1330,8 +1349,8 @@ async function writeProxycheckToCache(ipResults) {
       ],
     );
     await pool.query(
-      `UPDATE player_ip_history SET is_vpn = $2 WHERE ip_address = $1`,
-      [ip, meta.isVpn],
+      `UPDATE player_ip_history SET is_vpn = $2 WHERE ip_hash = $1`,
+      [hash, meta.isVpn],
     );
   }
 }
@@ -1639,17 +1658,17 @@ export async function getPlayerCacheData(steamId) {
         [steamId],
       ),
       pool.query(
-        `SELECT pih.ip_address, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
+        `SELECT pih.ip_hash, pih.ip_encrypted, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
                 im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn,
                 COALESCE(
                   (SELECT array_agg(DISTINCT o.org_id)
                    FROM player_ip_observations o
                    WHERE o.steam_id = pih.steam_id
-                     AND o.ip_address = pih.ip_address),
+                     AND o.ip_hash = pih.ip_hash),
                   '{}'
                 ) AS source_org_ids
          FROM player_ip_history pih
-         LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
+         LEFT JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
          WHERE pih.steam_id = $1
          ORDER BY pih.last_seen DESC`,
         [steamId],
@@ -1768,8 +1787,10 @@ export async function getPlayerCacheData(steamId) {
         : false,
       cachedAt: friendsMetaRow?.cached_at ?? null,
     },
+    // ipEncrypted holds AES-256-GCM ciphertext; callers with ip_read decrypt it
+    // via filterPlayerIpData. Never returned as plaintext from this layer.
     ipHistory: ips.rows.map((r) => ({
-      ipAddress: String(r.ip_address),
+      ipEncrypted: r.ip_encrypted ?? null,
       isVpn: r.is_vpn ?? null,
       isProxy: r.is_proxy ?? null,
       connType: r.conn_type ?? null,

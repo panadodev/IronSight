@@ -35,23 +35,6 @@ export function parseEnvList(value) {
     .filter(Boolean);
 }
 
-export function parsePterodactylAllowedHosts(value) {
-  if (!value) return [];
-  const items = String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return items.map((item) => {
-    try {
-      const url = new URL(item);
-      return url.hostname.toLowerCase();
-    } catch {
-      return item.toLowerCase();
-    }
-  });
-}
-
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   databaseUrl: chooseConnectionUrl(
@@ -76,9 +59,6 @@ export const env = {
   // STEAM_AUTH_CALLBACK is the legacy key used in .env; STEAM_RETURN_URL takes precedence
   steamReturnUrl:
     process.env.STEAM_RETURN_URL ?? process.env.STEAM_AUTH_CALLBACK,
-  pterodactylAllowedHosts: parsePterodactylAllowedHosts(
-    process.env.PTERODACTYL_ALLOWED_HOSTS,
-  ),
   pterodactylEncryptionSecret:
     process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
   discordBotToken: process.env.DISCORD_BOT_TOKEN,
@@ -117,10 +97,5 @@ if (!env.sysAdminSteamId?.trim()) {
 if (env.jwtSecret && !process.env.PTERODACTYL_ENCRYPTION_KEY?.trim()) {
   console.warn(
     "[config] Missing PTERODACTYL_ENCRYPTION_KEY. Falling back to JWT_SECRET for Pterodactyl key encryption.",
-  );
-}
-if (!env.pterodactylAllowedHosts.length) {
-  console.warn(
-    "[config] Missing PTERODACTYL_ALLOWED_HOSTS. Pterodactyl endpoints will return 503 until configured.",
   );
 }

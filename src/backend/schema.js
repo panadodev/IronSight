@@ -896,13 +896,14 @@ export async function ensureSchema(pool) {
     CREATE TABLE IF NOT EXISTS player_ip_history (
       id BIGSERIAL PRIMARY KEY,
       steam_id TEXT NOT NULL,
-      ip_address TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      ip_encrypted TEXT NOT NULL,
       server_id UUID REFERENCES servers(server_id) ON DELETE SET NULL,
       server_name TEXT,
       is_vpn BOOLEAN,
       first_seen BIGINT NOT NULL DEFAULT unix_now(),
       last_seen BIGINT NOT NULL DEFAULT unix_now(),
-      UNIQUE(steam_id, ip_address)
+      UNIQUE(steam_id, ip_hash)
     )
   `);
   await pool.query(
@@ -910,13 +911,14 @@ export async function ensureSchema(pool) {
      ON player_ip_history(steam_id)`,
   );
   await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_player_ip_history_ip_address
-     ON player_ip_history(ip_address)`,
+    `CREATE INDEX IF NOT EXISTS idx_player_ip_history_ip_hash
+     ON player_ip_history(ip_hash)`,
   );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ip_metadata (
-      ip_address TEXT PRIMARY KEY,
+      ip_hash TEXT PRIMARY KEY,
+      ip_encrypted TEXT NOT NULL,
       is_proxy BOOLEAN,
       is_vpn BOOLEAN,
       isp TEXT,
@@ -954,6 +956,7 @@ export async function ensureSchema(pool) {
     `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS conn_type TEXT`,
   );
   // ISO 3166-1 alpha-2 country code from proxycheck — needed for country flag display.
+  // (ip_metadata is keyed by ip_hash on fresh installs; ADD COLUMN is a no-op there)
   await pool.query(
     `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS iso_code VARCHAR(2)`,
   );
@@ -1010,17 +1013,17 @@ export async function ensureSchema(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS player_ip_observations (
       steam_id    TEXT NOT NULL,
-      ip_address  TEXT NOT NULL,
+      ip_hash     TEXT NOT NULL,
       org_id      TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       server_id   UUID,
       first_seen  BIGINT NOT NULL DEFAULT unix_now(),
       last_seen   BIGINT NOT NULL DEFAULT unix_now(),
-      PRIMARY KEY (steam_id, ip_address, org_id)
+      PRIMARY KEY (steam_id, ip_hash, org_id)
     )
   `);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_player_ip_observations_lookup
-     ON player_ip_observations(steam_id, ip_address)`,
+     ON player_ip_observations(steam_id, ip_hash)`,
   );
 
   // Which of OUR orgs' BattleMetrics keys surfaced a given external ban. The
@@ -1330,9 +1333,16 @@ export async function ensureSchema(pool) {
     `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS source_ip_ban_id UUID
        REFERENCES player_bans(ban_id) ON DELETE SET NULL`,
   );
+  // identifier_hash stores the HMAC-SHA256 of the IP for fast evasion lookups
+  // without decrypting every row. Only populated when identifier_type = 'ip'.
+  await pool.query(
+    `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS identifier_hash TEXT`,
+  );
+  // Drop old plaintext-indexed partial index if it still exists (schema migration).
+  await pool.query(`DROP INDEX IF EXISTS idx_player_bans_ip_active`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_player_bans_ip_active
-       ON player_bans(org_id, identifier)
+       ON player_bans(org_id, identifier_hash)
        WHERE identifier_type = 'ip' AND action_type = 'ban' AND revoked = FALSE`,
   );
 
@@ -1533,6 +1543,56 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE todos ADD COLUMN IF NOT EXISTS is_personal BOOLEAN NOT NULL DEFAULT FALSE`,
   );
+
+  // ── Documentation / wiki ─────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS doc_categories (
+      category_id TEXT PRIMARY KEY,
+      org_id      TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      name        TEXT NOT NULL,
+      parent_id   TEXT REFERENCES doc_categories(category_id) ON DELETE SET NULL,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      created_at  BIGINT  NOT NULL DEFAULT unix_now()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_doc_categories_org
+     ON doc_categories(org_id)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS doc_articles (
+      article_id        TEXT    PRIMARY KEY,
+      org_id            TEXT    NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      category_id       TEXT    REFERENCES doc_categories(category_id) ON DELETE SET NULL,
+      title             TEXT    NOT NULL,
+      body              TEXT    NOT NULL DEFAULT '',
+      min_rank          INTEGER NOT NULL DEFAULT 1,
+      updated_at        BIGINT  NOT NULL DEFAULT unix_now(),
+      updated_by_user_id UUID   REFERENCES users(user_id) ON DELETE SET NULL,
+      updated_by_name   TEXT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_doc_articles_org
+     ON doc_articles(org_id, min_rank)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS doc_article_versions (
+      version_id          TEXT    PRIMARY KEY,
+      article_id          TEXT    NOT NULL REFERENCES doc_articles(article_id) ON DELETE CASCADE,
+      title               TEXT    NOT NULL,
+      body                TEXT    NOT NULL,
+      saved_at            BIGINT  NOT NULL DEFAULT unix_now(),
+      saved_by_user_id    UUID    REFERENCES users(user_id) ON DELETE SET NULL,
+      saved_by_name       TEXT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_doc_article_versions_article
+     ON doc_article_versions(article_id, saved_at DESC)`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {
@@ -1681,119 +1741,3 @@ export async function ensureRolePermissionSeed(pool) {
   );
 }
 
-export async function migrateLegacyData(pool) {
-  const legacyOrgsExists = await pool.query(
-    `SELECT to_regclass('public.orgs') IS NOT NULL AS exists`,
-  );
-  if (!legacyOrgsExists.rows[0]?.exists) return;
-
-  const { rows: legacyOrgs } = await pool.query(
-    "SELECT org_id, guild_id, discord_ids FROM orgs",
-  );
-  for (const org of legacyOrgs) {
-    const orgId = String(org.org_id);
-    const guildId = org.guild_id == null ? null : String(org.guild_id);
-
-    await pool.query(
-      `INSERT INTO organizations (org_id, guild_id, name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (org_id)
-       DO UPDATE SET guild_id = COALESCE(EXCLUDED.guild_id, organizations.guild_id),
-                     name = COALESCE(organizations.name, EXCLUDED.name)`,
-      [orgId, guildId, orgId],
-    );
-
-    for (const discordId of parseMaybeList(org.discord_ids)) {
-      const existing = await getUserByDiscordId(discordId);
-      const userId = existing?.userId ?? crypto.randomUUID();
-
-      if (!existing) {
-        await pool.query(
-          `INSERT INTO users (user_id, username, discord_id)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (discord_id) DO NOTHING`,
-          [userId, `user_${discordId.slice(-6)}`, discordId],
-        );
-      }
-
-      const resolved = existing ?? (await getUserByDiscordId(discordId));
-      if (!resolved) continue;
-
-      await pool.query(
-        `INSERT INTO organization_members (org_id, user_id, role_id)
-         VALUES ($1, $2, 'org_member')
-         ON CONFLICT (org_id, user_id) DO NOTHING`,
-        [orgId, resolved.userId],
-      );
-    }
-  }
-
-  const legacyOrgAdminsExists = await pool.query(
-    `SELECT to_regclass('public.org_admins') IS NOT NULL AS exists`,
-  );
-  if (legacyOrgAdminsExists.rows[0]?.exists) {
-    const { rows } = await pool.query(
-      "SELECT org_id, discord_id FROM org_admins",
-    );
-    for (const row of rows) {
-      const orgId = String(row.org_id);
-      const discordId = String(row.discord_id);
-      const user = await getUserByDiscordId(discordId);
-      if (!user) continue;
-
-      await pool.query(
-        `INSERT INTO organization_members (org_id, user_id, role_id)
-         VALUES ($1, $2, 'org_admin')
-         ON CONFLICT (org_id, user_id)
-         DO UPDATE SET role_id = 'org_admin'`,
-        [orgId, user.userId],
-      );
-    }
-  }
-
-  const legacyTodoExists = await pool.query(
-    `SELECT to_regclass('public.todo') IS NOT NULL AS exists`,
-  );
-  if (legacyTodoExists.rows[0]?.exists) {
-    const { rows } = await pool.query(
-      `SELECT todo_id, todo_heading, todo_description, todo_status, assigned_to, org_id, created_unix, completed_unix, created_by
-       FROM todo`,
-    );
-
-    for (const row of rows) {
-      const todoId = String(row.todo_id);
-      if (!/^[0-9a-fA-F-]{36}$/.test(todoId)) continue;
-
-      const assignedUser = row.assigned_to
-        ? await getUserByDiscordId(String(row.assigned_to))
-        : null;
-      const createdByUser = row.created_by
-        ? await getUserByDiscordId(String(row.created_by))
-        : null;
-
-      const createdAt = Number.isFinite(Number(row.created_unix))
-        ? Number(row.created_unix)
-        : Math.floor(Date.now() / 1000);
-      const completedAt = Number.isFinite(Number(row.completed_unix))
-        ? Number(row.completed_unix)
-        : null;
-
-      await pool.query(
-        `INSERT INTO todos (todo_id, org_id, title, description, status, created_by, assigned_to, created_at, updated_at, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, unix_now(), $9)
-         ON CONFLICT (todo_id) DO NOTHING`,
-        [
-          todoId,
-          String(row.org_id),
-          String(row.todo_heading),
-          row.todo_description == null ? "" : String(row.todo_description),
-          row.todo_status == null ? "todo" : String(row.todo_status),
-          createdByUser?.userId ?? null,
-          assignedUser?.userId ?? null,
-          createdAt,
-          completedAt,
-        ],
-      );
-    }
-  }
-}

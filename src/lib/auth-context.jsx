@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { manageOrgStore } from "./manage-org-store";
-import { TEAM_META } from "./mock-data";
+import { TEAM_META } from "./constants";
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
 const BAN_CATEGORY_LABEL = {
   cheating: "Cheating",

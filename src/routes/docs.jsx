@@ -42,7 +42,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 const Route = createFileRoute("/docs")({
@@ -76,6 +76,11 @@ function DocsPage() {
   const effectiveOrgId = selectedOrgIds.includes(orgId)
     ? orgId
     : (selectedOrgIds[0] ?? orgs[0]?.id ?? "");
+
+  useEffect(() => {
+    if (effectiveOrgId) docsStore.load(effectiveOrgId);
+  }, [effectiveOrgId]);
+
   const myRank = rankOf(effectiveOrgId);
   const canEdit = myRank >= 3;
   const canDelete = myRank >= 4;
@@ -102,19 +107,20 @@ function DocsPage() {
   const [editing, setEditing] = useState(null);
   const [creatingCatParent, setCreatingCatParent] = useState(void 0);
   const [historyFor, setHistoryFor] = useState(null);
-  const startNewArticle = (categoryId) => {
+  const startNewArticle = async (categoryId) => {
     if (!canEdit || !activeStaff) return;
-    const a = docsStore.addArticle({
-      orgId: effectiveOrgId,
-      categoryId,
-      title: "Untitled",
-      body: "# Untitled\n\nStart writing\u2026",
-      minRank: 1,
-      authorName: activeStaff.name,
-      authorId: activeStaff.id,
-    });
-    setSelectedId(a.id);
-    setEditing(a);
+    try {
+      const a = await docsStore.addArticle(effectiveOrgId, {
+        categoryId,
+        title: "Untitled",
+        body: "# Untitled\n\nStart writing\u2026",
+        minRank: 1,
+      });
+      setSelectedId(a.id);
+      setEditing(a);
+    } catch (err) {
+      console.error("Failed to create article:", err);
+    }
   };
   if (orgsLoaded && !hasStaffAccount) {
     return (
@@ -224,13 +230,13 @@ function DocsPage() {
                 article={editing}
                 cats={orgCats}
                 onCancel={() => setEditing(null)}
-                onSave={(patch) => {
-                  if (!activeStaff) return;
-                  docsStore.saveArticle(selected.id, patch, {
-                    id: activeStaff.id,
-                    name: activeStaff.name,
-                  });
-                  setEditing(null);
+                onSave={async (patch) => {
+                  try {
+                    await docsStore.saveArticle(selected.id, patch);
+                    setEditing(null);
+                  } catch (err) {
+                    console.error("Failed to save article:", err);
+                  }
                 }}
               />
             ) : (
@@ -240,10 +246,14 @@ function DocsPage() {
                 canDelete={canDelete}
                 onEdit={() => setEditing(selected)}
                 onHistory={() => setHistoryFor(selected)}
-                onDelete={() => {
+                onDelete={async () => {
                   if (confirm("Permanently delete this article? Owner-only.")) {
-                    docsStore.deleteArticle(selected.id);
-                    setSelectedId(null);
+                    try {
+                      await docsStore.deleteArticle(selected.id);
+                      setSelectedId(null);
+                    } catch (err) {
+                      console.error("Failed to delete article:", err);
+                    }
                   }
                 }}
               />
@@ -265,12 +275,15 @@ function DocsPage() {
         open={creatingCatParent !== void 0}
         parentId={creatingCatParent ?? null}
         onClose={() => setCreatingCatParent(void 0)}
-        onCreate={(name) => {
-          docsStore.addCategory({
-            orgId: effectiveOrgId,
-            parentId: creatingCatParent ?? null,
-            name,
-          });
+        onCreate={async (name) => {
+          try {
+            await docsStore.addCategory(effectiveOrgId, {
+              parentId: creatingCatParent ?? null,
+              name,
+            });
+          } catch (err) {
+            console.error("Failed to create category:", err);
+          }
           setCreatingCatParent(void 0);
         }}
       />
@@ -281,16 +294,20 @@ function DocsPage() {
           canEdit={canEdit}
           canDelete={canDelete}
           onClose={() => setHistoryFor(null)}
-          onRestore={(versionId) => {
-            if (!activeStaff) return;
-            docsStore.restoreVersion(historyFor.id, versionId, {
-              id: activeStaff.id,
-              name: activeStaff.name,
-            });
+          onRestore={async (versionId) => {
+            try {
+              await docsStore.restoreVersion(historyFor.id, versionId);
+            } catch (err) {
+              console.error("Failed to restore version:", err);
+            }
           }}
-          onDeleteVersion={(versionId) => {
+          onDeleteVersion={async (versionId) => {
             if (confirm("Delete this version permanently?")) {
-              docsStore.deleteVersion(historyFor.id, versionId);
+              try {
+                await docsStore.deleteVersion(historyFor.id, versionId);
+              } catch (err) {
+                console.error("Failed to delete version:", err);
+              }
             }
           }}
         />

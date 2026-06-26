@@ -28,7 +28,7 @@ import { timezoneStore } from "@/lib/timezone-store";
 import { hintsStore } from "@/lib/hints-store";
 import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
-import { TEAM_META } from "@/lib/mock-data";
+import { TEAM_META } from "@/lib/constants";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Building2, Check, ChevronDown, Lock, Menu, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";

@@ -94,3 +94,27 @@ export function encryptExternalApiKey(apiKey) {
 export function decryptExternalApiKey(payload) {
   return decryptPterodactylApiKey(payload);
 }
+
+// Deterministic HMAC-SHA256 of an IP address using the same key material as
+// AES-256-GCM. Used as the lookup/unique key in ip-keyed tables so queries
+// can find rows without decrypting every row. Safe to index.
+export function ipHmac(ip) {
+  const key = getPterodactylEncryptionKeyV2();
+  if (!key) throw new Error("ip_encryption_unconfigured");
+  return crypto.createHmac("sha256", key).update(String(ip)).digest("hex");
+}
+
+export function encryptIp(ip) {
+  return encryptPterodactylApiKey(String(ip));
+}
+
+// Returns the decrypted IP string, or null on any failure (bad payload, wrong
+// key, etc.). Callers should treat null as "IP not available" rather than throw.
+export function decryptIp(payload) {
+  if (!payload) return null;
+  try {
+    return decryptPterodactylApiKey(String(payload));
+  } catch {
+    return null;
+  }
+}

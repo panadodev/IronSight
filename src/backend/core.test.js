@@ -115,10 +115,20 @@ describe("canManageOrg", () => {
 });
 
 describe("canViewOrgAsOwner", () => {
-  it("behaves identically to canManageOrg", () => {
+  it("returns true when the orgId is in orgOwnerOrgIds", () => {
+    const s = session({ orgOwnerOrgIds: ["org1"] });
+    expect(canViewOrgAsOwner(s, "org1")).toBe(true);
+    expect(canViewOrgAsOwner(s, "org2")).toBe(false);
+  });
+
+  it("returns false for admins who are not owners", () => {
     const s = session({ orgAdminOrgIds: ["org1"] });
-    expect(canViewOrgAsOwner(s, "org1")).toBe(canManageOrg(s, "org1"));
-    expect(canViewOrgAsOwner(s, "org2")).toBe(canManageOrg(s, "org2"));
+    expect(canViewOrgAsOwner(s, "org1")).toBe(false);
+  });
+
+  it("returns true for global admins regardless of orgOwnerOrgIds", () => {
+    const s = session({ globalAdmin: true });
+    expect(canViewOrgAsOwner(s, "org1")).toBe(true);
   });
 });
 

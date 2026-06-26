@@ -9,13 +9,22 @@ import {
   Trash2,
   RotateCcw,
 } from "lucide-react";
-import {
-  fmtNum,
-  getPlayer,
-  getPreviousTeammates,
-  getServerPlayers,
-  getTeammates,
-} from "@/lib/mock-data";
+import { fmtNum } from "@/lib/constants";
+
+// Stubs for live data that requires game-server integration (team rosters, server
+// player lists). Returns empty so the UI shows "no data" rather than fake entries.
+const getTeammates = () => [];
+const getPreviousTeammates = () => [];
+const getServerPlayers = () => [];
+// Resolves a display object for a Steam ID when no rich player data is available.
+const getPlayer = (steamId) => ({
+  name: steamId ? String(steamId).slice(-5) : "?",
+  steamId: steamId ?? "",
+  avatar: null,
+  playtimeHours: null,
+  country: null,
+  lastSeen: null,
+});
 import {
   getAssociationsFor,
   addAssociationReports,
@@ -72,62 +81,10 @@ function hash(s) {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
-function deriveStats(p) {
-  const h = hash(p.steamId);
-  const bmHours = Math.round(p.playtimeHours * (0.45 + (h % 40) / 100));
-  const proxy = h % 7 === 0;
-  const pingMs = 18 + (h % 220);
-  const kd = Math.round(((h % 380) / 100 + 0.4) * 100) / 100;
-  const hitPct = Math.round((h % 55) + 8);
-  const atHours = Math.round((h % 2800) / 10 + 50);
-  const total = p.priorOffenses;
-  const reasons = [
-    "Toxicity",
-    "Racism",
-    "Cheating suspicion",
-    "Team griefing",
-    "Spam in chat",
-    "Stream sniping",
-  ];
-  const bys = ["Kilometers", "bloo", "Beans", "Toadlord", "CAMOMO_10"];
-  const notes = [
-    "Repeated slurs in voice chat after multiple warnings. Audio attached in case file.",
-    "Caught on stream calling teammates ethnic slurs. Zero tolerance per policy.",
-    "Snap aim flicks across walls, demo reviewed by two senior admins.",
-    "Killed teammates at spawn three rounds in a row, refused to apologize.",
-    "Bound message spam, ~40 messages in 60 seconds.",
-    "Watched opponent's stream, called out rotations to teammates.",
-  ];
-  const offenses = Array.from({ length: total }).map((_, i) => {
-    const k = hash(p.steamId + ":" + i);
-    const type = k % 3 === 0 ? "Ban" : "Mute";
-    const variant = k % 4;
-    let status;
-    let statusTone;
-    if (variant === 0) {
-      status = "Permanent";
-      statusTone = "danger";
-    } else if (variant === 1) {
-      const d = 1 + (k % 14);
-      status = `Expires in ${d}d`;
-      statusTone = "warning";
-    } else {
-      const d = 1 + (k % 60);
-      status = `Expired ${d}d ago`;
-      statusTone = "muted";
-    }
-    return {
-      id: `${p.steamId}-${i}`,
-      type,
-      status,
-      statusTone,
-      reason: reasons[k % reasons.length],
-      when: `${1 + (k % 11)}mo ago`,
-      by: bys[k % bys.length],
-      note: notes[k % notes.length],
-    };
-  });
-  return { bmHours, proxy, pingMs, kd, hitPct, atHours, offenses };
+// Returns the offense/stat shape that the sidebar components expect.
+// Filled with nulls until real ban-history data is wired from the API.
+export function deriveStats(_p) {
+  return { bmHours: null, proxy: false, pingMs: null, kd: null, hitPct: null, atHours: null, offenses: [] };
 }
 function pingTone(ms) {
   if (ms < 80) return { color: "bg-success", label: "good" };
@@ -333,6 +290,7 @@ function PlayerSidebar({
         {subject && category === "teaming" && (
           <FriendlyRecipientsSection
             subjectId={subject.steamId}
+            subjectName={subject.name}
             serverId={serverId ?? null}
           />
         )}
@@ -356,7 +314,7 @@ function PlayerSidebar({
           category !== "other" && (
             <ServerHistorySection
               subjectId={subject.steamId}
-              isOnline={subject.lastSeen.startsWith("Now")}
+              isOnline={subject?.lastSeen?.startsWith("Now") ?? false}
             />
           )}
 
@@ -1193,7 +1151,7 @@ function hasNotes(a, b) {
     return false;
   }
 }
-function FriendlyRecipientsSection({ subjectId, serverId }) {
+function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
   const [refresh, setRefresh] = useState(0);
   void refresh;
   const events = buildFriendlyEvents(subjectId);
@@ -1604,10 +1562,9 @@ function FriendlyRecipientsSection({ subjectId, serverId }) {
           onAddAssociated={
             openFromSearch && !open.hidden
               ? () => {
-                  const subj = getPlayer(subjectId);
-                  if (!subj || !open) return;
+                  if (!subjectId || !open) return;
                   addAssociationReports(
-                    { steamId: subj.steamId, name: subj.name },
+                    { steamId: subjectId, name: subjectName ?? subjectId },
                     [{ steamId: open.steamId, name: open.name }],
                   );
                   setSearchedId(null);

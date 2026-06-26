@@ -14,7 +14,6 @@ import {
 import {
   ensureSchema,
   ensureRolePermissionSeed,
-  migrateLegacyData,
   migrateTimestampsToUnix,
 } from "./schema.js";
 import { getClientIp, json, parseLimit, parseMaybeList } from "./http.js";
@@ -85,6 +84,9 @@ import {
   decryptPterodactylApiKey,
   encryptExternalApiKey,
   decryptExternalApiKey,
+  ipHmac,
+  encryptIp,
+  decryptIp,
 } from "./crypto-keys.js";
 import {
   getAvailableExternalKeys,
@@ -133,12 +135,18 @@ function nowUnix() {
   return Math.floor(Date.now() / 1000);
 }
 
+// Private/reserved IPv4+IPv6 ranges — block to prevent SSRF
+const PRIVATE_HOST_RE =
+  /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.254\.|0\.|::1$|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:|fe80:)/i;
+const BLOCKED_HOSTS = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "169.254.169.254",
+]);
+
 function normalizePterodactylPanelUrl(rawUrl) {
   const value = String(rawUrl ?? "").trim();
   if (!value) throw new Error("panel_url_required");
-  if (!env.pterodactylAllowedHosts.length) {
-    throw new Error("pterodactyl_allowed_hosts_unconfigured");
-  }
 
   let parsed;
   try {
@@ -147,16 +155,18 @@ function normalizePterodactylPanelUrl(rawUrl) {
     throw new Error("panel_url_invalid");
   }
 
-  if (!["https:", "http:"].includes(parsed.protocol)) {
-    throw new Error("panel_url_invalid");
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error("panel_url_invalid");
-  }
+  if (parsed.protocol !== "https:") throw new Error("panel_url_invalid");
+  if (parsed.username || parsed.password) throw new Error("panel_url_invalid");
 
   const hostname = parsed.hostname.toLowerCase();
-  if (!env.pterodactylAllowedHosts.includes(hostname)) {
-    throw new Error("panel_url_host_not_allowed");
+  if (
+    PRIVATE_HOST_RE.test(hostname) ||
+    BLOCKED_HOSTS.has(hostname) ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname.endsWith(".localhost")
+  ) {
+    throw new Error("panel_url_invalid");
   }
 
   parsed.hash = "";
@@ -167,15 +177,6 @@ function normalizePterodactylPanelUrl(rawUrl) {
 }
 
 function getPterodactylSecurityConfigError() {
-  if (!env.pterodactylAllowedHosts.length) {
-    return json(
-      {
-        error:
-          "Pterodactyl integration is not configured: PTERODACTYL_ALLOWED_HOSTS is required.",
-      },
-      503,
-    );
-  }
   if (!getPterodactylEncryptionKey()) {
     return json(
       {
@@ -230,6 +231,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "flagged_messages_resolve",
   "flagged_messages_confirm",
   "flagged_messages_clear",
+  "docs_edit",
 ];
 
 // Ban permissions were split from the legacy umbrella `bans_manage` into granular
@@ -634,7 +636,6 @@ async function init() {
     await migrateTimestampsToUnix(pool);
     await migratePterodactylApiKeys();
     await ensureRolePermissionSeed(pool);
-    await migrateLegacyData(pool);
     await pingDependencies();
 
     // Schedule expiry jobs for all active timed bans. Catches existing bans
@@ -674,6 +675,16 @@ async function init() {
         );
       },
       6 * 60 * 60 * 1000, // every 6 hours
+    );
+    // Discord messages must be purged on a schedule, not only on sync calls.
+    // Retention < 30 days for non-banned users (GDPR/compliance).
+    setInterval(
+      () => {
+        pruneOldDiscordMessages().catch((e) =>
+          console.error("[discord-prune] purge job:", e.message),
+        );
+      },
+      24 * 60 * 60 * 1000, // every 24 hours
     );
     setInterval(
       () => {
@@ -3618,6 +3629,11 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
   if (!ban) return;
 
   const bmIdentifierType = ban.identifier_type === "steam_id" ? "steamID" : ban.identifier_type;
+  // IP identifiers are stored encrypted; decrypt before sending to BattleMetrics.
+  const rawBmIdentifier =
+    ban.identifier_type === "ip"
+      ? decryptIp(ban.identifier)
+      : ban.identifier;
   const payload = {
     data: {
       type: "ban",
@@ -3627,8 +3643,8 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         reason: ban.reason || "No reason provided",
         note: ban.note || "",
         ...(ban.expires_at ? { expires: new Date(ban.expires_at * 1000).toISOString() } : {}),
-        identifiers: ban.identifier
-          ? [{ type: bmIdentifierType, identifier: String(ban.identifier), manual: true }]
+        identifiers: rawBmIdentifier
+          ? [{ type: bmIdentifierType, identifier: String(rawBmIdentifier), manual: true }]
           : [],
       },
       relationships: {
@@ -4450,17 +4466,20 @@ async function handleGetTicket(request, ticketIdStr) {
   return json({ ticket, messages: returnedMessages });
 }
 
+// Decrypt or redact IP history entries depending on the caller's entitlement.
+// IPs are stored encrypted (AES-256-GCM) in player_ip_history; only callers
+// with the ip_read permission receive the plaintext ipAddress.
 function filterPlayerIpData(playerData, canSeeIp) {
-  if (canSeeIp || !playerData) return playerData;
+  if (!playerData) return playerData;
   const result = { ...playerData };
   if (Array.isArray(result.ipHistory)) {
-    result.ipHistory = result.ipHistory.map((entry) => ({
-      ...entry,
-      ipAddress: null,
-      country: null,
-      isoCode: null,
-      isp: null,
-    }));
+    result.ipHistory = result.ipHistory.map((entry) => {
+      const { ipEncrypted, ...rest } = entry;
+      if (canSeeIp) {
+        return { ...rest, ipAddress: decryptIp(ipEncrypted) };
+      }
+      return { ...rest, ipAddress: null, country: null, isoCode: null, isp: null };
+    });
   }
   if (Array.isArray(result.relatedAccounts)) {
     result.relatedAccounts = result.relatedAccounts.map((account) => ({
@@ -4468,9 +4487,9 @@ function filterPlayerIpData(playerData, canSeeIp) {
       sharedIps: Array.isArray(account.sharedIps)
         ? account.sharedIps.map((s) => ({
             ...s,
-            ip: null,
-            isp: null,
-            country: null,
+            ip: canSeeIp ? s.ip : null,
+            isp: canSeeIp ? s.isp : null,
+            country: canSeeIp ? s.country : null,
           }))
         : account.sharedIps,
     }));
@@ -4521,11 +4540,12 @@ function filterIpHistoryBySource(playerData, entitledOrgs) {
 }
 
 // One-shot IP visibility resolution for the player bundle: full redact when the
-// caller has no IP access, source-scoped filter otherwise, untouched for sysadmin.
+// caller has no IP access, decrypt+source-filter otherwise. Always passes through
+// filterPlayerIpData so ipEncrypted is converted to ipAddress (or nulled out).
 function applyIpEntitlement(playerData, entitlement) {
   if (entitlement === null) return filterPlayerIpData(playerData, false);
-  if (entitlement === "ALL") return playerData;
-  return filterIpHistoryBySource(playerData, entitlement);
+  if (entitlement === "ALL") return filterPlayerIpData(playerData, true);
+  return filterPlayerIpData(filterIpHistoryBySource(playerData, entitlement), true);
 }
 
 // External (BattleMetrics) bans are unioned across the caller's orgs: each is
@@ -5037,27 +5057,9 @@ async function handleSavePteroKey(request, orgId) {
 
   try {
     panelUrl = normalizePterodactylPanelUrl(body?.panelUrl ?? "");
-  } catch (err) {
-    const code = String(err?.message ?? "panel_url_invalid");
-    if (code === "pterodactyl_allowed_hosts_unconfigured") {
-      return json(
-        {
-          error:
-            "Pterodactyl integration is not configured: PTERODACTYL_ALLOWED_HOSTS is required.",
-        },
-        503,
-      );
-    }
-    if (code === "panel_url_host_not_allowed") {
-      return json(
-        {
-          error: `panelUrl host must match one of: ${env.pterodactylAllowedHosts.join(", ")}`,
-        },
-        400,
-      );
-    }
+  } catch {
     return json(
-      { error: "panelUrl must be a valid allowed http/https URL" },
+      { error: "panelUrl must be a valid public https URL" },
       400,
     );
   }
@@ -8859,7 +8861,17 @@ async function handleListOrgBans(request, orgId) {
 
   const url = new URL(request.url);
   const actionType = url.searchParams.get("type") ?? "ban";
-  const identifier = url.searchParams.get("identifier") ?? null;
+  const identifierSearch = url.searchParams.get("identifier") ?? null;
+  const canSeeIpInBans = canManageOrg(session, orgId) ||
+    orgHasPermission(session, orgId, "ip_read");
+
+  // For IP ban searches, compare against identifier_hash (HMAC of the IP).
+  // For steam_id searches, use the plaintext identifier column directly.
+  const isIpSearch =
+    identifierSearch != null &&
+    /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]{2,}$/.test(identifierSearch.trim());
+  const identifierHashSearch =
+    isIpSearch ? ipHmac(identifierSearch.trim()) : null;
 
   const { rows } = await pool.query(
     `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
@@ -8875,11 +8887,15 @@ async function handleListOrgBans(request, orgId) {
      LEFT JOIN users u ON u.user_id = b.issued_by
      LEFT JOIN ban_server_targets bst ON bst.ban_id = b.ban_id
      WHERE b.org_id = $1 AND b.action_type = $2
-       AND ($3::text IS NULL OR b.identifier = $3)
+       AND (
+         $3::text IS NULL
+         OR (b.identifier_type != 'ip' AND b.identifier = $3)
+         OR (b.identifier_type = 'ip' AND b.identifier_hash = $4)
+       )
      GROUP BY b.ban_id, u.username
      ORDER BY b.issued_at DESC
      LIMIT 500`,
-    [orgId, actionType, identifier],
+    [orgId, actionType, identifierSearch, identifierHashSearch],
   );
 
   return json({
@@ -8887,7 +8903,11 @@ async function handleListOrgBans(request, orgId) {
       banId: String(r.ban_id),
       orgId: String(r.org_id),
       actionType: String(r.action_type),
-      identifier: String(r.identifier),
+      // Decrypt IP bans for callers with ip_read / manage permission; others see null.
+      identifier:
+        r.identifier_type === "ip"
+          ? (canSeeIpInBans ? (decryptIp(r.identifier) ?? "[encrypted]") : null)
+          : String(r.identifier),
       identifierType: String(r.identifier_type),
       category: r.category ?? null,
       reason: String(r.reason),
@@ -9051,14 +9071,23 @@ async function handleCreateBan(request, orgId) {
     expiresAtUnix = Math.trunc(n);
   }
 
+  // IP bans: store the address encrypted (for display) and its HMAC hash (for
+  // fast lookups at connect time). Steam-ID bans keep identifier as plaintext.
+  const rawIdentifier = identifier.trim();
+  const storedIdentifier =
+    identifierType === "ip" ? encryptIp(rawIdentifier) : rawIdentifier;
+  const storedIdentifierHash =
+    identifierType === "ip" ? ipHmac(rawIdentifier) : null;
+
   await pool.query(
-    `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_type, category, reason, note, expires_at, issued_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_hash, identifier_type, category, reason, note, expires_at, issued_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       banId,
       orgId,
       actionType,
-      identifier.trim(),
+      storedIdentifier,
+      storedIdentifierHash,
       identifierType,
       category ?? null,
       reason,
@@ -9335,7 +9364,11 @@ async function handleRevokeBan(request, orgId, banId) {
         const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
         let command;
         if (identifier_type === "ip") {
-          command = `unbanip ${String(identifier)}`;
+          // identifier is stored encrypted; decrypt to get the raw IP for RCON.
+          const rawIp = decryptIp(String(identifier));
+          if (!rawIp)
+            throw new Error("could not decrypt IP ban identifier for RCON");
+          command = `unbanip ${rawIp}`;
         } else {
           command = `unban ${String(identifier)}`;
         }
@@ -9493,9 +9526,17 @@ async function processBanExpireJob(job) {
       try {
         const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
         const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+        const rconIdentifier =
+          identifier_type === "ip" ? decryptIp(String(identifier)) : null;
+        if (identifier_type === "ip" && !rconIdentifier) {
+          console.error(
+            `[ban-expire] Could not decrypt IP identifier for ban ${banId} — skipping RCON unban`,
+          );
+          continue;
+        }
         const command =
           identifier_type === "ip"
-            ? `unbanip ${String(identifier)}`
+            ? `unbanip ${rconIdentifier}`
             : `unban ${String(identifier)}`;
         await executeRconCommand(rconUrl, command);
       } catch (err) {
@@ -10805,19 +10846,20 @@ const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
 // linked back to that IP ban, mirror its server targets, and push the ban over
 // RCON to the connecting server so the evader is removed immediately. Fully
 // best-effort and idempotent — it must never break the connect ingest path.
-async function enforceIpBanEvasion(server, steamId, ip, playerName) {
+async function enforceIpBanEvasion(server, steamId, ip, ipHash, playerName) {
   try {
     const orgId = server.owner_org_id;
 
+    // Lookup uses identifier_hash (HMAC) so we never need to decrypt every row.
     const ipBanRes = await pool.query(
       `SELECT ban_id, category, reason, expires_at
        FROM player_bans
-       WHERE org_id = $1 AND identifier = $2 AND identifier_type = 'ip'
+       WHERE org_id = $1 AND identifier_hash = $2 AND identifier_type = 'ip'
          AND action_type = 'ban' AND revoked = FALSE
          AND (expires_at IS NULL OR expires_at > unix_now())
        ORDER BY issued_at DESC
        LIMIT 1`,
-      [orgId, ip],
+      [orgId, ipHash],
     );
     const ipBan = ipBanRes.rows[0];
     if (!ipBan) return;
@@ -10952,31 +10994,32 @@ async function handleIngestPlayerConnect(request) {
   if (!/^765611\d{11}$/.test(steamId))
     return json({ error: "Invalid Steam ID" }, 400);
 
-  // Record the IP immediately with server context
+  // Record the IP immediately with server context. IPs are stored encrypted at
+  // rest; the HMAC hash is the lookup/unique key used for ban-evasion checks.
   if (ip) {
+    const ipHash = ipHmac(ip);
+    const ipEnc = encryptIp(ip);
     await pool.query(
-      `INSERT INTO player_ip_history (steam_id, ip_address, server_id, server_name, last_seen)
-       VALUES ($1, $2, $3, $4, unix_now())
-       ON CONFLICT (steam_id, ip_address) DO UPDATE SET
+      `INSERT INTO player_ip_history (steam_id, ip_hash, ip_encrypted, server_id, server_name, last_seen)
+       VALUES ($1, $2, $3, $4, $5, unix_now())
+       ON CONFLICT (steam_id, ip_hash) DO UPDATE SET
          last_seen   = unix_now(),
          server_id   = EXCLUDED.server_id,
          server_name = EXCLUDED.server_name`,
-      [steamId, ip, server.server_id, server.server_name],
+      [steamId, ipHash, ipEnc, server.server_id, server.server_name],
     );
 
-    // Attribute the sighting to the server's org (derived from the server row so
-    // it's robust regardless of the in-memory shape) for source-org filtering.
     await pool.query(
-      `INSERT INTO player_ip_observations (steam_id, ip_address, org_id, server_id, last_seen)
+      `INSERT INTO player_ip_observations (steam_id, ip_hash, org_id, server_id, last_seen)
        SELECT $1, $2, s.owner_org_id, $3, unix_now()
        FROM servers s WHERE s.server_id = $3
-       ON CONFLICT (steam_id, ip_address, org_id) DO UPDATE SET
+       ON CONFLICT (steam_id, ip_hash, org_id) DO UPDATE SET
          last_seen = unix_now(), server_id = EXCLUDED.server_id`,
-      [steamId, ip, server.server_id],
+      [steamId, ipHash, server.server_id],
     );
 
     // IP-ban evasion enforcement (fire-and-forget so connect stays fast).
-    enforceIpBanEvasion(server, steamId, ip, playerName).catch((err) =>
+    enforceIpBanEvasion(server, steamId, ip, ipHash, playerName).catch((err) =>
       console.error("[ip-ban-evasion] unhandled:", err.message),
     );
   }
@@ -12303,7 +12346,7 @@ async function handleGetOrgPlayerList(request, orgId) {
       `SELECT DISTINCT ON (pih.steam_id)
               pih.steam_id, im.is_proxy, im.country, im.latitude, im.longitude
        FROM player_ip_history pih
-       LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
+       LEFT JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
        WHERE pih.steam_id = ANY($1)
          AND (
            pih.server_id IS NULL
@@ -12745,6 +12788,44 @@ async function _handleApiRequest(request) {
         orgTicketTypeMatch[1],
         parseInt(orgTicketTypeMatch[2]),
       );
+    }
+
+    // ── Docs routes ───────────────────────────────────────────────────────────
+    const docsMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs$/);
+    if (docsMatch) {
+      if (request.method === "GET") return handleListOrgDocs(request, docsMatch[1]);
+    }
+
+    const docsCatsMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/categories$/);
+    if (docsCatsMatch) {
+      if (request.method === "POST") return handleCreateDocCategory(request, docsCatsMatch[1]);
+    }
+
+    const docsCatMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/categories\/([^/]+)$/);
+    if (docsCatMatch) {
+      if (request.method === "PATCH")  return handleUpdateDocCategory(request, docsCatMatch[1], docsCatMatch[2]);
+      if (request.method === "DELETE") return handleDeleteDocCategory(request, docsCatMatch[1], docsCatMatch[2]);
+    }
+
+    const docsArticlesMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles$/);
+    if (docsArticlesMatch) {
+      if (request.method === "POST") return handleCreateDocArticle(request, docsArticlesMatch[1]);
+    }
+
+    const docsArticleVersionsMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)\/versions\/([^/]+)$/);
+    if (docsArticleVersionsMatch) {
+      if (request.method === "DELETE") return handleDeleteDocVersion(request, docsArticleVersionsMatch[1], docsArticleVersionsMatch[2], docsArticleVersionsMatch[3]);
+    }
+
+    const docsArticleRestoreMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)\/restore\/([^/]+)$/);
+    if (docsArticleRestoreMatch) {
+      if (request.method === "POST") return handleRestoreDocVersion(request, docsArticleRestoreMatch[1], docsArticleRestoreMatch[2], docsArticleRestoreMatch[3]);
+    }
+
+    const docsArticleMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)$/);
+    if (docsArticleMatch) {
+      if (request.method === "PATCH")  return handleUpdateDocArticle(request, docsArticleMatch[1], docsArticleMatch[2]);
+      if (request.method === "DELETE") return handleDeleteDocArticle(request, docsArticleMatch[1], docsArticleMatch[2]);
     }
 
     const orgTicketsMatch = pathname.match(
@@ -13814,10 +13895,19 @@ async function syncChannelMessages(orgId, guildId, channelId, channelName) {
   return messages.length;
 }
 
+// Retention window < 30 days to stay within GDPR/Discord ToS obligations for
+// users who have not received a moderation action. 25 days (2160000 s) gives a
+// 5-day buffer below the 30-day hard limit.
+const DISCORD_MSG_RETENTION_SECONDS = 25 * 24 * 3600; // 2160000
+
 async function pruneOldDiscordMessages() {
-  await pool.query(
-    `DELETE FROM discord_messages WHERE indexed_at < unix_now() - 2592000`,
+  const result = await pool.query(
+    `DELETE FROM discord_messages WHERE indexed_at < unix_now() - $1`,
+    [DISCORD_MSG_RETENTION_SECONDS],
   );
+  if (result.rowCount > 0) {
+    console.log(`[discord-prune] deleted ${result.rowCount} expired message(s)`);
+  }
 }
 
 // ── Discord API route handlers ────────────────────────────────────────────────
@@ -14753,6 +14843,322 @@ async function handleGetDiscordModLog(request, orgId) {
       createdAt: r.created_at,
     })),
   });
+}
+
+// ── Documentation / wiki ─────────────────────────────────────────────────────
+
+function docArticleRow(a, versions) {
+  return {
+    id: String(a.article_id),
+    orgId: String(a.org_id),
+    categoryId: a.category_id ? String(a.category_id) : null,
+    title: String(a.title),
+    body: String(a.body),
+    minRank: Number(a.min_rank),
+    updatedAt: Number(a.updated_at),
+    updatedByName: a.updated_by_name ?? null,
+    versions: (versions ?? []).map((v) => ({
+      id: String(v.version_id),
+      title: String(v.title),
+      body: String(v.body),
+      savedAt: Number(v.saved_at),
+      savedByName: v.saved_by_name ?? null,
+    })),
+  };
+}
+
+async function handleListOrgDocs(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "tickets_view") && !canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const callerRank = sessionRankForOrg(session, orgId);
+
+  const [catsRes, articlesRes] = await Promise.all([
+    pool.query(
+      `SELECT category_id, org_id, name, parent_id, sort_order, created_at
+       FROM doc_categories WHERE org_id = $1 ORDER BY sort_order, created_at`,
+      [orgId],
+    ),
+    pool.query(
+      `SELECT a.article_id, a.org_id, a.category_id, a.title, a.body,
+              a.min_rank, a.updated_at, a.updated_by_name
+       FROM doc_articles a
+       WHERE a.org_id = $1 AND a.min_rank <= $2
+       ORDER BY a.updated_at DESC`,
+      [orgId, callerRank],
+    ),
+  ]);
+
+  const articleIds = articlesRes.rows.map((r) => r.article_id);
+  let versionsRows = [];
+  if (articleIds.length > 0) {
+    const vr = await pool.query(
+      `SELECT version_id, article_id, title, body, saved_at, saved_by_name
+       FROM doc_article_versions
+       WHERE article_id = ANY($1)
+       ORDER BY saved_at DESC`,
+      [articleIds],
+    );
+    versionsRows = vr.rows;
+  }
+
+  const versionsByArticle = {};
+  for (const v of versionsRows) {
+    (versionsByArticle[v.article_id] ??= []).push(v);
+  }
+
+  return json({
+    categories: catsRes.rows.map((c) => ({
+      id: String(c.category_id),
+      orgId: String(c.org_id),
+      name: String(c.name),
+      parentId: c.parent_id ? String(c.parent_id) : null,
+      sortOrder: Number(c.sort_order),
+    })),
+    articles: articlesRes.rows.map((a) =>
+      docArticleRow(a, versionsByArticle[a.article_id] ?? [])
+    ),
+  });
+}
+
+async function handleCreateDocCategory(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "docs_edit"))
+    return json({ error: "Forbidden: docs_edit permission required" }, 403);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const name = String(body?.name ?? "").trim();
+  if (!name) return json({ error: "name is required" }, 400);
+  const parentId = body?.parentId ? String(body.parentId) : null;
+
+  if (parentId) {
+    const check = await pool.query(
+      `SELECT 1 FROM doc_categories WHERE category_id = $1 AND org_id = $2`,
+      [parentId, orgId],
+    );
+    if (!check.rows[0]) return json({ error: "Parent category not found" }, 404);
+  }
+
+  const categoryId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO doc_categories (category_id, org_id, name, parent_id) VALUES ($1, $2, $3, $4)`,
+    [categoryId, orgId, name, parentId],
+  );
+  return json({
+    category: { id: categoryId, orgId, name, parentId: parentId ?? null, sortOrder: 0 },
+  }, 201);
+}
+
+async function handleUpdateDocCategory(request, orgId, categoryId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "docs_edit"))
+    return json({ error: "Forbidden: docs_edit permission required" }, 403);
+
+  const check = await pool.query(
+    `SELECT 1 FROM doc_categories WHERE category_id = $1 AND org_id = $2`,
+    [categoryId, orgId],
+  );
+  if (!check.rows[0]) return json({ error: "Category not found" }, 404);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const name = String(body?.name ?? "").trim();
+  if (!name) return json({ error: "name is required" }, 400);
+
+  await pool.query(
+    `UPDATE doc_categories SET name = $1 WHERE category_id = $2 AND org_id = $3`,
+    [name, categoryId, orgId],
+  );
+  return json({ ok: true });
+}
+
+async function handleDeleteDocCategory(request, orgId, categoryId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "docs_edit"))
+    return json({ error: "Forbidden: docs_edit permission required" }, 403);
+
+  const check = await pool.query(
+    `SELECT 1 FROM doc_categories WHERE category_id = $1 AND org_id = $2`,
+    [categoryId, orgId],
+  );
+  if (!check.rows[0]) return json({ error: "Category not found" }, 404);
+
+  await pool.query(`UPDATE doc_categories SET parent_id = NULL WHERE parent_id = $1`, [categoryId]);
+  await pool.query(`UPDATE doc_articles SET category_id = NULL WHERE category_id = $1 AND org_id = $2`, [categoryId, orgId]);
+  await pool.query(`DELETE FROM doc_categories WHERE category_id = $1 AND org_id = $2`, [categoryId, orgId]);
+  return json({ ok: true });
+}
+
+async function handleCreateDocArticle(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "docs_edit"))
+    return json({ error: "Forbidden: docs_edit permission required" }, 403);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const title = String(body?.title ?? "").trim() || "Untitled";
+  const articleBody = String(body?.body ?? "");
+  const minRank = Math.max(1, Math.min(4, Number(body?.minRank ?? 1) || 1));
+  const categoryId = body?.categoryId ? String(body.categoryId) : null;
+
+  if (categoryId) {
+    const check = await pool.query(
+      `SELECT 1 FROM doc_categories WHERE category_id = $1 AND org_id = $2`,
+      [categoryId, orgId],
+    );
+    if (!check.rows[0]) return json({ error: "Category not found" }, 404);
+  }
+
+  const articleId = crypto.randomUUID();
+  const now = Math.floor(Date.now() / 1000);
+  await pool.query(
+    `INSERT INTO doc_articles (article_id, org_id, category_id, title, body, min_rank, updated_at, updated_by_user_id, updated_by_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [articleId, orgId, categoryId, title, articleBody, minRank, now, session.userId, session.username ?? null],
+  );
+  return json({
+    article: docArticleRow(
+      { article_id: articleId, org_id: orgId, category_id: categoryId, title, body: articleBody, min_rank: minRank, updated_at: now, updated_by_name: session.username ?? null },
+      [],
+    ),
+  }, 201);
+}
+
+async function handleUpdateDocArticle(request, orgId, articleId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "docs_edit"))
+    return json({ error: "Forbidden: docs_edit permission required" }, 403);
+
+  const existing = await pool.query(
+    `SELECT * FROM doc_articles WHERE article_id = $1 AND org_id = $2`,
+    [articleId, orgId],
+  );
+  if (!existing.rows[0]) return json({ error: "Article not found" }, 404);
+  const prev = existing.rows[0];
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+
+  const title = body?.title != null ? String(body.title).trim() || prev.title : prev.title;
+  const articleBody = body?.body != null ? String(body.body) : prev.body;
+  const minRank = body?.minRank != null ? Math.max(1, Math.min(4, Number(body.minRank) || 1)) : Number(prev.min_rank);
+  const categoryId = "categoryId" in body
+    ? (body.categoryId ? String(body.categoryId) : null)
+    : prev.category_id;
+
+  const versionId = crypto.randomUUID();
+  const now = Math.floor(Date.now() / 1000);
+
+  await pool.query(
+    `INSERT INTO doc_article_versions (version_id, article_id, title, body, saved_at, saved_by_user_id, saved_by_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [versionId, articleId, prev.title, prev.body, now, session.userId, session.username ?? null],
+  );
+  await pool.query(
+    `UPDATE doc_articles
+     SET title = $1, body = $2, min_rank = $3, category_id = $4, updated_at = $5,
+         updated_by_user_id = $6, updated_by_name = $7
+     WHERE article_id = $8 AND org_id = $9`,
+    [title, articleBody, minRank, categoryId, now, session.userId, session.username ?? null, articleId, orgId],
+  );
+
+  const versionsRes = await pool.query(
+    `SELECT version_id, article_id, title, body, saved_at, saved_by_name
+     FROM doc_article_versions WHERE article_id = $1 ORDER BY saved_at DESC`,
+    [articleId],
+  );
+  return json({
+    article: docArticleRow(
+      { article_id: articleId, org_id: orgId, category_id: categoryId, title, body: articleBody, min_rank: minRank, updated_at: now, updated_by_name: session.username ?? null },
+      versionsRes.rows,
+    ),
+  });
+}
+
+async function handleDeleteDocArticle(request, orgId, articleId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin required to delete articles" }, 403);
+
+  const check = await pool.query(
+    `SELECT 1 FROM doc_articles WHERE article_id = $1 AND org_id = $2`,
+    [articleId, orgId],
+  );
+  if (!check.rows[0]) return json({ error: "Article not found" }, 404);
+
+  await pool.query(`DELETE FROM doc_article_versions WHERE article_id = $1`, [articleId]);
+  await pool.query(`DELETE FROM doc_articles WHERE article_id = $1 AND org_id = $2`, [articleId, orgId]);
+  return json({ ok: true });
+}
+
+async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "docs_edit"))
+    return json({ error: "Forbidden: docs_edit permission required" }, 403);
+
+  const existing = await pool.query(
+    `SELECT a.*, v.title AS v_title, v.body AS v_body
+     FROM doc_articles a
+     JOIN doc_article_versions v ON v.version_id = $2 AND v.article_id = a.article_id
+     WHERE a.article_id = $1 AND a.org_id = $3`,
+    [articleId, versionId, orgId],
+  );
+  if (!existing.rows[0]) return json({ error: "Article or version not found" }, 404);
+  const row = existing.rows[0];
+
+  const now = Math.floor(Date.now() / 1000);
+  const newVersionId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO doc_article_versions (version_id, article_id, title, body, saved_at, saved_by_user_id, saved_by_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [newVersionId, articleId, row.title, row.body, now, session.userId, session.username ?? null],
+  );
+  await pool.query(
+    `UPDATE doc_articles
+     SET title = $1, body = $2, updated_at = $3, updated_by_user_id = $4, updated_by_name = $5
+     WHERE article_id = $6 AND org_id = $7`,
+    [row.v_title, row.v_body, now, session.userId, session.username ?? null, articleId, orgId],
+  );
+
+  const versionsRes = await pool.query(
+    `SELECT version_id, article_id, title, body, saved_at, saved_by_name
+     FROM doc_article_versions WHERE article_id = $1 ORDER BY saved_at DESC`,
+    [articleId],
+  );
+  return json({
+    article: docArticleRow(
+      { article_id: articleId, org_id: orgId, category_id: row.category_id, title: row.v_title, body: row.v_body, min_rank: row.min_rank, updated_at: now, updated_by_name: session.username ?? null },
+      versionsRes.rows,
+    ),
+  });
+}
+
+async function handleDeleteDocVersion(request, orgId, articleId, versionId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canManageOrg(session, orgId))
+    return json({ error: "Forbidden: org admin required to delete versions" }, 403);
+
+  const check = await pool.query(
+    `SELECT 1 FROM doc_article_versions v
+     JOIN doc_articles a ON a.article_id = v.article_id
+     WHERE v.version_id = $1 AND a.org_id = $2`,
+    [versionId, orgId],
+  );
+  if (!check.rows[0]) return json({ error: "Version not found" }, 404);
+
+  await pool.query(`DELETE FROM doc_article_versions WHERE version_id = $1`, [versionId]);
+  return json({ ok: true });
 }
 
 export async function handleApiRequest(request) {

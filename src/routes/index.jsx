@@ -14,10 +14,9 @@ import {
   STATUS_LABEL,
   TEAM_IDS,
   TEAM_META,
-  TICKET_TYPES,
+  TICKET_TYPES as DEFAULT_TICKET_TYPES,
   TICKET_TYPE_LABEL,
-  getPlayer,
-} from "@/lib/mock-data";
+} from "@/lib/constants";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -166,6 +165,26 @@ function StaffDashboard() {
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [muteDialogOpen, setMuteDialogOpen] = useState(false);
   const [playerQuery, setPlayerQuery] = useState("");
+  const [ticketTypes, setTicketTypes] = useState(DEFAULT_TICKET_TYPES);
+  useEffect(() => {
+    const orgId = selectedOrgIds[0];
+    if (!orgId) return;
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((body) => {
+        const types = body?.ticketTypes;
+        if (Array.isArray(types) && types.length > 0) {
+          setTicketTypes(
+            types.map((t) => ({
+              id: String(t.id ?? t.name),
+              label: String(t.name ?? t.id),
+              team: teamForType(inferType(t.name)),
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, [selectedOrgIds[0]]);
   const ticketOrgId = (ticket) => ticket.orgId ?? orgForTicket(ticket.number);
   const ticketOrgShort = (ticket) => {
     const orgId = ticketOrgId(ticket);
@@ -247,9 +266,8 @@ function StaffDashboard() {
       }
       for (const id of ids) {
         if (id.toLowerCase().includes(q)) return true;
-        const p = getPlayer(id);
-        if (p && p.name.toLowerCase().includes(q)) return true;
       }
+      if (t.reporterName && t.reporterName.toLowerCase().includes(q)) return true;
       return false;
     };
     const filtered = tickets
@@ -286,8 +304,12 @@ function StaffDashboard() {
   ]);
   const selected =
     tickets.find((t) => t.id === selectedId && canSee(t)) ?? visible[0] ?? null;
-  const subject = selected?.subjectId ? getPlayer(selected.subjectId) : null;
-  const reporter = selected ? getPlayer(selected.reporterId) : getPlayer("");
+  const subject = selected?.subjectId
+    ? { name: selected.subjectName ?? selected.subjectId, steamId: selected.subjectId, avatar: null, playtimeHours: null, country: null, lastSeen: null }
+    : null;
+  const reporter = selected
+    ? { name: selected.reporterName ?? selected.reporterId ?? "Unknown", steamId: selected.reporterId ?? "", avatar: null, playtimeHours: null, country: null, lastSeen: null }
+    : null;
   const isReport = selected?.type === "player_report";
 
   useEffect(() => {
@@ -389,21 +411,6 @@ function StaffDashboard() {
         return { ...next, messages: newMessages };
       }),
     );
-  useEffect(() => {
-    setTickets((all) =>
-      all.map((t) => {
-        if (
-          t.type === "player_report" &&
-          t.status === "waiting_response" &&
-          t.subjectId &&
-          getPlayer(t.subjectId).lastSeen.startsWith("Now")
-        ) {
-          return { ...t, status: "open" };
-        }
-        return t;
-      }),
-    );
-  }, [tickets.length]);
   const assignToMe = () =>
     selected &&
     activeStaff &&
@@ -773,7 +780,7 @@ function StaffDashboard() {
               >
                 All
               </Chip>
-              {TICKET_TYPES.map((t) => (
+              {ticketTypes.map((t) => (
                 <Chip
                   key={t.id}
                   active={typeFilter === t.id}
@@ -833,9 +840,9 @@ function StaffDashboard() {
                 const nameForRow =
                   t.type === "player_report"
                     ? t.subjectId
-                      ? getPlayer(t.subjectId).name
+                      ? (t.subjectName ?? t.subjectId ?? "—")
                       : "\u2014"
-                    : (t.reporterName ?? getPlayer(t.reporterId).name);
+                    : (t.reporterName ?? t.reporterId?.slice(-5) ?? "—");
                 return (
                   <button
                     key={t.id}
@@ -1096,7 +1103,7 @@ function StaffDashboard() {
                   <>
                     {selected.type === "ban_appeal" && (
                       <AppealModerationActions
-                        appellant={getPlayer(selected.reporterId)}
+                        appellant={reporter}
                       />
                     )}
                     <button
@@ -1495,7 +1502,7 @@ function ReportsList({ reports, proofOnly, recencyDays }) {
       </p>
 
       {shown.map((r) => {
-        const p = getPlayer(r.reporterId);
+        const p = { name: r.reporterName ?? r.reporterId?.slice(-5) ?? "?", steamId: r.reporterId ?? "" };
         const tone =
           r.status === "banned"
             ? "text-danger ring-danger/30 bg-danger/10"

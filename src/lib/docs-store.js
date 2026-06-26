@@ -1,117 +1,139 @@
 import { useSyncExternalStore } from "react";
+
 let articles = [];
 let categories = [];
-const listeners = /* @__PURE__ */ new Set();
+let loadedOrgId = null;
+const listeners = new Set();
 const emit = () => listeners.forEach((l) => l());
-const snap = () => ({ articles, categories });
+const snap = () => ({ articles, categories, loadedOrgId });
 let snapRef = snap();
-const refreshSnap = () => {
-  snapRef = snap();
-};
-const docsStore = {
+const refreshSnap = () => { snapRef = snap(); };
+
+export const docsStore = {
   get: () => snapRef,
   subscribe(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
   },
-  addCategory(input) {
-    const c = {
-      id: `cat_${Math.random().toString(36).slice(2, 9)}`,
-      ...input,
-      name: input.name.trim(),
-    };
-    if (!c.name) return null;
-    categories = [...categories, c];
-    refreshSnap();
-    emit();
-    return c;
-  },
-  renameCategory(id, name) {
-    const n = name.trim();
-    if (!n) return;
-    categories = categories.map((c) => (c.id === id ? { ...c, name: n } : c));
+
+  async load(orgId) {
+    if (!orgId) return;
+    loadedOrgId = orgId;
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs`, {
+      credentials: "include",
+    });
+    if (!res.ok) return;
+    const body = await res.json();
+    articles = Array.isArray(body.articles) ? body.articles : [];
+    categories = Array.isArray(body.categories) ? body.categories : [];
     refreshSnap();
     emit();
   },
-  removeCategory(id) {
+
+  async addCategory(orgId, input) {
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs/categories`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: input.name, parentId: input.parentId ?? null }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create category");
+    const { category } = await res.json();
+    categories = [...categories, category];
+    refreshSnap();
+    emit();
+    return category;
+  },
+
+  async renameCategory(id, name) {
+    const orgId = loadedOrgId;
+    if (!orgId) return;
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs/categories/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to rename category");
+    categories = categories.map((c) => (c.id === id ? { ...c, name } : c));
+    refreshSnap();
+    emit();
+  },
+
+  async removeCategory(id) {
+    const orgId = loadedOrgId;
+    if (!orgId) return;
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs/categories/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to delete category");
     categories = categories
       .filter((c) => c.id !== id)
       .map((c) => (c.parentId === id ? { ...c, parentId: null } : c));
-    articles = articles.map((a) =>
-      a.categoryId === id ? { ...a, categoryId: null } : a,
+    articles = articles.map((a) => a.categoryId === id ? { ...a, categoryId: null } : a);
+    refreshSnap();
+    emit();
+  },
+
+  async addArticle(orgId, input) {
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs/articles`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        body: input.body,
+        minRank: input.minRank ?? 1,
+        categoryId: input.categoryId ?? null,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to create article");
+    const { article } = await res.json();
+    articles = [article, ...articles];
+    refreshSnap();
+    emit();
+    return article;
+  },
+
+  async saveArticle(id, patch) {
+    const orgId = loadedOrgId;
+    if (!orgId) return;
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs/articles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to save article");
+    const { article } = await res.json();
+    articles = articles.map((a) => (a.id === id ? article : a));
+    refreshSnap();
+    emit();
+  },
+
+  async restoreVersion(id, versionId) {
+    const orgId = loadedOrgId;
+    if (!orgId) return;
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/docs/articles/${encodeURIComponent(id)}/restore/${encodeURIComponent(versionId)}`,
+      { method: "POST", credentials: "include" },
     );
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to restore version");
+    const { article } = await res.json();
+    articles = articles.map((a) => (a.id === id ? article : a));
     refreshSnap();
     emit();
   },
-  addArticle(input) {
-    const a = {
-      id: `doc_${Math.random().toString(36).slice(2, 9)}`,
-      orgId: input.orgId,
-      categoryId: input.categoryId,
-      title: input.title.trim() || "Untitled",
-      body: input.body,
-      minRank: input.minRank,
-      updatedAt: /* @__PURE__ */ new Date().toISOString(),
-      updatedByName: input.authorName,
-      versions: [],
-    };
-    articles = [a, ...articles];
-    refreshSnap();
-    emit();
-    return a;
-  },
-  saveArticle(id, patch, editor) {
-    articles = articles.map((a) => {
-      if (a.id !== id) return a;
-      const v = {
-        id: `dv_${Math.random().toString(36).slice(2, 9)}`,
-        title: a.title,
-        body: a.body,
-        savedAt: a.updatedAt,
-        savedById: editor.id,
-        savedByName: a.updatedByName,
-      };
-      return {
-        ...a,
-        title: patch.title?.trim() || a.title,
-        body: patch.body ?? a.body,
-        minRank: patch.minRank ?? a.minRank,
-        categoryId:
-          patch.categoryId !== void 0 ? patch.categoryId : a.categoryId,
-        updatedAt: /* @__PURE__ */ new Date().toISOString(),
-        updatedByName: editor.name,
-        versions: [v, ...a.versions],
-      };
-    });
-    refreshSnap();
-    emit();
-  },
-  restoreVersion(id, versionId, editor) {
-    articles = articles.map((a) => {
-      if (a.id !== id) return a;
-      const v = a.versions.find((x) => x.id === versionId);
-      if (!v) return a;
-      const cur = {
-        id: `dv_${Math.random().toString(36).slice(2, 9)}`,
-        title: a.title,
-        body: a.body,
-        savedAt: a.updatedAt,
-        savedById: editor.id,
-        savedByName: a.updatedByName,
-      };
-      return {
-        ...a,
-        title: v.title,
-        body: v.body,
-        updatedAt: /* @__PURE__ */ new Date().toISOString(),
-        updatedByName: editor.name,
-        versions: [cur, ...a.versions],
-      };
-    });
-    refreshSnap();
-    emit();
-  },
-  deleteVersion(articleId, versionId) {
+
+  async deleteVersion(articleId, versionId) {
+    const orgId = loadedOrgId;
+    if (!orgId) return;
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/docs/articles/${encodeURIComponent(articleId)}/versions/${encodeURIComponent(versionId)}`,
+      { method: "DELETE", credentials: "include" },
+    );
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to delete version");
     articles = articles.map((a) =>
       a.id === articleId
         ? { ...a, versions: a.versions.filter((v) => v.id !== versionId) }
@@ -120,26 +142,32 @@ const docsStore = {
     refreshSnap();
     emit();
   },
-  deleteArticle(id) {
+
+  async deleteArticle(id) {
+    const orgId = loadedOrgId;
+    if (!orgId) return;
+    const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/docs/articles/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to delete article");
     articles = articles.filter((a) => a.id !== id);
     refreshSnap();
     emit();
   },
 };
-function useDocs() {
-  return useSyncExternalStore(
-    docsStore.subscribe,
-    docsStore.get,
-    docsStore.get,
-  );
+
+export function useDocs() {
+  return useSyncExternalStore(docsStore.subscribe, docsStore.get, docsStore.get);
 }
-const DOC_RANK_OPTIONS = [
+
+export const DOC_RANK_OPTIONS = [
   { value: 1, label: "Support and above" },
   { value: 2, label: "Admin and above" },
   { value: 3, label: "Sr. Admin and above" },
   { value: 4, label: "Management only" },
 ];
-function docRankLabel(r) {
+
+export function docRankLabel(r) {
   return DOC_RANK_OPTIONS.find((o) => o.value === r)?.label ?? `Rank ${r}+`;
 }
-export { DOC_RANK_OPTIONS, docRankLabel, docsStore, useDocs };
