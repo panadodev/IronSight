@@ -735,19 +735,6 @@ function DiscordModPage() {
     return () => clearTimeout(timer);
   }, [banFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (adminOrgs.length === 0) {
-    return (
-      <div className="flex min-h-screen bg-background">
-        <SiteNav />
-        <main className="ml-56 flex-1 flex items-center justify-center">
-          <p className="text-muted-foreground text-sm">
-            Discord Moderation permission required.
-          </p>
-        </main>
-      </div>
-    );
-  }
-
   const TABS = fullMod
     ? [
         { id: "messages", label: "Messages", icon: Hash },
@@ -762,6 +749,19 @@ function DiscordModPage() {
   useEffect(() => {
     if (!TABS.some((t) => t.id === tab)) setTab(TABS[0].id);
   }, [fullMod, tab]);
+
+  if (adminOrgs.length === 0) {
+    return (
+      <div className="flex min-h-screen bg-background">
+        <SiteNav />
+        <main className="ml-56 flex-1 flex items-center justify-center">
+          <p className="text-muted-foreground text-sm">
+            Discord Moderation permission required.
+          </p>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
