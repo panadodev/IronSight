@@ -416,15 +416,15 @@ function MediaPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
 
-  const isSysAdmin = sessionUser?.isSysAdmin === true;
+  const isSessionSysAdmin = sessionUser?.isSysAdmin === true;
   const canUploadInOrg = (orgId) =>
-    isSysAdmin ||
+    isSessionSysAdmin ||
     sessionOrgAdminIds.includes(orgId) ||
     sessionOrgOwnerIds.includes(orgId) ||
     hasOrgPermission(orgId, "media_upload");
 
   const uploadOrgs = orgs.filter((o) => canUploadInOrg(o.id));
-  const canAccess = isSysAdmin || uploadOrgs.length > 0;
+  const canAccess = isSessionSysAdmin || uploadOrgs.length > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
