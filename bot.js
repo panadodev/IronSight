@@ -317,6 +317,32 @@ function connect(resume = false) {
                     : "",
                 ),
               );
+          } else if (t === "MESSAGE_DELETE") {
+            if (d.guild_id) {
+              fetch(`${API_URL}/api/internal/discord/message/delete`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bot ${TOKEN}`,
+                },
+                body: JSON.stringify({
+                  messageId: d.id,
+                  guildId: d.guild_id,
+                }),
+              })
+                .then((r) => {
+                  if (!r.ok)
+                    console.warn(
+                      `[IronSight Bot] Delete ingest failed (${r.status}) for message ${d.id}`,
+                    );
+                })
+                .catch((err) =>
+                  console.error(
+                    `[IronSight Bot] Delete ingest error for message ${d.id}:`,
+                    err.message,
+                  ),
+                );
+            }
           }
         }
         break;

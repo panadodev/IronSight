@@ -3813,7 +3813,7 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
   if (!org?.bm_org_id) return;
 
   const banRes = await pool.query(
-    "SELECT ban_id, bm_ban_id, identifier, identifier_type, reason, note, expires_at FROM player_bans WHERE ban_id = $1 LIMIT 1",
+    "SELECT ban_id, bm_ban_id, identifier, identifier_type, reason, note, expires_at, player_steam_id FROM player_bans WHERE ban_id = $1 LIMIT 1",
     [banId],
   );
   const ban = banRes.rows[0];
@@ -3826,12 +3826,17 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
       ? decryptIp(ban.identifier)
       : ban.identifier;
 
-  // Look up the BM player ID to link the ban to the player's BM profile
+  // Look up the BM player ID to link the ban to the player's BM profile.
+  // For IP bans with a known player_steam_id, use that to find the BM player.
   let bmPlayerId = null;
-  if (ban.identifier_type === "steam_id" && ban.identifier) {
+  const lookupSteamId =
+    ban.identifier_type === "steam_id"
+      ? ban.identifier
+      : (ban.player_steam_id ?? null);
+  if (lookupSteamId) {
     const pcRes = await pool.query(
       `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
-      [ban.identifier],
+      [lookupSteamId],
     );
     bmPlayerId = pcRes.rows[0]?.bm_id ?? null;
   }
@@ -9223,12 +9228,23 @@ async function handleListOrgBans(request, orgId) {
     `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
             b.category, b.reason, b.note, b.expires_at, b.issued_at,
             b.issued_by, b.revoked, b.revoked_at, b.revoked_by,
-            b.source_ip_ban_id,
+            b.source_ip_ban_id, b.player_steam_id,
             u.username AS issued_by_name,
             COALESCE(
               json_agg(bst.server_id::text) FILTER (WHERE bst.server_id IS NOT NULL),
               '[]'::json
-            ) AS server_ids
+            ) AS server_ids,
+            COALESCE(
+              (SELECT json_agg(json_build_object(
+                 'steamId', lb.identifier,
+                 'name', pc.display_name
+               ) ORDER BY lb.issued_at DESC)
+               FROM player_bans lb
+               LEFT JOIN player_cache pc ON pc.steam_id = lb.identifier
+               WHERE lb.source_ip_ban_id = b.ban_id AND lb.identifier_type = 'steam_id'
+               LIMIT 10),
+              '[]'::json
+            ) AS linked_bans
      FROM player_bans b
      LEFT JOIN users u ON u.user_id = b.issued_by
      LEFT JOIN ban_server_targets bst ON bst.ban_id = b.ban_id
@@ -9255,6 +9271,7 @@ async function handleListOrgBans(request, orgId) {
           ? (canSeeIpInBans ? (decryptIp(r.identifier) ?? "[encrypted]") : null)
           : String(r.identifier),
       identifierType: String(r.identifier_type),
+      playerSteamId: r.player_steam_id ?? null,
       category: r.category ?? null,
       reason: String(r.reason),
       note: String(r.note),
@@ -9266,6 +9283,7 @@ async function handleListOrgBans(request, orgId) {
       revokedAt: r.revoked_at ? Number(r.revoked_at) : null,
       serverIds: Array.isArray(r.server_ids) ? r.server_ids : [],
       sourceIpBanId: r.source_ip_ban_id ? String(r.source_ip_ban_id) : null,
+      linkedBans: Array.isArray(r.linked_bans) ? r.linked_bans : [],
     })),
   });
 }
@@ -9372,7 +9390,12 @@ async function handleCreateBan(request, orgId) {
     serverIds = [],
     category,
     mediaIds = [],
+    playerSteamId: rawPlayerSteamId,
   } = body;
+  const playerSteamId =
+    rawPlayerSteamId && /^\d{17}$/.test(String(rawPlayerSteamId).trim())
+      ? String(rawPlayerSteamId).trim()
+      : null;
 
   // Cap free-text fields to bound DB writes and RCON command size.
   const reason = String(rawReason).slice(0, 500);
@@ -9425,8 +9448,9 @@ async function handleCreateBan(request, orgId) {
   const storedIdentifierHash =
     identifierType === "ip" ? ipHmac(rawIdentifier) : null;
 
-  // Fetch teaminfo from any RCON-configured server in the org before writing
+  // Fetch teaminfo from all RCON-configured servers in the org before writing
   // the ban so we can attach the player's current team to the internal note.
+  // Try all servers in parallel and use the first non-empty response.
   let teamInfoSuffix = "";
   if (identifierType === "steam_id") {
     try {
@@ -9434,18 +9458,25 @@ async function handleCreateBan(request, orgId) {
         `SELECT rcon_host, rcon_port, rcon_password_enc
          FROM servers
          WHERE owner_org_id = $1
-           AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL AND rcon_password_enc IS NOT NULL
-         LIMIT 1`,
+           AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL AND rcon_password_enc IS NOT NULL`,
         [orgId],
       );
-      const tiSrv = tiSrvRes.rows[0];
-      if (tiSrv) {
-        const pwd = decryptPterodactylApiKey(String(tiSrv.rcon_password_enc));
-        const rconUrl = `ws://${tiSrv.rcon_host}:${tiSrv.rcon_port}/${encodeURIComponent(pwd)}`;
-        const ti = await executeRconCommand(rconUrl, `teaminfo ${rawIdentifier}`);
-        const raw = (ti?.response ?? "").trim();
-        if (raw && !/no team|not found|invalid/i.test(raw)) {
-          teamInfoSuffix = `\n\n[Team at ban time]\n${raw}`;
+      if (tiSrvRes.rows.length > 0) {
+        const tiResults = await Promise.allSettled(
+          tiSrvRes.rows.map((srv) => {
+            const pwd = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+            const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(pwd)}`;
+            return executeRconCommand(rconUrl, `teaminfo ${rawIdentifier}`);
+          }),
+        );
+        for (const r of tiResults) {
+          if (r.status === "fulfilled") {
+            const raw = (r.value?.response ?? "").trim();
+            if (raw && !/no team|not found|invalid/i.test(raw)) {
+              teamInfoSuffix = `\n\n[Team at ban time]\n${raw}`;
+              break;
+            }
+          }
         }
       }
     } catch {}
@@ -9453,8 +9484,8 @@ async function handleCreateBan(request, orgId) {
   const note = (userNote + teamInfoSuffix).slice(0, 2000);
 
   await pool.query(
-    `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_hash, identifier_type, category, reason, note, expires_at, issued_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_hash, identifier_type, category, reason, note, expires_at, issued_by, player_steam_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [
       banId,
       orgId,
@@ -9467,6 +9498,7 @@ async function handleCreateBan(request, orgId) {
       note,
       expiresAtUnix,
       session.userId,
+      identifierType === "ip" ? (playerSteamId ?? null) : null,
     ],
   );
 
@@ -9516,39 +9548,40 @@ async function handleCreateBan(request, orgId) {
       [validServerIds],
     );
 
-    for (const srv of serversWithRcon.rows) {
-      try {
-        const password = decryptPterodactylApiKey(
-          String(srv.rcon_password_enc),
-        );
-        const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
-        const safeId = identifier.trim();
-        let command;
-        if (actionType === "mute") {
-          command = `mute ${safeId}`;
-        } else if (identifierType === "ip") {
-          command = `banip ${safeId}`;
-        } else {
-          const safeReason = reason
-            .replace(/[\r\n\x00-\x1f]/g, " ")
-            .replace(/"/g, "'");
-          command = `ban ${safeId} "${safeReason}"`;
-        }
-        const result = await executeRconCommand(rconUrl, command);
-        rconResults.push({
-          serverId: String(srv.server_id),
-          serverName: String(srv.server_name),
-          ok: true,
-          response: result.response,
-        });
-      } catch (err) {
-        rconResults.push({
-          serverId: String(srv.server_id),
-          serverName: String(srv.server_name),
-          ok: false,
-          error: String(err.message),
-        });
+    const safeId = identifier.trim();
+    const safeReason =
+      actionType !== "mute" && identifierType !== "ip"
+        ? reason.replace(/[\r\n\x00-\x1f]/g, " ").replace(/"/g, "'")
+        : null;
+    const rconPromises = serversWithRcon.rows.map(async (srv) => {
+      const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+      const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
+      let command;
+      if (actionType === "mute") {
+        command = `mute ${safeId}`;
+      } else if (identifierType === "ip") {
+        command = `banip ${safeId}`;
+      } else {
+        command = `ban ${safeId} "${safeReason}"`;
       }
+      return executeRconCommand(rconUrl, command).then((result) => ({
+        srv,
+        ok: true,
+        response: result.response,
+      })).catch((err) => ({
+        srv,
+        ok: false,
+        error: String(err.message),
+      }));
+    });
+    const rconOutcomes = await Promise.all(rconPromises);
+    for (const outcome of rconOutcomes) {
+      rconResults.push({
+        serverId: String(outcome.srv.server_id),
+        serverName: String(outcome.srv.server_name),
+        ok: outcome.ok,
+        ...(outcome.ok ? { response: outcome.response } : { error: outcome.error }),
+      });
     }
   }
 
@@ -10673,8 +10706,13 @@ async function handleListOrgMedia(request, orgId) {
 async function handlePrepareMedia(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
-    return json({ error: "Forbidden: bans_create permission required" }, 403);
+  if (!canManageOrg(session, orgId) && !isConfiguredSysAdmin(session)) {
+    const { rows: memberRows } = await pool.query(
+      `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 AND role_id != 'org_disabled' LIMIT 1`,
+      [orgId, session.userId],
+    );
+    if (!memberRows[0]) return json({ error: "Forbidden" }, 403);
+  }
 
   if (!r2Configured())
     return json({ error: "R2 storage is not configured on this server. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, and R2_PUBLIC_URL." }, 503);
@@ -10747,8 +10785,13 @@ async function handlePrepareMedia(request, orgId) {
 async function handleConfirmMedia(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId) && !isConfiguredSysAdmin(session)) {
+    const { rows: memberRows } = await pool.query(
+      `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 AND role_id != 'org_disabled' LIMIT 1`,
+      [orgId, session.userId],
+    );
+    if (!memberRows[0]) return json({ error: "Forbidden" }, 403);
+  }
 
   let body;
   try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -10799,8 +10842,13 @@ async function handleConfirmMedia(request, orgId) {
 async function handleDeleteMedia(request, orgId, mediaId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId) && !isConfiguredSysAdmin(session)) {
+    const { rows: memberRows } = await pool.query(
+      `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 AND role_id != 'org_disabled' LIMIT 1`,
+      [orgId, session.userId],
+    );
+    if (!memberRows[0]) return json({ error: "Forbidden" }, 403);
+  }
 
   const { rows } = await pool.query(
     `SELECT media_id, uploaded_by, r2_key, storage_backend, multipart_upload_id FROM org_media
@@ -13187,6 +13235,13 @@ async function _handleApiRequest(request) {
     }
 
     if (
+      pathname === "/api/internal/discord/message/delete" &&
+      request.method === "POST"
+    ) {
+      return handleDeleteDiscordMessage(request);
+    }
+
+    if (
       pathname === "/api/internal/bot/staff-list" &&
       request.method === "GET"
     ) {
@@ -14985,6 +15040,38 @@ async function handleIngestDiscordMessage(request) {
   return json({ ok: true });
 }
 
+async function handleDeleteDiscordMessage(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const { messageId, guildId } = body ?? {};
+  if (!messageId || !guildId) {
+    return json({ error: "Missing required fields" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT org_id FROM organizations WHERE guild_id = $1 LIMIT 1`,
+    [String(guildId)],
+  );
+  if (!orgRes.rows[0]) return json({ ok: false, reason: "no org" });
+  const orgId = orgRes.rows[0].org_id;
+
+  await pool.query(
+    `UPDATE discord_messages SET deleted = TRUE
+     WHERE org_id = $1 AND message_id = $2`,
+    [orgId, String(messageId)],
+  );
+
+  return json({ ok: true });
+}
+
 async function handleGetDiscordBotGuilds(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -15109,7 +15196,7 @@ async function handleGetDiscordMessages(request, orgId) {
 
   const { rows } = await pool.query(
     `SELECT message_id, channel_id, channel_name, author_discord_id, author_username,
-            content, attachments, discord_created_at
+            content, attachments, discord_created_at, deleted
      FROM discord_messages
      WHERE ${conditions.join(" AND ")}
      ORDER BY discord_created_at DESC
@@ -15127,6 +15214,7 @@ async function handleGetDiscordMessages(request, orgId) {
       content: r.content,
       attachments: r.attachments,
       createdAt: r.discord_created_at,
+      deleted: r.deleted,
     })),
   });
 }

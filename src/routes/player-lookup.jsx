@@ -1283,6 +1283,7 @@ function PlayerLookupPage() {
               onCreated={() => setIssueBanOpen(false)}
               defaultActionType={issueBanActionType}
               defaultIdentifier={steamId}
+              playerSteamId={steamId}
               manageableOrgIds={offenseOrgIds.length ? offenseOrgIds : (banOrgId ? [banOrgId] : [])}
               orgs={orgs}
               hasOrgPermission={hasOrgPermission}

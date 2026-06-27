@@ -139,7 +139,7 @@ function SessionTimeline({ sessionWindows }) {
       return assigned;
     });
 
-    const maxRow = Math.max(...rowMap, 0);
+    const maxRow = rowMap.reduce((max, v) => Math.max(max, v), 0);
     const height = (maxRow + 1) * 14 + 4;
 
     return {

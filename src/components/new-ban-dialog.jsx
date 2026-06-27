@@ -72,6 +72,7 @@ export function NewBanDialog({
   onCreated,
   defaultActionType = "ban",
   defaultIdentifier = "",
+  playerSteamId = null,
   manageableOrgIds,
   orgs,
   servers: serversProp,
@@ -207,6 +208,9 @@ export function NewBanDialog({
           expiresAt: computeExpiresAt(duration),
           serverIds: selectedServerIds,
           mediaIds: linkedMediaIds,
+          ...(identifierType === "ip" && playerSteamId
+            ? { playerSteamId }
+            : {}),
         }),
       });
       const body = await res.json().catch(() => null);

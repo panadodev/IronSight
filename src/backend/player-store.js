@@ -1242,16 +1242,17 @@ async function writeSessionWindowsToCache(steamId, windows) {
   await pool.query(`DELETE FROM player_session_windows WHERE steam_id = $1`, [
     steamId,
   ]);
-  if (!windows.length) return;
+  const rows = dedupBy(windows, (w) => `${w.bmServerId}:${w.startedAt}`);
+  if (!rows.length) return;
   await pool.query(
     `INSERT INTO player_session_windows (steam_id, bm_server_id, started_at, stopped_at)
      SELECT $1, unnest($2::text[]), unnest($3::bigint[]), unnest($4::bigint[])
      ON CONFLICT (steam_id, bm_server_id, started_at) DO NOTHING`,
     [
       steamId,
-      windows.map((w) => w.bmServerId),
-      windows.map((w) => w.startedAt),
-      windows.map((w) => w.stoppedAt),
+      rows.map((w) => w.bmServerId),
+      rows.map((w) => w.startedAt),
+      rows.map((w) => w.stoppedAt),
     ],
   );
 }
@@ -1342,7 +1343,7 @@ async function writeProxycheckToCache(ipResults) {
          latitude  = COALESCE($10, ip_metadata.latitude),
          longitude = COALESCE($11, ip_metadata.longitude),
          cached_at = unix_now(),
-         cache_expires_at = unix_now() + 2592000`,
+         cache_expires_at = unix_now() + 15552000`,
       [
         hash,
         enc,
@@ -1502,20 +1503,16 @@ export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) 
     // Redis write overwritten by this chain finishing late.
     const ipsOnly = relIdentifiers.ips.map((x) => x.ip);
 
-    // Also classify any IPs that arrived via server ingest (handleIngestConnect)
-    // but have never been through proxycheck — these have no ip_metadata row or
-    // an expired one. Players with no BM ID (existingBmId=none) would otherwise
-    // never get country/ISP data populated for their connection points.
-    const uncheckedRows = await pool.query(
-      `SELECT pih.ip_encrypted
-       FROM player_ip_history pih
-       LEFT JOIN ip_metadata im
-         ON im.ip_hash = pih.ip_hash AND im.cache_expires_at > unix_now()
-       WHERE pih.steam_id = $1 AND im.ip_hash IS NULL`,
+    // Pull ALL IPs from our own records so they feed proxycheck and alt-scoring
+    // context — BM may not have returned them (e.g. no BM ID, or BM hasn't seen
+    // the connection). runProxycheckForIps serves cached entries from ip_metadata
+    // without hitting the API, so including already-cached IPs here is safe.
+    const ownIpRows = await pool.query(
+      `SELECT ip_encrypted FROM player_ip_history WHERE steam_id = $1`,
       [steamId],
     );
     const bmIpSet = new Set(ipsOnly);
-    for (const row of uncheckedRows.rows) {
+    for (const row of ownIpRows.rows) {
       const plain = decryptIp(row.ip_encrypted);
       if (plain && !bmIpSet.has(plain)) ipsOnly.push(plain);
     }

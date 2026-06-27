@@ -309,7 +309,7 @@ function BansMutesPage() {
                         <div className="font-mono font-medium truncate">
                           {r.identifier}
                         </div>
-                        <div className="flex items-center gap-1 mt-0.5">
+                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                           <span
                             className={
                               "px-1 rounded text-[9px] font-bold ring-1 " +
@@ -333,6 +333,23 @@ function BansMutesPage() {
                             </span>
                           )}
                         </div>
+                        {r.identifierType === "ip" && r.playerSteamId && (
+                          <div className="mt-1 text-[10px] font-mono text-muted-foreground truncate">
+                            {r.playerSteamId}
+                          </div>
+                        )}
+                        {r.identifierType === "ip" && r.linkedBans?.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {r.linkedBans.map((lb) => (
+                              <div key={lb.steamId} className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1">
+                                <span className="px-1 rounded text-[9px] font-bold ring-1 bg-danger/10 text-danger ring-danger/30">
+                                  auto-banned
+                                </span>
+                                <span className="truncate">{lb.name ?? lb.steamId}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 ring-border bg-surface capitalize">

@@ -1168,9 +1168,13 @@ export async function ensureSchema(pool) {
       attachments JSONB NOT NULL DEFAULT '[]',
       discord_created_at BIGINT NOT NULL,
       indexed_at BIGINT NOT NULL DEFAULT unix_now(),
+      deleted BOOLEAN NOT NULL DEFAULT FALSE,
       PRIMARY KEY (org_id, message_id)
     )
   `);
+  await pool.query(
+    `ALTER TABLE discord_messages ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_discord_messages_org_channel
      ON discord_messages(org_id, channel_id, discord_created_at DESC)`,
@@ -1337,6 +1341,11 @@ export async function ensureSchema(pool) {
   // without decrypting every row. Only populated when identifier_type = 'ip'.
   await pool.query(
     `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS identifier_hash TEXT`,
+  );
+  // Optional Steam ID of the player associated with an IP ban (so BM sync and
+  // the UI can display a name alongside the IP address).
+  await pool.query(
+    `ALTER TABLE player_bans ADD COLUMN IF NOT EXISTS player_steam_id TEXT`,
   );
   // Drop old plaintext-indexed partial index if it still exists (schema migration).
   await pool.query(`DROP INDEX IF EXISTS idx_player_bans_ip_active`);

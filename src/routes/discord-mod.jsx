@@ -901,7 +901,7 @@ function DiscordModPage() {
                   {messages.map((msg) => (
                     <div
                       key={msg.id}
-                      className="px-5 py-3 hover:bg-surface/30 transition-colors group"
+                      className={`px-5 py-3 hover:bg-surface/30 transition-colors group${msg.deleted ? " bg-destructive/5" : ""}`}
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
@@ -912,11 +912,16 @@ function DiscordModPage() {
                             <span className="text-[10px] font-mono text-muted-foreground">
                               {msg.authorDiscordId}
                             </span>
+                            {msg.deleted && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">
+                                Deleted
+                              </span>
+                            )}
                             <span className="text-[10px] text-muted-foreground ml-auto">
                               {fmtAgo(msg.createdAt)}
                             </span>
                           </div>
-                          <p className="text-sm text-foreground/90 mt-0.5 break-words whitespace-pre-wrap">
+                          <p className={`text-sm mt-0.5 break-words whitespace-pre-wrap${msg.deleted ? " line-through text-muted-foreground" : " text-foreground/90"}`}>
                             {msg.content || (
                               <em className="text-muted-foreground">
                                 [no text]
