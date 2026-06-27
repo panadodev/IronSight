@@ -1857,8 +1857,8 @@ export async function getPlayerCacheData(steamId) {
     sessionWindows: sessionWindows.rows.map((r) => ({
       bmServerId: String(r.bm_server_id),
       serverName: r.server_name ?? null,
-      startedAt: r.started_at,
-      stoppedAt: r.stopped_at ?? null,
+      startedAt: Number(r.started_at),
+      stoppedAt: r.stopped_at != null ? Number(r.stopped_at) : null,
     })),
     isStale: Boolean(p.is_stale),
     cacheExpiresAt: p.cache_expires_at,
