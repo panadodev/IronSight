@@ -1,9 +1,9 @@
 // External API fetch layer: per-org key rotation, rate-limit handling, and
 // Steam concurrency throttling for BattleMetrics / Steam / Proxycheck.
 
-import { pool, redis } from "./runtime.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
 import { diagRecordOutgoing } from "./diagnostics.js";
+import { pool } from "./runtime.js";
 
 // ── External API key helpers (BM / Steam / Proxycheck) ───────────────────────
 
@@ -140,8 +140,14 @@ async function externalFetchWithRotation(
       continue;
     }
 
+    // Privacy-aware Steam endpoints use 401/403 to indicate a private target
+    // profile, so those statuses are expected and should not count as errors.
+    const isExpectedPrivacyStatus =
+      service === "steam" &&
+      privacyAware &&
+      (resp.status === 401 || resp.status === 403);
     diagRecordOutgoing(service, url, resp.status, Date.now() - t0ext, {
-      expected: service === "steam" && resp.status === 403,
+      expected: isExpectedPrivacyStatus,
     });
 
     if (resp.status === 429) {
