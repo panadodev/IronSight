@@ -3379,20 +3379,31 @@ function GlobalpingSection({ orgId }) {
           >
             <RefreshCw className="size-3" /> Refresh
           </button>
-          <button
-            onClick={() => {
-              const next = !playerMode;
-              setPlayerMode(next);
-              if (next) loadPlayers();
-            }}
-            className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 transition-colors ${
-              playerMode
-                ? "text-emerald-400 hover:text-emerald-300"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Users className="size-3" /> {playerMode ? "Latency" : "Players"}
-          </button>
+          <div className="inline-flex items-center gap-0.5 ring-1 ring-border rounded bg-surface/40 p-0.5">
+            <button
+              onClick={() => setPlayerMode(false)}
+              className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                !playerMode
+                  ? "bg-surface text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Activity className="size-3" /> Latency
+            </button>
+            <button
+              onClick={() => {
+                if (!playerMode) loadPlayers();
+                setPlayerMode(true);
+              }}
+              className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                playerMode
+                  ? "bg-surface text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Users className="size-3" /> Players
+            </button>
+          </div>
         </div>
       </div>
 
