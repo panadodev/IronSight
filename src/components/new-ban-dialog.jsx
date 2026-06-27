@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { MediaPicker } from "@/components/media-picker";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
-  DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,13 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
-import { MediaPicker } from "@/components/media-picker";
-import { Film, Image, FileIcon, X, ImagePlus } from "lucide-react";
+import { FileIcon, Film, ImagePlus, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 export const DURATION_PRESETS = [
   { label: "1 Hour", value: "60" },
