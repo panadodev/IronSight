@@ -1032,7 +1032,7 @@ async function rateLimitLogin(request) {
   return null;
 }
 
-async function exchangeDiscordCode(request, code) {
+async function exchangeDiscordCode(request, code, fetchGuilds = true) {
   if (!env.discordClientId || !env.discordClientSecret) {
     throw new Error("discord_config_missing");
   }
@@ -1083,21 +1083,23 @@ async function exchangeDiscordCode(request, code) {
   const me = await userRes.json();
 
   let guilds = null;
-  try {
-    const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
-      headers: { authorization: `Bearer ${tokenBody.access_token}` },
-    });
-    if (guildsRes.ok) {
-      const raw = await guildsRes.json();
-      if (Array.isArray(raw)) {
-        guilds = raw.map((g) => ({
-          id: String(g.id),
-          name: String(g.name ?? ""),
-          icon: g.icon ?? null,
-        }));
+  if (fetchGuilds) {
+    try {
+      const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
+        headers: { authorization: `Bearer ${tokenBody.access_token}` },
+      });
+      if (guildsRes.ok) {
+        const raw = await guildsRes.json();
+        if (Array.isArray(raw)) {
+          guilds = raw.map((g) => ({
+            id: String(g.id),
+            name: String(g.name ?? ""),
+            icon: g.icon ?? null,
+          }));
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   return {
     discordId: String(me.id),
@@ -1176,7 +1178,7 @@ async function handlePublicDiscordStart(request) {
     client_id: env.discordClientId,
     response_type: "code",
     redirect_uri: getDiscordRedirectUri(request),
-    scope: "identify guilds",
+    scope: "identify",
     state,
   });
 
@@ -1200,7 +1202,7 @@ async function handleDiscordCallback(request) {
   }
 
   try {
-    const discordUser = await exchangeDiscordCode(request, code);
+    const discordUser = await exchangeDiscordCode(request, code, stateData.flow !== "public");
 
     try {
       await init();
