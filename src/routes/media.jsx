@@ -473,69 +473,70 @@ function MediaPage() {
 
   if (!canAccess) {
     return (
-      <SiteNav>
-        <div className="h-screen w-full flex flex-col">
-          <div className="flex-1 grid place-items-center px-6">
-            <div className="max-w-md text-center space-y-3">
-              <ShieldAlert className="size-10 text-warning mx-auto" />
-              <h1 className="text-lg font-semibold">Permission required</h1>
-              <p className="text-sm text-muted-foreground">
-                Media Gallery requires the Upload Media permission.
-              </p>
-            </div>
+      <div className="h-screen w-full flex flex-col bg-background">
+        <SiteNav />
+        <div className="flex-1 grid place-items-center px-6">
+          <div className="max-w-md text-center space-y-3">
+            <ShieldAlert className="size-10 text-warning mx-auto" />
+            <h1 className="text-lg font-semibold">Permission required</h1>
+            <p className="text-sm text-muted-foreground">
+              Media Gallery requires the Upload Media permission.
+            </p>
           </div>
         </div>
-      </SiteNav>
+      </div>
     );
   }
 
   return (
-    <SiteNav>
-      <div className="space-y-5 p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-lg font-semibold">Media Gallery</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {isSysAdmin
-                ? "All media across all organizations — sysadmin view."
-                : "Your uploaded evidence clips, screenshots, and files stored in Cloudflare R2."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              {["all", "image", "video", "other"].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTypeFilter(t)}
-                  className={`px-2.5 py-1 text-[11px] rounded-md ring-1 transition-colors capitalize ${
-                    typeFilter === t
-                      ? "ring-brand/60 bg-brand/15 text-brand font-medium"
-                      : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t === "all" ? "All" : t}
-                </button>
-              ))}
+    <div className="h-screen w-full flex flex-col bg-background">
+      <SiteNav />
+      <div className="flex-1 overflow-y-auto">
+        <div className="space-y-5 p-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-lg font-semibold">Media Gallery</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {isSysAdmin
+                  ? "All media across all organizations — sysadmin view."
+                  : "Your uploaded evidence clips, screenshots, and files stored in Cloudflare R2."}
+              </p>
             </div>
-            <button
-              onClick={load}
-              disabled={loading}
-              title="Refresh"
-              className="inline-flex items-center h-7 px-2 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
-            </button>
-            <Button
-              size="sm"
-              className="h-7 text-xs px-3"
-              onClick={() => setUploadOpen(true)}
-              disabled={uploadOrgs.length === 0}
-            >
-              <Plus className="size-3.5" />
-              Upload
-            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                {["all", "image", "video", "other"].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTypeFilter(t)}
+                    className={`px-2.5 py-1 text-[11px] rounded-md ring-1 transition-colors capitalize ${
+                      typeFilter === t
+                        ? "ring-brand/60 bg-brand/15 text-brand font-medium"
+                        : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t === "all" ? "All" : t}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={load}
+                disabled={loading}
+                title="Refresh"
+                className="inline-flex items-center h-7 px-2 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
+              </button>
+              <Button
+                size="sm"
+                className="h-7 text-xs px-3"
+                onClick={() => setUploadOpen(true)}
+                disabled={uploadOrgs.length === 0}
+              >
+                <Plus className="size-3.5" />
+                Upload
+              </Button>
+            </div>
           </div>
-        </div>
 
         {error && (
           <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -634,7 +635,8 @@ function MediaPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
-    </SiteNav>
+    </div>
   );
 }
