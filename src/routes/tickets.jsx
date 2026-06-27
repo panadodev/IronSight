@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
+  FileIcon,
   Gamepad2,
   LayoutList,
   Search,
@@ -160,6 +161,7 @@ function TicketsPage() {
   const [tickets, setTickets] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
+  const [selectedMedia, setSelectedMedia] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [replyText, setReplyText] = useState("");
   const [composerMode, setComposerMode] = useState("reply");
@@ -206,11 +208,13 @@ function TicketsPage() {
     let cancelled = false;
     setDetailLoading(true);
     setSelectedMessages([]);
+    setSelectedMedia([]);
     fetch(`/api/tickets/${selectedId}`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : { messages: [] }))
+      .then((r) => (r.ok ? r.json() : { messages: [], media: [] }))
       .then((data) => {
         if (!cancelled) {
           setSelectedMessages(data.messages ?? []);
+          setSelectedMedia(data.media ?? []);
           setDetailLoading(false);
         }
       })
@@ -308,7 +312,11 @@ function TicketsPage() {
     const res = await fetch(`/api/tickets/${selectedId}`, {
       credentials: "include",
     });
-    if (res.ok) setSelectedMessages((await res.json()).messages ?? []);
+    if (res.ok) {
+      const data = await res.json();
+      setSelectedMessages(data.messages ?? []);
+      setSelectedMedia(data.media ?? []);
+    }
   }, [selectedId]);
 
   useEffect(() => {
@@ -543,6 +551,7 @@ function TicketsPage() {
             <TicketDetail
               ticket={selectedTicket}
               messages={selectedMessages}
+              media={selectedMedia}
               noteText={noteText}
               onNoteChange={setNoteText}
               onPostNote={handlePostNote}
@@ -794,6 +803,7 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
 function TicketDetail({
   ticket,
   messages,
+  media = [],
   noteText,
   onNoteChange,
   onPostNote,
@@ -920,7 +930,51 @@ function TicketDetail({
                 ))}
               </div>
             )}
-            {messages.length === 0 && (
+            {media.length > 0 && (
+              <div className="px-4 py-2 space-y-2">
+                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                  Evidence / Attachments
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {media.map((item) => (
+                    <a
+                      key={item.mediaId}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group relative rounded ring-1 ring-border hover:ring-brand transition-colors overflow-hidden"
+                    >
+                      {item.fileType === "image" && item.url ? (
+                        <img
+                          src={item.url}
+                          alt={item.title || item.filename}
+                          className="w-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
+                        />
+                      ) : item.fileType === "video" && item.url ? (
+                        <video
+                          src={item.url}
+                          className="w-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
+                          preload="metadata"
+                        />
+                      ) : (
+                        <div className="w-full aspect-square bg-surface/40 flex items-center justify-center">
+                          <FileIcon className="size-6 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                      {(item.title || item.filename) && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <p className="text-[9px] text-white truncate">
+                            {item.title || item.filename}
+                          </p>
+                        </div>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {messages.length === 0 && media.length === 0 && (
               <div className="text-[10px] text-muted-foreground text-center py-10">
                 No messages yet
               </div>

@@ -120,7 +120,8 @@ import {
   getCachedTicket,
   invalidateTicketCache,
   loadTicketFromDb,
-  loadTicketMessages
+  loadTicketMessages,
+  loadTicketMedia
 } from "./ticket-store.js";
 import {
   isValidSteamId,
@@ -4709,6 +4710,7 @@ async function handleGetTicket(request, ticketIdStr) {
   }
 
   const messages = await loadTicketMessages(id);
+  const media = await loadTicketMedia(id);
 
   const isViewerStaff =
     isGlobalAdmin(session) ||
@@ -4726,7 +4728,7 @@ async function handleGetTicket(request, ticketIdStr) {
             : m,
         );
 
-  return json({ ticket, messages: returnedMessages });
+  return json({ ticket, messages: returnedMessages, media });
 }
 
 // Decrypt or redact IP history entries depending on the caller's entitlement.

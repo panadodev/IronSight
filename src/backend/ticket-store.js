@@ -2,6 +2,7 @@
 // the ticket handlers in api.js; depends only on the runtime singletons.
 
 import { pool, redis } from "./runtime.js";
+import { getPublicUrl } from "./r2.js";
 
 export function ticketCacheKey(ticketId) {
   return `ticket:${ticketId}`;
@@ -100,5 +101,26 @@ export async function loadTicketMessages(ticketId) {
     message: String(row.message),
     isInternal: Boolean(row.is_internal),
     createdAt: Number(row.created_at),
+  }));
+}
+
+export async function loadTicketMedia(ticketId) {
+  const { rows } = await pool.query(
+    `SELECT m.media_id, m.org_id, m.filename, m.file_type, m.file_size, m.title, m.uploaded_at, m.r2_key
+     FROM ticket_media_links tml
+     JOIN org_media m ON m.media_id = tml.media_id
+     WHERE tml.ticket_id = $1 AND m.deleted = FALSE
+     ORDER BY m.uploaded_at DESC`,
+    [ticketId],
+  );
+  return rows.map((row) => ({
+    mediaId: String(row.media_id),
+    orgId: String(row.org_id),
+    filename: String(row.filename),
+    fileType: String(row.file_type),
+    fileSize: row.file_size != null ? Number(row.file_size) : null,
+    title: row.title ?? "",
+    uploadedAt: Number(row.uploaded_at),
+    url: row.r2_key ? getPublicUrl(String(row.r2_key)) : null,
   }));
 }
