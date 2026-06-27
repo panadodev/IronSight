@@ -1799,7 +1799,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('discord_timeout',     'Timeout, untimeout, mute, and unmute Discord members'),
       ('discord_kick',        'Kick Discord members'),
       ('discord_ban',         'Ban and unban Discord members'),
-      ('discord_delete_messages', 'Delete a banned user\'s messages from Discord'),
+      ('discord_delete_messages', 'Delete a banned user''s messages from Discord'),
       ('discord_bans_view',   'View and sync Discord ban list'),
       ('discord_modlog_view', 'View Discord moderation log'),
       ('staff_online_view',   'View the online staff list'),
