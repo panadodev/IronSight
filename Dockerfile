@@ -2,7 +2,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 COPY . .
 RUN NODE_OPTIONS="--max-old-space-size=1024" npm run build
