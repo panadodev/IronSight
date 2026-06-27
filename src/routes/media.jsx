@@ -396,7 +396,7 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
 }
 
 function MediaPage() {
-  const { orgs, orgsLoaded, sessionUser, hasOrgPermission } = useAuth();
+  const { orgs, orgsLoaded, sessionUser, hasOrgPermission, sessionOrgAdminIds, sessionOrgOwnerIds } = useAuth();
   const LIMIT = 50;
   const [media, setMedia] = useState([]);
   const [total, setTotal] = useState(0);
@@ -410,7 +410,8 @@ function MediaPage() {
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
 
   const uploadOrgs = orgs.filter((o) => hasOrgPermission(o.id, "media_upload"));
-  const canAccess = sessionUser?.isSysAdmin || uploadOrgs.length > 0;
+  const isOrgAdminOrOwner = orgs.some((o) => sessionOrgAdminIds.includes(o.id) || sessionOrgOwnerIds.includes(o.id));
+  const canAccess = sessionUser?.isSysAdmin || isOrgAdminOrOwner || uploadOrgs.length > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
