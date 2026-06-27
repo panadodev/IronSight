@@ -10,6 +10,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -31,10 +38,10 @@ export const Route = createFileRoute("/media")({
   component: MediaPage,
 });
 
-const PART_SIZE = 100 * 1024 * 1024; // 100 MB per multipart chunk
+const PART_SIZE = 100 * 1024 * 1024;
 
 function formatBytes(bytes) {
-  if (!bytes) return null;
+  if (!bytes) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -42,7 +49,7 @@ function formatBytes(bytes) {
 }
 
 function formatDate(unix) {
-  if (!unix) return null;
+  if (!unix) return "—";
   return new Date(unix * 1000).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -50,78 +57,10 @@ function formatDate(unix) {
   });
 }
 
-function FileTypeIcon({ fileType, className = "size-5" }) {
+function FileTypeIcon({ fileType, className = "size-4" }) {
   if (fileType === "video") return <Film className={className} />;
   if (fileType === "image") return <Image className={className} />;
   return <FileIcon className={className} />;
-}
-
-function MediaCard({ item, onDelete, deleting }) {
-  const isImage = item.fileType === "image";
-  const isVideo = item.fileType === "video";
-
-  return (
-    <div className="group rounded-lg ring-1 ring-border bg-surface/40 overflow-hidden flex flex-col">
-      <div className="relative bg-black/20 aspect-video flex items-center justify-center overflow-hidden">
-        {isImage ? (
-          <img
-            src={item.url}
-            alt={item.title || item.filename}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        ) : isVideo ? (
-          <video
-            src={item.url}
-            className="w-full h-full object-cover"
-            preload="metadata"
-            muted
-          />
-        ) : (
-          <FileIcon className="size-10 text-muted-foreground" />
-        )}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-          {item.url && (
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-background/90 rounded-md ring-1 ring-border hover:bg-background transition-colors"
-            >
-              <ExternalLink className="size-3" />
-              Open
-            </a>
-          )}
-          <button
-            onClick={() => onDelete(item.mediaId)}
-            disabled={deleting}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-danger/90 text-white rounded-md hover:bg-danger transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="size-3" />
-          </button>
-        </div>
-      </div>
-      <div className="p-3 flex-1 min-w-0 space-y-1">
-        <p className="text-xs font-medium truncate">{item.title || item.filename}</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <FileTypeIcon fileType={item.fileType} className="size-3" />
-            {item.fileType}
-          </span>
-          {item.fileSize && (
-            <span className="text-[10px] text-muted-foreground">{formatBytes(item.fileSize)}</span>
-          )}
-          <span className="text-[10px] text-muted-foreground">{formatDate(item.uploadedAt)}</span>
-          {item.storageBackend && item.storageBackend !== "zipline" && (
-            <span className="text-[10px] text-muted-foreground opacity-50 uppercase">{item.storageBackend}</span>
-          )}
-        </div>
-        {item.uploadedByName && (
-          <p className="text-[10px] text-muted-foreground truncate">by {item.uploadedByName}</p>
-        )}
-      </div>
-    </div>
-  );
 }
 
 // Upload a single chunk via XHR so we get progress events.
@@ -144,12 +83,13 @@ function uploadChunkXhr(url, blob, onProgress) {
   });
 }
 
-function UploadDialog({ open, onClose, orgId, onUploaded }) {
+function UploadDialog({ open, onClose, orgs, onUploaded }) {
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
+  const [orgId, setOrgId] = useState(orgs[0]?.id ?? "");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [progress, setProgress] = useState(null); // 0-100
+  const [progress, setProgress] = useState(null);
   const [statusText, setStatusText] = useState("");
   const fileRef = useRef(null);
 
@@ -163,17 +103,17 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
 
   useEffect(() => {
     if (!open) reset();
+    else setOrgId(orgs[0]?.id ?? "");
   }, [open]);
 
   async function handleUpload(e) {
     e.preventDefault();
-    if (!file) return;
+    if (!file || !orgId) return;
     setUploading(true);
     setError("");
     setProgress(0);
 
     try {
-      // Phase 1: get presigned URL from our API.
       setStatusText("Preparing upload…");
       const prepareRes = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/prepare`, {
         method: "POST",
@@ -196,7 +136,6 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
       let parts = null;
 
       if (multipart) {
-        // Phase 2a: S3 multipart upload (large files >= 300 MB).
         setStatusText("Uploading (large file — multipart)…");
         const { partUrls, partSize } = multipart;
         parts = [];
@@ -204,20 +143,17 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
           const start = i * partSize;
           const chunk = file.slice(start, start + partSize);
           const etag = await uploadChunkXhr(partUrls[i], chunk, (frac) => {
-            const overall = ((i + frac) / partUrls.length) * 95;
-            setProgress(Math.round(overall));
+            setProgress(Math.round(((i + frac) / partUrls.length) * 95));
           });
           parts.push({ partNumber: i + 1, etag });
         }
       } else {
-        // Phase 2b: Direct PUT to R2 (single-part).
         setStatusText("Uploading…");
         await uploadChunkXhr(uploadUrl, file, (frac) => {
           setProgress(Math.round(frac * 95));
         });
       }
 
-      // Phase 3: confirm with our API.
       setStatusText("Finalizing…");
       setProgress(98);
       const confirmRes = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/confirm`, {
@@ -233,7 +169,8 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
       }
 
       setProgress(100);
-      onUploaded(confirmBody.media);
+      const org = orgs.find((o) => o.id === orgId);
+      onUploaded({ ...confirmBody.media, orgName: org?.name ?? orgId });
       onClose();
     } catch (err) {
       setError(err.message ?? "Upload failed.");
@@ -248,11 +185,25 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
         <DialogHeader>
           <DialogTitle>Upload media</DialogTitle>
           <DialogDescription>
-            Upload images or video clips to your organization's media gallery.
-            Files are uploaded directly to cloud storage.
+            Files go directly from your browser to Cloudflare R2. Files ≥ 300 MB use multipart upload.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleUpload} className="space-y-4 py-2">
+          {orgs.length > 1 && (
+            <div className="space-y-1.5">
+              <Label>Organization</Label>
+              <Select value={orgId} onValueChange={setOrgId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  {orgs.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>File</Label>
             {file ? (
@@ -279,7 +230,7 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
               >
                 <Upload className="size-6" />
                 <span className="text-sm">Click to select a file</span>
-                <span className="text-[11px]">Images &amp; videos · up to 5 GB · files ≥ 300 MB use multipart upload</span>
+                <span className="text-[11px]">Images, videos &amp; PDFs · up to 5 GB</span>
               </button>
             )}
             <input
@@ -320,7 +271,7 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
             <Button type="button" variant="ghost" onClick={onClose} disabled={uploading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!file || uploading}>
+            <Button type="submit" disabled={!file || !orgId || uploading}>
               {uploading ? "Uploading…" : "Upload"}
             </Button>
           </div>
@@ -330,17 +281,132 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
   );
 }
 
-function OrgMediaSection({ orgId, orgName }) {
-  const LIMIT = 24;
+function Thumbnail({ item }) {
+  if (item.fileType === "image" && item.url) {
+    return (
+      <img
+        src={item.url}
+        alt={item.title || item.filename}
+        className="size-9 rounded object-cover bg-black/20 shrink-0"
+        loading="lazy"
+      />
+    );
+  }
+  if (item.fileType === "video" && item.url) {
+    return (
+      <video
+        src={item.url}
+        className="size-9 rounded object-cover bg-black/20 shrink-0"
+        preload="none"
+        muted
+      />
+    );
+  }
+  return (
+    <div className="size-9 rounded bg-surface/40 ring-1 ring-border flex items-center justify-center shrink-0">
+      <FileTypeIcon fileType={item.fileType} className="size-4 text-muted-foreground" />
+    </div>
+  );
+}
+
+function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
+  return (
+    <div className="rounded-lg ring-1 ring-border overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border bg-surface/30">
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10" />
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+            {isSysAdmin && (
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden md:table-cell">Org</th>
+            )}
+            {isSysAdmin && (
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden lg:table-cell">Uploader</th>
+            )}
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell w-16">Type</th>
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell w-20">Size</th>
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">Uploaded</th>
+            <th className="text-right px-3 py-2 font-medium text-muted-foreground w-20">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {media.map((item) => (
+            <tr key={item.mediaId} className="hover:bg-surface/20 transition-colors">
+              <td className="px-3 py-2">
+                <Thumbnail item={item} />
+              </td>
+              <td className="px-3 py-2 max-w-0">
+                <p className="font-medium truncate text-foreground">{item.title || item.filename}</p>
+                {item.title && (
+                  <p className="text-[10px] text-muted-foreground truncate">{item.filename}</p>
+                )}
+              </td>
+              {isSysAdmin && (
+                <td className="px-3 py-2 hidden md:table-cell text-muted-foreground truncate max-w-[120px]">
+                  {item.orgName ?? item.orgId ?? "—"}
+                </td>
+              )}
+              {isSysAdmin && (
+                <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground truncate max-w-[120px]">
+                  {item.uploadedByName ?? "—"}
+                </td>
+              )}
+              <td className="px-3 py-2 hidden sm:table-cell">
+                <span className="inline-flex items-center gap-1 text-muted-foreground capitalize">
+                  <FileTypeIcon fileType={item.fileType} className="size-3" />
+                  {item.fileType}
+                </span>
+              </td>
+              <td className="px-3 py-2 hidden sm:table-cell text-muted-foreground tabular-nums">
+                {formatBytes(item.fileSize)}
+              </td>
+              <td className="px-3 py-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                {formatDate(item.uploadedAt)}
+              </td>
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-1.5 justify-end">
+                  {item.url && (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-border hover:bg-surface/60 transition-colors text-muted-foreground hover:text-foreground"
+                      title="Open"
+                    >
+                      <ExternalLink className="size-3" />
+                    </a>
+                  )}
+                  <button
+                    onClick={() => onDelete(item)}
+                    disabled={deletingId === item.mediaId}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-danger/40 hover:bg-danger/10 transition-colors text-danger disabled:opacity-40"
+                    title="Delete"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MediaPage() {
+  const { orgs, orgsLoaded, sessionUser } = useAuth();
+  const LIMIT = 50;
   const [media, setMedia] = useState([]);
   const [total, setTotal] = useState(0);
+  const [isSysAdmin, setIsSysAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [offset, setOffset] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [offset, setOffset] = useState(0);
+  const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -348,9 +414,7 @@ function OrgMediaSection({ orgId, orgName }) {
     try {
       const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
       if (typeFilter !== "all") params.set("type", typeFilter);
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media?${params}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/media?${params}`, { credentials: "include" });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         setError(body?.error ?? "Failed to load media.");
@@ -358,26 +422,27 @@ function OrgMediaSection({ orgId, orgName }) {
       }
       setMedia(body.media ?? []);
       setTotal(body.total ?? 0);
+      setIsSysAdmin(body.isSysAdmin === true);
     } catch (err) {
       setError(err.message ?? "Failed to load media.");
     } finally {
       setLoading(false);
     }
-  }, [orgId, typeFilter, offset]);
+  }, [typeFilter, offset]);
 
-  useEffect(() => { setOffset(0); }, [orgId, typeFilter]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { setOffset(0); }, [typeFilter]);
+  useEffect(() => { if (orgsLoaded) load(); }, [load, orgsLoaded]);
 
-  async function handleDelete(mediaId) {
-    setDeletingId(mediaId);
-    setConfirmDeleteId(null);
+  async function handleDelete(item) {
+    setDeletingId(item.mediaId);
+    setConfirmDelete(null);
     try {
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/${mediaId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(item.orgId)}/media/${item.mediaId}`,
+        { method: "DELETE", credentials: "include" },
+      );
       if (res.ok) {
-        setMedia((prev) => prev.filter((m) => m.mediaId !== mediaId));
+        setMedia((prev) => prev.filter((m) => m.mediaId !== item.mediaId));
         setTotal((t) => Math.max(0, t - 1));
       }
     } finally {
@@ -389,174 +454,150 @@ function OrgMediaSection({ orgId, orgName }) {
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap border-b border-border pb-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <h2 className="text-sm font-semibold truncate">{orgName}</h2>
-          {loading ? (
-            <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>
-          ) : total > 0 ? (
-            <span className="text-xs text-muted-foreground">{total} item{total !== 1 ? "s" : ""}</span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {["all", "image", "video", "other"].map((t) => (
+    <SiteNav>
+      <div className="space-y-5 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-lg font-semibold">Media Gallery</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {isSysAdmin
+                ? "All media across all organizations — sysadmin view."
+                : "Your uploaded evidence clips, screenshots, and files stored in Cloudflare R2."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              {["all", "image", "video", "other"].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTypeFilter(t)}
+                  className={`px-2.5 py-1 text-[11px] rounded-md ring-1 transition-colors capitalize ${
+                    typeFilter === t
+                      ? "ring-brand/60 bg-brand/15 text-brand font-medium"
+                      : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {t === "all" ? "All" : t}
+                </button>
+              ))}
+            </div>
             <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={`px-2.5 py-1 text-[11px] rounded-md ring-1 transition-colors capitalize ${
-                typeFilter === t
-                  ? "ring-brand/60 bg-brand/15 text-brand font-medium"
-                  : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
-              }`}
+              onClick={load}
+              disabled={loading}
+              title="Refresh"
+              className="inline-flex items-center h-7 px-2 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
             >
-              {t === "all" ? "All" : t}
+              <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
             </button>
-          ))}
-          <button
-            onClick={load}
-            disabled={loading}
-            title="Refresh"
-            className="inline-flex items-center h-7 px-2 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
-          </button>
-          <Button size="sm" className="h-7 text-xs px-3" onClick={() => setUploadOpen(true)}>
-            <Plus className="size-3.5" />
-            Upload
-          </Button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-          {error}
-        </div>
-      )}
-
-      {loading && media.length === 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-lg ring-1 ring-border bg-surface/20 aspect-video animate-pulse" />
-          ))}
-        </div>
-      ) : media.length === 0 ? (
-        <div className="rounded-lg ring-1 ring-border bg-surface/20 py-10 flex flex-col items-center gap-2 text-center">
-          <HardDrive className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No media uploaded yet.</p>
-          <p className="text-xs text-muted-foreground max-w-xs">
-            Upload clips, screenshots, or evidence files. They'll appear here and can be linked to bans.
-          </p>
-          <Button size="sm" className="mt-1" onClick={() => setUploadOpen(true)}>
-            <Upload className="size-3.5" />
-            Upload first file
-          </Button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {media.map((item) => (
-            <MediaCard
-              key={item.mediaId}
-              item={item}
-              onDelete={(id) => setConfirmDeleteId(id)}
-              deleting={deletingId === item.mediaId}
-            />
-          ))}
-        </div>
-      )}
-
-      {pages > 1 && (
-        <div className="flex items-center gap-2 justify-center pt-1">
-          <Button variant="ghost" size="sm" disabled={currentPage <= 1}
-            onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}>
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {currentPage} of {pages}
-          </span>
-          <Button variant="ghost" size="sm" disabled={currentPage >= pages}
-            onClick={() => setOffset((o) => o + LIMIT)}>
-            Next
-          </Button>
-        </div>
-      )}
-
-      <UploadDialog
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        orgId={orgId}
-        onUploaded={(item) => {
-          setMedia((prev) => [item, ...prev]);
-          setTotal((t) => t + 1);
-        }}
-      />
-
-      <Dialog open={!!confirmDeleteId} onOpenChange={(o) => !o && setConfirmDeleteId(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete media?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete the file from cloud storage and remove it from all linked bans.
-              This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex gap-2 justify-end pt-2">
-            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
             <Button
-              variant="destructive"
-              onClick={() => handleDelete(confirmDeleteId)}
-              disabled={!!deletingId}
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={() => setUploadOpen(true)}
+              disabled={orgs.length === 0}
             >
-              {deletingId ? "Deleting…" : "Delete"}
+              <Plus className="size-3.5" />
+              Upload
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function MediaPage() {
-  const { orgs, orgsLoaded } = useAuth();
-
-  return (
-    <SiteNav>
-      <div className="space-y-6 p-6">
-        <div>
-          <h1 className="text-lg font-semibold">Media Gallery</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Evidence clips and images stored in Cloudflare R2. Files go directly from your browser to R2 — no server proxying.
-          </p>
         </div>
 
-        {!orgsLoaded ? (
-          <div className="space-y-8">
-            {[0, 1].map((i) => (
-              <div key={i} className="space-y-3">
-                <div className="flex items-center gap-3 pb-3 border-b border-border">
-                  <div className="h-3.5 w-28 bg-surface/60 rounded animate-pulse" />
-                  <div className="h-3 w-14 bg-surface/40 rounded animate-pulse" />
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                  {Array.from({ length: 6 }).map((_, j) => (
-                    <div key={j} className="rounded-lg ring-1 ring-border bg-surface/20 aspect-video animate-pulse" />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : orgs.length === 0 ? (
-          <div className="rounded-lg ring-1 ring-border bg-surface/20 py-16 text-center">
-            <HardDrive className="size-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">You don't have access to any organizations.</p>
-          </div>
-        ) : (
-          <div className="space-y-10">
-            {orgs.map((org) => (
-              <OrgMediaSection key={org.id} orgId={org.id} orgName={org.name} />
-            ))}
+        {error && (
+          <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {error}
           </div>
         )}
+
+        {loading && media.length === 0 ? (
+          <div className="rounded-lg ring-1 ring-border overflow-hidden">
+            <div className="divide-y divide-border">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2">
+                  <div className="size-9 rounded bg-surface/40 animate-pulse shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 w-48 bg-surface/60 rounded animate-pulse" />
+                    <div className="h-2.5 w-32 bg-surface/40 rounded animate-pulse" />
+                  </div>
+                  <div className="h-3 w-16 bg-surface/40 rounded animate-pulse hidden sm:block" />
+                  <div className="h-3 w-20 bg-surface/40 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : media.length === 0 ? (
+          <div className="rounded-lg ring-1 ring-border bg-surface/20 py-14 flex flex-col items-center gap-2 text-center">
+            <HardDrive className="size-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No media uploaded yet.</p>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              Upload clips, screenshots, or evidence files. They can be linked to bans.
+            </p>
+            {orgs.length > 0 && (
+              <Button size="sm" className="mt-1" onClick={() => setUploadOpen(true)}>
+                <Upload className="size-3.5" />
+                Upload first file
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{total} file{total !== 1 ? "s" : ""}</span>
+            </div>
+            <MediaTable
+              media={media}
+              onDelete={(item) => setConfirmDelete(item)}
+              deletingId={deletingId}
+              isSysAdmin={isSysAdmin}
+            />
+          </>
+        )}
+
+        {pages > 1 && (
+          <div className="flex items-center gap-2 justify-center pt-1">
+            <Button variant="ghost" size="sm" disabled={currentPage <= 1}
+              onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}>
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {pages}
+            </span>
+            <Button variant="ghost" size="sm" disabled={currentPage >= pages}
+              onClick={() => setOffset((o) => o + LIMIT)}>
+              Next
+            </Button>
+          </div>
+        )}
+
+        <UploadDialog
+          open={uploadOpen}
+          onClose={() => setUploadOpen(false)}
+          orgs={orgs}
+          onUploaded={(item) => {
+            setMedia((prev) => [item, ...prev]);
+            setTotal((t) => t + 1);
+          }}
+        />
+
+        <Dialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete media?</DialogTitle>
+              <DialogDescription>
+                <span className="font-medium text-foreground">{confirmDelete?.title || confirmDelete?.filename}</span>
+                {" "}will be permanently deleted from cloud storage and removed from all linked bans. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                onClick={() => handleDelete(confirmDelete)}
+                disabled={!!deletingId}
+              >
+                {deletingId ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </SiteNav>
   );

@@ -10564,6 +10564,66 @@ async function getUserStorageUsed(orgId, userId) {
   return Number(rows[0].used);
 }
 
+async function handleListAllMedia(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const limitParam = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)));
+  const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10));
+  const fileType = url.searchParams.get("type") ?? null;
+  const sysAdmin = isConfiguredSysAdmin(session);
+
+  const conditions = ["m.deleted = FALSE", "m.confirmed = TRUE", "m.source = 'staff'"];
+  const params = [];
+  let paramIdx = 1;
+
+  if (!sysAdmin) {
+    conditions.push(`m.uploaded_by = $${paramIdx++}`);
+    params.push(session.userId);
+
+    const userOrgs = await listUserOrganizations(session.userId);
+    if (userOrgs.length === 0) return json({ media: [], total: 0, isSysAdmin: false });
+    const placeholders = userOrgs.map((_, i) => `$${paramIdx + i}`).join(",");
+    conditions.push(`m.org_id IN (${placeholders})`);
+    params.push(...userOrgs.map((o) => o.orgId));
+    paramIdx += userOrgs.length;
+  }
+
+  if (fileType && ["image", "video", "other"].includes(fileType)) {
+    conditions.push(`m.file_type = $${paramIdx++}`);
+    params.push(fileType);
+  }
+
+  const where = conditions.join(" AND ");
+
+  const { rows } = await pool.query(
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend,
+            m.zipline_url, m.filename, m.file_type, m.mime_type, m.file_size, m.title,
+            m.uploaded_at, m.last_accessed_at,
+            u.username AS uploaded_by_name,
+            o.name AS org_name
+     FROM org_media m
+     LEFT JOIN users u ON u.user_id = m.uploaded_by
+     LEFT JOIN organizations o ON o.org_id = m.org_id
+     WHERE ${where}
+     ORDER BY m.uploaded_at DESC
+     LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+    [...params, limitParam, offset],
+  );
+
+  const countRes = await pool.query(
+    `SELECT COUNT(*) AS total FROM org_media m WHERE ${where}`,
+    params,
+  );
+
+  return json({
+    media: rows.map((r) => ({ ...serializeMedia(r), orgName: r.org_name })),
+    total: Number(countRes.rows[0].total),
+    isSysAdmin: sysAdmin,
+  });
+}
+
 async function handleListOrgMedia(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -14035,6 +14095,10 @@ async function _handleApiRequest(request) {
     );
     if (orgGlobalpingLimitsMatch && request.method === "GET")
       return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
+
+    // Cross-org media list (user's own uploads; sysadmin sees all)
+    if (pathname === "/api/media" && request.method === "GET")
+      return handleListAllMedia(request);
 
     // Org media gallery (R2/S3 direct-upload)
     const orgMediaMatch = pathname.match(
