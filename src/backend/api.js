@@ -219,6 +219,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "presets_manage",
   "status_view",
   "servers_manage",
+  "media_upload",
   "tickets_view",
   "tickets_manage",
   "tickets_player_intel",
@@ -10634,15 +10635,37 @@ async function handleListAllMedia(request) {
   let paramIdx = 1;
 
   if (!sysAdmin) {
-    conditions.push(`m.uploaded_by = $${paramIdx++}`);
-    params.push(session.userId);
-
     const userOrgs = await listUserOrganizations(session.userId);
     if (userOrgs.length === 0) return json({ media: [], total: 0, isSysAdmin: false });
-    const placeholders = userOrgs.map((_, i) => `$${paramIdx + i}`).join(",");
-    conditions.push(`m.org_id IN (${placeholders})`);
-    params.push(...userOrgs.map((o) => o.orgId));
-    paramIdx += userOrgs.length;
+
+    const orgIds = userOrgs.map((o) => String(o.orgId));
+    const elevatedOrgSet = new Set(
+      Array.isArray(session.orgAdminOrgIds)
+        ? session.orgAdminOrgIds.map((id) => String(id))
+        : [],
+    );
+    const elevatedOrgIds = orgIds.filter((id) => elevatedOrgSet.has(id));
+    const personalOrgIds = orgIds.filter((id) => !elevatedOrgSet.has(id));
+    const scopeClauses = [];
+
+    if (elevatedOrgIds.length > 0) {
+      scopeClauses.push(`m.org_id = ANY($${paramIdx++}::text[])`);
+      params.push(elevatedOrgIds);
+    }
+
+    if (personalOrgIds.length > 0) {
+      const personalOrgsParam = paramIdx++;
+      const userParam = paramIdx++;
+      scopeClauses.push(
+        `(m.org_id = ANY($${personalOrgsParam}::text[]) AND m.uploaded_by = $${userParam})`,
+      );
+      params.push(personalOrgIds, session.userId);
+    }
+
+    if (scopeClauses.length === 0)
+      return json({ media: [], total: 0, isSysAdmin: false });
+
+    conditions.push(`(${scopeClauses.join(" OR ")})`);
   }
 
   if (fileType && ["image", "video", "other"].includes(fileType)) {
@@ -10682,7 +10705,8 @@ async function handleListAllMedia(request) {
 async function handleListOrgMedia(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "players_view") &&
+  const canManage = canManageOrg(session, orgId) || isConfiguredSysAdmin(session);
+  if (!canManage && !orgHasPermission(session, orgId, "players_view") &&
       !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
     return json({ error: "Forbidden" }, 403);
 
@@ -10694,6 +10718,11 @@ async function handleListOrgMedia(request, orgId) {
   const conditions = ["m.org_id = $1", "m.deleted = FALSE", "m.confirmed = TRUE", "m.source = 'staff'"];
   const params = [orgId];
   let paramIdx = 2;
+
+  if (!canManage) {
+    conditions.push(`m.uploaded_by = $${paramIdx++}`);
+    params.push(session.userId);
+  }
 
   if (fileType && ["image", "video", "other"].includes(fileType)) {
     conditions.push(`m.file_type = $${paramIdx++}`);
@@ -14177,7 +14206,10 @@ async function _handleApiRequest(request) {
     if (orgGlobalpingLimitsMatch && request.method === "GET")
       return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
 
-    // Cross-org media list (user's own uploads; sysadmin sees all)
+    // Cross-org media list:
+    // - sysadmin sees all media
+    // - org owners/admins see all media in orgs they manage
+    // - everyone else only sees their own uploads within their orgs
     if (pathname === "/api/media" && request.method === "GET")
       return handleListAllMedia(request);
 

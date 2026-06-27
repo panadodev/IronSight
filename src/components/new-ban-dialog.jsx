@@ -144,6 +144,12 @@ export function NewBanDialog({
     if (!canIssueIp && identifierType === "ip") setIdentifierType("steam_id");
   }, [canIssueIp, identifierType]);
 
+  useEffect(() => {
+    // Keep evidence scoped to the currently selected org.
+    setLinkedMediaIds([]);
+    setLinkedMediaItems([]);
+  }, [orgId]);
+
   const activeConfig = useMemo(() => {
     if (actionType === "mute") return orgMuteConfigs[orgId] ?? null;
     if (!category || category === "other") return null;
