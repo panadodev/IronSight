@@ -1798,7 +1798,8 @@ export async function ensureRolePermissionSeed(pool) {
       ('chat_view',           'View in-game chat logs'),
       ('flagged_messages_resolve', 'Resolve AI-flagged chat messages (confirm and clear)'),
       ('flagged_messages_confirm', 'Confirm AI-flagged chat messages as violations'),
-      ('flagged_messages_clear',   'Clear (dismiss) AI-flagged chat messages')
+      ('flagged_messages_clear',   'Clear (dismiss) AI-flagged chat messages'),
+      ('media_upload',             'Upload and manage media files')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 

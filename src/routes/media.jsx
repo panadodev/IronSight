@@ -30,6 +30,7 @@ import {
   ExternalLink,
   RefreshCw,
   HardDrive,
+  ShieldAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -395,7 +396,7 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
 }
 
 function MediaPage() {
-  const { orgs, orgsLoaded, sessionUser } = useAuth();
+  const { orgs, orgsLoaded, sessionUser, hasOrgPermission } = useAuth();
   const LIMIT = 50;
   const [media, setMedia] = useState([]);
   const [total, setTotal] = useState(0);
@@ -407,6 +408,9 @@ function MediaPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
+
+  const uploadOrgs = orgs.filter((o) => hasOrgPermission(o.id, "media_upload"));
+  const canAccess = sessionUser?.isSysAdmin || uploadOrgs.length > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -453,6 +457,24 @@ function MediaPage() {
   const pages = Math.ceil(total / LIMIT);
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
+  if (!canAccess) {
+    return (
+      <SiteNav>
+        <div className="h-screen w-full flex flex-col">
+          <div className="flex-1 grid place-items-center px-6">
+            <div className="max-w-md text-center space-y-3">
+              <ShieldAlert className="size-10 text-warning mx-auto" />
+              <h1 className="text-lg font-semibold">Permission required</h1>
+              <p className="text-sm text-muted-foreground">
+                Media Gallery requires the Upload Media permission.
+              </p>
+            </div>
+          </div>
+        </div>
+      </SiteNav>
+    );
+  }
+
   return (
     <SiteNav>
       <div className="space-y-5 p-6">
@@ -493,7 +515,7 @@ function MediaPage() {
               size="sm"
               className="h-7 text-xs px-3"
               onClick={() => setUploadOpen(true)}
-              disabled={orgs.length === 0}
+              disabled={uploadOrgs.length === 0}
             >
               <Plus className="size-3.5" />
               Upload
@@ -570,7 +592,7 @@ function MediaPage() {
         <UploadDialog
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}
-          orgs={orgs}
+          orgs={uploadOrgs}
           onUploaded={(item) => {
             setMedia((prev) => [item, ...prev]);
             setTotal((t) => t + 1);

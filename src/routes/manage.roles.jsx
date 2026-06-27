@@ -65,6 +65,11 @@ const PERMISSION_GROUPS = [
         label: "Manage Servers",
         desc: "Add and configure game server connections",
       },
+      {
+        id: "media_upload",
+        label: "Upload Media",
+        desc: "Upload and manage evidence clips and screenshots",
+      },
     ],
   },
   {

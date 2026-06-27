@@ -10732,6 +10732,8 @@ async function handlePrepareMedia(request, orgId) {
       [orgId, session.userId],
     );
     if (!memberRows[0]) return json({ error: "Forbidden" }, 403);
+    if (!orgHasPermission(session, orgId, "media_upload"))
+      return json({ error: "Forbidden" }, 403);
   }
 
   if (!r2Configured())
@@ -10811,6 +10813,8 @@ async function handleConfirmMedia(request, orgId) {
       [orgId, session.userId],
     );
     if (!memberRows[0]) return json({ error: "Forbidden" }, 403);
+    if (!orgHasPermission(session, orgId, "media_upload"))
+      return json({ error: "Forbidden" }, 403);
   }
 
   let body;

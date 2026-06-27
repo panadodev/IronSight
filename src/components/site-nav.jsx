@@ -112,6 +112,7 @@ function SiteNav() {
     anyOrgHas("bans_ip");
   const canTriggers = anyOrgHas("triggers_manage");
   const canDiscordMod = anyOrgHas("discord_mod");
+  const canMedia = anyOrgHas("media_upload");
   const canSharing =
     isSysAdminSession ||
     orgs.some(
@@ -421,7 +422,7 @@ function SiteNav() {
           matchSearch: (s) => s.tab === "status",
           show: canStatus,
         },
-        { to: "/media", label: "Media", show: true },
+        { to: "/media", label: "Media", show: canMedia },
       ],
     },
     {
