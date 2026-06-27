@@ -9,7 +9,7 @@
 // (F7 hook), so it depends only on runtime.js and ticket-store.js.
 
 import { pool } from "./runtime.js";
-import { loadTicketFromDb, cacheTicket } from "./ticket-store.js";
+import { cacheTicket, loadTicketFromDb } from "./ticket-store.js";
 
 // Canonical fact catalogue. The frontend mirrors these ids/labels; the engine is
 // the source of truth for how each is computed. Only facts we can actually
@@ -241,7 +241,7 @@ export async function computePlayerFacts(orgId, steamId) {
     pool.query(
       `SELECT EXISTS(
          SELECT 1 FROM player_ip_history pih
-         LEFT JOIN ip_metadata im ON im.ip_address = pih.ip_address
+         LEFT JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
          WHERE pih.steam_id = $1
            AND (pih.is_vpn IS TRUE OR im.is_proxy IS TRUE OR im.is_vpn IS TRUE)
        ) AS proxy`,

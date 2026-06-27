@@ -1,11 +1,11 @@
 import {
-  AbortMultipartUploadCommand,
-  CompleteMultipartUploadCommand,
-  CreateMultipartUploadCommand,
-  DeleteObjectCommand,
-  PutObjectCommand,
-  S3Client,
-  UploadPartCommand,
+    AbortMultipartUploadCommand,
+    CompleteMultipartUploadCommand,
+    CreateMultipartUploadCommand,
+    DeleteObjectCommand,
+    PutObjectCommand,
+    S3Client,
+    UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "node:crypto";
@@ -66,6 +66,10 @@ function getR2Client() {
         accessKeyId: env.r2AccessKeyId,
         secretAccessKey: env.r2SecretAccessKey,
       },
+      // Disable automatic checksum calculation — presigned PUT URLs are sent
+      // directly from the browser via XHR which cannot compute CRC32 headers.
+      requestChecksumCalculation: "when_required",
+      responseChecksumValidation: "when_required",
     });
   }
   return _r2Client;
