@@ -1811,11 +1811,13 @@ export async function ensureRolePermissionSeed(pool) {
       ('org_admin', 'todo_delete'),
       ('org_admin', 'org_manage'),
       ('org_admin', 'server_admin'),
+      ('org_admin', 'media_upload'),
       ('org_owner', 'todo_write'),
       ('org_owner', 'todo_delete'),
       ('org_owner', 'org_manage'),
       ('org_owner', 'role_create'),
-      ('org_owner', 'server_admin')
+      ('org_owner', 'server_admin'),
+      ('org_owner', 'media_upload')
      ON CONFLICT (role_id, permission_id) DO NOTHING`,
   );
 
