@@ -1,36 +1,36 @@
 import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Film,
-  Image,
-  Plus,
-  Trash2,
-  Upload,
-  X,
-  FileIcon,
-  ExternalLink,
-  RefreshCw,
-  HardDrive,
-  ShieldAlert,
+    ExternalLink,
+    FileIcon,
+    Film,
+    HardDrive,
+    Image,
+    Plus,
+    RefreshCw,
+    ShieldAlert,
+    Trash2,
+    Upload,
+    X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -396,7 +396,14 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
 }
 
 function MediaPage() {
-  const { orgs, orgsLoaded, sessionUser, hasOrgPermission, sessionOrgAdminIds, sessionOrgOwnerIds } = useAuth();
+  const {
+    orgs = [],
+    orgsLoaded,
+    sessionUser,
+    hasOrgPermission,
+    sessionOrgAdminIds = [],
+    sessionOrgOwnerIds = [],
+  } = useAuth();
   const LIMIT = 50;
   const [media, setMedia] = useState([]);
   const [total, setTotal] = useState(0);
@@ -409,9 +416,15 @@ function MediaPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
 
-  const uploadOrgs = orgs.filter((o) => hasOrgPermission(o.id, "media_upload"));
-  const isOrgAdminOrOwner = orgs.some((o) => sessionOrgAdminIds.includes(o.id) || sessionOrgOwnerIds.includes(o.id));
-  const canAccess = sessionUser?.isSysAdmin || isOrgAdminOrOwner || uploadOrgs.length > 0;
+  const isSysAdmin = sessionUser?.isSysAdmin === true;
+  const canUploadInOrg = (orgId) =>
+    isSysAdmin ||
+    sessionOrgAdminIds.includes(orgId) ||
+    sessionOrgOwnerIds.includes(orgId) ||
+    hasOrgPermission(orgId, "media_upload");
+
+  const uploadOrgs = orgs.filter((o) => canUploadInOrg(o.id));
+  const canAccess = isSysAdmin || uploadOrgs.length > 0;
 
   const load = useCallback(async () => {
     setLoading(true);

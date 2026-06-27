@@ -6307,6 +6307,49 @@ async function handleListServers(request) {
   return json(result);
 }
 
+async function handleListOrgServers(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isConfiguredSysAdmin(session)) {
+    const { rows: memberRows } = await pool.query(
+      `SELECT 1 FROM organization_members
+       WHERE org_id = $1 AND user_id = $2 AND role_id != 'org_disabled'
+       LIMIT 1`,
+      [orgId, session.userId],
+    );
+    if (!memberRows[0]) return json({ error: "Forbidden" }, 403);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT server_id, server_name, owner_org_id, created_at, ptero_identifier,
+            rcon_host, rcon_port, game_port, tags, last_health_ping,
+            (rcon_password_enc IS NOT NULL AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL) AS rcon_configured
+     FROM servers
+     WHERE owner_org_id = $1
+     ORDER BY server_name ASC`,
+    [orgId],
+  );
+
+  return json({
+    servers: rows.map((row) => ({
+      serverId: String(row.server_id),
+      serverName: String(row.server_name),
+      ownerOrgId: String(row.owner_org_id),
+      createdAt: row.created_at ? Number(row.created_at) : null,
+      pteroIdentifier: row.ptero_identifier ?? null,
+      rconConfigured: row.rcon_configured === true,
+      rconHost: row.rcon_host ?? null,
+      rconPort: row.rcon_port ?? null,
+      gamePort: row.game_port ?? null,
+      tags: Array.isArray(row.tags) ? row.tags : [],
+      lastHealthPing: row.last_health_ping
+        ? Number(row.last_health_ping)
+        : null,
+    })),
+  });
+}
+
 // ── Public org server list (for ticket submission portal) ────────────────────
 
 async function handleListPublicOrgServers(request, orgId) {
@@ -13537,6 +13580,13 @@ async function _handleApiRequest(request) {
     );
     if (orgServerLogsMatch && request.method === "GET") {
       return handleGetServerLogs(request, orgServerLogsMatch[1]);
+    }
+
+    const orgServersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/servers$/,
+    );
+    if (orgServersMatch && request.method === "GET") {
+      return handleListOrgServers(request, orgServersMatch[1]);
     }
 
     const orgNotificationPrefsMatch = pathname.match(
