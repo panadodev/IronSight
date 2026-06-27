@@ -1599,6 +1599,23 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_guilds JSONB`,
   );
+
+  // ── Steam group caching + flagged group detection ─────────────────────────
+  // Cache the full list of Steam group GIDs for the player at last refresh.
+  await pool.query(
+    `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS steam_groups JSONB`,
+  );
+
+  // Groups that are considered suspicious — any player who is a member gets
+  // a warning flag on the player lookup page.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS flagged_steam_groups (
+      gid        TEXT PRIMARY KEY,
+      label      TEXT NOT NULL,
+      vanity     TEXT,
+      created_at BIGINT NOT NULL DEFAULT unix_now()
+    )
+  `);
 }
 
 export async function migrateTimestampsToUnix(pool) {

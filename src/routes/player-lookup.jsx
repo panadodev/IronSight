@@ -895,11 +895,21 @@ function PlayerLookupPage() {
                             className="flex items-center gap-2 px-3 py-2 bg-surface text-foreground ring-1 ring-border rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-surface-bright"
                           >
                             <UserX className="size-3.5" />
-                            Kick
+                            Logout
                           </button>
                         )}
                       </div>
                     </div>
+
+                    {playerData.flaggedGroups?.length > 0 && (
+                      <div className="rounded-md ring-1 ring-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning flex items-start gap-2">
+                        <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>Possible botted account</strong> — member of flagged Steam group{playerData.flaggedGroups.length !== 1 ? "s" : ""}:{" "}
+                          {playerData.flaggedGroups.map((g) => g.label).join(", ")}
+                        </span>
+                      </div>
+                    )}
 
                     {!isSupportOnly && (
                       <div className="space-y-4">
@@ -1207,13 +1217,13 @@ function PlayerLookupPage() {
             </div>
           )}
 
-          {/* Kick Dialog */}
+          {/* Logout Dialog */}
           <Dialog open={kickOpen} onOpenChange={setKickOpen}>
             <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle>Kick Player</DialogTitle>
+                <DialogTitle>Logout Player</DialogTitle>
                 <DialogDescription>
-                  Select the server and confirm the kick.
+                  Select the server and confirm the logout.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 py-2">
@@ -1259,7 +1269,7 @@ function PlayerLookupPage() {
                   disabled={kickLoading || !kickServerId}
                   onClick={handleKick}
                 >
-                  {kickLoading ? "Kicking…" : "Kick"}
+                  {kickLoading ? "Logging out…" : "Logout"}
                 </Button>
               </div>
             </DialogContent>

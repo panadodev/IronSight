@@ -77,6 +77,7 @@ import {
   getPlayerDataFromRedis,
   playerRedisKey,
   refreshPlayerData,
+  seedFlaggedSteamGroups,
 } from "./player-store.js";
 import {
   pool,
@@ -648,6 +649,10 @@ async function init() {
     initialized = true;
     initError = null;
     console.info("[startup] PostgreSQL, Redis, and BullMQ are reachable.");
+
+    seedFlaggedSteamGroups().catch((e) =>
+      console.warn("[flagged-groups] seed failed:", e.message),
+    );
 
     setInterval(
       () => {
@@ -9349,18 +9354,18 @@ async function handleCreateBan(request, orgId) {
   const storedIdentifierHash =
     identifierType === "ip" ? ipHmac(rawIdentifier) : null;
 
-  // Fetch teaminfo from RCON before writing the ban so we can attach the
-  // player's current team to the internal note.
+  // Fetch teaminfo from any RCON-configured server in the org before writing
+  // the ban so we can attach the player's current team to the internal note.
   let teamInfoSuffix = "";
-  if (identifierType === "steam_id" && serverIds.length > 0) {
+  if (identifierType === "steam_id") {
     try {
       const tiSrvRes = await pool.query(
         `SELECT rcon_host, rcon_port, rcon_password_enc
          FROM servers
-         WHERE server_id = ANY($1::uuid[]) AND owner_org_id = $2
+         WHERE owner_org_id = $1
            AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL AND rcon_password_enc IS NOT NULL
          LIMIT 1`,
-        [serverIds, orgId],
+        [orgId],
       );
       const tiSrv = tiSrvRes.rows[0];
       if (tiSrv) {
@@ -9544,7 +9549,7 @@ async function handleUpdateBan(request, orgId, banId) {
   }
   if (body.note !== undefined) {
     sets.push(`note = $${idx}`);
-    params.push(String(body.note).slice(0, 1000));
+    params.push(String(body.note).slice(0, 2000));
     idx++;
   }
   let updatedExpiresAt; // undefined = not changed; null = made permanent
@@ -11983,7 +11988,7 @@ async function handleKickPlayer(request, steamId) {
     });
     return json({ ok: true, result: result?.response ?? null });
   } catch (err) {
-    return json({ error: `RCON kick failed: ${err.message}` }, 502);
+    return json({ error: `RCON logout failed: ${err.message}` }, 502);
   }
 }
 

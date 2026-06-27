@@ -1075,6 +1075,13 @@ async function writeActivityToCache(steamId, data) {
   );
 }
 
+async function writeGroupsToCache(steamId, groups) {
+  await pool.query(
+    `UPDATE player_cache SET steam_groups = $2 WHERE steam_id = $1`,
+    [steamId, JSON.stringify(groups)],
+  );
+}
+
 // Keep one row per conflict key so a bulk INSERT ... ON CONFLICT DO UPDATE never
 // receives the same target row twice ("cannot affect row a second time"). Later
 // occurrences win, matching EXCLUDED-overwrite semantics.
@@ -1567,6 +1574,7 @@ export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) 
         writeFriendsToCache(steamId, subjectFriends, steamOrg),
         writeProxycheckToCache(ipResults),
         writeSessionWindowsToCache(steamId, subjectWindows),
+        subjectGroups ? writeGroupsToCache(steamId, subjectGroups) : Promise.resolve(),
       ]);
 
       // Phase B: per-alt enrichment + evidence scoring against the subject.
@@ -1854,5 +1862,57 @@ export async function getPlayerCacheData(steamId) {
     })),
     isStale: Boolean(p.is_stale),
     cacheExpiresAt: p.cache_expires_at,
+    steamGroups: Array.isArray(p.steam_groups) ? p.steam_groups.map(String) : [],
+    flaggedGroups: await (async () => {
+      const gids = Array.isArray(p.steam_groups) ? p.steam_groups.map(String) : [];
+      if (!gids.length) return [];
+      const { rows } = await pool.query(
+        `SELECT gid, label, vanity FROM flagged_steam_groups WHERE gid = ANY($1)`,
+        [gids],
+      );
+      return rows.map((r) => ({ gid: String(r.gid), label: String(r.label), vanity: r.vanity ?? null }));
+    })(),
   };
+}
+
+// Resolve a Steam group vanity name to a 64-bit GID via the Steam XML API.
+async function resolveGroupVanityToGid(vanity) {
+  try {
+    const res = await fetch(
+      `https://steamcommunity.com/groups/${encodeURIComponent(vanity)}/memberslistxml/?xml=1`,
+    );
+    if (!res.ok) return null;
+    const xml = await res.text();
+    const m = xml.match(/<groupID64>(\d+)<\/groupID64>/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function seedFlaggedSteamGroups() {
+  const toSeed = [
+    { vanity: "archiasf", label: "Possible botted account (Archias Farming group)" },
+  ];
+  for (const { vanity, label } of toSeed) {
+    try {
+      const existing = await pool.query(
+        `SELECT gid FROM flagged_steam_groups WHERE vanity = $1 LIMIT 1`,
+        [vanity],
+      );
+      if (existing.rows.length > 0) continue;
+      const gid = await resolveGroupVanityToGid(vanity);
+      if (!gid) {
+        console.warn(`[flagged-groups] Could not resolve GID for ${vanity}`);
+        continue;
+      }
+      await pool.query(
+        `INSERT INTO flagged_steam_groups (gid, label, vanity) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [gid, label, vanity],
+      );
+      console.log(`[flagged-groups] Seeded ${vanity} → gid ${gid}`);
+    } catch (err) {
+      console.warn(`[flagged-groups] Failed to seed ${vanity}: ${err.message}`);
+    }
+  }
 }
