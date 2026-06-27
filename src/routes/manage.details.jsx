@@ -65,7 +65,6 @@ const SERVICE_LABELS = {
   steam: "Steam Web API",
   proxycheck: "Proxycheck.io",
   openai: "OpenAI",
-  zipline: "Zipline",
 };
 
 const SERVICE_LINKS = {
@@ -73,7 +72,6 @@ const SERVICE_LINKS = {
   steam: "https://steamcommunity.com/dev/apikey",
   proxycheck: "https://proxycheck.io/dashboard/",
   openai: "https://platform.openai.com/api-keys",
-  zipline: "https://zipline.diced.sh",
 };
 
 const SERVICE_HINTS = {
@@ -85,8 +83,6 @@ const SERVICE_HINTS = {
     "Used to flag VPN / proxy connections on new player joins and during lookups.",
   openai:
     "Used for AI chat moderation — scores every ingested chat message and fires highlight/automute triggers configured on the Toxicity page.",
-  zipline:
-    "API token for your self-hosted Zipline instance. Required for the Media Gallery — staff upload evidence (clips, screenshots) and link them to bans.",
 };
 
 const SERVICE_PERMISSIONS = {
@@ -375,7 +371,7 @@ function ApiKeysSection({ orgId }) {
     }
   }
 
-  const keysByService = ["battlemetrics", "steam", "proxycheck", "openai", "zipline"].reduce(
+  const keysByService = ["battlemetrics", "steam", "proxycheck", "openai"].reduce(
     (acc, svc) => {
       acc[svc] = keys.filter((k) => k.service === svc);
       return acc;
@@ -403,7 +399,7 @@ function ApiKeysSection({ orgId }) {
         <p className="text-sm text-muted-foreground">Loading keys…</p>
       ) : (
         <div className="space-y-4">
-          {["battlemetrics", "steam", "proxycheck", "openai", "zipline"].map((svc) => (
+          {["battlemetrics", "steam", "proxycheck", "openai"].map((svc) => (
             <div
               key={svc}
               className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2 max-w-xl"
@@ -544,7 +540,6 @@ function ApiKeysSection({ orgId }) {
               <SelectItem value="steam">Steam Web API</SelectItem>
               <SelectItem value="proxycheck">Proxycheck.io</SelectItem>
               <SelectItem value="openai">OpenAI</SelectItem>
-              <SelectItem value="zipline">Zipline</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1020,8 +1015,12 @@ function ManageDetailsPage() {
   const [bmBanListsError, setBmBanListsError] = useState(false);
   const [guilds, setGuilds] = useState([]);
   const [sessionUser, setSessionUser] = useState(null);
-  const [ziplineUrl, setZiplineUrl] = useState("");
   const [mediaExpiryMonths, setMediaExpiryMonths] = useState("");
+  // Storage quotas (stored as bytes; displayed as GB/MB in the UI)
+  const [mediaStorageLimitGb, setMediaStorageLimitGb] = useState("");
+  const [mediaUserLimitMb, setMediaUserLimitMb] = useState("");
+  const [mediaPublicFileLimitMb, setMediaPublicFileLimitMb] = useState("");
+  const [mediaPublicMaxFiles, setMediaPublicMaxFiles] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1085,8 +1084,13 @@ function ManageDetailsPage() {
         setBmOrgId(body.organization?.bmOrgId ?? "");
         setBmAutoSync(body.organization?.bmAutoSync === true);
         setBmBanListId(body.organization?.bmBanListId ?? "");
-        setZiplineUrl(body.organization?.ziplineUrl ?? "");
         setMediaExpiryMonths(body.organization?.mediaExpiryMonths != null ? String(body.organization.mediaExpiryMonths) : "");
+        const bytesToGb = (b) => (b != null ? String(Math.round(b / 1024 / 1024 / 1024)) : "");
+        const bytesToMb = (b) => (b != null ? String(Math.round(b / 1024 / 1024)) : "");
+        setMediaStorageLimitGb(bytesToGb(body.organization?.mediaStorageLimitBytes));
+        setMediaUserLimitMb(bytesToMb(body.organization?.mediaUserLimitBytes));
+        setMediaPublicFileLimitMb(bytesToMb(body.organization?.mediaPublicFileLimitBytes));
+        setMediaPublicMaxFiles(body.organization?.mediaPublicMaxFiles != null ? String(body.organization.mediaPublicMaxFiles) : "");
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1205,8 +1209,11 @@ function ManageDetailsPage() {
           bmOrgId: bmOrgId.trim() || null,
           bmAutoSync,
           bmBanListId: bmBanListId || null,
-          ziplineUrl: ziplineUrl.trim() || null,
           mediaExpiryMonths: mediaExpiryMonths ? parseInt(mediaExpiryMonths, 10) : null,
+          mediaStorageLimitBytes: mediaStorageLimitGb ? Math.round(parseFloat(mediaStorageLimitGb) * 1024 * 1024 * 1024) : null,
+          mediaUserLimitBytes: mediaUserLimitMb ? Math.round(parseFloat(mediaUserLimitMb) * 1024 * 1024) : null,
+          mediaPublicFileLimitBytes: mediaPublicFileLimitMb ? Math.round(parseFloat(mediaPublicFileLimitMb) * 1024 * 1024) : null,
+          mediaPublicMaxFiles: mediaPublicMaxFiles ? parseInt(mediaPublicMaxFiles, 10) : null,
         }),
       });
 
@@ -1222,8 +1229,13 @@ function ManageDetailsPage() {
       setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
       setBmAutoSync(body.organization?.bmAutoSync ?? bmAutoSync);
       setBmBanListId(body.organization?.bmBanListId ?? bmBanListId);
-      setZiplineUrl(body.organization?.ziplineUrl ?? ziplineUrl.trim());
       setMediaExpiryMonths(body.organization?.mediaExpiryMonths != null ? String(body.organization.mediaExpiryMonths) : "");
+      const bytesToGb = (b) => (b != null ? String(Math.round(b / 1024 / 1024 / 1024)) : "");
+      const bytesToMb = (b) => (b != null ? String(Math.round(b / 1024 / 1024)) : "");
+      setMediaStorageLimitGb(bytesToGb(body.organization?.mediaStorageLimitBytes));
+      setMediaUserLimitMb(bytesToMb(body.organization?.mediaUserLimitBytes));
+      setMediaPublicFileLimitMb(bytesToMb(body.organization?.mediaPublicFileLimitBytes));
+      setMediaPublicMaxFiles(body.organization?.mediaPublicMaxFiles != null ? String(body.organization.mediaPublicMaxFiles) : "");
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1451,36 +1463,103 @@ function ManageDetailsPage() {
             </div>
           )}
 
-          <div className="space-y-1">
-            <Label htmlFor="zipline-url">Zipline instance URL</Label>
-            <Input
-              id="zipline-url"
-              value={ziplineUrl}
-              onChange={(e) => setZiplineUrl(e.target.value)}
-              disabled={loading || saving}
-              placeholder="https://zipline.example.com"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Base URL of your self-hosted Zipline server. Add the API token below in the API Keys section.
-            </p>
-          </div>
+          <div className="space-y-3 rounded-lg ring-1 ring-border bg-surface/20 p-4">
+            <div>
+              <p className="text-sm font-medium">Media Storage (R2 / S3)</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Files go directly from the browser to Cloudflare R2 — single PUT under 300 MB, presigned multipart above.
+                Storage credentials are configured via server environment variables (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, etc.).
+              </p>
+            </div>
 
-          <div className="space-y-1">
-            <Label htmlFor="media-expiry">Media expiry (months)</Label>
-            <Input
-              id="media-expiry"
-              type="number"
-              min={1}
-              max={120}
-              value={mediaExpiryMonths}
-              onChange={(e) => setMediaExpiryMonths(e.target.value)}
-              disabled={loading || saving}
-              placeholder="Never (leave blank)"
-              className="w-40"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Media items not accessed in this many months will be automatically deleted. Leave blank to keep forever.
-            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="media-expiry">Media expiry (months)</Label>
+                <Input
+                  id="media-expiry"
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={mediaExpiryMonths}
+                  onChange={(e) => setMediaExpiryMonths(e.target.value)}
+                  disabled={loading || saving}
+                  placeholder="Never"
+                  className="w-full"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Objects not accessed in this many months are purged. Also sets an R2 lifecycle rule for the org prefix.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="media-storage-limit">Org storage cap (GB)</Label>
+                <Input
+                  id="media-storage-limit"
+                  type="number"
+                  min={1}
+                  value={mediaStorageLimitGb}
+                  onChange={(e) => setMediaStorageLimitGb(e.target.value)}
+                  disabled={loading || saving}
+                  placeholder="Unlimited"
+                  className="w-full"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Max total staff-gallery storage for this org. Leave blank for no limit.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="media-user-limit">Per-user cap (MB)</Label>
+                <Input
+                  id="media-user-limit"
+                  type="number"
+                  min={1}
+                  value={mediaUserLimitMb}
+                  onChange={(e) => setMediaUserLimitMb(e.target.value)}
+                  disabled={loading || saving}
+                  placeholder="Unlimited"
+                  className="w-full"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Max storage per staff member. Leave blank for no limit.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="media-public-limit">Public upload limit (MB)</Label>
+                <Input
+                  id="media-public-limit"
+                  type="number"
+                  min={1}
+                  value={mediaPublicFileLimitMb}
+                  onChange={(e) => setMediaPublicFileLimitMb(e.target.value)}
+                  disabled={loading || saving}
+                  placeholder="100"
+                  className="w-full"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Max size per file that public ticket submitters can upload. Default: 100 MB.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="media-public-max">Public max files / ticket</Label>
+                <Input
+                  id="media-public-max"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={mediaPublicMaxFiles}
+                  onChange={(e) => setMediaPublicMaxFiles(e.target.value)}
+                  disabled={loading || saving}
+                  placeholder="5"
+                  className="w-full"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Max files a public user can attach to a single ticket. Default: 5.
+                </p>
+              </div>
+            </div>
           </div>
 
           <Button type="submit" disabled={loading || saving}>

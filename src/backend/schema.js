@@ -1616,6 +1616,84 @@ export async function ensureSchema(pool) {
       created_at BIGINT NOT NULL DEFAULT unix_now()
     )
   `);
+
+  // ── R2 media storage migration ────────────────────────────────────────────
+  // Replace Zipline with direct Cloudflare R2 (< 300 MB) / AWS S3 (>= 300 MB).
+  // Existing zipline_url / zipline_file_id data is preserved as legacy fallback.
+
+  // Drop the zipline service from per-org external API keys — R2 credentials
+  // are environment-level, not per-org.
+  await pool.query(`ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service`);
+  await pool.query(`DELETE FROM org_external_api_keys WHERE service = 'zipline'`);
+  await pool.query(`
+    ALTER TABLE org_external_api_keys ADD CONSTRAINT chk_ext_api_key_service
+      CHECK (service IN ('battlemetrics', 'steam', 'proxycheck', 'openai'))
+  `);
+
+  // Make legacy Zipline columns nullable so new rows don't require them.
+  await pool.query(`ALTER TABLE org_media ALTER COLUMN zipline_file_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE org_media ALTER COLUMN zipline_url DROP NOT NULL`);
+
+  // R2/S3 object key and storage backend.
+  await pool.query(`ALTER TABLE org_media ADD COLUMN IF NOT EXISTS r2_key TEXT`);
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'zipline'`,
+  );
+
+  // Upload source: 'staff' = org gallery, 'ticket' = linked to a ticket, 'pending' = awaiting confirmation.
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'staff'`,
+  );
+
+  // For the two-phase presigned upload: FALSE until the browser confirms the upload completed.
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT TRUE`,
+  );
+  // Timestamp used by the cleanup job to delete abandoned (unconfirmed) uploads.
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS pending_since BIGINT`,
+  );
+  // Stored for multipart S3 uploads so the confirm step can call CompleteMultipartUpload.
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS multipart_upload_id TEXT`,
+  );
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_media_pending
+     ON org_media(pending_since) WHERE confirmed = FALSE`,
+  );
+
+  // Per-org storage quotas. NULL means unlimited.
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS media_storage_limit_bytes BIGINT`,
+  );
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS media_user_limit_bytes BIGINT`,
+  );
+  // Public ticket upload limits — exposed in the org's handleUpdateOrgDetails.
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS media_public_file_limit_bytes BIGINT`,
+  );
+  await pool.query(
+    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS media_public_max_files INTEGER`,
+  );
+
+  // Remove the old zipline_url column from organizations (replaced by R2 env vars).
+  // We keep it nullable rather than dropping it so old rows can be read during migration.
+  // (zipline_url is already added via a prior migration; just ensure nullability here.)
+
+  // Ticket attachments: links confirmed media items to a ticket.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_media_links (
+      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+      media_id  UUID    NOT NULL REFERENCES org_media(media_id) ON DELETE CASCADE,
+      PRIMARY KEY (ticket_id, media_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_media_links_ticket
+     ON ticket_media_links(ticket_id)`,
+  );
 }
 
 export async function migrateTimestampsToUnix(pool) {

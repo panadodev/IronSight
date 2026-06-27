@@ -539,7 +539,7 @@ export function NewBanDialog({
                       className="relative rounded-md ring-1 ring-border overflow-hidden w-16 h-16 bg-black/20 flex items-center justify-center shrink-0"
                     >
                       {item.fileType === "image" ? (
-                        <img src={item.ziplineUrl} alt={item.filename} className="w-full h-full object-cover" />
+                        <img src={item.url} alt={item.filename} className="w-full h-full object-cover" />
                       ) : item.fileType === "video" ? (
                         <Film className="size-5 text-muted-foreground" />
                       ) : (

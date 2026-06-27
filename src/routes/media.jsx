@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -21,6 +22,7 @@ import {
   FileIcon,
   ExternalLink,
   RefreshCw,
+  HardDrive,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -29,11 +31,14 @@ export const Route = createFileRoute("/media")({
   component: MediaPage,
 });
 
+const PART_SIZE = 100 * 1024 * 1024; // 100 MB per multipart chunk
+
 function formatBytes(bytes) {
   if (!bytes) return null;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function formatDate(unix) {
@@ -60,14 +65,14 @@ function MediaCard({ item, onDelete, deleting }) {
       <div className="relative bg-black/20 aspect-video flex items-center justify-center overflow-hidden">
         {isImage ? (
           <img
-            src={item.ziplineUrl}
+            src={item.url}
             alt={item.title || item.filename}
             className="w-full h-full object-cover"
             loading="lazy"
           />
         ) : isVideo ? (
           <video
-            src={item.ziplineUrl}
+            src={item.url}
             className="w-full h-full object-cover"
             preload="metadata"
             muted
@@ -76,15 +81,17 @@ function MediaCard({ item, onDelete, deleting }) {
           <FileIcon className="size-10 text-muted-foreground" />
         )}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-          <a
-            href={item.ziplineUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-background/90 rounded-md ring-1 ring-border hover:bg-background transition-colors"
-          >
-            <ExternalLink className="size-3" />
-            Open
-          </a>
+          {item.url && (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-background/90 rounded-md ring-1 ring-border hover:bg-background transition-colors"
+            >
+              <ExternalLink className="size-3" />
+              Open
+            </a>
+          )}
           <button
             onClick={() => onDelete(item.mediaId)}
             disabled={deleting}
@@ -105,6 +112,9 @@ function MediaCard({ item, onDelete, deleting }) {
             <span className="text-[10px] text-muted-foreground">{formatBytes(item.fileSize)}</span>
           )}
           <span className="text-[10px] text-muted-foreground">{formatDate(item.uploadedAt)}</span>
+          {item.storageBackend && item.storageBackend !== "zipline" && (
+            <span className="text-[10px] text-muted-foreground opacity-50 uppercase">{item.storageBackend}</span>
+          )}
         </div>
         {item.uploadedByName && (
           <p className="text-[10px] text-muted-foreground truncate">by {item.uploadedByName}</p>
@@ -114,12 +124,33 @@ function MediaCard({ item, onDelete, deleting }) {
   );
 }
 
+// Upload a single chunk via XHR so we get progress events.
+function uploadChunkXhr(url, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.getResponseHeader("ETag"));
+      } else {
+        reject(new Error(`Upload failed: HTTP ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(blob);
+  });
+}
+
 function UploadDialog({ open, onClose, orgId, onUploaded }) {
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [progress, setProgress] = useState(null);
+  const [progress, setProgress] = useState(null); // 0-100
+  const [statusText, setStatusText] = useState("");
   const fileRef = useRef(null);
 
   function reset() {
@@ -127,6 +158,7 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
     setTitle("");
     setError("");
     setProgress(null);
+    setStatusText("");
   }
 
   useEffect(() => {
@@ -138,28 +170,75 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
     if (!file) return;
     setUploading(true);
     setError("");
-    setProgress("Uploading…");
+    setProgress(0);
+
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("title", title.trim());
-      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media`, {
+      // Phase 1: get presigned URL from our API.
+      setStatusText("Preparing upload…");
+      const prepareRes = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/prepare`, {
         method: "POST",
         credentials: "include",
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          fileSize: file.size,
+          title: title.trim(),
+        }),
       });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(body?.error ?? "Upload failed.");
+      const prepareBody = await prepareRes.json().catch(() => null);
+      if (!prepareRes.ok) {
+        setError(prepareBody?.error ?? "Upload preparation failed.");
         return;
       }
-      onUploaded(body.media);
+
+      const { uploadUrl, mediaId, multipart } = prepareBody;
+      let parts = null;
+
+      if (multipart) {
+        // Phase 2a: S3 multipart upload (large files >= 300 MB).
+        setStatusText("Uploading (large file — multipart)…");
+        const { partUrls, partSize } = multipart;
+        parts = [];
+        for (let i = 0; i < partUrls.length; i++) {
+          const start = i * partSize;
+          const chunk = file.slice(start, start + partSize);
+          const etag = await uploadChunkXhr(partUrls[i], chunk, (frac) => {
+            const overall = ((i + frac) / partUrls.length) * 95;
+            setProgress(Math.round(overall));
+          });
+          parts.push({ partNumber: i + 1, etag });
+        }
+      } else {
+        // Phase 2b: Direct PUT to R2 (single-part).
+        setStatusText("Uploading…");
+        await uploadChunkXhr(uploadUrl, file, (frac) => {
+          setProgress(Math.round(frac * 95));
+        });
+      }
+
+      // Phase 3: confirm with our API.
+      setStatusText("Finalizing…");
+      setProgress(98);
+      const confirmRes = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/confirm`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaId, parts, fileSize: file.size }),
+      });
+      const confirmBody = await confirmRes.json().catch(() => null);
+      if (!confirmRes.ok) {
+        setError(confirmBody?.error ?? "Upload confirmation failed.");
+        return;
+      }
+
+      setProgress(100);
+      onUploaded(confirmBody.media);
       onClose();
     } catch (err) {
       setError(err.message ?? "Upload failed.");
     } finally {
       setUploading(false);
-      setProgress(null);
     }
   }
 
@@ -170,6 +249,7 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
           <DialogTitle>Upload media</DialogTitle>
           <DialogDescription>
             Upload images or video clips to your organization's media gallery.
+            Files are uploaded directly to cloud storage.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleUpload} className="space-y-4 py-2">
@@ -177,10 +257,17 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
             <Label>File</Label>
             {file ? (
               <div className="flex items-center gap-2 rounded-md ring-1 ring-border bg-surface/40 px-3 py-2">
-                <FileTypeIcon fileType={file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "other"} className="size-4 text-muted-foreground shrink-0" />
+                <FileTypeIcon
+                  fileType={file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "other"}
+                  className="size-4 text-muted-foreground shrink-0"
+                />
                 <span className="text-xs flex-1 truncate">{file.name}</span>
                 <span className="text-[10px] text-muted-foreground shrink-0">{formatBytes(file.size)}</span>
-                <button type="button" onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }} className="text-muted-foreground hover:text-foreground">
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
                   <X className="size-3.5" />
                 </button>
               </div>
@@ -192,14 +279,14 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
               >
                 <Upload className="size-6" />
                 <span className="text-sm">Click to select a file</span>
-                <span className="text-[11px]">Images, videos, clips up to 500 MB</span>
+                <span className="text-[11px]">Images &amp; videos · up to 5 GB · files ≥ 300 MB use multipart upload</span>
               </button>
             )}
             <input
               ref={fileRef}
               type="file"
               className="hidden"
-              accept="image/*,video/*"
+              accept="image/*,video/*,application/pdf"
               onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
             />
           </div>
@@ -220,8 +307,14 @@ function UploadDialog({ open, onClose, orgId, onUploaded }) {
               {error}
             </div>
           )}
-          {progress && !error && (
-            <p className="text-sm text-muted-foreground">{progress}</p>
+          {uploading && progress !== null && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{statusText}</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} className="h-1.5" />
+            </div>
           )}
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="ghost" onClick={onClose} disabled={uploading}>
@@ -255,11 +348,10 @@ function OrgMediaSection({ orgId, orgName }) {
     try {
       const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
       if (typeFilter !== "all") params.set("type", typeFilter);
-      const url = `/api/orgs/${encodeURIComponent(orgId)}/media?${params}`;
-      console.log(`[media] fetch → ${url}`);
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media?${params}`, {
+        credentials: "include",
+      });
       const body = await res.json().catch(() => null);
-      console.log(`[media] ${res.status} ← org=${orgId} items=${body?.media?.length ?? "?"} total=${body?.total ?? "?"}`, body);
       if (!res.ok) {
         setError(body?.error ?? "Failed to load media.");
         return;
@@ -267,7 +359,6 @@ function OrgMediaSection({ orgId, orgName }) {
       setMedia(body.media ?? []);
       setTotal(body.total ?? 0);
     } catch (err) {
-      console.error(`[media] fetch failed org=${orgId}`, err);
       setError(err.message ?? "Failed to load media.");
     } finally {
       setLoading(false);
@@ -351,10 +442,10 @@ function OrgMediaSection({ orgId, orgName }) {
         </div>
       ) : media.length === 0 ? (
         <div className="rounded-lg ring-1 ring-border bg-surface/20 py-10 flex flex-col items-center gap-2 text-center">
-          <FileIcon className="size-8 text-muted-foreground" />
+          <HardDrive className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No media uploaded yet.</p>
           <p className="text-xs text-muted-foreground max-w-xs">
-            Upload clips, screenshots, or other evidence files. They'll appear here and can be linked to bans.
+            Upload clips, screenshots, or evidence files. They'll appear here and can be linked to bans.
           </p>
           <Button size="sm" className="mt-1" onClick={() => setUploadOpen(true)}>
             <Upload className="size-3.5" />
@@ -405,12 +496,17 @@ function OrgMediaSection({ orgId, orgName }) {
           <DialogHeader>
             <DialogTitle>Delete media?</DialogTitle>
             <DialogDescription>
-              This will permanently delete the file from Zipline and remove it from all linked bans. This cannot be undone.
+              This will permanently delete the file from cloud storage and remove it from all linked bans.
+              This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2 justify-end pt-2">
             <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => handleDelete(confirmDeleteId)} disabled={!!deletingId}>
+            <Button
+              variant="destructive"
+              onClick={() => handleDelete(confirmDeleteId)}
+              disabled={!!deletingId}
+            >
               {deletingId ? "Deleting…" : "Delete"}
             </Button>
           </div>
@@ -423,17 +519,13 @@ function OrgMediaSection({ orgId, orgName }) {
 function MediaPage() {
   const { orgs, orgsLoaded } = useAuth();
 
-  useEffect(() => {
-    console.log(`[media-page] orgsLoaded=${orgsLoaded} orgs=`, orgs.map((o) => ({ id: o.id, name: o.name })));
-  }, [orgsLoaded, orgs]);
-
   return (
     <SiteNav>
       <div className="space-y-6 p-6">
         <div>
           <h1 className="text-lg font-semibold">Media Gallery</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Evidence clips and images uploaded by staff. Upload files here and link them to bans as evidence.
+            Evidence clips and images stored in Cloudflare R2. Files go directly from your browser to R2 — no server proxying.
           </p>
         </div>
 
@@ -455,7 +547,7 @@ function MediaPage() {
           </div>
         ) : orgs.length === 0 ? (
           <div className="rounded-lg ring-1 ring-border bg-surface/20 py-16 text-center">
-            <FileIcon className="size-10 text-muted-foreground mx-auto mb-3" />
+            <HardDrive className="size-10 text-muted-foreground mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">You don't have access to any organizations.</p>
           </div>
         ) : (

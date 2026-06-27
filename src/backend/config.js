@@ -62,6 +62,17 @@ export const env = {
   pterodactylEncryptionSecret:
     process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
   discordBotToken: process.env.DISCORD_BOT_TOKEN,
+
+  // Cloudflare R2 (media storage — all sizes via presigned PUT or multipart)
+  r2AccountId: process.env.R2_ACCOUNT_ID,
+  r2AccessKeyId: process.env.R2_ACCESS_KEY_ID,
+  r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  r2BucketName: process.env.R2_BUCKET_NAME,
+  r2PublicUrl: process.env.R2_PUBLIC_URL?.replace(/\/+$/, ""),
+
+  // Media rate limits
+  mediaPrepareRateLimitPerMinute: Number(process.env.MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 30),
+  publicMediaPrepareRateLimitPerMinute: Number(process.env.PUBLIC_MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 20),
 };
 
 if (!env.databaseUrl) {

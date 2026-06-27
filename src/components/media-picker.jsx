@@ -117,14 +117,14 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
                     <div className="w-full h-full bg-black/20 flex items-center justify-center">
                       {item.fileType === "image" ? (
                         <img
-                          src={item.ziplineUrl}
+                          src={item.url}
                           alt={item.title || item.filename}
                           className="w-full h-full object-cover"
                           loading="lazy"
                         />
                       ) : item.fileType === "video" ? (
                         <video
-                          src={item.ziplineUrl}
+                          src={item.url}
                           className="w-full h-full object-cover"
                           preload="metadata"
                           muted

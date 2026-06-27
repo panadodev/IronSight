@@ -52,6 +52,22 @@ import {
   bmFetch
 } from "./external-fetch.js";
 import {
+  MULTIPART_THRESHOLD,
+  MAX_FILE_SIZE,
+  DEFAULT_PUBLIC_FILE_LIMIT,
+  DEFAULT_PUBLIC_MAX_FILES,
+  STAFF_ALLOWED_MIME,
+  PUBLIC_ALLOWED_MIME,
+  getPublicUrl,
+  buildObjectKey,
+  r2Configured,
+  generatePresignedPut,
+  generatePresignedMultipart,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  deleteMediaObject,
+} from "./r2.js";
+import {
   handleGetBlacklistedWordsForServer,
   handleIngestChatMessage,
   handleIngestMuteSync,
@@ -3521,7 +3537,10 @@ async function handleGetOrgDetails(request, orgId) {
   void session;
 
   const orgRes = await pool.query(
-    "SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join, zipline_url, media_expiry_months, created_at FROM organizations WHERE org_id = $1 LIMIT 1",
+    `SELECT org_id, guild_id, name, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join,
+            media_expiry_months, media_storage_limit_bytes, media_user_limit_bytes,
+            media_public_file_limit_bytes, media_public_max_files, created_at
+     FROM organizations WHERE org_id = $1 LIMIT 1`,
     [orgId],
   );
   const org = orgRes.rows[0];
@@ -3537,8 +3556,11 @@ async function handleGetOrgDetails(request, orgId) {
       bmAutoSync: org.bm_auto_sync === true,
       bmBanListId: org.bm_ban_list_id == null ? null : String(org.bm_ban_list_id),
       syncPermsOnJoin: org.sync_perms_on_join === true,
-      ziplineUrl: org.zipline_url ?? null,
       mediaExpiryMonths: org.media_expiry_months ?? null,
+      mediaStorageLimitBytes: org.media_storage_limit_bytes != null ? Number(org.media_storage_limit_bytes) : null,
+      mediaUserLimitBytes: org.media_user_limit_bytes != null ? Number(org.media_user_limit_bytes) : null,
+      mediaPublicFileLimitBytes: org.media_public_file_limit_bytes != null ? Number(org.media_public_file_limit_bytes) : null,
+      mediaPublicMaxFiles: org.media_public_max_files != null ? Number(org.media_public_max_files) : null,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
     },
@@ -3593,14 +3615,6 @@ async function handleUpdateOrgDetails(request, orgId) {
   const syncPermsOnJoin =
     body?.syncPermsOnJoin === undefined ? undefined : body.syncPermsOnJoin === true;
 
-  const ziplineUrlRaw = body?.ziplineUrl;
-  const ziplineUrl =
-    ziplineUrlRaw === undefined
-      ? undefined
-      : ziplineUrlRaw === null
-        ? null
-        : String(ziplineUrlRaw).trim().replace(/\/+$/, "") || null;
-
   const mediaExpiryMonthsRaw = body?.mediaExpiryMonths;
   const mediaExpiryMonths =
     mediaExpiryMonthsRaw === undefined
@@ -3608,6 +3622,25 @@ async function handleUpdateOrgDetails(request, orgId) {
       : mediaExpiryMonthsRaw === null
         ? null
         : Math.max(1, Math.min(120, parseInt(mediaExpiryMonthsRaw, 10))) || null;
+
+  // Storage quota fields: bytes; null = unlimited.
+  function parseByteLimit(raw) {
+    if (raw === undefined) return undefined;
+    if (raw === null || raw === "" || raw === 0) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  }
+  function parseIntLimit(raw) {
+    if (raw === undefined) return undefined;
+    if (raw === null || raw === "" || raw === 0) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  const mediaStorageLimitBytes = parseByteLimit(body?.mediaStorageLimitBytes);
+  const mediaUserLimitBytes = parseByteLimit(body?.mediaUserLimitBytes);
+  const mediaPublicFileLimitBytes = parseByteLimit(body?.mediaPublicFileLimitBytes);
+  const mediaPublicMaxFiles = parseIntLimit(body?.mediaPublicMaxFiles);
 
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
@@ -3641,28 +3674,28 @@ async function handleUpdateOrgDetails(request, orgId) {
          bm_auto_sync = CASE WHEN $7 THEN $8::boolean ELSE bm_auto_sync END,
          bm_ban_list_id = CASE WHEN $9 THEN $10::text ELSE bm_ban_list_id END,
          sync_perms_on_join = CASE WHEN $11 THEN $12::boolean ELSE sync_perms_on_join END,
-         zipline_url = CASE WHEN $13 THEN $14::text ELSE zipline_url END,
-         media_expiry_months = CASE WHEN $15 THEN $16::integer ELSE media_expiry_months END
+         media_expiry_months = CASE WHEN $13 THEN $14::integer ELSE media_expiry_months END,
+         media_storage_limit_bytes = CASE WHEN $15 THEN $16::bigint ELSE media_storage_limit_bytes END,
+         media_user_limit_bytes = CASE WHEN $17 THEN $18::bigint ELSE media_user_limit_bytes END,
+         media_public_file_limit_bytes = CASE WHEN $19 THEN $20::bigint ELSE media_public_file_limit_bytes END,
+         media_public_max_files = CASE WHEN $21 THEN $22::integer ELSE media_public_max_files END
      WHERE org_id = $1
      RETURNING org_id, guild_id, bm_org_id, bm_auto_sync, bm_ban_list_id, sync_perms_on_join,
-               zipline_url, media_expiry_months, name, created_at`,
+               media_expiry_months, media_storage_limit_bytes, media_user_limit_bytes,
+               media_public_file_limit_bytes, media_public_max_files, name, created_at`,
     [
       orgId,
       name,
-      guildId !== undefined,
-      guildId ?? null,
-      bmOrgId !== undefined,
-      bmOrgId ?? null,
-      bmAutoSync !== undefined,
-      bmAutoSync ?? false,
-      bmBanListId !== undefined,
-      bmBanListId ?? null,
-      syncPermsOnJoin !== undefined,
-      syncPermsOnJoin ?? false,
-      ziplineUrl !== undefined,
-      ziplineUrl ?? null,
-      mediaExpiryMonths !== undefined,
-      mediaExpiryMonths ?? null,
+      guildId !== undefined, guildId ?? null,
+      bmOrgId !== undefined, bmOrgId ?? null,
+      bmAutoSync !== undefined, bmAutoSync ?? false,
+      bmBanListId !== undefined, bmBanListId ?? null,
+      syncPermsOnJoin !== undefined, syncPermsOnJoin ?? false,
+      mediaExpiryMonths !== undefined, mediaExpiryMonths ?? null,
+      mediaStorageLimitBytes !== undefined, mediaStorageLimitBytes ?? null,
+      mediaUserLimitBytes !== undefined, mediaUserLimitBytes ?? null,
+      mediaPublicFileLimitBytes !== undefined, mediaPublicFileLimitBytes ?? null,
+      mediaPublicMaxFiles !== undefined, mediaPublicMaxFiles ?? null,
     ],
   );
 
@@ -3680,8 +3713,11 @@ async function handleUpdateOrgDetails(request, orgId) {
       bmAutoSync: updated.bm_auto_sync === true,
       bmBanListId: updated.bm_ban_list_id == null ? null : String(updated.bm_ban_list_id),
       syncPermsOnJoin: updated.sync_perms_on_join === true,
-      ziplineUrl: updated.zipline_url ?? null,
       mediaExpiryMonths: updated.media_expiry_months ?? null,
+      mediaStorageLimitBytes: updated.media_storage_limit_bytes != null ? Number(updated.media_storage_limit_bytes) : null,
+      mediaUserLimitBytes: updated.media_user_limit_bytes != null ? Number(updated.media_user_limit_bytes) : null,
+      mediaPublicFileLimitBytes: updated.media_public_file_limit_bytes != null ? Number(updated.media_public_file_limit_bytes) : null,
+      mediaPublicMaxFiles: updated.media_public_max_files != null ? Number(updated.media_public_max_files) : null,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
@@ -4410,6 +4446,12 @@ async function handleCreateTicket(request) {
   const message = String(body?.message ?? "").trim();
   const reportedPlayers = sanitizeReportedPlayers(body?.reportedPlayers);
 
+  // Validate pending media IDs (uploaded via /api/public/ticket-media).
+  const rawMediaIds = Array.isArray(body?.mediaIds) ? body.mediaIds.slice(0, 10) : [];
+  const safeMediaIds = rawMediaIds
+    .map((id) => String(id).trim())
+    .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
   if (!orgId || !title || !message) {
     return json({ error: "orgId, title, and message are required" }, 400);
   }
@@ -4419,10 +4461,14 @@ async function handleCreateTicket(request) {
     return json({ error: "message is too long" }, 400);
 
   const orgRes = await pool.query(
-    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    "SELECT org_id, media_public_max_files FROM organizations WHERE org_id = $1 LIMIT 1",
     [orgId],
   );
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+  const maxFiles = Number(orgRes.rows[0].media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES);
+
+  if (safeMediaIds.length > maxFiles)
+    return json({ error: `Maximum ${maxFiles} file(s) allowed per ticket` }, 400);
 
   if (ticketTypeId !== null) {
     const typeRes = await pool.query(
@@ -4434,6 +4480,18 @@ async function handleCreateTicket(request) {
         { error: "Ticket type not found for this organization" },
         400,
       );
+  }
+
+  // Verify all media IDs belong to this session user and are confirmed pending uploads for this org.
+  let validMediaIds = [];
+  if (safeMediaIds.length > 0) {
+    const { rows: mediaRows } = await pool.query(
+      `SELECT media_id FROM org_media
+       WHERE media_id = ANY($1::uuid[]) AND org_id = $2 AND uploaded_by = $3
+         AND source = 'pending' AND confirmed = TRUE AND deleted = FALSE`,
+      [safeMediaIds, orgId, session.userId],
+    );
+    validMediaIds = mediaRows.map((r) => String(r.media_id));
   }
 
   const txClient = await pool.connect();
@@ -4460,6 +4518,17 @@ async function handleCreateTicket(request) {
         JSON.stringify({ title, orgId, ticketTypeId }),
       ],
     );
+    // Link confirmed media to the ticket and promote from 'pending' to 'ticket'.
+    for (const mediaId of validMediaIds) {
+      await txClient.query(
+        `UPDATE org_media SET source = 'ticket' WHERE media_id = $1`,
+        [mediaId],
+      );
+      await txClient.query(
+        `INSERT INTO ticket_media_links (ticket_id, media_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [ticketId, mediaId],
+      );
+    }
     await txClient.query(`COMMIT`);
   } catch (err) {
     await txClient.query(`ROLLBACK`);
@@ -10273,9 +10342,9 @@ async function handleAddExternalKey(request, orgId) {
     .slice(0, 128);
   const priority = Number(body?.priority ?? 0);
 
-  if (!["battlemetrics", "steam", "proxycheck", "openai", "zipline"].includes(service))
+  if (!["battlemetrics", "steam", "proxycheck", "openai"].includes(service))
     return json(
-      { error: "service must be battlemetrics, steam, proxycheck, openai, or zipline" },
+      { error: "service must be battlemetrics, steam, proxycheck, or openai" },
       400,
     );
   if (!rawKey) return json({ error: "key is required" }, 400);
@@ -10443,37 +10512,7 @@ async function handleGetExternalKeyStats(request, orgId) {
   return json({ stats, proxycheckUsage });
 }
 
-// ── Zipline media integration ─────────────────────────────────────────────────
-
-async function getZiplineConfig(orgId) {
-  const { rows } = await pool.query(
-    `SELECT o.zipline_url, k.key_encrypted
-     FROM organizations o
-     LEFT JOIN org_external_api_keys k
-       ON k.org_id = o.org_id AND k.service = 'zipline' AND k.enabled = TRUE
-     WHERE o.org_id = $1
-     LIMIT 1`,
-    [orgId],
-  );
-  if (!rows[0]) {
-    console.log(`[zipline] config org=${orgId}: org row not found`);
-    return null;
-  }
-  const { zipline_url, key_encrypted } = rows[0];
-  if (!zipline_url || !key_encrypted) {
-    console.log(`[zipline] config org=${orgId}: url=${zipline_url ? "set" : "MISSING"} token=${key_encrypted ? "set" : "MISSING"}`);
-    return null;
-  }
-  let token;
-  try {
-    token = decryptExternalApiKey(String(key_encrypted));
-  } catch (err) {
-    console.log(`[zipline] config org=${orgId}: token decryption failed`, err?.message);
-    return null;
-  }
-  console.log(`[zipline] config org=${orgId}: url=${zipline_url} token=<ok>`);
-  return { baseUrl: zipline_url, token };
-}
+// ── R2 / S3 media integration ─────────────────────────────────────────────────
 
 function mediaFileType(mimeType) {
   if (!mimeType) return "other";
@@ -10482,13 +10521,18 @@ function mediaFileType(mimeType) {
   return "other";
 }
 
+function resolveMediaUrl(r) {
+  if (r.r2_key) return getPublicUrl(String(r.r2_key));
+  return r.zipline_url ? String(r.zipline_url) : null; // legacy Zipline fallback
+}
+
 function serializeMedia(r) {
   return {
     mediaId: String(r.media_id),
     orgId: String(r.org_id),
     uploadedBy: r.uploaded_by ? String(r.uploaded_by) : null,
     uploadedByName: r.uploaded_by_name ?? null,
-    ziplineUrl: String(r.zipline_url),
+    url: resolveMediaUrl(r),
     filename: String(r.filename),
     fileType: String(r.file_type),
     mimeType: r.mime_type ?? null,
@@ -10496,7 +10540,28 @@ function serializeMedia(r) {
     title: r.title ?? "",
     uploadedAt: Number(r.uploaded_at),
     lastAccessedAt: r.last_accessed_at != null ? Number(r.last_accessed_at) : null,
+    storageBackend: r.storage_backend ?? "zipline",
   };
+}
+
+// Returns bytes currently used by confirmed media for an org (staff only).
+async function getOrgStorageUsed(orgId) {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(file_size), 0)::BIGINT AS used
+     FROM org_media WHERE org_id = $1 AND deleted = FALSE AND confirmed = TRUE AND source = 'staff'`,
+    [orgId],
+  );
+  return Number(rows[0].used);
+}
+
+// Returns bytes used by a specific user within an org.
+async function getUserStorageUsed(orgId, userId) {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(file_size), 0)::BIGINT AS used
+     FROM org_media WHERE org_id = $1 AND uploaded_by = $2 AND deleted = FALSE AND confirmed = TRUE AND source = 'staff'`,
+    [orgId, userId],
+  );
+  return Number(rows[0].used);
 }
 
 async function handleListOrgMedia(request, orgId) {
@@ -10511,7 +10576,7 @@ async function handleListOrgMedia(request, orgId) {
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10));
   const fileType = url.searchParams.get("type") ?? null;
 
-  const conditions = ["m.org_id = $1", "m.deleted = FALSE"];
+  const conditions = ["m.org_id = $1", "m.deleted = FALSE", "m.confirmed = TRUE", "m.source = 'staff'"];
   const params = [orgId];
   let paramIdx = 2;
 
@@ -10523,8 +10588,8 @@ async function handleListOrgMedia(request, orgId) {
   const where = conditions.join(" AND ");
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.zipline_url, m.filename,
-            m.file_type, m.mime_type, m.file_size, m.title,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend,
+            m.zipline_url, m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at,
             u.username AS uploaded_by_name
      FROM org_media m
@@ -10541,79 +10606,134 @@ async function handleListOrgMedia(request, orgId) {
   );
 
   const total = Number(countRes.rows[0].total);
-  console.log(`[media] list org=${orgId} type=${fileType ?? "all"} offset=${offset} → ${rows.length} rows (total ${total})`);
-  return json({
-    media: rows.map(serializeMedia),
-    total,
-  });
+  return json({ media: rows.map(serializeMedia), total });
 }
 
-async function handleUploadMedia(request, orgId) {
+// Phase 1: validate, check quotas, generate presigned upload URL.
+async function handlePrepareMedia(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
     return json({ error: "Forbidden: bans_create permission required" }, 403);
 
-  const cfg = await getZiplineConfig(orgId);
-  if (!cfg) return json({ error: "Zipline is not configured for this organization. Add the Zipline URL and token in Manage → Details." }, 422);
+  if (!r2Configured())
+    return json({ error: "R2 storage is not configured on this server. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, and R2_PUBLIC_URL." }, 503);
 
-  let formData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return json({ error: "Expected multipart/form-data" }, 400);
+  const rl = await checkRateLimit(`rl:media-prepare:${session.userId}`, env.mediaPrepareRateLimitPerMinute, 60);
+  if (rl) return rl;
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+  const filename = String(body?.filename ?? "upload").slice(0, 255);
+  const mimeType = String(body?.mimeType ?? "").trim().toLowerCase();
+  const fileSize = Number(body?.fileSize ?? 0);
+  const title = String(body?.title ?? "").trim().slice(0, 255);
+
+  if (!STAFF_ALLOWED_MIME.has(mimeType))
+    return json({ error: `File type not allowed: ${mimeType}` }, 415);
+  if (!fileSize || fileSize < 1)
+    return json({ error: "fileSize is required" }, 400);
+  if (fileSize > MAX_FILE_SIZE)
+    return json({ error: `File too large (max ${Math.round(MAX_FILE_SIZE / 1024 / 1024 / 1024)} GB)` }, 413);
+
+  // Check org storage quota.
+  const orgRes = await pool.query(
+    `SELECT media_storage_limit_bytes, media_user_limit_bytes FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const orgRow = orgRes.rows[0];
+  if (orgRow?.media_storage_limit_bytes) {
+    const used = await getOrgStorageUsed(orgId);
+    if (used + fileSize > Number(orgRow.media_storage_limit_bytes))
+      return json({ error: "Organization storage quota exceeded." }, 413);
+  }
+  if (orgRow?.media_user_limit_bytes) {
+    const used = await getUserStorageUsed(orgId, session.userId);
+    if (used + fileSize > Number(orgRow.media_user_limit_bytes))
+      return json({ error: "Your personal storage quota for this organization is full." }, 413);
   }
 
-  const file = formData.get("file");
-  if (!file || typeof file.arrayBuffer !== "function")
-    return json({ error: "file field is required" }, 400);
+  const r2Key = buildObjectKey(orgId, `user/${session.userId}`, filename);
+  const nowSec = Math.floor(Date.now() / 1000);
 
-  const title = String(formData.get("title") ?? "").trim().slice(0, 255);
-  const originalName = file.name ?? "upload";
-  const mimeType = file.type || "application/octet-stream";
-  const fileSize = file.size ?? null;
+  let uploadUrl = null;
+  let multipart = null;
 
-  const fileBytes = await file.arrayBuffer();
-  if (fileBytes.byteLength > 500 * 1024 * 1024)
-    return json({ error: "File too large (max 500 MB)" }, 413);
-
-  const uploadForm = new FormData();
-  uploadForm.append("file", new Blob([fileBytes], { type: mimeType }), originalName);
-
-  console.log(`[zipline] upload org=${orgId} file="${originalName}" mime=${mimeType} size=${fileSize}B → POST ${cfg.baseUrl}/api/upload`);
-  let ziplineRes;
-  try {
-    ziplineRes = await fetch(`${cfg.baseUrl}/api/upload`, {
-      method: "POST",
-      headers: { Authorization: cfg.token },
-      body: uploadForm,
-      signal: AbortSignal.timeout(120_000),
-    });
-  } catch (err) {
-    console.error(`[zipline] upload fetch error org=${orgId}`, err);
-    return json({ error: `Zipline upload failed: ${String(err.message)}` }, 502);
+  if (fileSize >= MULTIPART_THRESHOLD) {
+    multipart = await generatePresignedMultipart(r2Key, mimeType, fileSize);
+  } else {
+    uploadUrl = await generatePresignedPut(r2Key, mimeType, fileSize);
   }
-
-  if (!ziplineRes.ok) {
-    const text = await ziplineRes.text().catch(() => "");
-    console.error(`[zipline] upload failed org=${orgId} status=${ziplineRes.status} body=${text.slice(0, 300)}`);
-    return json({ error: `Zipline returned ${ziplineRes.status}: ${text.slice(0, 200)}` }, 502);
-  }
-
-  const ziplineBody = await ziplineRes.json().catch(() => null);
-  const fileUrl = ziplineBody?.files?.[0]?.url ?? ziplineBody?.url ?? null;
-  const fileId = String(ziplineBody?.files?.[0]?.id ?? ziplineBody?.id ?? "");
-  console.log(`[zipline] upload ok org=${orgId} url=${fileUrl} id=${fileId} body=`, JSON.stringify(ziplineBody).slice(0, 300));
-  if (!fileUrl) return json({ error: "Zipline did not return a file URL" }, 502);
 
   const { rows } = await pool.query(
-    `INSERT INTO org_media (org_id, uploaded_by, zipline_file_id, zipline_url, filename, file_type, mime_type, file_size, title)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     RETURNING media_id, org_id, uploaded_by, zipline_url, filename, file_type, mime_type, file_size, title, uploaded_at, last_accessed_at`,
-    [orgId, session.userId, fileId, fileUrl, originalName, mediaFileType(mimeType), mimeType, fileSize, title],
+    `INSERT INTO org_media
+       (org_id, uploaded_by, filename, file_type, mime_type, file_size, title,
+        r2_key, storage_backend, source, confirmed, pending_since, multipart_upload_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'r2','staff',FALSE,$9,$10)
+     RETURNING media_id`,
+    [
+      orgId, session.userId, filename, mediaFileType(mimeType), mimeType, fileSize, title,
+      r2Key, nowSec, multipart?.uploadId ?? null,
+    ],
+  );
+  const mediaId = String(rows[0].media_id);
+
+  console.log(`[r2] prepare org=${orgId} user=${session.userId} key=${r2Key} size=${fileSize} multipart=${!!multipart}`);
+  return json({ uploadUrl, mediaId, multipart: multipart ? { ...multipart, key: r2Key } : null }, 200);
+}
+
+// Phase 2: confirm the upload completed, mark the record active.
+async function handleConfirmMedia(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage") && !canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+  const mediaId = String(body?.mediaId ?? "").trim();
+  if (!mediaId) return json({ error: "mediaId is required" }, 400);
+
+  const { rows } = await pool.query(
+    `SELECT media_id, uploaded_by, r2_key, storage_backend, multipart_upload_id, file_size
+     FROM org_media
+     WHERE media_id = $1 AND org_id = $2 AND confirmed = FALSE AND deleted = FALSE`,
+    [mediaId, orgId],
+  );
+  if (!rows[0]) return json({ error: "Pending media not found" }, 404);
+  const row = rows[0];
+
+  if (String(row.uploaded_by) !== String(session.userId) && !canManageOrg(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  // For R2 multipart, the frontend sends the ETags from each part so we can complete.
+  if (row.multipart_upload_id && Array.isArray(body?.parts)) {
+    const parts = body.parts.map((p) => ({ partNumber: Number(p.partNumber), etag: String(p.etag) }));
+    if (parts.length === 0 || parts.some((p) => !p.partNumber || !p.etag))
+      return json({ error: "Invalid parts array for multipart completion" }, 400);
+    try {
+      await completeMultipartUpload(String(row.r2_key), String(row.multipart_upload_id), parts);
+    } catch (err) {
+      console.error(`[r2] complete multipart failed mediaId=${mediaId}:`, err?.message);
+      return json({ error: "Failed to complete multipart upload" }, 502);
+    }
+  }
+
+  const actualSize = body?.fileSize ? Number(body.fileSize) : null;
+  const { rows: updated } = await pool.query(
+    `UPDATE org_media
+     SET confirmed = TRUE, pending_since = NULL,
+         file_size = COALESCE($2, file_size)
+     WHERE media_id = $1
+     RETURNING media_id, org_id, uploaded_by, r2_key, storage_backend, zipline_url,
+               filename, file_type, mime_type, file_size, title, uploaded_at, last_accessed_at`,
+    [mediaId, actualSize],
   );
 
-  return json({ media: serializeMedia({ ...rows[0], uploaded_by_name: null }) }, 201);
+  console.log(`[r2] confirmed mediaId=${mediaId} backend=${row.storage_backend}`);
+  return json({ media: serializeMedia({ ...updated[0], uploaded_by_name: null }) }, 200);
 }
 
 async function handleDeleteMedia(request, orgId, mediaId) {
@@ -10623,7 +10743,8 @@ async function handleDeleteMedia(request, orgId, mediaId) {
     return json({ error: "Forbidden" }, 403);
 
   const { rows } = await pool.query(
-    `SELECT media_id, uploaded_by, zipline_file_id FROM org_media WHERE media_id = $1 AND org_id = $2 AND deleted = FALSE`,
+    `SELECT media_id, uploaded_by, r2_key, storage_backend, multipart_upload_id FROM org_media
+     WHERE media_id = $1 AND org_id = $2 AND deleted = FALSE`,
     [mediaId, orgId],
   );
   if (!rows[0]) return json({ error: "Media not found" }, 404);
@@ -10633,18 +10754,11 @@ async function handleDeleteMedia(request, orgId, mediaId) {
   if (!isOwner && !canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "bans_manage"))
     return json({ error: "Forbidden: you can only delete your own uploads" }, 403);
 
-  const cfg = await getZiplineConfig(orgId);
-  if (cfg && row.zipline_file_id) {
-    try {
-      await fetch(`${cfg.baseUrl}/api/user/files`, {
-        method: "DELETE",
-        headers: { Authorization: cfg.token, "Content-Type": "application/json" },
-        body: JSON.stringify({ id: isNaN(Number(row.zipline_file_id)) ? row.zipline_file_id : Number(row.zipline_file_id) }),
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch {
-      // best-effort — still soft-delete locally
-    }
+  if (row.r2_key) {
+    await deleteMediaObject(String(row.r2_key));
+  }
+  if (row.multipart_upload_id) {
+    await abortMultipartUpload(String(row.r2_key), String(row.multipart_upload_id));
   }
 
   await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [mediaId]);
@@ -10659,19 +10773,18 @@ async function handleGetMediaItem(request, orgId, mediaId) {
     return json({ error: "Forbidden" }, 403);
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.zipline_url, m.filename,
-            m.file_type, m.mime_type, m.file_size, m.title,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend, m.zipline_url,
+            m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at,
             u.username AS uploaded_by_name
      FROM org_media m
      LEFT JOIN users u ON u.user_id = m.uploaded_by
-     WHERE m.media_id = $1 AND m.org_id = $2 AND m.deleted = FALSE`,
+     WHERE m.media_id = $1 AND m.org_id = $2 AND m.deleted = FALSE AND m.confirmed = TRUE`,
     [mediaId, orgId],
   );
   if (!rows[0]) return json({ error: "Media not found" }, 404);
 
   await pool.query(`UPDATE org_media SET last_accessed_at = unix_now() WHERE media_id = $1`, [mediaId]);
-
   return json({ media: serializeMedia(rows[0]) });
 }
 
@@ -10689,52 +10802,147 @@ async function handleGetBanMedia(request, orgId, banId) {
   if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.zipline_url, m.filename,
-            m.file_type, m.mime_type, m.file_size, m.title,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend, m.zipline_url,
+            m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at,
             u.username AS uploaded_by_name
      FROM ban_media_links bml
      JOIN org_media m ON m.media_id = bml.media_id
      LEFT JOIN users u ON u.user_id = m.uploaded_by
-     WHERE bml.ban_id = $1 AND m.deleted = FALSE`,
+     WHERE bml.ban_id = $1 AND m.deleted = FALSE AND m.confirmed = TRUE`,
     [banId],
   );
-
   return json({ media: rows.map(serializeMedia) });
 }
 
+// Public ticket media: prepare presigned upload URL (session with steamId required).
+async function handlePublicMediaPrepare(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!session.steamId) return json({ error: "Steam account required to upload files." }, 403);
+
+  if (!r2Configured()) return json({ error: "R2 storage not configured." }, 503);
+
+  const rl = await checkRateLimit(`rl:pub-media:${session.userId}`, env.publicMediaPrepareRateLimitPerMinute, 60);
+  if (rl) return rl;
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+  const orgId = String(body?.orgId ?? "").trim();
+  if (!orgId) return json({ error: "orgId is required" }, 400);
+
+  const orgRes = await pool.query(
+    `SELECT org_id, media_public_file_limit_bytes, media_public_max_files FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+  const org = orgRes.rows[0];
+
+  const fileLimitBytes = Number(org.media_public_file_limit_bytes ?? DEFAULT_PUBLIC_FILE_LIMIT);
+  const maxFiles = Number(org.media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES);
+
+  const filename = String(body?.filename ?? "upload").slice(0, 255);
+  const mimeType = String(body?.mimeType ?? "").trim().toLowerCase();
+  const fileSize = Number(body?.fileSize ?? 0);
+
+  if (!PUBLIC_ALLOWED_MIME.has(mimeType))
+    return json({ error: `File type not allowed: ${mimeType}. Allowed: images (jpeg/png/gif/webp) and video (mp4/webm/mov).` }, 415);
+  if (!fileSize || fileSize < 1)
+    return json({ error: "fileSize is required" }, 400);
+  if (fileSize > fileLimitBytes)
+    return json({ error: `File too large (max ${Math.round(fileLimitBytes / 1024 / 1024)} MB for this organization)` }, 413);
+
+  // Count existing pending/confirmed media for this session to enforce per-submission cap.
+  const countRes = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM org_media
+     WHERE org_id = $1 AND uploaded_by = $2 AND source IN ('pending','ticket')
+       AND deleted = FALSE AND pending_since > $3`,
+    [orgId, session.userId, Math.floor(Date.now() / 1000) - 3600],
+  );
+  if (Number(countRes.rows[0].cnt) >= maxFiles)
+    return json({ error: `Maximum ${maxFiles} file(s) allowed per submission.` }, 429);
+
+  const r2Key = buildObjectKey(orgId, `pending/${session.userId}`, filename);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const uploadUrl = await generatePresignedPut(r2Key, mimeType, fileSize);
+
+  const { rows } = await pool.query(
+    `INSERT INTO org_media
+       (org_id, uploaded_by, filename, file_type, mime_type, file_size,
+        r2_key, storage_backend, source, confirmed, pending_since)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'r2','pending',FALSE,$8)
+     RETURNING media_id`,
+    [orgId, session.userId, filename, mediaFileType(mimeType), mimeType, fileSize, r2Key, nowSec],
+  );
+  const mediaId = String(rows[0].media_id);
+
+  return json({ uploadUrl, mediaId });
+}
+
+// Public ticket media confirm: mark upload complete so it can be attached to a ticket.
+async function handlePublicMediaConfirm(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!session.steamId) return json({ error: "Steam account required." }, 403);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+  const mediaId = String(body?.mediaId ?? "").trim();
+  if (!mediaId) return json({ error: "mediaId is required" }, 400);
+
+  const { rows } = await pool.query(
+    `SELECT media_id, uploaded_by FROM org_media
+     WHERE media_id = $1 AND source = 'pending' AND confirmed = FALSE AND deleted = FALSE`,
+    [mediaId],
+  );
+  if (!rows[0]) return json({ error: "Pending media not found" }, 404);
+  if (String(rows[0].uploaded_by) !== String(session.userId))
+    return json({ error: "Forbidden" }, 403);
+
+  await pool.query(
+    `UPDATE org_media SET confirmed = TRUE WHERE media_id = $1`,
+    [mediaId],
+  );
+  return json({ ok: true, mediaId });
+}
+
 async function purgeExpiredMedia() {
+  // Soft-delete unconfirmed uploads older than 1 hour (abandoned presigned flows).
+  const staleThreshold = Math.floor(Date.now() / 1000) - 3600;
+  const { rows: stale } = await pool.query(
+    `SELECT media_id, r2_key, multipart_upload_id
+     FROM org_media WHERE confirmed = FALSE AND deleted = FALSE AND pending_since < $1`,
+    [staleThreshold],
+  );
+  for (const row of stale) {
+    if (row.r2_key) {
+      if (row.multipart_upload_id) await abortMultipartUpload(String(row.r2_key), String(row.multipart_upload_id));
+      await deleteMediaObject(String(row.r2_key));
+    }
+    await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [row.media_id]);
+  }
+  if (stale.length) console.log(`[media-expiry] removed ${stale.length} abandoned upload(s)`);
+
+  // Soft-delete confirmed media older than the org's configured expiry window.
+  // R2 does not support bucket lifecycle rules, so this BullMQ job is the sole expiry mechanism.
   const { rows: orgs } = await pool.query(
     `SELECT org_id, media_expiry_months FROM organizations WHERE media_expiry_months IS NOT NULL`,
   );
   for (const org of orgs) {
     const thresholdSeconds = Math.floor(Date.now() / 1000) - org.media_expiry_months * 30 * 86400;
     const { rows: expired } = await pool.query(
-      `SELECT media_id, zipline_file_id FROM org_media
-       WHERE org_id = $1 AND deleted = FALSE
+      `SELECT media_id, r2_key FROM org_media
+       WHERE org_id = $1 AND deleted = FALSE AND confirmed = TRUE
          AND COALESCE(last_accessed_at, uploaded_at) < $2`,
       [org.org_id, thresholdSeconds],
     );
-    if (!expired.length) continue;
-    const cfg = await getZiplineConfig(org.org_id);
     for (const row of expired) {
-      if (cfg && row.zipline_file_id) {
-        try {
-          await fetch(`${cfg.baseUrl}/api/user/files`, {
-            method: "DELETE",
-            headers: { Authorization: cfg.token, "Content-Type": "application/json" },
-            body: JSON.stringify({ id: isNaN(Number(row.zipline_file_id)) ? row.zipline_file_id : Number(row.zipline_file_id) }),
-            signal: AbortSignal.timeout(15_000),
-          });
-        } catch {
-          // continue — still mark deleted locally
-        }
-      }
+      if (row.r2_key) await deleteMediaObject(String(row.r2_key));
       await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [row.media_id]);
     }
-    if (expired.length > 0) {
-      console.log(`[media-expiry] purged ${expired.length} items for org ${org.org_id}`);
-    }
+    if (expired.length) console.log(`[media-expiry] purged ${expired.length} item(s) for org ${org.org_id}`);
   }
 }
 
@@ -13828,14 +14036,24 @@ async function _handleApiRequest(request) {
     if (orgGlobalpingLimitsMatch && request.method === "GET")
       return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
 
-    // Org media gallery (Zipline integration)
+    // Org media gallery (R2/S3 direct-upload)
     const orgMediaMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media$/,
     );
     if (orgMediaMatch && request.method === "GET")
       return handleListOrgMedia(request, orgMediaMatch[1]);
-    if (orgMediaMatch && request.method === "POST")
-      return handleUploadMedia(request, orgMediaMatch[1]);
+
+    const orgMediaPrepareMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media\/prepare$/,
+    );
+    if (orgMediaPrepareMatch && request.method === "POST")
+      return handlePrepareMedia(request, orgMediaPrepareMatch[1]);
+
+    const orgMediaConfirmMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media\/confirm$/,
+    );
+    if (orgMediaConfirmMatch && request.method === "POST")
+      return handleConfirmMedia(request, orgMediaConfirmMatch[1]);
 
     const orgMediaItemMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media\/([a-f0-9-]+)$/,
@@ -13850,6 +14068,12 @@ async function _handleApiRequest(request) {
     );
     if (banMediaMatch && request.method === "GET")
       return handleGetBanMedia(request, banMediaMatch[1], banMediaMatch[2]);
+
+    // Public ticket media (presigned upload for public submitters)
+    if (pathname === "/api/public/ticket-media/prepare" && request.method === "POST")
+      return handlePublicMediaPrepare(request);
+    if (pathname === "/api/public/ticket-media/confirm" && request.method === "POST")
+      return handlePublicMediaConfirm(request);
 
     // Blacklisted words (management UI)
     const orgBlacklistedWordsMatch = pathname.match(
