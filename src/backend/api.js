@@ -240,6 +240,12 @@ const ASSIGNABLE_PERMISSIONS = [
   "server_admin",
   "discord_mod",
   "discord_warn",
+  "discord_timeout",
+  "discord_kick",
+  "discord_ban",
+  "discord_delete_messages",
+  "discord_bans_view",
+  "discord_modlog_view",
   "staff_online_view",
   "chat_view",
   "flagged_messages_resolve",
@@ -273,6 +279,69 @@ function canAccessBans(session, orgId) {
     canCreateBans(session, orgId) ||
     canModifyBans(session, orgId) ||
     orgHasPermission(session, orgId, "bans_delete")
+  );
+}
+
+function hasDiscordModLegacy(session, orgId) {
+  return orgHasPermission(session, orgId, "discord_mod");
+}
+
+function canDiscordWarn(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_warn")
+  );
+}
+
+function canDiscordTimeout(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_timeout")
+  );
+}
+
+function canDiscordKick(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_kick")
+  );
+}
+
+function canDiscordBan(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_ban")
+  );
+}
+
+function canDiscordDeleteMessages(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_delete_messages")
+  );
+}
+
+function canDiscordViewBans(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_bans_view")
+  );
+}
+
+function canDiscordViewModLog(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    orgHasPermission(session, orgId, "discord_modlog_view")
+  );
+}
+
+function canDiscordViewMessages(session, orgId) {
+  return (
+    hasDiscordModLegacy(session, orgId) ||
+    canDiscordTimeout(session, orgId) ||
+    canDiscordKick(session, orgId) ||
+    canDiscordBan(session, orgId) ||
+    canDiscordDeleteMessages(session, orgId)
   );
 }
 
@@ -15070,8 +15139,14 @@ async function pruneOldChatMessages() {
 async function handleDiscordSync(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod")) {
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  if (!canDiscordViewMessages(session, orgId)) {
+    return json(
+      {
+        error:
+          "Forbidden: requires discord_timeout, discord_kick, discord_ban, or discord_delete_messages permission",
+      },
+      403,
+    );
   }
 
   if (!env.discordBotToken) {
@@ -15109,8 +15184,14 @@ async function handleDiscordSync(request, orgId) {
 async function handleGetDiscordChannels(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod")) {
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  if (!canDiscordViewMessages(session, orgId)) {
+    return json(
+      {
+        error:
+          "Forbidden: requires discord_timeout, discord_kick, discord_ban, or discord_delete_messages permission",
+      },
+      403,
+    );
   }
 
   if (!env.discordBotToken) {
@@ -15452,8 +15533,14 @@ async function handleGetDiscordBotGuilds(request) {
 async function handleGetDiscordMessages(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod")) {
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  if (!canDiscordViewMessages(session, orgId)) {
+    return json(
+      {
+        error:
+          "Forbidden: requires discord_timeout, discord_kick, discord_ban, or discord_delete_messages permission",
+      },
+      403,
+    );
   }
 
   await pruneOldDiscordMessages();
@@ -15517,9 +15604,6 @@ async function handleGetDiscordMessages(request, orgId) {
 async function handleDiscordModAction(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod")) {
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
-  }
 
   if (!env.discordBotToken) {
     return json({ error: "DISCORD_BOT_TOKEN is not configured" }, 503);
@@ -15562,6 +15646,24 @@ async function handleDiscordModAction(request, orgId) {
   }
   if (action === "timeout" && (!durationSeconds || durationSeconds <= 0)) {
     return json({ error: "durationSeconds required for timeout" }, 400);
+  }
+
+  if (["timeout", "untimeout", "mute", "unmute"].includes(action)) {
+    if (!canDiscordTimeout(session, orgId)) {
+      return json({ error: "Forbidden: discord_timeout permission required" }, 403);
+    }
+  }
+  if (action === "kick" && !canDiscordKick(session, orgId)) {
+    return json({ error: "Forbidden: discord_kick permission required" }, 403);
+  }
+  if (["ban", "unban"].includes(action) && !canDiscordBan(session, orgId)) {
+    return json({ error: "Forbidden: discord_ban permission required" }, 403);
+  }
+  if (action === "ban" && body.deleteMessages && !canDiscordDeleteMessages(session, orgId)) {
+    return json(
+      { error: "Forbidden: discord_delete_messages permission required" },
+      403,
+    );
   }
 
   const orgRes = await pool.query(
@@ -15764,12 +15866,9 @@ async function deliverDiscordDm(discordUserId, content) {
 async function handleDiscordWarn(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (
-    !orgHasPermission(session, orgId, "discord_warn") &&
-    !orgHasPermission(session, orgId, "discord_mod")
-  ) {
+  if (!canDiscordWarn(session, orgId)) {
     return json(
-      { error: "Forbidden: discord_warn or discord_mod permission required" },
+      { error: "Forbidden: discord_warn permission required" },
       403,
     );
   }
@@ -15915,8 +16014,8 @@ async function fetchAllDiscordBans(guildId) {
 async function handleGetDiscordBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod"))
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  if (!canDiscordViewBans(session, orgId))
+    return json({ error: "Forbidden: discord_bans_view permission required" }, 403);
   if (!env.discordBotToken)
     return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
@@ -15976,8 +16075,8 @@ async function handleGetDiscordBans(request, orgId) {
 async function handleSyncDiscordBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod"))
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  if (!canDiscordViewBans(session, orgId))
+    return json({ error: "Forbidden: discord_bans_view permission required" }, 403);
   if (!env.discordBotToken)
     return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
@@ -16031,14 +16130,18 @@ async function handleSyncDiscordBans(request, orgId) {
 async function handleSearchDiscordMembers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  // Warners need to find who to DM; the member list is low-exposure (names/IDs),
-  // so it's open to discord_warn as well as full discord_mod.
+  // Warners and staff who can take direct member actions need lookup access.
   if (
-    !orgHasPermission(session, orgId, "discord_mod") &&
-    !orgHasPermission(session, orgId, "discord_warn")
+    !canDiscordWarn(session, orgId) &&
+    !canDiscordTimeout(session, orgId) &&
+    !canDiscordKick(session, orgId) &&
+    !canDiscordBan(session, orgId)
   )
     return json(
-      { error: "Forbidden: discord_mod or discord_warn permission required" },
+      {
+        error:
+          "Forbidden: requires discord_warn, discord_timeout, discord_kick, or discord_ban permission",
+      },
       403,
     );
   if (!env.discordBotToken)
@@ -16080,8 +16183,8 @@ async function handleSearchDiscordMembers(request, orgId) {
 async function handleGetDiscordModLog(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "discord_mod")) {
-    return json({ error: "Forbidden: discord_mod permission required" }, 403);
+  if (!canDiscordViewModLog(session, orgId)) {
+    return json({ error: "Forbidden: discord_modlog_view permission required" }, 403);
   }
 
   const url = new URL(request.url);

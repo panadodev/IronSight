@@ -1,43 +1,43 @@
+import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
-import { SiteNav } from "@/components/site-nav";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Hash,
-  RefreshCw,
-  VolumeX,
-  Clock,
-  UserMinus,
-  Ban,
-  Volume2,
-  ShieldOff,
-  UserCheck,
-  Paperclip,
-  FileText,
-  Search,
-  Users,
-  ShieldAlert,
-  Download,
-  MessageSquareWarning,
+    Ban,
+    Clock,
+    Download,
+    FileText,
+    Hash,
+    MessageSquareWarning,
+    Paperclip,
+    RefreshCw,
+    Search,
+    ShieldAlert,
+    ShieldOff,
+    UserCheck,
+    UserMinus,
+    Users,
+    Volume2,
+    VolumeX,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -161,13 +161,34 @@ function MemberAvatar({ avatar, username, size = 7 }) {
   );
 }
 
+function hasDiscordSubOrLegacy(hasOrgPermission, orgId, permissionId) {
+  return (
+    hasOrgPermission(orgId, "discord_mod") ||
+    hasOrgPermission(orgId, permissionId)
+  );
+}
+
+function canAccessDiscordPageInOrg(hasOrgPermission, orgId) {
+  return (
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_warn") ||
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_timeout") ||
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_kick") ||
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_ban") ||
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_delete_messages") ||
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_bans_view") ||
+    hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_modlog_view")
+  );
+}
+
 function ActionButtons({
   discordId,
   username,
   onAction,
   compact = false,
-  fullMod = true,
-  canWarn = true,
+  canWarn = false,
+  canTimeout = false,
+  canKick = false,
+  canBan = false,
 }) {
   const cls = compact
     ? "p-1 rounded text-muted-foreground transition-colors"
@@ -183,7 +204,7 @@ function ActionButtons({
           <MessageSquareWarning className="size-3.5" />
         </button>
       )}
-      {fullMod && (
+      {canTimeout && (
         <>
           <button
             onClick={() => onAction(discordId, username, "timeout")}
@@ -199,21 +220,25 @@ function ActionButtons({
           >
             <VolumeX className="size-3.5" />
           </button>
-          <button
-            onClick={() => onAction(discordId, username, "kick")}
-            title="Kick"
-            className={`${cls} hover:bg-orange-500/10 hover:text-orange-400`}
-          >
-            <UserMinus className="size-3.5" />
-          </button>
-          <button
-            onClick={() => onAction(discordId, username, "ban")}
-            title="Ban"
-            className={`${cls} hover:bg-danger/10 hover:text-danger`}
-          >
-            <Ban className="size-3.5" />
-          </button>
         </>
+      )}
+      {canKick && (
+        <button
+          onClick={() => onAction(discordId, username, "kick")}
+          title="Kick"
+          className={`${cls} hover:bg-orange-500/10 hover:text-orange-400`}
+        >
+          <UserMinus className="size-3.5" />
+        </button>
+      )}
+      {canBan && (
+        <button
+          onClick={() => onAction(discordId, username, "ban")}
+          title="Ban"
+          className={`${cls} hover:bg-danger/10 hover:text-danger`}
+        >
+          <Ban className="size-3.5" />
+        </button>
       )}
     </div>
   );
@@ -223,24 +248,37 @@ function DiscordModPage() {
   const { hasOrgPermission, orgs } = useAuth();
   const tz = useTimezone();
 
-  // The page is reachable by full Discord moderators and by warn-only staff.
-  // Warn-only staff get a trimmed view (Members tab + Warn action) so they can
-  // nudge a member without seeing message/ban history or destructive actions.
   const adminOrgs = useMemo(
-    () =>
-      orgs.filter(
-        (o) =>
-          hasOrgPermission(o.id, "discord_mod") ||
-          hasOrgPermission(o.id, "discord_warn"),
-      ),
+    () => orgs.filter((o) => canAccessDiscordPageInOrg(hasOrgPermission, o.id)),
     [orgs, hasOrgPermission],
   );
 
   const [orgId, setOrgId] = useState(() => adminOrgs[0]?.id ?? "");
-  const fullMod = orgId ? hasOrgPermission(orgId, "discord_mod") : false;
-  const canWarn =
-    fullMod || (orgId ? hasOrgPermission(orgId, "discord_warn") : false);
   const [tab, setTab] = useState("messages");
+
+  const canWarn = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_warn")
+    : false;
+  const canTimeout = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_timeout")
+    : false;
+  const canKick = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_kick")
+    : false;
+  const canBan = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_ban")
+    : false;
+  const canDeleteMessages = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_delete_messages")
+    : false;
+  const canViewBans = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_bans_view")
+    : false;
+  const canViewModLog = orgId
+    ? hasDiscordSubOrLegacy(hasOrgPermission, orgId, "discord_modlog_view")
+    : false;
+  const canViewMessages = canTimeout || canKick || canBan || canDeleteMessages;
+  const canSearchMembers = canWarn || canTimeout || canKick || canBan;
 
   // ── Messages tab ──────────────────────────────────────────────────────────
   const [channels, setChannels] = useState([]);
@@ -494,13 +532,13 @@ function DiscordModPage() {
       setBanSyncResult(null);
       setUnbanError(null);
       setUnbanBusy({});
-      fetchChannels();
+      if (canViewMessages) fetchChannels();
     }
-  }, [orgId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orgId, canViewMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (selectedChannel) fetchMessages();
-  }, [fetchMessages]);
+    if (canViewMessages && selectedChannel) fetchMessages();
+  }, [fetchMessages, canViewMessages, selectedChannel]);
 
   // Sync cursor refs whenever messages change
   useEffect(() => {
@@ -512,10 +550,10 @@ function DiscordModPage() {
 
   // Poll for new messages every 15 seconds (only fetches newer than what we have)
   useEffect(() => {
-    if (tab !== "messages" || !selectedChannel) return;
+    if (!canViewMessages || tab === "messages" || !selectedChannel) return;
     const timer = setInterval(pollNewMessages, 15000);
     return () => clearInterval(timer);
-  }, [tab, selectedChannel, pollNewMessages]);
+  }, [tab, selectedChannel, pollNewMessages, canViewMessages]);
 
   // Infinite scroll: observe sentinel at bottom of message list
   useEffect(() => {
@@ -533,10 +571,10 @@ function DiscordModPage() {
   }, [hasMore, loadMoreMessages]);
 
   useEffect(() => {
-    if (tab === "modlog") fetchModLog();
-    if (tab === "bans") fetchBans(banFilter);
-    if (tab === "members") memberSearchRef.current?.focus();
-  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (tab === "modlog" && canViewModLog) fetchModLog();
+    if (tab === "bans" && canViewBans) fetchBans(banFilter);
+    if (tab === "members" && canSearchMembers) memberSearchRef.current?.focus();
+  }, [tab, canViewModLog, canViewBans, canSearchMembers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Infinite scroll: bans (server-side pagination)
   useEffect(() => {
@@ -625,8 +663,18 @@ function DiscordModPage() {
   };
 
   const openAction = (discordId, username, defaultAction = "timeout") => {
+    const allowedActions = [
+      ...(canWarn ? ["warn"] : []),
+      ...(canTimeout ? ["timeout", "untimeout", "mute", "unmute"] : []),
+      ...(canKick ? ["kick"] : []),
+      ...(canBan ? ["ban", "unban"] : []),
+    ];
+    if (allowedActions.length === 0) return;
+
     setActionTarget({ discordId, username });
-    setActionType(defaultAction);
+    setActionType(
+      allowedActions.includes(defaultAction) ? defaultAction : allowedActions[0],
+    );
     setActionReason("");
     setActionDuration(3600);
     setActionDeleteMessages(false);
@@ -735,20 +783,18 @@ function DiscordModPage() {
     return () => clearTimeout(timer);
   }, [banFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const TABS = fullMod
-    ? [
-        { id: "messages", label: "Messages", icon: Hash },
-        { id: "members", label: "Members", icon: Users },
-        { id: "bans", label: "Bans", icon: ShieldAlert },
-        { id: "modlog", label: "Mod Log", icon: ShieldOff },
-      ]
-    : [{ id: "members", label: "Members", icon: Users }];
+  const TABS = [];
+
+  if (canViewMessages) TABS.push({ id: "messages", label: "Messages", icon: Hash });
+  if (canSearchMembers) TABS.push({ id: "members", label: "Members", icon: Users });
+  if (canViewBans) TABS.push({ id: "bans", label: "Bans", icon: ShieldAlert });
+  if (canViewModLog) TABS.push({ id: "modlog", label: "Mod Log", icon: ShieldOff });
 
   // Keep the active tab within what this user is allowed to see (warn-only staff
   // can land here with the default "messages" tab they have no access to).
   useEffect(() => {
-    if (!TABS.some((t) => t.id === tab)) setTab(TABS[0].id);
-  }, [fullMod, tab]);
+    if (TABS.length > 0 && !TABS.some((t) => t.id === tab)) setTab(TABS[0].id);
+  }, [TABS, tab]);
 
   if (adminOrgs.length === 0) {
     return (
@@ -793,7 +839,7 @@ function DiscordModPage() {
             </Select>
           )}
 
-          {tab === "bans" && (
+          {tab === "bans" && canViewBans && (
             <Button
               size="sm"
               variant="outline"
@@ -935,8 +981,10 @@ function DiscordModPage() {
                             discordId={msg.authorDiscordId}
                             username={msg.authorUsername}
                             onAction={openAction}
-                            fullMod={fullMod}
                             canWarn={canWarn}
+                            canTimeout={canTimeout}
+                            canKick={canKick}
+                            canBan={canBan}
                           />
                         </div>
                       </div>
@@ -1034,8 +1082,10 @@ function DiscordModPage() {
                       username={m.username}
                       onAction={openAction}
                       compact
-                      fullMod={fullMod}
                       canWarn={canWarn}
+                      canTimeout={canTimeout}
+                      canKick={canKick}
+                      canBan={canBan}
                     />
                   </div>
                 ))}
@@ -1128,16 +1178,18 @@ function DiscordModPage() {
                       )}
                     </div>
                     <div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[10px] text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60 disabled:opacity-50"
-                        onClick={() => doUnban(b.discordUserId, b.username)}
-                        disabled={!!unbanBusy[b.discordUserId]}
-                      >
-                        <UserCheck className="size-3 mr-1" />
-                        {unbanBusy[b.discordUserId] ? "Unbanning…" : "Unban"}
-                      </Button>
+                      {canBan && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[10px] text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60 disabled:opacity-50"
+                          onClick={() => doUnban(b.discordUserId, b.username)}
+                          disabled={!!unbanBusy[b.discordUserId]}
+                        >
+                          <UserCheck className="size-3 mr-1" />
+                          {unbanBusy[b.discordUserId] ? "Unbanning…" : "Unban"}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1266,7 +1318,7 @@ function DiscordModPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {fullMod ? "Moderate member" : "Warn member"}
+              {canTimeout || canKick || canBan ? "Moderate member" : "Warn member"}
             </DialogTitle>
             <DialogDescription>
               {actionTarget?.username} ({actionTarget?.discordId})
@@ -1278,14 +1330,22 @@ function DiscordModPage() {
               <Label>Action</Label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { value: "warn", label: "Warn (DM)", icon: MessageSquareWarning },
-                  ...(fullMod
+                  ...(canWarn
+                    ? [{ value: "warn", label: "Warn (DM)", icon: MessageSquareWarning }]
+                    : []),
+                  ...(canTimeout
                     ? [
                         { value: "timeout", label: "Timeout", icon: Clock },
                         { value: "untimeout", label: "Untimeout", icon: ShieldOff },
                         { value: "mute", label: "Voice Mute", icon: VolumeX },
                         { value: "unmute", label: "Unmute", icon: Volume2 },
-                        { value: "kick", label: "Kick", icon: UserMinus },
+                      ]
+                    : []),
+                  ...(canKick
+                    ? [{ value: "kick", label: "Kick", icon: UserMinus }]
+                    : []),
+                  ...(canBan
+                    ? [
                         { value: "ban", label: "Ban", icon: Ban },
                         { value: "unban", label: "Unban", icon: UserCheck },
                       ]
@@ -1358,7 +1418,7 @@ function DiscordModPage() {
               )}
             </div>
 
-            {actionType === "ban" && (
+            {actionType === "ban" && canDeleteMessages && (
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"

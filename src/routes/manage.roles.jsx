@@ -1,29 +1,29 @@
 import { GateRank, SectionHeader } from "@/components/manage-section";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  ChevronRight,
-  Lock,
-  Plus,
-  Trash2,
+    ArrowDown,
+    ArrowUp,
+    ChevronDown,
+    ChevronRight,
+    Lock,
+    Plus,
+    Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -186,14 +186,52 @@ const PERMISSION_GROUPS = [
         ],
       },
       {
-        id: "discord_mod",
+        isParent: true,
+        id: "_discord_mod",
         label: "Discord Moderation",
-        desc: "Use the Discord moderation tools",
-      },
-      {
-        id: "discord_warn",
-        label: "Warn via Discord DM",
-        desc: "DM a player a warning (without timeout/kick/ban powers)",
+        desc: "Granular controls for Discord moderation actions and views",
+        children: [
+          {
+            id: "discord_warn",
+            label: "Warn via Discord DM",
+            desc: "DM a player a warning",
+          },
+          {
+            id: "discord_timeout",
+            label: "Timeout / Mute",
+            desc: "Timeout, untimeout, mute, and unmute members",
+          },
+          {
+            id: "discord_kick",
+            label: "Kick Members",
+            desc: "Kick members from the Discord server",
+          },
+          {
+            id: "discord_ban",
+            label: "Ban Members",
+            desc: "Ban and unban members in Discord",
+          },
+          {
+            id: "discord_delete_messages",
+            label: "Delete Messages",
+            desc: "Allow deleting a banned user's Discord messages",
+          },
+          {
+            id: "discord_bans_view",
+            label: "View Ban List",
+            desc: "View and sync the Discord ban list",
+          },
+          {
+            id: "discord_modlog_view",
+            label: "View Mod Log",
+            desc: "View moderation actions recorded by the panel",
+          },
+          {
+            id: "discord_mod",
+            label: "Legacy Full Discord Mod",
+            desc: "Legacy umbrella permission that grants all Discord moderation capabilities",
+          },
+        ],
       },
     ],
   },
