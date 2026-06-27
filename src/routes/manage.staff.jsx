@@ -619,9 +619,17 @@ function StaffPage() {
                 className={`flex items-center justify-between gap-2 ring-1 rounded-md p-2 ${isDisabledRow ? "bg-danger/5 ring-danger/20 opacity-70" : "bg-background ring-border"}`}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="size-7 rounded bg-brand/20 text-brand text-[10px] font-mono font-bold grid place-items-center shrink-0">
-                    {(m.username ?? "?")[0].toUpperCase()}
-                  </div>
+                  {m.discordAvatar ? (
+                    <img
+                      src={m.discordAvatar}
+                      alt={m.username}
+                      className="size-7 rounded shrink-0 object-cover"
+                    />
+                  ) : (
+                    <div className="size-7 rounded bg-brand/20 text-brand text-[10px] font-mono font-bold grid place-items-center shrink-0">
+                      {(m.username ?? "?")[0].toUpperCase()}
+                    </div>
+                  )}
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate flex items-center gap-1.5">
                       {m.username ?? "Unknown"}

@@ -1609,6 +1609,12 @@ export async function ensureSchema(pool) {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_guilds JSONB`,
   );
 
+  // Discord avatar hash for constructing CDN avatar URLs.
+  // Updated on each Discord OAuth login.
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_avatar_hash TEXT`,
+  );
+
   // ── Steam group caching + flagged group detection ─────────────────────────
   // Cache the full list of Steam group GIDs for the player at last refresh.
   await pool.query(

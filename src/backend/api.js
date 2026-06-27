@@ -1122,6 +1122,7 @@ async function exchangeDiscordCode(request, code, fetchGuilds = true) {
     username: String(
       me.global_name || me.username || `user_${String(me.id).slice(-6)}`,
     ),
+    avatarHash: me.avatar ?? null,
     guilds,
   };
 }
@@ -1237,11 +1238,13 @@ async function handleDiscordCallback(request) {
         `UPDATE users
          SET username = $1,
              discord_guilds = COALESCE($2, discord_guilds),
+             discord_avatar_hash = $3,
              updated_at = unix_now()
-         WHERE user_id = $3`,
+         WHERE user_id = $4`,
         [
           discordUser.username,
           discordUser.guilds ? JSON.stringify(discordUser.guilds) : null,
+          discordUser.avatarHash,
           String(existing.user_id),
         ],
       );
@@ -1413,10 +1416,24 @@ async function handleSteamCallback(request) {
 
     const userId = crypto.randomUUID();
     try {
+      // Fetch Discord avatar for new user
+      let avatarHash = null;
+      try {
+        if (env.discordBotToken) {
+          const userRes = await fetch(`https://discord.com/api/v10/users/${pending.discordId}`, {
+            headers: { authorization: `Bot ${env.discordBotToken}` },
+          });
+          if (userRes.ok) {
+            const discordUser = await userRes.json();
+            avatarHash = discordUser.avatar ?? null;
+          }
+        }
+      } catch {}
+
       await pool.query(
-        `INSERT INTO users (user_id, username, discord_id, steam_id, discord_guilds)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [userId, pending.username, pending.discordId, steamId, cachedGuildsJson],
+        `INSERT INTO users (user_id, username, discord_id, steam_id, discord_guilds, discord_avatar_hash)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [userId, pending.username, pending.discordId, steamId, cachedGuildsJson, avatarHash],
       );
     } catch (err) {
       if (err.code === "23505")
@@ -3333,7 +3350,7 @@ async function handleGetOrgMembers(request, orgId) {
   }
 
   const { rows } = await pool.query(
-    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, u.discord_guilds, om.role_id
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, u.discord_guilds, u.discord_avatar_hash, om.role_id
      FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1`,
@@ -3348,6 +3365,9 @@ async function handleGetOrgMembers(request, orgId) {
       steamId: row.steam_id == null ? null : String(row.steam_id),
       roleId: String(row.role_id),
       discordGuilds: row.discord_guilds ?? null,
+      discordAvatar: row.discord_avatar_hash && row.discord_id
+        ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar_hash}.png?size=64`
+        : null,
     })),
   });
 }
