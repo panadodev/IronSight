@@ -46,11 +46,12 @@ export const BAN_CATEGORIES = [
 
 export const MUTE_CATEGORIES = ["toxicity", "spam", "harassment", "mic_abuse"];
 
-export function computeExpiresAt(durationValue) {
+export function computeExpiresAt(durationValue, fromUnix = null) {
   if (durationValue === "-1") return null;
   const minutes = parseInt(durationValue, 10);
   if (isNaN(minutes)) return null;
-  return Math.floor(Date.now() / 1000) + minutes * 60;
+  const base = fromUnix ?? Math.floor(Date.now() / 1000);
+  return base + minutes * 60;
 }
 
 export function fmtRemaining(expiresAt, revoked) {

@@ -16,6 +16,16 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -75,6 +85,7 @@ function BansMutesPage() {
   const [editing, setEditing] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [actionResult, setActionResult] = useState(null);
+  const [pendingRevoke, setPendingRevoke] = useState(null);
 
   const manageableOrgIds = useMemo(
     () =>
@@ -366,7 +377,11 @@ function BansMutesPage() {
                         </button>
                         {!r.revoked && (
                           <button
-                            onClick={() => revoke(r)}
+                            onClick={() =>
+                              r.actionType === "mute"
+                                ? setPendingRevoke(r)
+                                : revoke(r)
+                            }
                             className="size-7 inline-flex items-center justify-center rounded ring-1 ring-danger/40 text-danger hover:bg-danger/10"
                             title="Revoke"
                           >
@@ -418,6 +433,34 @@ function BansMutesPage() {
             loadBans();
           }}
         />
+
+        <AlertDialog
+          open={!!pendingRevoke}
+          onOpenChange={(o) => !o && setPendingRevoke(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revoke mute?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will immediately un-mute{" "}
+                <span className="font-mono">{pendingRevoke?.identifier}</span>.
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-danger text-white hover:bg-danger/90"
+                onClick={() => {
+                  revoke(pendingRevoke);
+                  setPendingRevoke(null);
+                }}
+              >
+                Revoke
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </SteamRequiredGate>
   );
@@ -447,7 +490,7 @@ function EditDialog({ record, onClose, onSaved }) {
     try {
       const patch = { reason, note };
       if (duration !== "keep") {
-        patch.expiresAt = computeExpiresAt(duration);
+        patch.expiresAt = computeExpiresAt(duration, record.issuedAt);
       }
       const res = await fetch(
         `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}`,
@@ -510,7 +553,9 @@ function EditDialog({ record, onClose, onSaved }) {
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">
-              Currently: {fmtRemaining(record.expiresAt, record.revoked)}
+              {duration === "keep"
+                ? `Currently: ${fmtRemaining(record.expiresAt, record.revoked)}`
+                : `New expiry: ${fmtRemaining(computeExpiresAt(duration, record.issuedAt), false)} (from issue date)`}
             </p>
           </div>
           <div className="space-y-1.5">
