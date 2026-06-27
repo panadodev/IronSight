@@ -1,27 +1,27 @@
-import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { SiteNav } from "@/components/site-nav";
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  ArrowRight,
-  BadgeCheck,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Crown,
-  MessageSquare,
-  ShieldAlert,
-  Users,
+    ArrowRight,
+    BadgeCheck,
+    Check,
+    CheckCircle2,
+    ChevronDown,
+    Crown,
+    MessageSquare,
+    ShieldAlert,
+    Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -45,10 +45,13 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
   const [loading, setLoading] = useState(false);
   const [actingIds, setActingIds] = useState(new Set());
   const [showResolved, setShowResolved] = useState(false);
+  const [actionNotice, setActionNotice] = useState(null);
+  const refreshTimerRef = useRef(null);
+  const noticeTimerRef = useRef(null);
 
-  const fetchFlags = useCallback(async () => {
+  const fetchFlags = useCallback(async ({ silent = false } = {}) => {
     if (!orgId) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({
         resolved: String(showResolved),
@@ -65,19 +68,66 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
     } catch {
       // panel is supplementary; ignore errors
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [orgId, showResolved]);
 
   useEffect(() => {
     fetchFlags();
-    const timer = setInterval(fetchFlags, 30000);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => {
+      fetchFlags({ silent: true });
+    }, 30000);
+    return () => {
+      clearInterval(timer);
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = null;
+      }
+    };
   }, [fetchFlags]);
+
+  useEffect(() => {
+    if (!orgId) return;
+
+    const es = new EventSource(
+      `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged/stream`,
+      { withCredentials: true },
+    );
+
+    es.onmessage = () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        fetchFlags({ silent: true });
+      }, 150);
+    };
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      es.close();
+    };
+  }, [orgId, fetchFlags]);
 
   const act = useCallback(
     async (flagId, type) => {
       if (!orgId) return;
+
+      const showNotice = (notice) => {
+        setActionNotice(notice);
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = setTimeout(() => {
+          noticeTimerRef.current = null;
+          setActionNotice(null);
+        }, 5000);
+      };
+
       setActingIds((s) => new Set(s).add(flagId));
       try {
         const res = await fetch(
@@ -92,7 +142,29 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
         if (res.ok) {
           setFlags((prev) => prev.filter((f) => f.flagId !== flagId));
           setTotalReviewed((n) => n + 1);
+          return;
         }
+
+        const payload = await res.json().catch(() => ({}));
+        if (res.status === 409 && payload?.conflict) {
+          setFlags((prev) => prev.filter((f) => f.flagId !== flagId));
+          fetchFlags({ silent: true });
+          const resolvedBy = payload.resolvedByName
+            ? ` by ${payload.resolvedByName}`
+            : "";
+          const actionLabel =
+            payload.resolutionType === "confirmed" ? "confirmed" : "cleared";
+          showNotice({
+            tone: "muted",
+            text: `Already ${actionLabel}${resolvedBy}.`,
+          });
+          return;
+        }
+
+        showNotice({
+          tone: "danger",
+          text: payload?.error ?? "Could not update this flag.",
+        });
       } finally {
         setActingIds((s) => {
           const next = new Set(s);
@@ -134,6 +206,16 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
           {showResolved ? "Unresolved" : "Resolved"}
         </button>
       </div>
+
+      {actionNotice && (
+        <div className={`px-3 py-1.5 border-b border-border text-[10px] ${
+          actionNotice.tone === "danger"
+            ? "text-danger bg-danger/10"
+            : "text-muted-foreground bg-surface/50"
+        }`}>
+          {actionNotice.text}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {loading && flags.length === 0 ? (
@@ -178,8 +260,14 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
 
 function FlagCard({ flag, canConfirm, canClear, acting, onConfirm, onClear, onJump, onViewPlayer }) {
   const scorePercent = Math.round(flag.score * 100);
-  const label =
-    CATEGORY_LABELS[flag.triggeredCategory] ?? flag.triggeredCategory;
+  const signals = Array.isArray(flag.signals) && flag.signals.length
+    ? flag.signals
+    : [
+        {
+          category: flag.triggeredCategory,
+          score: Number(flag.score ?? 0),
+        },
+      ];
   const isAutomute = flag.action === "automute";
   const age = fmtRelative(flag.createdAt * 1000);
 
@@ -233,12 +321,24 @@ function FlagCard({ flag, canConfirm, canClear, acting, onConfirm, onClear, onJu
         >
           {isAutomute ? "MUTED" : "FLAG"}
         </span>
-        <span className="text-[9px] font-mono bg-surface px-1.5 py-0.5 rounded ring-1 ring-border">
-          {label}
-        </span>
-        <span className="text-[9px] font-mono text-muted-foreground">
-          {scorePercent}%
-        </span>
+        {signals.map((signal) => {
+          const signalLabel =
+            CATEGORY_LABELS[signal.category] ?? signal.category;
+          const signalScore = Math.round(Number(signal.score ?? 0) * 100);
+          return (
+            <span
+              key={`${flag.flagId}:${signal.category}`}
+              className="text-[9px] font-mono bg-surface px-1.5 py-0.5 rounded ring-1 ring-border"
+            >
+              {signalLabel} {signalScore}%
+            </span>
+          );
+        })}
+        {signals.length === 0 && (
+          <span className="text-[9px] font-mono text-muted-foreground">
+            {scorePercent}%
+          </span>
+        )}
         {flag.resolutionType && (
           <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ring-1 ${
             flag.resolutionType === "confirmed"
@@ -1147,3 +1247,4 @@ function ChatPage() {
   );
 }
 export { Route };
+

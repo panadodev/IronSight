@@ -1,7 +1,6 @@
 // Database schema + additive migrations, extracted from api.js.
 // Pure SQL against the provided pg Pool — no other backend runtime deps.
 
-import crypto from "node:crypto";
 
 export async function ensureSchema(pool) {
   await pool.query(`
@@ -1424,7 +1423,7 @@ export async function ensureSchema(pool) {
      ON org_ai_moderation_triggers(org_id)`,
   );
 
-  // Flagged messages log — one row per trigger-fire, resolvable by staff.
+  // Flagged messages log — one row per chat message with combined signal tags.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ai_chat_flags (
       flag_id          UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1454,6 +1453,9 @@ export async function ensureSchema(pool) {
   );
   await pool.query(
     `ALTER TABLE ai_chat_flags ADD COLUMN IF NOT EXISTS resolution_type TEXT CHECK (resolution_type IN ('confirmed', 'cleared'))`,
+  );
+  await pool.query(
+    `ALTER TABLE ai_chat_flags ADD COLUMN IF NOT EXISTS signals JSONB`,
   );
 
   // Opt-in toggle: when TRUE, in-game admin perms are granted via RCON whenever

@@ -136,6 +136,8 @@ const STEAM_OPENID_URL = "https://steamcommunity.com/openid/login";
 
 // ticketId → Set<{ controller: ReadableStreamDefaultController, isStaff: boolean }>
 const ticketStreams = new Map();
+// orgId → Set<{ controller: ReadableStreamDefaultController }>
+const flaggedStreams = new Map();
 const sseEncoder = new TextEncoder();
 
 let initError = null;
@@ -593,28 +595,46 @@ async function init() {
       enableReadyCheck: true,
     });
     setRedisSub(redisSubClient);
-    redisSubClient.psubscribe("ticket-stream:*").catch((err) => {
+    redisSubClient.psubscribe("ticket-stream:*", "flagged-stream:*").catch((err) => {
       console.error("[sse] redisSub psubscribe error:", err.message);
     });
     redisSubClient.on("pmessage", (_pattern, channel, raw) => {
-      const ticketId = parseInt(channel.slice("ticket-stream:".length), 10);
-      if (!Number.isFinite(ticketId)) return;
-      const set = ticketStreams.get(ticketId);
-      if (!set?.size) return;
-      let event;
-      try {
-        event = JSON.parse(raw);
-      } catch {
+      if (channel.startsWith("ticket-stream:")) {
+        const ticketId = parseInt(channel.slice("ticket-stream:".length), 10);
+        if (!Number.isFinite(ticketId)) return;
+        const set = ticketStreams.get(ticketId);
+        if (!set?.size) return;
+        let event;
+        try {
+          event = JSON.parse(raw);
+        } catch {
+          return;
+        }
+        const chunk = sseEncoder.encode(`data: ${raw}\n\n`);
+        for (const entry of set) {
+          if (event.type === "new_message" && event.message?.isInternal && !entry.isStaff)
+            continue;
+          try {
+            entry.controller.enqueue(chunk);
+          } catch {
+            set.delete(entry);
+          }
+        }
         return;
       }
-      const chunk = sseEncoder.encode(`data: ${raw}\n\n`);
-      for (const entry of set) {
-        if (event.type === "new_message" && event.message?.isInternal && !entry.isStaff)
-          continue;
-        try {
-          entry.controller.enqueue(chunk);
-        } catch {
-          set.delete(entry);
+
+      if (channel.startsWith("flagged-stream:")) {
+        const orgId = channel.slice("flagged-stream:".length);
+        if (!orgId) return;
+        const set = flaggedStreams.get(orgId);
+        if (!set?.size) return;
+        const chunk = sseEncoder.encode(`data: ${raw}\n\n`);
+        for (const entry of set) {
+          try {
+            entry.controller.enqueue(chunk);
+          } catch {
+            set.delete(entry);
+          }
         }
       }
     });
@@ -7136,6 +7156,7 @@ async function handleListFlaggedMessages(request, orgId) {
   const resolvedParam = url.searchParams.get("resolved");
   const resolved = resolvedParam === "true" ? true : resolvedParam === "false" ? false : null;
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
+  const rowLimit = Math.min(500, limit * 5);
 
   const conditions = ["f.org_id = $1"];
   const params = [orgId];
@@ -7149,7 +7170,7 @@ async function handleListFlaggedMessages(request, orgId) {
   const [{ rows }, countRes] = await Promise.all([
     pool.query(
       `SELECT f.flag_id, f.chat_log_id, f.server_id, f.steam_id, f.player_name,
-              f.message, f.triggered_category, f.score, f.action,
+              f.message, f.triggered_category, f.score, f.action, f.signals,
               f.resolved, f.resolved_at, f.resolution_type, f.created_at,
               u.username AS resolved_by_name,
               s.server_name
@@ -7159,33 +7180,154 @@ async function handleListFlaggedMessages(request, orgId) {
        WHERE ${conditions.join(" AND ")}
        ORDER BY f.created_at DESC
        LIMIT $${idx}`,
-      [...params, limit],
+      [...params, rowLimit],
     ),
     pool.query(
-      `SELECT COUNT(*)::int AS total FROM ai_chat_flags WHERE org_id = $1 AND resolved = TRUE`,
+      `SELECT COUNT(*)::int AS total
+       FROM (
+         SELECT COALESCE(chat_log_id::text, flag_id::text) AS grouped_id
+         FROM ai_chat_flags
+         WHERE org_id = $1 AND resolved = TRUE
+         GROUP BY COALESCE(chat_log_id::text, flag_id::text)
+       ) grouped`,
       [orgId],
     ),
   ]);
 
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = row.chat_log_id ? `chat:${row.chat_log_id}` : `flag:${row.flag_id}`;
+    const existing = grouped.get(key);
+
+    let signalEntries = [];
+    if (row.signals && typeof row.signals === "object") {
+      signalEntries = Object.entries(row.signals).map(([category, score]) => ({
+        category,
+        score: Number(score),
+      }));
+    }
+    if (!signalEntries.length && row.triggered_category) {
+      signalEntries = [{
+        category: row.triggered_category,
+        score: Number(row.score),
+      }];
+    }
+
+    if (!existing) {
+      grouped.set(key, {
+        flagId: row.flag_id,
+        chatLogId: row.chat_log_id ? String(row.chat_log_id) : null,
+        serverId: row.server_id,
+        serverName: row.server_name ?? null,
+        steamId: row.steam_id,
+        playerName: row.player_name,
+        message: row.message,
+        action: row.action,
+        resolved: row.resolved,
+        resolvedAt: row.resolved_at ? Number(row.resolved_at) : null,
+        resolutionType: row.resolution_type ?? null,
+        resolvedByName: row.resolved_by_name ?? null,
+        createdAt: Number(row.created_at),
+        signalScores: new Map(
+          signalEntries.map((entry) => [entry.category, Number(entry.score)]),
+        ),
+      });
+      continue;
+    }
+
+    if (row.action === "automute") existing.action = "automute";
+    if (row.created_at > existing.createdAt) {
+      existing.createdAt = Number(row.created_at);
+      existing.flagId = row.flag_id;
+    }
+    if (!existing.serverName && row.server_name) existing.serverName = row.server_name;
+    for (const entry of signalEntries) {
+      const prior = existing.signalScores.get(entry.category);
+      const nextScore = Number(entry.score);
+      if (prior == null || nextScore > prior) {
+        existing.signalScores.set(entry.category, nextScore);
+      }
+    }
+  }
+
+  const flags = Array.from(grouped.values())
+    .map((group) => {
+      const signals = Array.from(group.signalScores.entries())
+        .map(([category, score]) => ({ category, score: Number(score) }))
+        .sort((a, b) => b.score - a.score);
+      const topSignal = signals[0] ?? { category: null, score: 0 };
+      return {
+        flagId: group.flagId,
+        chatLogId: group.chatLogId,
+        serverId: group.serverId,
+        serverName: group.serverName,
+        steamId: group.steamId,
+        playerName: group.playerName,
+        message: group.message,
+        triggeredCategory: topSignal.category,
+        score: Number(topSignal.score ?? 0),
+        signals,
+        action: group.action,
+        resolved: group.resolved,
+        resolvedAt: group.resolvedAt,
+        resolutionType: group.resolutionType,
+        resolvedByName: group.resolvedByName,
+        createdAt: group.createdAt,
+      };
+    })
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, limit);
+
   return json({
-    flags: rows.map((r) => ({
-      flagId: r.flag_id,
-      chatLogId: r.chat_log_id ? String(r.chat_log_id) : null,
-      serverId: r.server_id,
-      serverName: r.server_name ?? null,
-      steamId: r.steam_id,
-      playerName: r.player_name,
-      message: r.message,
-      triggeredCategory: r.triggered_category,
-      score: Number(r.score),
-      action: r.action,
-      resolved: r.resolved,
-      resolvedAt: r.resolved_at ? Number(r.resolved_at) : null,
-      resolutionType: r.resolution_type ?? null,
-      resolvedByName: r.resolved_by_name ?? null,
-      createdAt: Number(r.created_at),
-    })),
+    flags,
     totalReviewed: countRes.rows[0]?.total ?? 0,
+  });
+}
+
+async function handleStreamFlaggedMessages(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (
+    !orgHasPermission(session, orgId, "toxicity_manage") &&
+    !orgHasPermission(session, orgId, "flagged_messages_resolve") &&
+    !orgHasPermission(session, orgId, "flagged_messages_confirm") &&
+    !orgHasPermission(session, orgId, "flagged_messages_clear")
+  )
+    return json({ error: "Forbidden: requires toxicity_manage, flagged_messages_resolve, flagged_messages_confirm, or flagged_messages_clear" }, 403);
+
+  let entry;
+  let heartbeat;
+  const stream = new ReadableStream({
+    start(controller) {
+      entry = { controller };
+      if (!flaggedStreams.has(orgId)) flaggedStreams.set(orgId, new Set());
+      flaggedStreams.get(orgId).add(entry);
+      controller.enqueue(sseEncoder.encode(": connected\n\n"));
+      heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(sseEncoder.encode(": ping\n\n"));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 25000);
+    },
+    cancel() {
+      clearInterval(heartbeat);
+      const set = flaggedStreams.get(orgId);
+      if (set) {
+        set.delete(entry);
+        if (set.size === 0) flaggedStreams.delete(orgId);
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
   });
 }
 
@@ -7222,13 +7364,68 @@ async function handleResolveFlaggedMessage(request, orgId, flagId) {
   if (rl) return rl;
 
   const { rows } = await pool.query(
-    `UPDATE ai_chat_flags
-     SET resolved = TRUE, resolved_by = $1, resolved_at = unix_now(), resolution_type = $2
-     WHERE flag_id = $3 AND org_id = $4 AND resolved = FALSE
-     RETURNING flag_id`,
+    `WITH target AS (
+       SELECT flag_id, chat_log_id
+       FROM ai_chat_flags
+       WHERE flag_id = $3 AND org_id = $4
+       LIMIT 1
+     )
+     UPDATE ai_chat_flags f
+     SET resolved = TRUE,
+         resolved_by = $1,
+         resolved_at = unix_now(),
+         resolution_type = $2
+     FROM target t
+     WHERE f.org_id = $4
+       AND f.resolved = FALSE
+       AND (
+         f.flag_id = t.flag_id
+         OR (t.chat_log_id IS NOT NULL AND f.chat_log_id = t.chat_log_id)
+       )
+     RETURNING f.flag_id`,
     [session.userId, type, flagId, orgId],
   );
-  if (!rows[0]) return json({ error: "Flag not found or already resolved" }, 404);
+  if (!rows[0]) {
+    const { rows: existingRows } = await pool.query(
+      `SELECT f.resolved, f.resolution_type, f.resolved_at, u.username AS resolved_by_name
+       FROM ai_chat_flags f
+       LEFT JOIN users u ON u.user_id = f.resolved_by
+       WHERE f.flag_id = $1 AND f.org_id = $2
+       LIMIT 1`,
+      [flagId, orgId],
+    );
+
+    const existing = existingRows[0];
+    if (existing?.resolved) {
+      return json(
+        {
+          error: "Flag already resolved by another moderator",
+          conflict: true,
+          resolutionType: existing.resolution_type ?? null,
+          resolvedAt: existing.resolved_at ? Number(existing.resolved_at) : null,
+          resolvedByName: existing.resolved_by_name ?? null,
+        },
+        409,
+      );
+    }
+
+    return json({ error: "Flag not found" }, 404);
+  }
+
+  redis
+    .publish(
+      `flagged-stream:${orgId}`,
+      JSON.stringify({
+        type: "flag_resolved",
+        orgId,
+        flagId,
+        resolutionType: type,
+        resolvedBy: session.userId,
+        at: nowUnix(),
+      }),
+    )
+    .catch(() => {});
+
   return json({ ok: true });
 }
 
@@ -13812,6 +14009,12 @@ async function _handleApiRequest(request) {
       return handleDeleteAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
 
     // AI Moderation: flagged messages
+    const aiFlaggedStreamMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/flagged\/stream$/,
+    );
+    if (aiFlaggedStreamMatch && request.method === "GET")
+      return handleStreamFlaggedMessages(request, aiFlaggedStreamMatch[1]);
+
     const aiFlaggedMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/flagged$/,
     );

@@ -1,8 +1,8 @@
 // AI chat moderation via OpenAI's Moderation API
 // Used by the chat ingest handler (fire-and-forget)
 
-import { pool, redis } from "./runtime.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
+import { pool, redis } from "./runtime.js";
 
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
@@ -210,38 +210,117 @@ export function runChatModerationAsync(
   });
 }
 
-async function insertFlag(
+async function upsertCombinedFlag(
   chatRowId,
   orgId,
   serverId,
   steamId,
   playerName,
   message,
-  trigger,
-  score,
+  signalEntries,
 ) {
-  await pool
-    .query(
-      `INSERT INTO ai_chat_flags
-         (chat_log_id, org_id, server_id, steam_id, player_name, message,
-          triggered_category, score, action)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (chat_log_id, triggered_category) DO NOTHING`,
-      [
-        chatRowId,
-        orgId,
-        serverId,
-        steamId,
-        playerName ?? null,
-        message,
-        trigger.category,
-        score,
-        trigger.action,
-      ],
-    )
-    .catch((err) => {
-      console.error(`[ai-mod] failed to insert flag:`, err);
-    });
+  if (!signalEntries.length) return;
+
+  const sortedSignals = [...signalEntries].sort(
+    (a, b) => Number(b.score) - Number(a.score),
+  );
+  const primarySignal = sortedSignals[0];
+  const action = sortedSignals.some((s) => s.action === "automute")
+    ? "automute"
+    : "highlight";
+  const signals = Object.fromEntries(
+    sortedSignals.map((s) => [s.category, Number(s.score)]),
+  );
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `${orgId}:${chatRowId}`,
+    ]);
+
+    const { rows: existingRows } = await client.query(
+      `SELECT flag_id
+       FROM ai_chat_flags
+       WHERE chat_log_id = $1 AND org_id = $2
+       ORDER BY created_at DESC, flag_id DESC`,
+      [chatRowId, orgId],
+    );
+
+    if (existingRows.length) {
+      const keepId = existingRows[0].flag_id;
+      await client.query(
+        `UPDATE ai_chat_flags
+         SET server_id = $1,
+             steam_id = $2,
+             player_name = $3,
+             message = $4,
+             triggered_category = $5,
+             score = $6,
+             action = $7,
+             signals = $8::jsonb
+         WHERE flag_id = $9`,
+        [
+          serverId,
+          steamId,
+          playerName ?? null,
+          message,
+          primarySignal.category,
+          Number(primarySignal.score),
+          action,
+          JSON.stringify(signals),
+          keepId,
+        ],
+      );
+
+      if (existingRows.length > 1) {
+        await client.query(
+          `DELETE FROM ai_chat_flags
+           WHERE chat_log_id = $1 AND org_id = $2 AND flag_id <> $3`,
+          [chatRowId, orgId, keepId],
+        );
+      }
+    } else {
+      await client.query(
+        `INSERT INTO ai_chat_flags
+           (chat_log_id, org_id, server_id, steam_id, player_name, message,
+            triggered_category, score, action, signals)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+        [
+          chatRowId,
+          orgId,
+          serverId,
+          steamId,
+          playerName ?? null,
+          message,
+          primarySignal.category,
+          Number(primarySignal.score),
+          action,
+          JSON.stringify(signals),
+        ],
+      );
+    }
+
+    await client.query("COMMIT");
+
+    redis
+      .publish(
+        `flagged-stream:${orgId}`,
+        JSON.stringify({
+          type: "flag_upserted",
+          orgId,
+          chatLogId: String(chatRowId),
+          steamId,
+          at: Math.floor(Date.now() / 1000),
+        }),
+      )
+      .catch(() => {});
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(`[ai-mod] failed to upsert combined flag:`, err);
+  } finally {
+    client.release();
+  }
 }
 
 // Cache the OpenAI rate limit headers returned by a moderation response.
@@ -351,28 +430,40 @@ async function _runChatModeration(
   }
 
   const triggers = await loadTriggers(orgId);
-  const muteFired = new Set();
+  const matchedSignals = [];
 
   for (const trigger of triggers) {
     const score = scores[trigger.category] ?? 0;
     if (score >= Number(trigger.threshold)) {
-      await insertFlag(
-        chatRowId,
-        orgId,
-        serverId,
-        steamId,
-        playerName,
-        message,
+      matchedSignals.push({
+        category: trigger.category,
+        score: Number(score),
+        action: trigger.action,
         trigger,
-        score,
-      );
-
-      if (trigger.action === "automute" && !muteFired.has(steamId)) {
-        muteFired.add(steamId);
-        await issueMute(orgId, steamId, trigger, serverId).catch((err) => {
-          console.error(`[ai-mod] failed to issue mute:`, err);
-        });
-      }
+      });
     }
+  }
+
+  if (matchedSignals.length) {
+    await upsertCombinedFlag(
+      chatRowId,
+      orgId,
+      serverId,
+      steamId,
+      playerName,
+      message,
+      matchedSignals,
+    );
+  }
+
+  const automuteSignal = [...matchedSignals]
+    .filter((s) => s.action === "automute")
+    .sort((a, b) => Number(b.score) - Number(a.score))[0];
+  if (automuteSignal) {
+    await issueMute(orgId, steamId, automuteSignal.trigger, serverId).catch(
+      (err) => {
+        console.error(`[ai-mod] failed to issue mute:`, err);
+      },
+    );
   }
 }
