@@ -448,7 +448,7 @@ function PlayerListPage() {
               </button>
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
                 Sorted by {SORT_LABEL[sortKey]} {sortDir === "desc" ? "↓" : "↑"}{" "}
-                \xB7 click a column to change
+                {"\xB7"} click a column to change
               </div>
             </div>
 

@@ -339,6 +339,7 @@ function RolesPage() {
   const [loading, setLoading] = useState(false);
   const [ticketTypes, setTicketTypes] = useState([]);
   const [guildRoles, setGuildRoles] = useState([]);
+  const [callerDiscordPos, setCallerDiscordPos] = useState(null);
   const [servers, setServers] = useState([]);
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -434,7 +435,11 @@ function RolesPage() {
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((body) => body && setGuildRoles(body.discordRoles ?? []))
+      .then((body) => {
+        if (!body) return;
+        setGuildRoles(body.discordRoles ?? []);
+        setCallerDiscordPos(body.callerDiscordPosition ?? null);
+      })
       .catch(() => {});
   }, [orgId]);
 
@@ -1022,17 +1027,23 @@ function RolesPage() {
                         </p>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                          {guildRoles.map((gr) => (
-                            <DiscordRoleCheckbox
-                              key={gr.id}
-                              checked={draftDR.includes(gr.id)}
-                              onClick={() =>
-                                toggleDiscordRole(role.roleId, gr.id)
-                              }
-                              name={gr.name}
-                              color={gr.color}
-                            />
-                          ))}
+                          {guildRoles
+                            .filter(
+                              (gr) =>
+                                callerDiscordPos === null ||
+                                (gr.position ?? 0) < callerDiscordPos,
+                            )
+                            .map((gr) => (
+                              <DiscordRoleCheckbox
+                                key={gr.id}
+                                checked={draftDR.includes(gr.id)}
+                                onClick={() =>
+                                  toggleDiscordRole(role.roleId, gr.id)
+                                }
+                                name={gr.name}
+                                color={gr.color}
+                              />
+                            ))}
                         </div>
                       )}
                       <p className="text-[10px] text-muted-foreground mt-1.5 px-2">

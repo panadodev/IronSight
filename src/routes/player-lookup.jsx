@@ -14,7 +14,7 @@ import { HINTS } from "@/components/hint";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
 import { PlayerLinks } from "@/components/player-links";
-import { Ban, MicOff } from "lucide-react";
+import { AlertTriangle, Ban, MessageSquare, MicOff, UserX } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -245,6 +245,17 @@ function PlayerLookupPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(false);
   const refreshCooldownRef = useRef(null);
+  const [bmRateLimitWarning, setBmRateLimitWarning] = useState(false);
+
+  const [kickOpen, setKickOpen] = useState(false);
+  const [kickServerId, setKickServerId] = useState("");
+  const [kickLoading, setKickLoading] = useState(false);
+  const [kickError, setKickError] = useState("");
+  const [kickResult, setKickResult] = useState("");
+  const [orgServers, setOrgServers] = useState(null);
+
+  const [chatLines, setChatLines] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
 
   // The URL `steam` param is the single source of truth. Submitting the form
   // navigates (below); this effect mirrors the resulting URL into local state.
@@ -283,6 +294,10 @@ function PlayerLookupPage() {
 
   // No ban permission anywhere → view-only (hide ban/mute actions).
   const isSupportOnly = !banOrgId;
+
+  const canKick = fetchOrgId
+    ? hasOrgPermission(fetchOrgId, "player_kick")
+    : false;
 
   // IP access spans all the caller's orgs (matches the server, which shows IPs
   // when the caller has ip_read anywhere). Per-IP source filtering happens below.
@@ -329,6 +344,8 @@ function PlayerLookupPage() {
           pollAttemptsRef.current = 0;
           setFirstFetch(false);
           setPlayerData(body);
+          if (body.bmRateLimitWarning) setBmRateLimitWarning(true);
+          else setBmRateLimitWarning(false);
         }
       } catch {
         setPlayerError("Failed to fetch player data.");
@@ -423,6 +440,33 @@ function PlayerLookupPage() {
     };
   }, [steamId]);
 
+  // Chat history for this player across the org's servers
+  useEffect(() => {
+    if (!steamId || !fetchOrgId) {
+      setChatLines([]);
+      return;
+    }
+    let cancelled = false;
+    setChatLoading(true);
+    fetch(
+      `/api/players/${encodeURIComponent(steamId)}/chat?orgId=${encodeURIComponent(fetchOrgId)}&limit=50`,
+      { credentials: "include" },
+    )
+      .then((r) => r.json())
+      .then((b) => {
+        if (!cancelled) setChatLines(b.lines ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setChatLines([]);
+      })
+      .finally(() => {
+        if (!cancelled) setChatLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [steamId, fetchOrgId]);
+
   const submit = (e) => {
     e.preventDefault();
     const trimmed = input.trim();
@@ -444,6 +488,53 @@ function PlayerLookupPage() {
     setRefreshCooldown(true);
     if (refreshCooldownRef.current) clearTimeout(refreshCooldownRef.current);
     refreshCooldownRef.current = setTimeout(() => setRefreshCooldown(false), 15000);
+  };
+
+  const openKickDialog = async () => {
+    setKickError("");
+    setKickResult("");
+    setKickServerId("");
+    setKickOpen(true);
+    if (!orgServers && fetchOrgId) {
+      const res = await fetch("/api/servers", { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      const rconServers = (data.servers ?? []).filter(
+        (s) => s.rconConfigured && s.ownerOrgId === fetchOrgId,
+      );
+      setOrgServers(rconServers);
+      if (rconServers.length === 1) setKickServerId(rconServers[0].serverId);
+      else {
+        const sessionServer = playerData?.bmSessions?.[0]?.serverName;
+        const match = rconServers.find(
+          (s) => s.serverName.toLowerCase().includes((sessionServer ?? "").toLowerCase().slice(0, 8)),
+        );
+        if (match) setKickServerId(match.serverId);
+      }
+    }
+  };
+
+  const handleKick = async () => {
+    if (!steamId || !kickServerId || !fetchOrgId) return;
+    setKickLoading(true);
+    setKickError("");
+    setKickResult("");
+    try {
+      const res = await fetch(
+        `/api/players/${encodeURIComponent(steamId)}/kick?orgId=${encodeURIComponent(fetchOrgId)}&serverId=${encodeURIComponent(kickServerId)}`,
+        { method: "POST", credentials: "include" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setKickResult("Player kicked successfully.");
+        setTimeout(() => setKickOpen(false), 1500);
+      } else {
+        setKickError(data.error ?? "Kick failed.");
+      }
+    } catch {
+      setKickError("Network error.");
+    } finally {
+      setKickLoading(false);
+    }
   };
 
 
@@ -743,9 +834,18 @@ function PlayerLookupPage() {
                           type="button"
                           onClick={handleRefresh}
                           disabled={refreshing || refreshCooldown}
-                          className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-muted-foreground text-xs rounded-md ring-1 ring-border hover:bg-surface-bright disabled:opacity-50"
-                          title={refreshCooldown ? "Wait a moment before refreshing again" : "Refresh data from BattleMetrics / Steam"}
+                          className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-md ring-1 disabled:opacity-50 ${bmRateLimitWarning ? "bg-warning/10 text-warning ring-warning/40 hover:bg-warning/20" : "bg-surface text-muted-foreground ring-border hover:bg-surface-bright"}`}
+                          title={
+                            refreshCooldown
+                              ? "Wait a moment before refreshing again"
+                              : bmRateLimitWarning
+                                ? "BattleMetrics token is >90% rate-limited — data may not refresh"
+                                : "Refresh data from BattleMetrics / Steam"
+                          }
                         >
+                          {bmRateLimitWarning && (
+                            <AlertTriangle className="size-3.5 shrink-0" />
+                          )}
                           <RefreshCw
                             className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
                           />
@@ -785,6 +885,17 @@ function PlayerLookupPage() {
                           >
                             <Ban className="size-3.5" />
                             Ban
+                          </button>
+                        )}
+                        {canKick &&
+                          playerData.bmSessions?.[0]?.lastSeen &&
+                          Date.now() / 1000 - playerData.bmSessions[0].lastSeen < 300 && (
+                          <button
+                            onClick={openKickDialog}
+                            className="flex items-center gap-2 px-3 py-2 bg-surface text-foreground ring-1 ring-border rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-surface-bright"
+                          >
+                            <UserX className="size-3.5" />
+                            Kick
                           </button>
                         )}
                       </div>
@@ -1035,9 +1146,124 @@ function PlayerLookupPage() {
                 {!isSupportOnly && (
                   <SessionTimeline sessionWindows={playerData.sessionWindows} />
                 )}
+
+                {/* Chat History */}
+                {!isSupportOnly && (
+                  <section>
+                    <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+                      <MessageSquare className="size-3" />
+                      Chat History
+                      <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
+                        {chatLines.length}
+                      </span>
+                    </h2>
+                    {chatLoading ? (
+                      <p className="text-xs text-muted-foreground italic animate-pulse">
+                        Loading…
+                      </p>
+                    ) : chatLines.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">
+                        No chat messages on record.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {chatLines.map((line) => (
+                          <li
+                            key={line.id}
+                            className="bg-surface/30 ring-1 ring-border rounded px-2 py-1.5"
+                          >
+                            <div className="flex items-start gap-2">
+                              {line.teamMessage && (
+                                <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
+                                  team
+                                </span>
+                              )}
+                              <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
+                                {line.message}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground">
+                              <span>
+                                {new Date(line.ts * 1000).toLocaleDateString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </span>
+                              {line.serverName && (
+                                <>
+                                  <span>·</span>
+                                  <span className="truncate">{line.serverName}</span>
+                                </>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
               </div>
             </div>
           )}
+
+          {/* Kick Dialog */}
+          <Dialog open={kickOpen} onOpenChange={setKickOpen}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Kick Player</DialogTitle>
+                <DialogDescription>
+                  Select the server and confirm the kick.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                {(!orgServers || orgServers.length === 0) ? (
+                  <p className="text-xs text-muted-foreground">
+                    No RCON-configured servers found for this org.
+                  </p>
+                ) : orgServers.length === 1 ? (
+                  <p className="text-xs text-foreground">
+                    Server: <strong>{orgServers[0].serverName}</strong>
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Select server:</p>
+                    <select
+                      value={kickServerId}
+                      onChange={(e) => setKickServerId(e.target.value)}
+                      className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs"
+                    >
+                      <option value="">— pick a server —</option>
+                      {orgServers.map((s) => (
+                        <option key={s.serverId} value={s.serverId}>
+                          {s.serverName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {kickResult && (
+                  <p className="text-xs text-success">{kickResult}</p>
+                )}
+                {kickError && (
+                  <p className="text-xs text-danger">{kickError}</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setKickOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={kickLoading || !kickServerId}
+                  onClick={handleKick}
+                >
+                  {kickLoading ? "Kicking…" : "Kick"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Dialogs */}
           {steamId && (

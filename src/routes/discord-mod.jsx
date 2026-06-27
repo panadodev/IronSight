@@ -292,6 +292,7 @@ function DiscordModPage() {
   const [actionType, setActionType] = useState("timeout");
   const [actionReason, setActionReason] = useState("");
   const [actionDuration, setActionDuration] = useState(3600);
+  const [actionDeleteMessages, setActionDeleteMessages] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -628,6 +629,7 @@ function DiscordModPage() {
     setActionType(defaultAction);
     setActionReason("");
     setActionDuration(3600);
+    setActionDeleteMessages(false);
     setActionError("");
   };
 
@@ -693,6 +695,7 @@ function DiscordModPage() {
         targetUsername: actionTarget.username,
         reason: actionReason || null,
         durationSeconds: actionType === "timeout" ? actionDuration : undefined,
+        deleteMessages: actionType === "ban" ? actionDeleteMessages : undefined,
       };
       let res;
       try {
@@ -1349,6 +1352,20 @@ function DiscordModPage() {
                 </p>
               )}
             </div>
+
+            {actionType === "ban" && (
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={actionDeleteMessages}
+                  onChange={(e) => setActionDeleteMessages(e.target.checked)}
+                  className="accent-danger"
+                />
+                <span className="text-xs text-foreground">
+                  Also delete their Discord messages
+                </span>
+              </label>
+            )}
 
             {actionError && (
               <p className="text-xs text-danger">{actionError}</p>

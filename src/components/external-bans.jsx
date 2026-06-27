@@ -45,9 +45,9 @@ function ExternalBansSection({ bans: rawBans }) {
     <section>
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>
-          Bans on Other Orgs
+          All Bans
           <span className="ml-2 normal-case tracking-normal text-[9px] text-muted-foreground/70">
-            (read-only · shared banlist)
+            (read-only · from BattleMetrics)
           </span>
         </span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">

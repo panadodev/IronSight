@@ -3,9 +3,11 @@
 
 import { pool, redis } from "../runtime.js";
 import { json } from "../http.js";
-import { authenticateServerKey, checkRateLimit } from "../core.js";
+import { authenticateServerKey, checkRateLimit, sendDiscordDm } from "../core.js";
 import { evaluateThreatTriggers } from "../threat-triggers.js";
 import { runChatModerationAsync } from "../ai-moderation.js";
+
+const RECOVERY_STALE_THRESHOLD_SECONDS = 10 * 60;
 
 const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
 const SERVER_LOG_RATE_LIMIT_PER_MINUTE = 120;
@@ -28,10 +30,49 @@ export async function handleServerHealthCheck(request) {
   );
   if (rl) return rl;
 
+  // Check if there is a stale_ping alert currently active for this server
+  // (meaning the server was previously offline and now recovered)
+  const prevPingRes = await pool.query(
+    `SELECT last_health_ping FROM servers WHERE server_id = $1 LIMIT 1`,
+    [server.server_id],
+  );
+  const prevPing = prevPingRes.rows[0]?.last_health_ping;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const wasStale =
+    prevPing != null && nowSec - Number(prevPing) > RECOVERY_STALE_THRESHOLD_SECONDS;
+
   await pool.query(
     `UPDATE servers SET last_health_ping = unix_now() WHERE server_id = $1`,
     [server.server_id],
   );
+
+  if (wasStale) {
+    // Server recovered — notify subscribed staff via DM (best-effort, fire-and-forget)
+    Promise.resolve().then(async () => {
+      try {
+        const subsRes = await pool.query(
+          `SELECT u.discord_id
+           FROM staff_notification_prefs snp
+           JOIN users u ON u.user_id = snp.user_id
+           WHERE snp.org_id = $1 AND snp.enabled = TRUE AND u.discord_id IS NOT NULL`,
+          [server.owner_org_id],
+        );
+        if (subsRes.rows.length > 0) {
+          const msg = `✅ **IronSight** — Server **${server.server_name}** is back online and sending health pings again (was offline for ${Math.round((nowSec - Number(prevPing)) / 60)} minutes).`;
+          for (const { discord_id } of subsRes.rows) {
+            await sendDiscordDm(discord_id, msg);
+          }
+        }
+        // Clear the stale_ping alert state for this server
+        await pool.query(
+          `DELETE FROM server_alert_state WHERE org_id = $1 AND server_id = $2 AND alert_type = 'stale_ping'`,
+          [server.owner_org_id, server.server_id],
+        );
+      } catch (err) {
+        console.error(`[health-check] recovery DM failed for ${server.server_id}:`, err.message);
+      }
+    });
+  }
 
   console.log(
     `[health-check] ping from server=${server.server_name} (${server.server_id})`,

@@ -225,6 +225,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "flagged_messages_confirm",
   "flagged_messages_clear",
   "docs_edit",
+  "player_kick",
 ];
 
 // Ban permissions were split from the legacy umbrella `bans_manage` into granular
@@ -704,8 +705,45 @@ async function init() {
   return initializationPromise;
 }
 
+async function revokeUserSessions(userId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT session_id FROM sessions WHERE user_id = $1 AND revoked = FALSE AND expires_at > unix_now()`,
+      [userId],
+    );
+    if (rows.length > 0) {
+      const pipeline = redis.pipeline();
+      for (const row of rows) pipeline.del(`session:${row.session_id}`);
+      await pipeline.exec();
+      await pool.query(
+        `UPDATE sessions SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE`,
+        [userId],
+      );
+    }
+  } catch (err) {
+    console.error(`[session] revokeUserSessions failed for ${userId}:`, err.message);
+  }
+}
+
 async function createSessionForUser(user, options = {}) {
   const access = await loadUserAccess(user.userId);
+
+  // Block login for users who are disabled in all their orgs (unless sysadmin)
+  const sysAdminDiscordId = String(env.sysAdminDiscordId ?? "").trim();
+  const isSysAdmin = sysAdminDiscordId && String(user.discordId) === sysAdminDiscordId;
+  if (!isSysAdmin) {
+    const memberRes = await pool.query(
+      `SELECT
+         (SELECT 1 FROM organization_members WHERE user_id = $1 AND org_id != $2 AND role_id != 'org_disabled' LIMIT 1) AS has_active,
+         (SELECT 1 FROM organization_members WHERE user_id = $1 AND org_id != $2 LIMIT 1) AS has_any`,
+      [user.userId, SYSADMIN.globalOrgId],
+    );
+    const { has_active, has_any } = memberRes.rows[0] ?? {};
+    if (has_any && !has_active) {
+      if (options.redirectTo) return redirect("/login?error=account_disabled");
+      return json({ error: "Your account has been disabled." }, 403);
+    }
+  }
 
   const sid = crypto.randomUUID();
   const token = jwt.sign({ sid }, env.jwtSecret, {
@@ -2683,12 +2721,19 @@ async function handleDeleteOrgRole(request, orgId, roleId) {
     console.error("server_admin revoke on role delete failed:", err);
   }
 
-  // Reassign members on this custom role back to org_member
+  // Reassign members on this custom role to org_disabled and revoke their sessions
+  const affectedRes = await pool.query(
+    `SELECT user_id FROM organization_members WHERE org_id = $1 AND role_id = $2`,
+    [orgId, roleId],
+  );
   await pool.query(
-    `UPDATE organization_members SET role_id = 'org_member'
+    `UPDATE organization_members SET role_id = 'org_disabled'
      WHERE org_id = $1 AND role_id = $2`,
     [orgId, roleId],
   );
+  for (const { user_id } of affectedRes.rows) {
+    await revokeUserSessions(user_id);
+  }
 
   // CASCADE handles role_permissions cleanup
   await pool.query(`DELETE FROM roles WHERE role_id = $1`, [roleId]);
@@ -3053,6 +3098,11 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     `UPDATE organization_members SET role_id = $1 WHERE org_id = $2 AND user_id = $3`,
     [resolvedTeam, orgId, userId],
   );
+
+  // Revoke sessions immediately when a member is disabled
+  if (resolvedTeam === "org_disabled") {
+    await revokeUserSessions(userId);
+  }
 
   // Sync Discord roles: remove old role's Discord roles, add new role's (best-effort)
   const discordWarning = await syncDiscordRolesOnRoleChange(
@@ -3732,6 +3782,17 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
     ban.identifier_type === "ip"
       ? decryptIp(ban.identifier)
       : ban.identifier;
+
+  // Look up the BM player ID to link the ban to the player's BM profile
+  let bmPlayerId = null;
+  if (ban.identifier_type === "steam_id" && ban.identifier) {
+    const pcRes = await pool.query(
+      `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+      [ban.identifier],
+    );
+    bmPlayerId = pcRes.rows[0]?.bm_id ?? null;
+  }
+
   const payload = {
     data: {
       type: "ban",
@@ -3751,6 +3812,9 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         },
         ...(org.bm_ban_list_id
           ? { banList: { data: { type: "banList", id: String(org.bm_ban_list_id) } } }
+          : {}),
+        ...(bmPlayerId
+          ? { player: { data: { type: "player", id: String(bmPlayerId) } } }
           : {}),
       },
     },
@@ -9236,7 +9300,7 @@ async function handleCreateBan(request, orgId) {
 
   // Cap free-text fields to bound DB writes and RCON command size.
   const reason = String(rawReason).slice(0, 500);
-  const note = String(rawNote).slice(0, 1000);
+  const userNote = String(rawNote).slice(0, 1000);
 
   if (!identifier?.trim())
     return json({ error: "identifier is required" }, 400);
@@ -9284,6 +9348,33 @@ async function handleCreateBan(request, orgId) {
     identifierType === "ip" ? encryptIp(rawIdentifier) : rawIdentifier;
   const storedIdentifierHash =
     identifierType === "ip" ? ipHmac(rawIdentifier) : null;
+
+  // Fetch teaminfo from RCON before writing the ban so we can attach the
+  // player's current team to the internal note.
+  let teamInfoSuffix = "";
+  if (identifierType === "steam_id" && serverIds.length > 0) {
+    try {
+      const tiSrvRes = await pool.query(
+        `SELECT rcon_host, rcon_port, rcon_password_enc
+         FROM servers
+         WHERE server_id = ANY($1::uuid[]) AND owner_org_id = $2
+           AND rcon_host IS NOT NULL AND rcon_port IS NOT NULL AND rcon_password_enc IS NOT NULL
+         LIMIT 1`,
+        [serverIds, orgId],
+      );
+      const tiSrv = tiSrvRes.rows[0];
+      if (tiSrv) {
+        const pwd = decryptPterodactylApiKey(String(tiSrv.rcon_password_enc));
+        const rconUrl = `ws://${tiSrv.rcon_host}:${tiSrv.rcon_port}/${encodeURIComponent(pwd)}`;
+        const ti = await executeRconCommand(rconUrl, `teaminfo ${rawIdentifier}`);
+        const raw = (ti?.response ?? "").trim();
+        if (raw && !/no team|not found|invalid/i.test(raw)) {
+          teamInfoSuffix = `\n\n[Team at ban time]\n${raw}`;
+        }
+      }
+    } catch {}
+  }
+  const note = (userNote + teamInfoSuffix).slice(0, 2000);
 
   await pool.query(
     `INSERT INTO player_bans (ban_id, org_id, action_type, identifier, identifier_hash, identifier_type, category, reason, note, expires_at, issued_by)
@@ -11792,6 +11883,27 @@ async function handleRefreshPlayer(request, steamId) {
   );
   if (rl) return rl;
 
+  // Check BM rate limit usage for this org — warn if >90% consumed this hour
+  let bmRateLimitWarning = false;
+  try {
+    const bucketHour = Math.floor(Date.now() / 1000 / 3600) * 3600;
+    const statsRes = await pool.query(
+      `SELECT rate_limit_max, rate_limit_min_remaining
+       FROM org_external_api_key_stats
+       WHERE org_id = $1 AND service = 'battlemetrics' AND bucket_hour = $2
+       ORDER BY rate_limit_min_remaining ASC NULLS LAST
+       LIMIT 1`,
+      [orgId, bucketHour],
+    );
+    const stat = statsRes.rows[0];
+    if (stat?.rate_limit_max && stat.rate_limit_min_remaining != null) {
+      const used = stat.rate_limit_max - stat.rate_limit_min_remaining;
+      if (used / stat.rate_limit_max >= 0.9) bmRateLimitWarning = true;
+    }
+  } catch {
+    // non-critical
+  }
+
   const ipEntitlement = await entitledIpSourceOrgs(session);
   const bmEntitlement = await entitledOrgsForCategory(session, "bm_bans", (o) =>
     orgHasPermission(session, o, "players_view"),
@@ -11815,12 +11927,119 @@ async function handleRefreshPlayer(request, steamId) {
   for (let i = 0; i < 6; i++) {
     await new Promise((r) => setTimeout(r, 500));
     const fresh = await getPlayerDataFromRedis(steamId);
-    if (fresh)
-      return json(applyShareEntitlement(fresh, ipEntitlement, bmEntitlement));
+    if (fresh) {
+      const payload = applyShareEntitlement(fresh, ipEntitlement, bmEntitlement);
+      if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
+      return json(payload);
+    }
   }
 
   // Core data not yet in Redis — tell the client to poll (same as a first-time fetch)
-  return json({ fetching: true });
+  return json({ fetching: true, bmRateLimitWarning });
+}
+
+// ── Player kick via RCON ──────────────────────────────────────────────────────
+
+async function handleKickPlayer(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const url = new URL(request.url);
+  const orgId = url.searchParams.get("orgId");
+  const serverId = url.searchParams.get("serverId");
+  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+  if (!serverId) return json({ error: "serverId query parameter required" }, 400);
+
+  if (!orgHasPermission(session, orgId, "player_kick"))
+    return json({ error: "Forbidden: player_kick permission required" }, 403);
+
+  const serverRes = await pool.query(
+    `SELECT server_id, server_name, owner_org_id, rcon_host, rcon_port, rcon_password_enc
+     FROM servers WHERE server_id = $1 LIMIT 1`,
+    [serverId],
+  );
+  const server = serverRes.rows[0];
+  if (!server) return json({ error: "Server not found" }, 404);
+  if (server.owner_org_id !== orgId) return json({ error: "Forbidden" }, 403);
+
+  if (!server.rcon_host || !server.rcon_port || !server.rcon_password_enc)
+    return json({ error: "RCON is not configured for this server" }, 400);
+
+  try {
+    const password = decryptPterodactylApiKey(String(server.rcon_password_enc));
+    const rconUrl = `ws://${server.rcon_host}:${server.rcon_port}/${encodeURIComponent(password)}`;
+    const result = await executeRconCommand(rconUrl, `kick ${steamId}`);
+    await auditLog({
+      orgId,
+      actorUserId: session.userId,
+      resourceType: "player",
+      resourceId: steamId,
+      actionType: "PLAYER_KICKED",
+      actionCategory: "moderation",
+      severity: 2,
+      metadata: { steamId, serverId, serverName: server.server_name },
+    });
+    return json({ ok: true, result: result?.response ?? null });
+  } catch (err) {
+    return json({ error: `RCON kick failed: ${err.message}` }, 502);
+  }
+}
+
+// ── Player chat history ───────────────────────────────────────────────────────
+
+async function handleGetPlayerChat(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const url = new URL(request.url);
+  const orgId = url.searchParams.get("orgId");
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "100", 10), 200);
+  const before = url.searchParams.get("before")
+    ? Math.floor(Number(url.searchParams.get("before")))
+    : null;
+
+  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+
+  if (!orgHasPermission(session, orgId, "chat_view") && !orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: chat_view or players_view permission required" }, 403);
+
+  const params = [steamId, orgId, limit + 1];
+  let idx = 4;
+  let beforeClause = "";
+  if (before != null) {
+    beforeClause = ` AND tcl.created_at < $${idx++}`;
+    params.push(before);
+  }
+
+  const { rows } = await pool.query(
+    `SELECT tcl.id, tcl.message, tcl.steam_id, tcl.player_name, tcl.team_message,
+            tcl.created_at AS ts, s.server_name, s.server_id
+     FROM text_chat_log tcl
+     JOIN servers s ON s.server_id = tcl.server_id
+     WHERE tcl.steam_id = $1
+       AND s.owner_org_id = $2${beforeClause}
+     ORDER BY tcl.created_at DESC
+     LIMIT $3`,
+    params,
+  );
+
+  const hasMore = rows.length > limit;
+  const lines = rows.slice(0, limit).map((r) => ({
+    id: String(r.id),
+    message: String(r.message),
+    steamId: String(r.steam_id),
+    playerName: r.player_name ?? null,
+    teamMessage: Boolean(r.team_message),
+    ts: Number(r.ts),
+    serverName: r.server_name ?? null,
+    serverId: String(r.server_id),
+  }));
+
+  return json({ lines, hasMore });
 }
 
 // ── Sysadmin: clear all player cache ─────────────────────────────────────────
@@ -12690,6 +12909,20 @@ async function _handleApiRequest(request) {
       request.method === "POST"
     ) {
       return handleIngestDiscordMessage(request);
+    }
+
+    if (
+      pathname === "/api/internal/bot/staff-list" &&
+      request.method === "GET"
+    ) {
+      return handleBotGetStaffList(request);
+    }
+
+    if (
+      pathname === "/api/internal/bot/deactivate" &&
+      request.method === "POST"
+    ) {
+      return handleBotDeactivateMember(request);
     }
 
     if (
@@ -13669,6 +13902,14 @@ async function _handleApiRequest(request) {
     if (playerRefreshMatch && request.method === "POST")
       return handleRefreshPlayer(request, playerRefreshMatch[1]);
 
+    const playerKickMatch = pathname.match(/^\/api\/players\/(\d+)\/kick$/);
+    if (playerKickMatch && request.method === "POST")
+      return handleKickPlayer(request, playerKickMatch[1]);
+
+    const playerChatMatch = pathname.match(/^\/api\/players\/(\d+)\/chat$/);
+    if (playerChatMatch && request.method === "GET")
+      return handleGetPlayerChat(request, playerChatMatch[1]);
+
     // Sysadmin: clear all player cache
     if (pathname === "/api/admin/player-cache" && request.method === "DELETE")
       return handleClearAllPlayerCache(request);
@@ -13983,12 +14224,47 @@ async function handleGetOrgDiscordRoles(request, orgId) {
   const org = orgRes.rows[0];
   if (!org) return json({ error: "Organization not found" }, 404);
 
-  const roles = await getGuildRoles(org.guild_id);
+  const allRoles = await getGuildRoles(org.guild_id);
+
+  // Build role id → position map for fast lookup
+  const rolePositionMap = {};
+  for (const r of allRoles) rolePositionMap[r.id] = r.position ?? 0;
+
+  // Determine the caller's highest Discord role position in the guild.
+  // null = no restriction (guild owner, or bot/guild not configured).
+  let callerDiscordPosition = null;
+  if (env.discordBotToken && org.guild_id && session.discordId) {
+    try {
+      // Check if the caller is the Discord guild owner (unrestricted)
+      const guildRes = await discordFetch(`/guilds/${org.guild_id}`);
+      let isGuildOwner = false;
+      if (guildRes.ok) {
+        const guild = await guildRes.json();
+        isGuildOwner = String(guild.owner_id) === String(session.discordId);
+      }
+      if (!isGuildOwner) {
+        const memberRes = await discordFetch(
+          `/guilds/${org.guild_id}/members/${session.discordId}`,
+        );
+        if (memberRes.ok) {
+          const member = await memberRes.json();
+          const memberRoles = Array.isArray(member.roles) ? member.roles : [];
+          callerDiscordPosition = memberRoles.reduce(
+            (max, rid) => Math.max(max, rolePositionMap[rid] ?? 0),
+            0,
+          );
+        }
+      }
+      // isGuildOwner → callerDiscordPosition stays null (no restriction)
+    } catch {}
+  }
+
   return json({
-    discordRoles: roles
+    discordRoles: allRoles
       .filter((r) => !r.managed && r.name !== "@everyone")
-      .map((r) => ({ id: r.id, name: r.name, color: r.color }))
+      .map((r) => ({ id: r.id, name: r.name, color: r.color, position: r.position ?? 0 }))
       .sort((a, b) => a.name.localeCompare(b.name)),
+    callerDiscordPosition,
   });
 }
 
@@ -14254,11 +14530,109 @@ async function handleGetDiscordChannels(request, orgId) {
   });
 }
 
-async function handleIngestDiscordMessage(request) {
+function requireBotAuth(request) {
   const authHeader = request.headers.get("authorization") ?? "";
   if (!env.discordBotToken || authHeader !== `Bot ${env.discordBotToken}`) {
     return json({ error: "Unauthorized" }, 401);
   }
+  return null;
+}
+
+async function handleBotGetStaffList(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
+
+  const url = new URL(request.url);
+  const ownerDiscordId = (url.searchParams.get("ownerDiscordId") ?? "").trim();
+  if (!ownerDiscordId) return json({ error: "ownerDiscordId required" }, 400);
+
+  // Find the org where this Discord user is an owner
+  const ownerRes = await pool.query(
+    `SELECT om.org_id, o.name AS org_name
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     JOIN organizations o ON o.org_id = om.org_id
+     WHERE u.discord_id = $1 AND om.role_id = 'org_owner'
+     LIMIT 1`,
+    [ownerDiscordId],
+  );
+  if (!ownerRes.rows[0]) return json({ error: "No owner org found for this Discord ID" }, 404);
+  const { org_id: orgId, org_name: orgName } = ownerRes.rows[0];
+
+  const staffRes = await pool.query(
+    `SELECT u.discord_id, u.username, om.role_id
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1
+       AND om.role_id NOT IN ('org_owner', 'org_disabled')
+     ORDER BY u.username`,
+    [orgId],
+  );
+
+  return json({
+    orgId,
+    orgName,
+    staff: staffRes.rows.map((r) => ({
+      discordId: r.discord_id,
+      username: r.username,
+      roleId: r.role_id,
+    })),
+  });
+}
+
+async function handleBotDeactivateMember(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const { ownerDiscordId, targetDiscordId } = body ?? {};
+  if (!ownerDiscordId || !targetDiscordId)
+    return json({ error: "ownerDiscordId and targetDiscordId are required" }, 400);
+
+  // Verify the caller is an owner in some org
+  const ownerRes = await pool.query(
+    `SELECT om.org_id, om.user_id
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE u.discord_id = $1 AND om.role_id = 'org_owner'
+     LIMIT 1`,
+    [ownerDiscordId],
+  );
+  if (!ownerRes.rows[0]) return json({ error: "Caller is not an org owner" }, 403);
+  const { org_id: orgId } = ownerRes.rows[0];
+
+  // Find the target member in the same org
+  const targetRes = await pool.query(
+    `SELECT om.user_id, u.username, om.role_id
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND u.discord_id = $2
+     LIMIT 1`,
+    [orgId, targetDiscordId],
+  );
+  if (!targetRes.rows[0]) return json({ error: "Target member not found in your org" }, 404);
+  const target = targetRes.rows[0];
+  if (target.role_id === "org_owner") return json({ error: "Cannot disable another owner" }, 403);
+  if (target.role_id === "org_disabled") return json({ ok: true, message: "Already disabled" });
+
+  await pool.query(
+    `UPDATE organization_members SET role_id = 'org_disabled' WHERE org_id = $1 AND user_id = $2`,
+    [orgId, target.user_id],
+  );
+  await revokeUserSessions(target.user_id);
+
+  return json({ ok: true, username: target.username, orgId });
+}
+
+async function handleIngestDiscordMessage(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
 
   let body;
   try {
@@ -14583,7 +14957,7 @@ async function handleDiscordModAction(request, orgId) {
           body: JSON.stringify({ delete_message_seconds: 0 }),
         },
       );
-      if (discordRes.ok || discordRes.status === 204) {
+      if ((discordRes.ok || discordRes.status === 204) && body.deleteMessages) {
         // Delete messages from Discord (visible to others) but keep them in our DB
         deleteUserDiscordMessagesFromGuild(
           guildId,

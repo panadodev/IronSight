@@ -112,6 +112,12 @@ function SiteNav() {
     anyOrgHas("bans_ip");
   const canTriggers = anyOrgHas("triggers_manage");
   const canDiscordMod = anyOrgHas("discord_mod");
+  const canSharing =
+    isSysAdminSession ||
+    orgs.some(
+      (o) =>
+        adminableOrgIds.includes(o.id) || sessionOrgOwnerIds.includes(o.id),
+    );
   const canStaffOnline = anyOrgHas("staff_online_view");
   const canManageSection =
     canOrgManage ||
@@ -479,7 +485,7 @@ function SiteNav() {
         {
           to: "/manage/sharing",
           label: "Sharing",
-          show: canOrgManage,
+          show: canSharing,
         },
         {
           to: "/threat-triggers",

@@ -9,6 +9,32 @@ import { pool, redis } from "./runtime.js";
 import { json } from "./http.js";
 import { env, SESSION_COOKIE } from "./config.js";
 
+const DISCORD_API_BASE = "https://discord.com/api/v10";
+
+export async function sendDiscordDm(discordUserId, content) {
+  if (!env.discordBotToken) return;
+  try {
+    const headers = {
+      Authorization: `Bot ${env.discordBotToken}`,
+      "Content-Type": "application/json",
+    };
+    const dmRes = await fetch(`${DISCORD_API_BASE}/users/@me/channels`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ recipient_id: discordUserId }),
+    });
+    if (!dmRes.ok) return;
+    const { id: channelId } = await dmRes.json();
+    await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ content }),
+    });
+  } catch {
+    // DMs can fail silently
+  }
+}
+
 // Generic Redis sliding-window-ish limiter. Returns a 429 response when the
 // caller exceeds `limit` actions within `windowSeconds`, otherwise null.
 // Fails open (returns null) if Redis is unavailable, matching rateLimitLogin.

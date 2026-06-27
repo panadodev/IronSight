@@ -302,11 +302,9 @@ function PlayerNotesSection({ subjectId, orgId }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[1, 2, 3, 4].map((r) => (
-                <SelectItem key={r} value={`rank:${r}`} className="text-xs">
-                  {LEGACY_RANK_LABELS[r]}
-                </SelectItem>
-              ))}
+              <SelectItem value="rank:1" className="text-xs">
+                All staff
+              </SelectItem>
               {roles.map((role) => (
                 <SelectItem
                   key={role.roleId}
