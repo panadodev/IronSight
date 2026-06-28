@@ -1,33 +1,32 @@
-import { SteamRequiredGate } from "@/components/steam-required-gate";
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, RefreshCw } from "lucide-react";
-import { SiteNav } from "@/components/site-nav";
-import {
-  Field,
-  OffensesTable,
-  ServerHistorySection,
-} from "@/components/player-sidebar";
-import { NewBanDialog } from "@/components/new-ban-dialog";
 import { LENGTH_OPTIONS } from "@/components/ban-dialog";
+import { ExternalBansSection } from "@/components/external-bans";
 import { HINTS } from "@/components/hint";
+import { LinkedAccountsSection } from "@/components/linked-accounts";
+import { NewBanDialog } from "@/components/new-ban-dialog";
+import { PlayerFriendsSection } from "@/components/player-friends";
+import { PlayerLinks } from "@/components/player-links";
+import { PlayerNotesSection } from "@/components/player-notes";
+import {
+    Field,
+    OffensesTable,
+    ServerHistorySection,
+} from "@/components/player-sidebar";
+import { SessionTimeline } from "@/components/session-timeline";
+import { SiteNav } from "@/components/site-nav";
+import { SteamRequiredGate } from "@/components/steam-required-gate";
+import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
-import { PlayerLinks } from "@/components/player-links";
-import { AlertTriangle, Ban, MessageSquare, MicOff, UserX } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { PlayerNotesSection } from "@/components/player-notes";
-import { ExternalBansSection } from "@/components/external-bans";
-import { LinkedAccountsSection } from "@/components/linked-accounts";
-import { PlayerFriendsSection } from "@/components/player-friends";
-import { SessionTimeline } from "@/components/session-timeline";
+import { createFileRoute } from "@tanstack/react-router";
+import { AlertTriangle, Ban, MessageSquare, MicOff, RefreshCw, Search, UserX } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const LENGTH_MINUTES = {
   "1h": 60,
@@ -130,9 +129,22 @@ const Route = createFileRoute("/player-lookup")({
       typeof s.steam === "string" && /^\d{17}$/.test(s.steam)
         ? s.steam
         : void 0,
+    ipHash:
+      typeof s.ipHash === "string" && /^[a-fA-F0-9]{6,64}$/.test(s.ipHash)
+        ? s.ipHash.toUpperCase()
+        : void 0,
   }),
   component: PlayerLookupPage,
 });
+
+function normalizeIpHashToken(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-f0-9]/g, "")
+    .slice(0, 64);
+  return normalized.length >= 6 ? normalized.toUpperCase() : "";
+}
 
 function Avatar({ steamId, displayName, avatarUrl, size = 64 }) {
   if (avatarUrl) {
@@ -218,8 +230,12 @@ function PlayerLookupPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
 
-  const [input, setInput] = useState(search.steam ?? "");
+  const [input, setInput] = useState(search.steam ?? search.ipHash ?? "");
   const [steamId, setSteamId] = useState(search.steam ?? null);
+  const [ipHashQuery, setIpHashQuery] = useState(search.ipHash ?? null);
+  const [ipHashMatches, setIpHashMatches] = useState([]);
+  const [ipHashLoading, setIpHashLoading] = useState(false);
+  const [ipHashError, setIpHashError] = useState("");
 
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
@@ -257,17 +273,22 @@ function PlayerLookupPage() {
   const [chatLines, setChatLines] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
 
-  // The URL `steam` param is the single source of truth. Submitting the form
-  // navigates (below); this effect mirrors the resulting URL into local state.
-  // Driving steamId from a manual setState *and* the URL races: the stale param
-  // would overwrite the new submission and snap the page back to the old player.
+  // URL search params are the source of truth. We support either `steam` or
+  // `ipHash` mode; this effect mirrors the active mode into local state.
   useEffect(() => {
-    const next = search.steam ?? null;
-    if (next !== steamId) {
-      setSteamId(next);
-      setInput(next ?? "");
+    const nextSteam = search.steam ?? null;
+    const nextHash = search.ipHash ?? null;
+    if (nextSteam !== steamId) {
+      setSteamId(nextSteam);
     }
-  }, [search.steam, steamId]);
+    if (nextHash !== ipHashQuery) {
+      setIpHashQuery(nextHash);
+    }
+    const nextInput = nextSteam ?? nextHash ?? "";
+    if (nextInput !== input) {
+      setInput(nextInput);
+    }
+  }, [search.steam, search.ipHash, steamId, ipHashQuery, input]);
 
   // Player lookup needs players_view; issuing bans needs the ban-create perm
   // (legacy bans_manage still implies it). Prefer a selected org the user has
@@ -301,7 +322,9 @@ function PlayerLookupPage() {
 
   // IP access spans all the caller's orgs (matches the server, which shows IPs
   // when the caller has ip_read anywhere). Per-IP source filtering happens below.
-  const canSeeRealIp = orgs.some((o) => hasOrgPermission(o.id, "ip_read"));
+  const canViewIpConnections = orgs.some((o) =>
+    hasOrgPermission(o.id, "ip_read"),
+  );
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
@@ -360,6 +383,7 @@ function PlayerLookupPage() {
 
   useEffect(() => {
     if (!orgsLoaded) return;
+    if (ipHashQuery) return;
     // Same player but a different org selected → the shared cache would just
     // return the same row, so force a refresh to re-pull from the newly chosen
     // org's API keys. New player / first load → normal cache-first GET.
@@ -378,7 +402,44 @@ function PlayerLookupPage() {
     }
     pollAttemptsRef.current = 0;
     fetchPlayer(orgSwitched);
-  }, [steamId, fetchOrgId, orgsLoaded]);
+  }, [steamId, fetchOrgId, orgsLoaded, ipHashQuery]);
+
+  useEffect(() => {
+    if (!ipHashQuery || !fetchOrgId) {
+      setIpHashMatches([]);
+      setIpHashError("");
+      return;
+    }
+    let cancelled = false;
+    setIpHashLoading(true);
+    setIpHashError("");
+    fetch(
+      `/api/players/by-ip-hash/${encodeURIComponent(ipHashQuery)}?orgId=${encodeURIComponent(fetchOrgId)}`,
+      { credentials: "include" },
+    )
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(body?.error ?? "Failed to search by IP hash.");
+        }
+        return body;
+      })
+      .then((b) => {
+        if (!cancelled) setIpHashMatches(b.matches ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setIpHashMatches([]);
+          setIpHashError(err?.message ?? "Failed to search by IP hash.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIpHashLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ipHashQuery, fetchOrgId]);
 
   // One combined fetch resolves bans + mutes across every org the caller is
   // entitled to (their own orgs + 'bans'/'mutes' shares), each tagged with its
@@ -470,14 +531,22 @@ function PlayerLookupPage() {
   const submit = (e) => {
     e.preventDefault();
     const trimmed = input.trim();
-    if (!/^\d{17}$/.test(trimmed)) return;
+    const normalizedHash = normalizeIpHashToken(trimmed);
+    const isSteam = /^\d{17}$/.test(trimmed);
+    if (!isSteam && !normalizedHash) return;
     // Update the URL; the sync effect picks it up and drives the fetch. Using
     // navigate keeps the address bar, state, and any shared link consistent.
-    if (trimmed === search.steam) {
+    if (isSteam && trimmed === search.steam && !search.ipHash) {
       // Same ID re-submitted (URL won't change → effect won't fire): refetch.
       fetchPlayer(false);
+    } else if (!isSteam && normalizedHash === search.ipHash && !search.steam) {
+      setIpHashQuery(normalizedHash);
     } else {
-      navigate({ search: { steam: trimmed } });
+      navigate({
+        search: isSteam
+          ? { steam: trimmed, ipHash: undefined }
+          : { steam: undefined, ipHash: normalizedHash },
+      });
     }
   };
 
@@ -732,7 +801,7 @@ function PlayerLookupPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Paste a 17-digit Steam ID (e.g. 76561198000000001)"
+                    placeholder="Paste a 17-digit Steam ID or hashed IP token"
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
@@ -744,18 +813,30 @@ function PlayerLookupPage() {
                   Lookup
                 </button>
               </form>
-              {input.trim().length > 0 && !/^\d{17}$/.test(input.trim()) && (
+              {input.trim().length > 0 &&
+                !/^\d{17}$/.test(input.trim()) &&
+                !normalizeIpHashToken(input.trim()) && (
                 <p className="mt-2 text-[11px] text-warning">
-                  Steam IDs are 17 digits.
+                  Use a 17-digit Steam ID or a 6-64 char hex hash.
                 </p>
               )}
             </div>
           </div>
 
-          {!steamId ? (
+          {!steamId && !ipHashQuery ? (
             <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
-              Enter a Steam ID above to see everything we have on a player.
+              Enter a Steam ID or hashed IP token above.
             </div>
+          ) : ipHashQuery ? (
+            <IpHashSearchResults
+              hash={ipHashQuery}
+              loading={ipHashLoading}
+              error={ipHashError}
+              matches={ipHashMatches}
+              onOpenPlayer={(id) =>
+                navigate({ search: { steam: id, ipHash: undefined } })
+              }
+            />
           ) : playerLoading ? (
             <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
               Loading…
@@ -1072,10 +1153,13 @@ function PlayerLookupPage() {
                 {!isSupportOnly && <PlayerAlertsBanner alerts={alerts} />}
 
                 {/* Connection Points */}
-                {canSeeRealIp && (
+                {canViewIpConnections && (
                   <ConnectionPointsSection
                     ipHistory={visibleIpHistory}
                     tz={tz}
+                    onSearchHash={(hash) =>
+                      navigate({ search: { steam: undefined, ipHash: hash } })
+                    }
                   />
                 )}
 
@@ -1128,7 +1212,6 @@ function PlayerLookupPage() {
                   <LinkedAccountsSection
                     subjectName={playerData.displayName ?? playerData.steamId}
                     relatedAccounts={playerData.relatedAccounts}
-                    canSeeRealIp={canSeeRealIp}
                   />
                 )}
 
@@ -1690,13 +1773,13 @@ const CONN_TYPE_META = {
   hosting:     { label: "Hosting",     cls: "text-warning bg-warning/10 ring-warning/30" },
 };
 
-function ConnectionPointsSection({ ipHistory, tz }) {
+function ConnectionPointsSection({ ipHistory, tz, onSearchHash }) {
   const [expanded, setExpanded] = useState(null);
 
-  const entries = (ipHistory ?? []).filter((e) => e.ipAddress);
+  const entries = (ipHistory ?? []).filter((e) => e.ipHashShort);
   if (!entries.length) return null;
 
-  const toggle = (ip) => setExpanded((prev) => (prev === ip ? null : ip));
+  const toggle = (hash) => setExpanded((prev) => (prev === hash ? null : hash));
 
   return (
     <section>
@@ -1708,7 +1791,10 @@ function ConnectionPointsSection({ ipHistory, tz }) {
         {entries.map((entry) => {
           const flag = flagEmoji(entry.isoCode);
           const connMeta = CONN_TYPE_META[entry.connType] ?? null;
-          const isOpen = expanded === entry.ipAddress;
+          const isOpen = expanded === entry.ipHash;
+          const summary =
+            connMeta?.label ??
+            (entry.isProxy || entry.isVpn ? "Proxy/VPN" : "Unknown class");
           const lastSeenDate = entry.lastSeen
             ? new Date(entry.lastSeen * 1000).toLocaleDateString(
                 undefined,
@@ -1723,20 +1809,20 @@ function ConnectionPointsSection({ ipHistory, tz }) {
             : null;
 
           return (
-            <div key={entry.ipAddress}>
+            <div key={entry.ipHash}>
               <button
                 type="button"
-                onClick={() => toggle(entry.ipAddress)}
+                onClick={() => toggle(entry.ipHash)}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface/60 transition-colors"
               >
                 <span className="text-base leading-none shrink-0" aria-hidden>
                   {flag}
                 </span>
                 <span className="font-mono text-xs text-foreground shrink-0 w-36 truncate">
-                  {entry.ipAddress}
+                  {entry.ipHashShort}
                 </span>
                 <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
-                  {entry.country ?? "Unknown location"}
+                  {entry.country ?? "Unknown location"} · {summary}
                 </span>
                 <div className="flex items-center gap-2 shrink-0">
                   {(entry.isProxy || entry.isVpn) && (
@@ -1781,6 +1867,10 @@ function ConnectionPointsSection({ ipHistory, tz }) {
                         <dd className="font-mono text-foreground truncate" title={entry.isp}>{entry.isp}</dd>
                       </div>
                     )}
+                    <div>
+                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Type</dt>
+                      <dd className="font-mono text-foreground">{summary}</dd>
+                    </div>
                     {firstSeenDate && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">First Seen</dt>
@@ -1806,6 +1896,15 @@ function ConnectionPointsSection({ ipHistory, tz }) {
                       </dd>
                     </div>
                   </dl>
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onSearchHash?.(entry.ipHash)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand text-brand-foreground text-[10px] font-mono uppercase tracking-widest hover:opacity-90"
+                    >
+                      Search This Hash
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1817,3 +1916,4 @@ function ConnectionPointsSection({ ipHistory, tz }) {
 }
 
 export { Route };
+

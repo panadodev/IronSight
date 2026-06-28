@@ -2,15 +2,15 @@
 // scoring, the Postgres/Redis player cache, and the refreshPlayerData
 // orchestrator. Depends on the external-fetch and runtime modules.
 
-import { pool, redis } from "./runtime.js";
+import { decryptIp, encryptIp, ipHmac } from "./crypto-keys.js";
 import {
-  bmFetch,
-  steamApiFetch,
-  proxycheckApiFetch,
-  getAvailableExternalKeys,
-  availableKeyOrgsByService,
+    availableKeyOrgsByService,
+    bmFetch,
+    getAvailableExternalKeys,
+    proxycheckApiFetch,
+    steamApiFetch,
 } from "./external-fetch.js";
-import { ipHmac, encryptIp, decryptIp } from "./crypto-keys.js";
+import { pool, redis } from "./runtime.js";
 
 // ── Player data fetchers ──────────────────────────────────────────────────────
 
@@ -721,10 +721,18 @@ function computeCoPresence(subjectWindows, altWindows) {
 function computeAltEvidence(subject, alt, ipMetaByIp) {
   const STRONG = new Set(["residential", "business", "mobile"]);
 
+  const shortIpHash = (ipHash) =>
+    String(ipHash ?? "")
+      .replace(/[^a-f0-9]/gi, "")
+      .slice(0, 10)
+      .toUpperCase();
+
   const sharedIps = (alt.sharedIps ?? []).map((ip) => {
     const m = ipMetaByIp[ip] ?? {};
+    const ipHash = ipHmac(ip);
     return {
-      ip,
+      ipHash,
+      ipHashShort: shortIpHash(ipHash),
       connType: m.connType ?? null,
       isp: m.isp ?? null,
       asn: m.asn ?? null,
@@ -1684,7 +1692,7 @@ export async function getPlayerCacheData(steamId) {
         [steamId],
       ),
       pool.query(
-        `SELECT pih.ip_hash, pih.ip_encrypted, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
+        `SELECT pih.ip_hash, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
                 im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn,
                 COALESCE(
                   (SELECT array_agg(DISTINCT o.org_id)
@@ -1813,10 +1821,11 @@ export async function getPlayerCacheData(steamId) {
         : false,
       cachedAt: friendsMetaRow?.cached_at ?? null,
     },
-    // ipEncrypted holds AES-256-GCM ciphertext; callers with ip_read decrypt it
-    // via filterPlayerIpData. Never returned as plaintext from this layer.
+    // Panel payloads only expose short, non-reversible IP hashes. Raw IPs stay
+    // encrypted at rest and never leave the backend APIs.
     ipHistory: ips.rows.map((r) => ({
-      ipEncrypted: r.ip_encrypted ?? null,
+      ipHash: r.ip_hash,
+      ipHashShort: String(r.ip_hash).slice(0, 10).toUpperCase(),
       isVpn: r.is_vpn ?? null,
       isProxy: r.is_proxy ?? null,
       connType: r.conn_type ?? null,
@@ -1842,7 +1851,32 @@ export async function getPlayerCacheData(steamId) {
       hasEacBans: Boolean(r.has_eac_bans),
       eacLastBan: r.eac_last_ban ?? null,
       nameSimilarity: r.name_similarity ?? null,
-      sharedIps: r.shared_ips ?? [],
+      sharedIps: Array.isArray(r.shared_ips)
+        ? r.shared_ips
+            .map((s) => {
+              if (!s || typeof s !== "object") return null;
+              const ipHashFromRow =
+                typeof s.ipHash === "string" && s.ipHash
+                  ? s.ipHash
+                  : typeof s.ip === "string" && s.ip
+                    ? ipHmac(s.ip)
+                    : null;
+              if (!ipHashFromRow) return null;
+              return {
+                ipHash: ipHashFromRow,
+                ipHashShort:
+                  typeof s.ipHashShort === "string" && s.ipHashShort
+                    ? s.ipHashShort
+                    : String(ipHashFromRow).slice(0, 10).toUpperCase(),
+                connType:
+                  typeof s.connType === "string" ? s.connType : null,
+                isp: typeof s.isp === "string" ? s.isp : null,
+                asn: typeof s.asn === "string" ? s.asn : null,
+                country: typeof s.country === "string" ? s.country : null,
+              };
+            })
+            .filter(Boolean)
+        : [],
       nonProxyLinked: r.non_proxy_linked ?? null,
       mutualFriends: r.mutual_friends ?? [],
       sharedGroups: r.shared_groups ?? [],

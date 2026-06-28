@@ -1,27 +1,26 @@
-import { useMemo, useState, useRef, useEffect } from "react";
+import { PlayerLinks } from "@/components/player-links";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Link } from "@tanstack/react-router";
 import {
-  Wifi,
-  Building2,
-  ShieldAlert,
-  ExternalLink,
-  Filter,
-  Ban,
-  AlertOctagon,
-  Users,
-  Clock,
-  EyeOff,
-  ChevronDown,
-  Check,
-  Copy,
+    AlertOctagon,
+    Ban,
+    Building2,
+    Check,
+    ChevronDown,
+    Clock,
+    Copy,
+    ExternalLink,
+    Filter,
+    ShieldAlert,
+    Users,
+    Wifi,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { PlayerLinks } from "@/components/player-links";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // connType values from the backend (proxycheck classification) map 1:1 to these
 // keys; `unknown` covers IPs proxycheck couldn't classify.
@@ -104,12 +103,6 @@ function colorFromId(id) {
   return `oklch(0.5 0.14 ${Math.abs(h) % 360})`;
 }
 
-function maskIp(ip) {
-  const parts = String(ip).split(".");
-  if (parts.length !== 4) return "••.••.••.••";
-  return `••.••.••.${parts[3]}`;
-}
-
 // Unix-seconds → "1d ago" / "3mo ago" / "1y ago".
 function formatBanAge(unixSec) {
   if (!unixSec) return null;
@@ -146,14 +139,12 @@ function MiniAvatar({ id, name }) {
   );
 }
 
-function IpChip({ ip, connType, canSeeReal }) {
+function IpChip({ ipHashShort, connType }) {
   const meta = IP_TYPE_META[ipTypeKey(connType)];
   return (
     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface ring-1 ring-border text-[10px] font-mono">
       <span className={`uppercase ${meta.tone}`}>{meta.short}</span>
-      <span className="text-muted-foreground">
-        {canSeeReal ? ip : maskIp(ip)}
-      </span>
+      <span className="text-muted-foreground">{ipHashShort ?? "UNKNOWN"}</span>
     </span>
   );
 }
@@ -275,7 +266,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
 
 // ── Full comparison list ──────────────────────────────────────────────────────
 
-function LinkedAccountsSection({ subjectName, relatedAccounts, canSeeRealIp }) {
+function LinkedAccountsSection({ subjectName, relatedAccounts }) {
   const accounts = useMemo(
     () => (Array.isArray(relatedAccounts) ? relatedAccounts : []),
     [relatedAccounts],
@@ -371,15 +362,6 @@ function LinkedAccountsSection({ subjectName, relatedAccounts, canSeeRealIp }) {
         <span className="flex items-center gap-2">
           <Wifi className="size-3" />
           Linked Accounts
-          {!canSeeRealIp && (
-            <span
-              className="inline-flex items-center gap-1 text-warning normal-case tracking-normal text-[10px] font-mono"
-              title="IPs are masked for your rank. Senior admins see full addresses."
-            >
-              <EyeOff className="size-3" />
-              IPs masked
-            </span>
-          )}
         </span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {filtered.length} / {accounts.length}
@@ -625,7 +607,6 @@ function LinkedAccountsSection({ subjectName, relatedAccounts, canSeeRealIp }) {
         onClose={() => setOpenId(null)}
         subjectName={subjectName}
         account={openAccount}
-        canSeeRealIp={canSeeRealIp}
       />
     </section>
   );
@@ -636,7 +617,6 @@ function ComparisonDialog({
   onClose,
   subjectName,
   account,
-  canSeeRealIp,
 }) {
   const [copied, setCopied] = useState(false);
   if (!account) return null;
@@ -764,7 +744,7 @@ function ComparisonDialog({
           <Block
             icon={<Wifi className="size-3" />}
             title={`Shared IPs (${(account.sharedIps ?? []).length})`}
-            badge={!canSeeRealIp ? "masked" : undefined}
+            badge="hashed"
           >
             {(account.sharedIps ?? []).length === 0 ? (
               <p className="text-[11px] text-muted-foreground">
@@ -792,13 +772,12 @@ function ComparisonDialog({
                 <ul className="text-[11px] font-mono divide-y divide-border/40 ring-1 ring-border/60 rounded">
                   {account.sharedIps.map((ip) => (
                     <li
-                      key={ip.ip}
+                      key={ip.ipHash ?? ip.ipHashShort}
                       className="flex items-center justify-between px-2 py-1.5 gap-2"
                     >
                       <IpChip
-                        ip={ip.ip}
+                        ipHashShort={ip.ipHashShort}
                         connType={ip.connType}
-                        canSeeReal={canSeeRealIp}
                       />
                       <span className="text-muted-foreground text-[10px] truncate">
                         {ip.isp ?? "Unknown ISP"}

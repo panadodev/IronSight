@@ -2,45 +2,45 @@ import { SiteNav } from "@/components/site-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { createFileRoute } from "@tanstack/react-router";
-import {
-  Building2,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Globe,
-  Lock,
-  Loader2,
-  Plus,
-  Search,
-  Trash2,
-  UserPlus,
-  Users,
-  X,
-} from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
+import { createFileRoute } from "@tanstack/react-router";
+import {
+    Building2,
+    Check,
+    CheckCircle2,
+    ChevronDown,
+    Globe,
+    Loader2,
+    Lock,
+    Plus,
+    Search,
+    Trash2,
+    UserPlus,
+    Users,
+    X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 function redirectToLogin() {
@@ -140,14 +140,18 @@ function fmtDate(unix) {
 }
 
 function TodoPage() {
-  const { orgsLoaded, hasStaffAccount } = useAuth();
+  const { orgsLoaded, hasStaffAccount, sessionUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [canWrite, setCanWrite] = useState(false);
   const [orgs, setOrgs] = useState([]);
   const [members, setMembers] = useState([]);
   const [todos, setTodos] = useState([]);
-  const [boardOrgIds, setBoardOrgIds] = useState([]);
+  const boardOrgPrefKey = `todo.boardOrgs.${sessionUser?.userId ?? "anon"}`;
+  const [boardOrgIds, setBoardOrgIds] = usePersistentState(
+    boardOrgPrefKey,
+    null,
+  );
   const [boardStaff, setBoardStaff] = useState([]);
   const [view, setView] = usePersistentState("todo.view", "board");
   const [completedSearch, setCompletedSearch] = useState("");
@@ -198,7 +202,7 @@ function TodoPage() {
       setMembers(data.members ?? []);
       setTodos(data.todos ?? []);
       setBoardOrgIds((cur) =>
-        cur.length > 0 ? cur : (data.orgs ?? []).map((o) => o.orgId),
+        Array.isArray(cur) ? cur : (data.orgs ?? []).map((o) => o.orgId),
       );
       setBoardStaff((cur) =>
         cur.length > 0 ? cur : (data.members ?? []).slice(0, 5),
@@ -229,10 +233,16 @@ function TodoPage() {
     return map;
   }, [orgs]);
 
+  const selectedBoardOrgIds = useMemo(
+    () =>
+      Array.isArray(boardOrgIds) ? boardOrgIds : orgs.map((o) => o.orgId),
+    [boardOrgIds, orgs],
+  );
+
   const effectiveBoardOrgIds = useMemo(() => {
     const set = new Set(orgs.map((o) => o.orgId));
-    return boardOrgIds.filter((id) => set.has(id));
-  }, [boardOrgIds, orgs]);
+    return selectedBoardOrgIds.filter((id) => set.has(id));
+  }, [selectedBoardOrgIds, orgs]);
 
   const boardOrgLabel = useMemo(() => {
     if (!orgs.length) return "No orgs";
@@ -291,9 +301,12 @@ function TodoPage() {
   }, [members, createTaskOrgId]);
 
   function toggleBoardOrg(orgId) {
-    setBoardOrgIds((cur) =>
-      cur.includes(orgId) ? cur.filter((id) => id !== orgId) : [...cur, orgId],
-    );
+    setBoardOrgIds((cur) => {
+      const base = Array.isArray(cur) ? cur : orgs.map((o) => o.orgId);
+      return base.includes(orgId)
+        ? base.filter((id) => id !== orgId)
+        : [...base, orgId];
+    });
   }
 
   function addStaffToBoard(member) {

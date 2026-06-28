@@ -4821,31 +4821,50 @@ async function handleGetTicket(request, ticketIdStr) {
   return json({ ticket, messages: returnedMessages, media });
 }
 
-// Decrypt or redact IP history entries depending on the caller's entitlement.
-// IPs are stored encrypted (AES-256-GCM) in player_ip_history; only callers
-// with the ip_read permission receive the plaintext ipAddress.
+// Redact/shape IP history entries depending on caller entitlement. Panel APIs
+// never return plaintext IPs; they expose only short hash tokens + proxycheck
+// metadata for investigation workflows.
 function filterPlayerIpData(playerData, canSeeIp) {
   if (!playerData) return playerData;
   const result = { ...playerData };
   if (Array.isArray(result.ipHistory)) {
     result.ipHistory = result.ipHistory.map((entry) => {
-      const { ipEncrypted, ...rest } = entry;
+      const { ipEncrypted, ipAddress, ...rest } = entry;
       if (canSeeIp) {
-        return { ...rest, ipAddress: decryptIp(ipEncrypted) };
+        void ipEncrypted;
+        void ipAddress;
+        return rest;
       }
-      return { ...rest, ipAddress: null, country: null, isoCode: null, isp: null };
+      return {
+        ...rest,
+        ipHash: null,
+        ipHashShort: null,
+        country: null,
+        isoCode: null,
+        isp: null,
+        asn: null,
+        connType: null,
+      };
     });
   }
   if (Array.isArray(result.relatedAccounts)) {
     result.relatedAccounts = result.relatedAccounts.map((account) => ({
       ...account,
       sharedIps: Array.isArray(account.sharedIps)
-        ? account.sharedIps.map((s) => ({
-            ...s,
-            ip: canSeeIp ? s.ip : null,
-            isp: canSeeIp ? s.isp : null,
-            country: canSeeIp ? s.country : null,
-          }))
+        ? account.sharedIps.map((s) => {
+            const source = s ?? {};
+            const { ip, ...rest } = source;
+            void ip;
+            return {
+              ...rest,
+              ipHash: canSeeIp ? source.ipHash : null,
+              ipHashShort: canSeeIp ? source.ipHashShort : null,
+              isp: canSeeIp ? source.isp : null,
+              country: canSeeIp ? source.country : null,
+              asn: canSeeIp ? source.asn : null,
+              connType: canSeeIp ? source.connType : null,
+            };
+          })
         : account.sharedIps,
     }));
   }
@@ -4895,8 +4914,8 @@ function filterIpHistoryBySource(playerData, entitledOrgs) {
 }
 
 // One-shot IP visibility resolution for the player bundle: full redact when the
-// caller has no IP access, decrypt+source-filter otherwise. Always passes through
-// filterPlayerIpData so ipEncrypted is converted to ipAddress (or nulled out).
+// caller has no IP access, source-filter otherwise. Always passes through
+// filterPlayerIpData so hash tokens + metadata are kept (or redacted) by role.
 function applyIpEntitlement(playerData, entitlement) {
   if (entitlement === null) return filterPlayerIpData(playerData, false);
   if (entitlement === "ALL") return filterPlayerIpData(playerData, true);
@@ -13356,6 +13375,85 @@ async function handleSearchOrgPlayers(request, orgId) {
   });
 }
 
+function normalizeIpHashQuery(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-f0-9]/g, "")
+    .slice(0, 64);
+}
+
+async function handleSearchPlayersByIpHash(request, hashQuery) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const orgId = String(url.searchParams.get("orgId") ?? "").trim();
+  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+
+  if (!orgHasPermission(session, orgId, "players_view")) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+  }
+  if (!orgHasPermission(session, orgId, "ip_read")) {
+    return json({ error: "Forbidden: ip_read permission required" }, 403);
+  }
+
+  const normalized = normalizeIpHashQuery(hashQuery);
+  if (normalized.length < 6) {
+    return json({ error: "ip hash must be at least 6 hex characters" }, 400);
+  }
+
+  const entitlement = await entitledIpSourceOrgs(session);
+  if (entitlement === null) {
+    return json({ error: "Forbidden: ip_read permission required" }, 403);
+  }
+
+  const params = [normalized + "%"];
+  let scopeClause = "";
+  if (entitlement !== "ALL") {
+    params.push([...entitlement]);
+    scopeClause = `
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM player_ip_observations o
+          WHERE o.steam_id = pih.steam_id
+            AND o.ip_hash = pih.ip_hash
+        )
+        OR EXISTS (
+          SELECT 1 FROM player_ip_observations o
+          WHERE o.steam_id = pih.steam_id
+            AND o.ip_hash = pih.ip_hash
+            AND o.org_id = ANY($2::text[])
+        )
+      )`;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT pih.steam_id,
+            COALESCE(pc.display_name, pih.steam_id) AS display_name,
+            MAX(pih.last_seen) AS last_seen,
+            COUNT(*)::INT AS match_count
+     FROM player_ip_history pih
+     LEFT JOIN player_cache pc ON pc.steam_id = pih.steam_id
+     WHERE pih.ip_hash LIKE $1
+       ${scopeClause}
+     GROUP BY pih.steam_id, pc.display_name
+     ORDER BY MAX(pih.last_seen) DESC
+     LIMIT 100`,
+    params,
+  );
+
+  return json({
+    queryHash: normalized.toUpperCase(),
+    matches: rows.map((r) => ({
+      steamId: String(r.steam_id),
+      displayName: String(r.display_name),
+      lastSeen: r.last_seen ? Number(r.last_seen) : null,
+      matches: Number(r.match_count ?? 0),
+    })),
+  });
+}
+
 // ── Org player list (cached players + live RCON online status) ────────────────
 
 async function handleGetOrgPlayerList(request, orgId) {
@@ -14606,6 +14704,10 @@ async function _handleApiRequest(request) {
       return handleGetOrgRecentReports(request, orgRecentReportsMatch[1]);
 
     // Player lookup
+    const playerByHashMatch = pathname.match(/^\/api\/players\/by-ip-hash\/([a-zA-Z0-9_-]+)$/);
+    if (playerByHashMatch && request.method === "GET")
+      return handleSearchPlayersByIpHash(request, playerByHashMatch[1]);
+
     const playerMatch = pathname.match(/^\/api\/players\/(\d+)$/);
     if (playerMatch && request.method === "GET")
       return handleGetPlayer(request, playerMatch[1]);
