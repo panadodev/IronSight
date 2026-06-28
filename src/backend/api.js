@@ -14040,7 +14040,18 @@ async function handleGetOrgPlayerList(request, orgId) {
   if (!orgHasPermission(session, orgId, "players_view"))
     return json({ error: "Forbidden: players_view permission required" }, 403);
 
-  const cacheKey = `player-list:${orgId}`;
+  const url = new URL(request.url);
+  const includeBannedParam = String(
+    url.searchParams.get("includeBanned") ?? "1",
+  ).toLowerCase();
+  const includeBanned = ![
+    "0",
+    "false",
+    "no",
+    "off",
+  ].includes(includeBannedParam);
+
+  const cacheKey = `player-list:${orgId}:${includeBanned ? "with-banned" : "without-banned"}`;
   try {
     const cached = await redis.get(cacheKey);
     if (cached) return json(JSON.parse(cached));
@@ -14093,7 +14104,20 @@ async function handleGetOrgPlayerList(request, orgId) {
     } catch {}
   }
 
-  // All sighted players for this org with cache data, excluding active org bans
+  const bannedExclusionClause = includeBanned
+    ? ""
+    : `
+       AND NOT EXISTS (
+         SELECT 1 FROM player_bans pb
+         WHERE pb.identifier = pc.steam_id
+           AND pb.identifier_type = 'steam_id'
+           AND pb.org_id = $1
+           AND pb.revoked = FALSE
+           AND pb.action_type = 'ban'
+           AND (pb.expires_at IS NULL OR pb.expires_at > unix_now())
+       )`;
+
+  // All sighted players for this org with cache data.
   const sightingsRes = await pool.query(
     `SELECT pc.steam_id, pc.display_name, pc.avatar_url,
             pc.steam_rust_hours, pc.steam_profile_created_at,
@@ -14103,15 +14127,7 @@ async function handleGetOrgPlayerList(request, orgId) {
      FROM org_player_sightings ops
      JOIN player_cache pc ON pc.steam_id = ops.steam_id
      WHERE ops.org_id = $1
-       AND NOT EXISTS (
-         SELECT 1 FROM player_bans pb
-         WHERE pb.identifier = pc.steam_id
-           AND pb.identifier_type = 'steam_id'
-           AND pb.org_id = $1
-           AND pb.revoked = FALSE
-           AND pb.action_type = 'ban'
-           AND (pb.expires_at IS NULL OR pb.expires_at > unix_now())
-       )
+     ${bannedExclusionClause}
      ORDER BY ops.last_seen_at DESC`,
     [orgId],
   );

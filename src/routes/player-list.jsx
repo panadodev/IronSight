@@ -1,26 +1,26 @@
-import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { PlayerLinks } from "@/components/player-links";
 import { SiteNav } from "@/components/site-nav";
+import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { Input } from "@/components/ui/input";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  ChevronDown,
-  Copy,
-  Flag,
-  KeyRound,
-  RefreshCw,
-  ShieldAlert,
-  Trash2,
+    ArrowDown,
+    ArrowUp,
+    Check,
+    ChevronDown,
+    Copy,
+    Flag,
+    KeyRound,
+    RefreshCw,
+    ShieldAlert,
+    Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -81,6 +81,10 @@ function PlayerListPage() {
     "playerList.onlineOnly",
     false,
   );
+  const [includeBanned, setIncludeBanned] = usePersistentState(
+    "playerList.includeBanned",
+    true,
+  );
   const [page, setPage] = useState(1);
   const [copiedId, setCopiedId] = useState(null);
   const [cacheClearBusy, setCacheClearBusy] = useState(false);
@@ -105,9 +109,12 @@ function PlayerListPage() {
       const [serversRes, ...playerListRes] = await Promise.all([
         fetch("/api/servers", { credentials: "include" }),
         ...selectedOrgIds.map((orgId) =>
-          fetch(`/api/orgs/${encodeURIComponent(orgId)}/player-list`, {
-            credentials: "include",
-          }),
+          fetch(
+            `/api/orgs/${encodeURIComponent(orgId)}/player-list?includeBanned=${includeBanned ? "1" : "0"}`,
+            {
+              credentials: "include",
+            },
+          ),
         ),
       ]);
 
@@ -130,7 +137,7 @@ function PlayerListPage() {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [canAccess, orgIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canAccess, orgIdsKey, includeBanned]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();
@@ -208,7 +215,7 @@ function PlayerListPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [serverIds, query, onlineOnly, sortKey, sortDir, selectedOrgIds]);
+  }, [serverIds, query, onlineOnly, includeBanned, sortKey, sortDir, selectedOrgIds]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -445,6 +452,25 @@ function PlayerListPage() {
                   }
                 />
                 Online only
+              </button>
+              <button
+                onClick={() => setIncludeBanned((v) => !v)}
+                aria-pressed={includeBanned}
+                className={
+                  "flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 text-xs transition-colors " +
+                  (includeBanned
+                    ? "ring-warning/40 bg-warning/10 text-warning"
+                    : "ring-border bg-surface/40 hover:bg-surface text-muted-foreground")
+                }
+                title="Include actively banned players in the list"
+              >
+                <span
+                  className={
+                    "size-1.5 rounded-full " +
+                    (includeBanned ? "bg-warning" : "bg-muted-foreground/50")
+                  }
+                />
+                Include banned
               </button>
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
                 Sorted by {SORT_LABEL[sortKey]} {sortDir === "desc" ? "↓" : "↑"}{" "}
