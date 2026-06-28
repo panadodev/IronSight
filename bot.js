@@ -32,7 +32,7 @@ const DM_MESSAGE =
   "**What we collect:** Messages sent in this server are stored for up to 30 days " +
   "for moderation review, then permanently deleted. Your Discord ID and username " +
   "are stored as long as you remain a member.\n\n" +
-  "**Privacy Policy:** https://ironsight.panado.dev/privacy\n\n" +
+  "**Privacy Policy:** https://ironsight.archipel.gg/privacy\n\n" +
   "_If you have questions, contact a server administrator._";
 
 let ws;
