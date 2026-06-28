@@ -1384,152 +1384,163 @@ function PlayerLookupPage() {
                 {/* EAC Ban Status */}
                 <EacBanStatus bmData={playerData.bm} />
 
-                {/* Connection Points */}
-                {canViewIpConnections && (
-                  <ConnectionPointsSection
-                    ipHistory={visibleIpHistory}
-                    relatedAccounts={playerData.relatedAccounts}
-                    currentSteamId={playerData.steamId}
-                    tz={tz}
-                    onSearchHash={(hash) =>
-                      navigate({ search: { steam: undefined, ipHash: hash } })
-                    }
-                  />
-                )}
-
-                {/* Notes */}
-                <PlayerNotesSection
-                  subjectId={playerData.steamId}
-                  orgId={fetchOrgId}
-                />
-
-                {/* Previous Offenses (real bans / mutes from our orgs) */}
-                <section>
-                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
-                    <span>Previous Offenses</span>
-                    <span className="font-mono normal-case tracking-normal text-muted-foreground">
-                      {offensesLoading ? "…" : visibleOffenseRows.length}
-                    </span>
-                  </h3>
-                  {offensesLoading ? (
-                    <p className="text-xs text-muted-foreground italic">
-                      Loading…
-                    </p>
-                  ) : visibleOffenseRows.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">
-                      No prior offenses.
-                    </p>
-                  ) : (
-                    <OffensesTable offenses={visibleOffenseRows} />
-                  )}
-                </section>
-
-                {/* Previous In-Game Reports */}
-                {!isSupportOnly && (
-                  <PlayerReportsSection
-                    reports={visibleReports}
-                    loading={reportsLoading}
-                    tz={tz}
-                  />
-                )}
-
-                {/* Bans on Other Orgs */}
-                {!isSupportOnly && (
-                  <ExternalBansSection
-                    subjectId={playerData.steamId}
-                    bans={visibleBmBans}
-                  />
-                )}
-
-                {/* Linked Accounts */}
-                {!isSupportOnly && (
-                  <LinkedAccountsSection
-                    subjectName={playerData.displayName ?? playerData.steamId}
-                    relatedAccounts={playerData.relatedAccounts}
-                  />
-                )}
-
-                {/* Steam Friends */}
-                {!isSupportOnly && (
-                  <PlayerFriendsSection friends={playerData.friends} />
-                )}
-
-                {/* Server History */}
-                {!isSupportOnly && (
-                  <ServerHistorySection
-                    subjectId={playerData.steamId}
-                    isOnline={
-                      playerData.bmSessions?.[0]?.lastSeen
-                        ? Date.now() / 1000 -
-                            playerData.bmSessions[0].lastSeen <
-                          300
-                        : false
-                    }
-                    bmSessions={playerData.bmSessions}
-                  />
-                )}
-
-                {/* Session Timeline */}
-                {!isSupportOnly && (
-                  <SessionTimeline sessionWindows={playerData.sessionWindows} />
-                )}
-
-                {/* Chat History */}
-                {!isSupportOnly && (
-                  <section>
-                    <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-                      <MessageSquare className="size-3" />
-                      Chat History
-                      <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
-                        {chatLines.length}
-                      </span>
-                    </h2>
-                    {chatLoading ? (
-                      <p className="text-xs text-muted-foreground italic animate-pulse">
-                        Loading…
-                      </p>
-                    ) : chatLines.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">
-                        No chat messages on record.
-                      </p>
-                    ) : (
-                      <ul className="space-y-1">
-                        {chatLines.map((line) => (
-                          <li
-                            key={line.id}
-                            className="bg-surface/30 ring-1 ring-border rounded px-2 py-1.5"
-                          >
-                            <div className="flex items-start gap-2">
-                              {line.teamMessage && (
-                                <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
-                                  team
-                                </span>
-                              )}
-                              <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
-                                {line.message}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground">
-                              <span>
-                                {new Date(line.ts * 1000).toLocaleDateString(undefined, {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}
-                              </span>
-                              {line.serverName && (
-                                <>
-                                  <span>·</span>
-                                  <span className="truncate">{line.serverName}</span>
-                                </>
-                              )}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                  {/* Left Panel */}
+                  <div className="space-y-6 xl:col-span-3">
+                    {/* Steam Friends */}
+                    {!isSupportOnly && (
+                      <PlayerFriendsSection friends={playerData.friends} />
                     )}
-                  </section>
-                )}
+
+                    {/* Server History */}
+                    {!isSupportOnly && (
+                      <ServerHistorySection
+                        subjectId={playerData.steamId}
+                        isOnline={
+                          playerData.bmSessions?.[0]?.lastSeen
+                            ? Date.now() / 1000 -
+                                playerData.bmSessions[0].lastSeen <
+                              300
+                            : false
+                        }
+                        bmSessions={playerData.bmSessions}
+                      />
+                    )}
+
+                    {/* Session Timeline */}
+                    {!isSupportOnly && (
+                      <SessionTimeline sessionWindows={playerData.sessionWindows} />
+                    )}
+
+                    {/* Chat History */}
+                    {!isSupportOnly && (
+                      <section>
+                        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+                          <MessageSquare className="size-3" />
+                          Chat History
+                          <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
+                            {chatLines.length}
+                          </span>
+                        </h2>
+                        {chatLoading ? (
+                          <p className="text-xs text-muted-foreground italic animate-pulse">
+                            Loading…
+                          </p>
+                        ) : chatLines.length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">
+                            No chat messages on record.
+                          </p>
+                        ) : (
+                          <ul className="space-y-1">
+                            {chatLines.map((line) => (
+                              <li
+                                key={line.id}
+                                className="bg-surface/30 ring-1 ring-border rounded px-2 py-1.5"
+                              >
+                                <div className="flex items-start gap-2">
+                                  {line.teamMessage && (
+                                    <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
+                                      team
+                                    </span>
+                                  )}
+                                  <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
+                                    {line.message}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground">
+                                  <span>
+                                    {new Date(line.ts * 1000).toLocaleDateString(undefined, {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })}
+                                  </span>
+                                  {line.serverName && (
+                                    <>
+                                      <span>·</span>
+                                      <span className="truncate">{line.serverName}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </section>
+                    )}
+                  </div>
+
+                  {/* Middle Panel */}
+                  <div className="space-y-6 xl:col-span-6">
+                    {/* Notes */}
+                    <PlayerNotesSection
+                      subjectId={playerData.steamId}
+                      orgId={fetchOrgId}
+                    />
+
+                    {/* Previous Offenses (real bans / mutes from our orgs) */}
+                    <section>
+                      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+                        <span>Previous Offenses</span>
+                        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+                          {offensesLoading ? "…" : visibleOffenseRows.length}
+                        </span>
+                      </h3>
+                      {offensesLoading ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          Loading…
+                        </p>
+                      ) : visibleOffenseRows.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          No prior offenses.
+                        </p>
+                      ) : (
+                        <OffensesTable offenses={visibleOffenseRows} />
+                      )}
+                    </section>
+
+                    {/* Previous In-Game Reports */}
+                    {!isSupportOnly && (
+                      <PlayerReportsSection
+                        reports={visibleReports}
+                        loading={reportsLoading}
+                        tz={tz}
+                      />
+                    )}
+
+                    {/* All Bans */}
+                    {!isSupportOnly && (
+                      <ExternalBansSection
+                        subjectId={playerData.steamId}
+                        bans={visibleBmBans}
+                      />
+                    )}
+                  </div>
+
+                  {/* Right Panel */}
+                  <div className="space-y-6 xl:col-span-3">
+                    {/* Linked Accounts */}
+                    {!isSupportOnly && (
+                      <LinkedAccountsSection
+                        subjectName={playerData.displayName ?? playerData.steamId}
+                        relatedAccounts={playerData.relatedAccounts}
+                      />
+                    )}
+
+                    {/* Previous Connection Points */}
+                    {canViewIpConnections && (
+                      <ConnectionPointsSection
+                        ipHistory={visibleIpHistory}
+                        relatedAccounts={playerData.relatedAccounts}
+                        currentSteamId={playerData.steamId}
+                        tz={tz}
+                        onSearchHash={(hash) =>
+                          navigate({ search: { steam: undefined, ipHash: hash } })
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
