@@ -1,4 +1,5 @@
 import { PlayerLinks } from "@/components/player-links";
+import { ServerOverlapSection } from "@/components/server-overlap-section";
 import {
     Dialog,
     DialogContent,
@@ -898,6 +899,14 @@ function ComparisonDialog({
               </div>
             </Block>
           )}
+
+          {/* Previous connection points with EAC/BM ban checks */}
+          <ServerOverlapSection
+            serverOverlap={account.serverOverlap}
+            relatedBmId={account.relatedBmId}
+            subjectName={subjectName}
+            relatedName={name}
+          />
 
           <div className="flex justify-end pt-2">
             {account.relatedSteamId ? (

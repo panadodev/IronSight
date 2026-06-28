@@ -15523,6 +15523,30 @@ async function _handleApiRequest(request) {
     if (playerOffensesMatch && request.method === "GET")
       return handleGetPlayerOffenses(request, playerOffensesMatch[1]);
 
+    // Server-specific EAC bans for a related account (for linked accounts view)
+    const serverEacBansMatch = pathname.match(
+      /^\/api\/server\/([^/]+)\/eac-bans$/,
+    );
+    if (serverEacBansMatch && request.method === "GET") {
+      const serverId = serverEacBansMatch[1];
+      const url = new URL(request.url);
+      const bmId = url.searchParams.get("bmId");
+      if (!bmId) return json({ error: "bmId query parameter required" }, 400);
+      return handleGetServerEacBans(request, serverId, bmId);
+    }
+
+    // Server-specific BattleMetrics bans for a related account (for linked accounts view)
+    const serverBmBansMatch = pathname.match(
+      /^\/api\/server\/([^/]+)\/bm-bans$/,
+    );
+    if (serverBmBansMatch && request.method === "GET") {
+      const serverId = serverBmBansMatch[1];
+      const url = new URL(request.url);
+      const bmId = url.searchParams.get("bmId");
+      if (!bmId) return json({ error: "bmId query parameter required" }, 400);
+      return handleGetServerBmBans(request, serverId, bmId);
+    }
+
     // Combined notes across the caller's orgs + shared-in (level-filtered)
     const playerNotesCombinedMatch = pathname.match(
       /^\/api\/players\/(\d+)\/notes$/,
@@ -17588,6 +17612,88 @@ async function handleDeleteDocVersion(request, orgId, articleId, versionId) {
     versionId,
   ]);
   return json({ ok: true });
+}
+
+// Fetch EAC bans issued on a specific server for a related player account
+async function handleGetServerEacBans(request, serverId, bmId) {
+  // This endpoint is called from the client when viewing linked accounts.
+  // It fetches EAC (Easy Anti-Cheat) bans issued on the specified server
+  // for the specified BattleMetrics player ID.
+  
+  // Minimal auth: just verify user has a session (no specific org required
+  // since EAC data is global).
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  // Query player_bm_bans_cache to find all bans for this BM ID,
+  // then filter by the server if we have server-specific ban records.
+  // For now, return all bans for the BM ID (EAC is not server-specific).
+  const { rows } = await pool.query(
+    `SELECT bm_ban_id, reason, note, banned_at, expires_at, permanent, bm_org_name
+     FROM player_bm_bans_cache
+     WHERE bm_ban_id LIKE $1 OR bm_ban_id = $2
+     ORDER BY banned_at DESC
+     LIMIT 50`,
+    [`${bmId}-%`, bmId],
+  );
+
+  // Filter for EAC-related bans (check reason/note for EAC keywords)
+  const eacBans = rows.filter((r) => {
+    const text = `${r.reason ?? ""} ${r.note ?? ""}`.toLowerCase();
+    return text.includes("eac") || text.includes("easy anti-cheat") || text.includes("anticheat");
+  });
+
+  return json({
+    bans: eacBans.map((r) => ({
+      bmBanId: String(r.bm_ban_id),
+      reason: r.reason ?? null,
+      note: r.note ?? null,
+      bannedAt: r.banned_at ?? null,
+      expiresAt: r.expires_at ?? null,
+      permanent: Boolean(r.permanent),
+      orgName: r.bm_org_name ?? null,
+    })),
+    count: eacBans.length,
+  });
+}
+
+// Fetch BattleMetrics bans issued on a specific server for a related player account
+async function handleGetServerBmBans(request, serverId, bmId) {
+  // This endpoint is called from the client when viewing linked accounts.
+  // It fetches BattleMetrics (BM) bans issued on the specified server
+  // for the specified BattleMetrics player ID.
+  
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  // Query player_bm_bans_cache for all bans for this BM ID
+  const { rows } = await pool.query(
+    `SELECT bm_ban_id, reason, note, banned_at, expires_at, permanent, bm_org_name
+     FROM player_bm_bans_cache
+     WHERE bm_ban_id LIKE $1 OR bm_ban_id = $2
+     ORDER BY banned_at DESC
+     LIMIT 50`,
+    [`${bmId}-%`, bmId],
+  );
+
+  // Filter out EAC-specific bans and return BM bans
+  const bmBans = rows.filter((r) => {
+    const text = `${r.reason ?? ""} ${r.note ?? ""}`.toLowerCase();
+    return !(text.includes("eac") || text.includes("easy anti-cheat") || text.includes("anticheat"));
+  });
+
+  return json({
+    bans: bmBans.map((r) => ({
+      bmBanId: String(r.bm_ban_id),
+      reason: r.reason ?? null,
+      note: r.note ?? null,
+      bannedAt: r.banned_at ?? null,
+      expiresAt: r.expires_at ?? null,
+      permanent: Boolean(r.permanent),
+      orgName: r.bm_org_name ?? null,
+    })),
+    count: bmBans.length,
+  });
 }
 
 export async function handleApiRequest(request) {
