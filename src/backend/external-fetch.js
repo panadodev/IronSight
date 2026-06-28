@@ -340,7 +340,7 @@ export async function proxycheckApiFetch(orgId, ipList) {
   if (!validIps.length) return null;
   const ips = validIps.join(",");
   const resp = await externalFetchWithRotation(orgId, "proxycheck", (key) => ({
-    url: `https://proxycheck.io/v2/${ips}?key=${encodeURIComponent(key)}&vpn=1&asn=1&risk=1&seen=1`,
+    url: `https://proxycheck.io/v3/${ips}?key=${encodeURIComponent(key)}`,
     options: {},
   }));
   if (!resp || !resp.ok) return resp;

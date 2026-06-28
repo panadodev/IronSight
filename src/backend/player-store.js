@@ -853,9 +853,150 @@ function normalizeCurrency(meta) {
   return parts.length ? parts.join(" / ") : null;
 }
 
+function toBooleanOrNull(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return null;
+    if (v === "yes" || v === "true" || v === "1") return true;
+    if (v === "no" || v === "false" || v === "0") return false;
+  }
+  return null;
+}
+
+function classifyConnTypeFromRaw(typeRaw, detections) {
+  const t = String(typeRaw ?? "").toLowerCase();
+  if (detections?.proxy || detections?.vpn || t.includes("vpn") || t.includes("proxy") || t === "tor") return "proxy_vpn";
+  if (detections?.hosting || t.includes("hosting") || t.includes("data center") || t.includes("server")) return "hosting";
+  if (t.includes("business")) return "business";
+  if (t.includes("wireless") || t.includes("mobile") || t.includes("cellular")) return "mobile";
+  if (t.includes("residential")) return "residential";
+  return null;
+}
+
+function normalizeProxycheckRecord(meta) {
+  if (!meta || typeof meta !== "object") return null;
+
+  const network = meta.network && typeof meta.network === "object" ? meta.network : {};
+  const location = meta.location && typeof meta.location === "object" ? meta.location : {};
+  const detections =
+    meta.detections && typeof meta.detections === "object" ? meta.detections : {};
+  const deviceEstimate =
+    meta.device_estimate && typeof meta.device_estimate === "object"
+      ? meta.device_estimate
+      : {};
+  const detectionHistory =
+    meta.detection_history && typeof meta.detection_history === "object"
+      ? meta.detection_history
+      : {};
+  const operator = meta.operator && typeof meta.operator === "object" ? meta.operator : {};
+
+  const proxyFlag = toBooleanOrNull(detections.proxy);
+  const vpnFlag = toBooleanOrNull(detections.vpn);
+  const typeRaw = firstNonEmptyString(network.type, meta.type);
+  const connType =
+    classifyConnTypeFromRaw(typeRaw, {
+      proxy: proxyFlag,
+      vpn: vpnFlag,
+      hosting: toBooleanOrNull(detections.hosting),
+    }) ?? classifyConnType(meta);
+
+  const lat = Number(location.latitude ?? meta.latitude);
+  const lng = Number(location.longitude ?? meta.longitude);
+  const confidenceNum = toInteger(detections.confidence ?? meta.confidence);
+
+  return {
+    isProxy: proxyFlag ?? meta.proxy === "yes",
+    isVpn: vpnFlag ?? String(typeRaw ?? "").toLowerCase() === "vpn",
+    connType,
+    isp:
+      firstNonEmptyString(network.provider, meta.isp, meta.provider, meta.organisation) ??
+      null,
+    country: firstNonEmptyString(location.country_name, meta.country),
+    isoCode: firstNonEmptyString(location.country_code, meta.isocode),
+    asn: firstNonEmptyString(network.asn, meta.asn),
+    latitude: Number.isFinite(lat) ? lat : null,
+    longitude: Number.isFinite(lng) ? lng : null,
+    rawType: typeRaw,
+    riskScore: toInteger(detections.risk ?? meta.risk_score ?? meta.risk),
+    riskConfidence:
+      confidenceNum != null
+        ? `Absolute, ${confidenceNum}%`
+        : firstNonEmptyString(meta.risk_confidence, meta.confidence),
+    estimate:
+      toInteger(deviceEstimate.address) != null
+        ? `${toInteger(deviceEstimate.address)} devices`
+        : firstNonEmptyString(meta.estimate),
+    lastUpdate: firstNonEmptyString(meta.last_updated, detections.last_seen, meta.last_update, meta.lastseen),
+    hostname: firstNonEmptyString(network.hostname, meta.hostname),
+    company: firstNonEmptyString(network.provider, meta.company),
+    organization: firstNonEmptyString(network.organisation, meta.organisation, meta.organization, meta.org),
+    addressRange: firstNonEmptyString(network.range, meta.range, meta.address_range, meta.cidr),
+    city: firstNonEmptyString(location.city_name, meta.city),
+    region: firstNonEmptyString(location.region_name, meta.region, meta.state),
+    continent: firstNonEmptyString(location.continent_name, meta.continent),
+    timezone: firstNonEmptyString(location.timezone, meta.timezone),
+    postalCode: firstNonEmptyString(location.postal_code, meta.postal_code, meta.postcode, meta.zip),
+    currency:
+      normalizeCurrency({ currency: location.currency }) ?? normalizeCurrency(meta),
+    proxycheckData: {
+      detections: {
+        proxy: toBooleanOrNull(detections.proxy),
+        vpn: toBooleanOrNull(detections.vpn),
+        hosting: toBooleanOrNull(detections.hosting),
+        anonymous: toBooleanOrNull(detections.anonymous),
+        compromised: toBooleanOrNull(detections.compromised),
+        scraper: toBooleanOrNull(detections.scraper),
+        tor: toBooleanOrNull(detections.tor),
+        firstSeen: firstNonEmptyString(detections.first_seen),
+        lastSeen: firstNonEmptyString(detections.last_seen),
+      },
+      deviceEstimate: {
+        address: toInteger(deviceEstimate.address),
+        subnet: toInteger(deviceEstimate.subnet),
+      },
+      delist: {
+        delisted: toBooleanOrNull(detectionHistory.delisted),
+        delistDatetime: firstNonEmptyString(detectionHistory.delist_datetime),
+      },
+      operator: {
+        name: firstNonEmptyString(operator.name),
+        url: firstNonEmptyString(operator.url),
+        anonymity: firstNonEmptyString(operator.anonymity),
+        popularity: firstNonEmptyString(operator.popularity),
+        services: Array.isArray(operator.services) ? operator.services : [],
+        protocols: Array.isArray(operator.protocols) ? operator.protocols : [],
+      },
+    },
+  };
+}
+
 function toInteger(value) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function hasRichProxycheckDetails(row) {
+  if (!row || typeof row !== "object") return false;
+  return Boolean(
+    row.proxycheck_json ||
+    row.raw_type ||
+      row.risk_score != null ||
+      row.risk_confidence ||
+      row.estimate ||
+      row.last_update ||
+      row.hostname ||
+      row.company ||
+      row.organization ||
+      row.address_range ||
+      row.city ||
+      row.region ||
+      row.continent ||
+      row.timezone ||
+      row.postal_code ||
+      row.currency,
+  );
 }
 
 async function runProxycheckForIps(ipList, orgId) {
@@ -872,16 +1013,18 @@ async function runProxycheckForIps(ipList, orgId) {
             latitude, longitude, raw_type, risk_score, risk_confidence,
             estimate, last_update, hostname, company, organization,
             address_range, city, region, continent, timezone, postal_code,
-            currency
+            currency, proxycheck_json
      FROM ip_metadata
      WHERE ip_hash = ANY($1) AND cache_expires_at > unix_now()`,
     [Object.values(ipHashMap)],
   );
 
   const results = {};
+  const staleRichDetailIps = new Set();
   for (const r of cachedRows) {
     const ip = hashToIp[r.ip_hash];
     if (!ip) continue;
+    if (!hasRichProxycheckDetails(r)) staleRichDetailIps.add(ip);
     results[ip] = {
       isProxy: r.is_proxy,
       isVpn: r.is_vpn,
@@ -907,11 +1050,14 @@ async function runProxycheckForIps(ipList, orgId) {
       timezone: r.timezone ?? null,
       postalCode: r.postal_code ?? null,
       currency: r.currency ?? null,
+      proxycheckData: r.proxycheck_json ?? null,
     };
   }
 
   const cachedIps = new Set(Object.keys(results));
-  const uncachedIps = ipList.filter((ip) => !cachedIps.has(ip));
+  const uncachedIps = ipList.filter(
+    (ip) => !cachedIps.has(ip) || staleRichDetailIps.has(ip),
+  );
 
   if (!uncachedIps.length) {
     console.log(
@@ -949,38 +1095,12 @@ async function runProxycheckForIps(ipList, orgId) {
     for (const [ip, meta] of Object.entries(data)) {
       if (ip === "status" || ip === "message" || typeof meta !== "object")
         continue;
-      const connType = classifyConnType(meta);
+      const normalized = normalizeProxycheckRecord(meta);
+      if (!normalized) continue;
+      const connType = normalized.connType;
       if (connType) classified++;
       else unknown++;
-      const lat = Number(meta.latitude);
-      const lng = Number(meta.longitude);
-      results[ip] = {
-        isProxy: meta.proxy === "yes",
-        isVpn: (meta.type ?? "") === "VPN",
-        connType,
-        // proxycheck's v2 ASN response uses `provider`/`organisation`, not `isp`.
-        isp: meta.isp ?? meta.provider ?? meta.organisation ?? null,
-        country: meta.country ?? null,
-        isoCode: meta.isocode ?? null,
-        asn: meta.asn ?? null,
-        latitude: Number.isFinite(lat) ? lat : null,
-        longitude: Number.isFinite(lng) ? lng : null,
-        rawType: firstNonEmptyString(meta.type),
-        riskScore: toInteger(meta.risk_score ?? meta.risk),
-        riskConfidence: firstNonEmptyString(meta.risk_confidence, meta.confidence),
-        estimate: firstNonEmptyString(meta.estimate),
-        lastUpdate: firstNonEmptyString(meta.last_update, meta.lastseen),
-        hostname: firstNonEmptyString(meta.hostname),
-        company: firstNonEmptyString(meta.company),
-        organization: firstNonEmptyString(meta.organisation, meta.organization, meta.org),
-        addressRange: firstNonEmptyString(meta.range, meta.address_range, meta.cidr),
-        city: firstNonEmptyString(meta.city),
-        region: firstNonEmptyString(meta.region, meta.state),
-        continent: firstNonEmptyString(meta.continent),
-        timezone: firstNonEmptyString(meta.timezone),
-        postalCode: firstNonEmptyString(meta.postal_code, meta.postcode, meta.zip),
-        currency: normalizeCurrency(meta),
-      };
+      results[ip] = normalized;
     }
   }
   console.log(
@@ -1408,11 +1528,11 @@ async function writeProxycheckToCache(ipResults) {
          iso_code, asn, latitude, longitude, raw_type, risk_score,
          risk_confidence, estimate, last_update, hostname, company,
          organization, address_range, city, region, continent, timezone,
-         postal_code, currency
+         postal_code, currency, proxycheck_json
        )
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-         $20,$21,$22,$23,$24,$25,$26
+         $20,$21,$22,$23,$24,$25,$26,$27
        )
        ON CONFLICT (ip_hash) DO UPDATE SET
          is_proxy  = $3, is_vpn = $4, conn_type = $5, isp = $6,
@@ -1434,6 +1554,7 @@ async function writeProxycheckToCache(ipResults) {
          timezone = COALESCE($24, ip_metadata.timezone),
          postal_code = COALESCE($25, ip_metadata.postal_code),
          currency = COALESCE($26, ip_metadata.currency),
+         proxycheck_json = COALESCE($27, ip_metadata.proxycheck_json),
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 15552000`,
       [
@@ -1463,6 +1584,7 @@ async function writeProxycheckToCache(ipResults) {
         firstNonEmptyString(meta.timezone),
         firstNonEmptyString(meta.postalCode),
         firstNonEmptyString(meta.currency),
+        meta.proxycheckData ? JSON.stringify(meta.proxycheckData) : null,
       ],
     );
     await pool.query(
@@ -1797,7 +1919,7 @@ export async function getPlayerCacheData(steamId) {
                 im.raw_type, im.risk_score, im.risk_confidence, im.estimate,
                 im.last_update, im.hostname, im.company, im.organization,
                 im.address_range, im.city, im.region, im.continent, im.timezone,
-                im.postal_code, im.currency,
+                im.postal_code, im.currency, im.proxycheck_json,
                 COALESCE(
                   (SELECT array_agg(DISTINCT o.org_id)
                    FROM player_ip_observations o
@@ -1954,6 +2076,7 @@ export async function getPlayerCacheData(steamId) {
       timezone: r.timezone ?? null,
       postalCode: r.postal_code ?? null,
       currency: r.currency ?? null,
+      proxycheckData: r.proxycheck_json ?? null,
       serverName: r.server_name ?? null,
       firstSeen: r.first_seen,
       lastSeen: r.last_seen,

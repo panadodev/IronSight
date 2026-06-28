@@ -2118,6 +2118,30 @@ function ConnectionPointsSection({
             ? `https://maps.google.com/?q=${encodeURIComponent(`${Number(entry.latitude)},${Number(entry.longitude)}`)}`
             : null;
           const rawType = entry.rawType || null;
+          const pc = entry.proxycheckData ?? null;
+          const det = pc?.detections ?? null;
+          const deviceEstimate = pc?.deviceEstimate ?? null;
+          const delist = pc?.delist ?? null;
+          const operator = pc?.operator ?? null;
+          const detectionFirstSeen = det?.firstSeen
+            ? new Date(det.firstSeen).toLocaleString(undefined, tz ? { timeZone: tz } : {})
+            : null;
+          const detectionLastSeen = det?.lastSeen
+            ? new Date(det.lastSeen).toLocaleString(undefined, tz ? { timeZone: tz } : {})
+            : null;
+          const delistAt = delist?.delistDatetime
+            ? new Date(delist.delistDatetime).toLocaleString(
+                undefined,
+                tz ? { timeZone: tz } : {},
+              )
+            : null;
+          const localTime = entry.timezone
+            ? new Date().toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone: entry.timezone,
+              })
+            : null;
 
           return (
             <div key={entry.ipHash}>
@@ -2177,6 +2201,33 @@ function ConnectionPointsSection({
               {isOpen && (
                 <div className="px-4 pb-3 pt-1 bg-surface/30 border-t border-border">
                   <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+                    {det && (
+                      <div className="col-span-2 sm:col-span-3 md:col-span-4">
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Specific Detections</dt>
+                        <dd className="flex flex-wrap gap-1.5">
+                          {[
+                            ["Anonymous", det.anonymous],
+                            ["VPN", det.vpn],
+                            ["Hosting", det.hosting],
+                            ["Proxy", det.proxy],
+                            ["Compromised", det.compromised],
+                            ["Scraper", det.scraper],
+                            ["TOR", det.tor],
+                          ].map(([label, active]) => (
+                            <span
+                              key={label}
+                              className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${
+                                active
+                                  ? "text-success bg-success/10 ring-success/30"
+                                  : "text-muted-foreground bg-surface ring-border"
+                              }`}
+                            >
+                              {label}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    )}
                     {entry.riskScore != null && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Risk Score</dt>
@@ -2191,8 +2242,32 @@ function ConnectionPointsSection({
                     )}
                     {entry.estimate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Estimate</dt>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Device Estimate</dt>
                         <dd className="font-mono text-foreground">{entry.estimate}</dd>
+                      </div>
+                    )}
+                    {deviceEstimate?.subnet != null && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Subnet Estimate</dt>
+                        <dd className="font-mono text-foreground">{deviceEstimate.subnet}</dd>
+                      </div>
+                    )}
+                    {detectionFirstSeen && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Detection First Seen</dt>
+                        <dd className="font-mono text-foreground">{detectionFirstSeen}</dd>
+                      </div>
+                    )}
+                    {detectionLastSeen && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Detection Last Seen</dt>
+                        <dd className="font-mono text-foreground">{detectionLastSeen}</dd>
+                      </div>
+                    )}
+                    {delistAt && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">To Be Delisted</dt>
+                        <dd className="font-mono text-foreground">{delistAt}</dd>
                       </div>
                     )}
                     {entry.lastUpdate && (
@@ -2271,10 +2346,47 @@ function ConnectionPointsSection({
                         <dd className="font-mono text-foreground">{entry.timezone}</dd>
                       </div>
                     )}
+                    {localTime && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Local Time</dt>
+                        <dd className="font-mono text-foreground">{localTime}</dd>
+                      </div>
+                    )}
                     {entry.currency && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Currency</dt>
                         <dd className="font-mono text-foreground">{entry.currency}</dd>
+                      </div>
+                    )}
+                    {operator?.name && (
+                      <div className="col-span-2">
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator</dt>
+                        <dd className="font-mono text-foreground">
+                          {operator.url ? (
+                            <a
+                              href={operator.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-brand hover:underline"
+                            >
+                              {operator.name}
+                            </a>
+                          ) : (
+                            operator.name
+                          )}
+                        </dd>
+                      </div>
+                    )}
+                    {operator?.anonymity && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator Anonymity</dt>
+                        <dd className="font-mono text-foreground">{operator.anonymity}</dd>
+                      </div>
+                    )}
+                    {operator?.popularity && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator Popularity</dt>
+                        <dd className="font-mono text-foreground">{operator.popularity}</dd>
                       </div>
                     )}
                     {coords && (

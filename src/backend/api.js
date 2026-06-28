@@ -13009,11 +13009,35 @@ async function handleGetPlayer(request, steamId) {
     orgHasPermission(session, o, "players_view"),
   );
   const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
+  const needsRichIpMetadataBackfill = (payload) =>
+    (payload?.ipHistory ?? []).some((ip) => {
+      if (!ip || typeof ip !== "object") return false;
+      const hasRich =
+        ip.proxycheckData ||
+        ip.rawType ||
+        ip.riskScore != null ||
+        ip.riskConfidence ||
+        ip.estimate ||
+        ip.lastUpdate ||
+        ip.hostname ||
+        ip.company ||
+        ip.organization ||
+        ip.addressRange ||
+        ip.city ||
+        ip.region ||
+        ip.continent ||
+        ip.timezone ||
+        ip.postalCode ||
+        ip.currency ||
+        ip.latitude != null ||
+        ip.longitude != null;
+      return !hasRich;
+    });
 
   // Redis first — avoids 6 PostgreSQL queries on the hot path
   const fromRedis = await getPlayerDataFromRedis(steamId);
   if (fromRedis) {
-    if (fromRedis.isStale) {
+    if (fromRedis.isStale || needsRichIpMetadataBackfill(fromRedis)) {
       refreshPlayerData(steamId, orgId, candidateOrgIds).catch((err) =>
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
@@ -13032,9 +13056,9 @@ async function handleGetPlayer(request, steamId) {
     return json({ fetching: true });
   }
 
-  if (cached.isStale) {
+  if (cached.isStale || needsRichIpMetadataBackfill(cached)) {
     // Return stale data immediately; refresh in the background
-    refreshPlayerData(steamId, orgId).catch((err) =>
+    refreshPlayerData(steamId, orgId, candidateOrgIds).catch((err) =>
       console.error(`[player] bg refresh error for ${steamId}:`, err.message),
     );
   }

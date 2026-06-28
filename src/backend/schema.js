@@ -1015,6 +1015,9 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS currency TEXT`,
   );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS proxycheck_json JSONB`,
+  );
 
   // ── Cross-org data sharing ───────────────────────────────────────────────────
   // Directed, per-category read grants: owner_org_id shares the listed data
