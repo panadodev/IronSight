@@ -80,7 +80,11 @@ function uploadChunkXhr(url, blob, onProgress) {
       }
     };
     xhr.onerror = () => reject(new Error("Network error during upload"));
-    xhr.send(blob);
+    // Keep presigned PUT requests header-minimal: avoid implicit Content-Type.
+    const body = blob instanceof Blob && blob.type
+      ? blob.slice(0, blob.size, "")
+      : blob;
+    xhr.send(body);
   });
 }
 

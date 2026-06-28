@@ -24,7 +24,11 @@ function putToPresignedUrl(url, file, onProgress) {
     };
     xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
     xhr.onerror = () => reject(new Error("Network error"));
-    xhr.send(file);
+    // Keep presigned PUT requests header-minimal: avoid implicit Content-Type.
+    const body = file instanceof Blob && file.type
+      ? file.slice(0, file.size, "")
+      : file;
+    xhr.send(body);
   });
 }
 
