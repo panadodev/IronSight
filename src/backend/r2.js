@@ -172,6 +172,31 @@ export async function abortMultipartUpload(key, uploadId) {
   }
 }
 
+// ── Bucket diagnostics ────────────────────────────────────────────────────────
+
+export async function testR2BucketWriteDelete() {
+  const testKey = `healthcheck/${Date.now()}_${crypto.randomUUID()}.txt`;
+  const client = getR2Client();
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: env.r2BucketName,
+      Key: testKey,
+      Body: "ironsight-r2-healthcheck",
+      ContentType: "text/plain",
+    }),
+  );
+
+  await client.send(
+    new DeleteObjectCommand({
+      Bucket: env.r2BucketName,
+      Key: testKey,
+    }),
+  );
+
+  return { key: testKey };
+}
+
 // ── Object deletion ───────────────────────────────────────────────────────────
 
 export async function deleteMediaObject(key) {

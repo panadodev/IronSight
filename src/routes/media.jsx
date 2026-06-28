@@ -415,6 +415,8 @@ function MediaPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
+  const [testingBucket, setTestingBucket] = useState(false);
+  const [bucketTestResult, setBucketTestResult] = useState(null); // { ok, message }
 
   const isSessionSysAdmin = sessionUser?.isSysAdmin === true;
   const canUploadInOrg = (orgId) =>
@@ -465,6 +467,36 @@ function MediaPage() {
       }
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleTestBucket() {
+    setTestingBucket(true);
+    setBucketTestResult(null);
+    try {
+      const res = await fetch("/api/sys/media/test-bucket", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || body?.ok === false) {
+        setBucketTestResult({
+          ok: false,
+          message: body?.details || body?.error || "Bucket test failed.",
+        });
+        return;
+      }
+      setBucketTestResult({
+        ok: true,
+        message: body?.message || "Bucket test passed.",
+      });
+    } catch (err) {
+      setBucketTestResult({
+        ok: false,
+        message: err.message || "Bucket test failed.",
+      });
+    } finally {
+      setTestingBucket(false);
     }
   }
 
@@ -526,6 +558,17 @@ function MediaPage() {
               >
                 <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
               </button>
+              {isSysAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-3"
+                  onClick={handleTestBucket}
+                  disabled={testingBucket}
+                >
+                  {testingBucket ? "Testing…" : "Test Bucket"}
+                </Button>
+              )}
               <Button
                 size="sm"
                 className="h-7 text-xs px-3"
@@ -541,6 +584,18 @@ function MediaPage() {
         {error && (
           <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
+          </div>
+        )}
+
+        {bucketTestResult && (
+          <div
+            className={`rounded-md ring-1 px-3 py-2 text-sm ${
+              bucketTestResult.ok
+                ? "ring-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                : "ring-danger/40 bg-danger/10 text-danger"
+            }`}
+          >
+            {bucketTestResult.message}
           </div>
         )}
 

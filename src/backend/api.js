@@ -92,6 +92,7 @@ import {
   PUBLIC_ALLOWED_MIME,
   r2Configured,
   STAFF_ALLOWED_MIME,
+  testR2BucketWriteDelete,
 } from "./r2.js";
 import {
   pool,
@@ -13369,6 +13370,43 @@ async function handleResetExternalKeyLimits(request) {
   return json({ ok: true, cleared: rowCount ?? 0 });
 }
 
+async function handleTestMediaBucket(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  if (!r2Configured()) {
+    return json(
+      {
+        ok: false,
+        error:
+          "R2 storage is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME.",
+      },
+      503,
+    );
+  }
+
+  try {
+    const { key } = await testR2BucketWriteDelete();
+    return json({ ok: true, message: "Bucket write/delete test passed.", key });
+  } catch (err) {
+    const details =
+      err?.name && err?.message
+        ? `${err.name}: ${err.message}`
+        : err?.message || "Bucket test failed";
+    console.error("[r2] sysadmin bucket test failed:", details);
+    return json(
+      {
+        ok: false,
+        error: "Bucket write/delete test failed.",
+        details,
+      },
+      502,
+    );
+  }
+}
+
 // ── Sysadmin: diagnostic metrics ─────────────────────────────────────────────
 
 async function handleGetSysMetrics(request) {
@@ -15466,6 +15504,10 @@ async function _handleApiRequest(request) {
     // Sysadmin: database storage / usage summary
     if (pathname === "/api/sys/db-usage" && request.method === "GET")
       return handleGetDbUsage(request);
+
+    // Sysadmin: test R2 bucket write/delete capability
+    if (pathname === "/api/sys/media/test-bucket" && request.method === "POST")
+      return handleTestMediaBucket(request);
 
     // Player reports
     const playerReportsMatch = pathname.match(
