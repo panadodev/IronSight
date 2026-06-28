@@ -1762,6 +1762,58 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
   );
 }
 
+function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
+        <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
+          <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+            Hashed IP Search
+          </h2>
+          <p className="text-xs text-muted-foreground font-mono">Query: {hash}</p>
+        </section>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Searching...</p>
+        ) : error ? (
+          <p className="text-sm text-danger">{error}</p>
+        ) : matches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No players found for this hash.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {matches.map((m) => (
+              <li
+                key={m.steamId}
+                className="bg-surface/40 ring-1 ring-border rounded px-3 py-2.5 flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate">
+                    {m.displayName ?? m.steamId}
+                  </p>
+                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                    {m.steamId}
+                    {m.lastSeen
+                      ? ` · last seen ${new Date(m.lastSeen * 1000).toLocaleDateString()}`
+                      : ""}
+                    {m.matches
+                      ? ` · ${m.matches} connection${m.matches === 1 ? "" : "s"}`
+                      : ""}
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => onOpenPlayer(m.steamId)}>
+                  Open
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Connection Points ─────────────────────────────────────────────────────────
 
 function flagEmoji(isoCode) {
