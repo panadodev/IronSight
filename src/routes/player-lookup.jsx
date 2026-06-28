@@ -138,12 +138,9 @@ const Route = createFileRoute("/player-lookup")({
 });
 
 function normalizeIpHashToken(value) {
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-f0-9]/g, "")
-    .slice(0, 64);
-  return normalized.length >= 6 ? normalized.toUpperCase() : "";
+  const raw = String(value ?? "").trim();
+  if (!/^[a-fA-F0-9]{6,64}$/.test(raw)) return "";
+  return raw.toUpperCase();
 }
 
 function Avatar({ steamId, displayName, avatarUrl, size = 64 }) {

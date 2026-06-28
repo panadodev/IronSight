@@ -724,7 +724,7 @@ function computeAltEvidence(subject, alt, ipMetaByIp) {
   const shortIpHash = (ipHash) =>
     String(ipHash ?? "")
       .replace(/[^a-f0-9]/gi, "")
-      .slice(0, 10)
+      .slice(0, 8)
       .toUpperCase();
 
   const sharedIps = (alt.sharedIps ?? []).map((ip) => {
@@ -1825,7 +1825,7 @@ export async function getPlayerCacheData(steamId) {
     // encrypted at rest and never leave the backend APIs.
     ipHistory: ips.rows.map((r) => ({
       ipHash: r.ip_hash,
-      ipHashShort: String(r.ip_hash).slice(0, 10).toUpperCase(),
+      ipHashShort: String(r.ip_hash).slice(0, 8).toUpperCase(),
       isVpn: r.is_vpn ?? null,
       isProxy: r.is_proxy ?? null,
       connType: r.conn_type ?? null,
@@ -1866,8 +1866,11 @@ export async function getPlayerCacheData(steamId) {
                 ipHash: ipHashFromRow,
                 ipHashShort:
                   typeof s.ipHashShort === "string" && s.ipHashShort
-                    ? s.ipHashShort
-                    : String(ipHashFromRow).slice(0, 10).toUpperCase(),
+                    ? String(s.ipHashShort)
+                        .replace(/[^a-f0-9]/gi, "")
+                        .slice(0, 8)
+                        .toUpperCase()
+                    : String(ipHashFromRow).slice(0, 8).toUpperCase(),
                 connType:
                   typeof s.connType === "string" ? s.connType : null,
                 isp: typeof s.isp === "string" ? s.isp : null,

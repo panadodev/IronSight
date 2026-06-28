@@ -5045,6 +5045,11 @@ async function handleGetTicket(request, ticketIdStr) {
 // metadata for investigation workflows.
 function filterPlayerIpData(playerData, canSeeIp) {
   if (!playerData) return playerData;
+  const toShortIpHash = (value) =>
+    String(value ?? "")
+      .replace(/[^a-f0-9]/gi, "")
+      .slice(0, 8)
+      .toUpperCase();
   const result = { ...playerData };
   if (Array.isArray(result.ipHistory)) {
     result.ipHistory = result.ipHistory.map((entry) => {
@@ -5052,7 +5057,10 @@ function filterPlayerIpData(playerData, canSeeIp) {
       if (canSeeIp) {
         void ipEncrypted;
         void ipAddress;
-        return rest;
+        return {
+          ...rest,
+          ipHashShort: toShortIpHash(rest.ipHashShort || rest.ipHash),
+        };
       }
       return {
         ...rest,
@@ -5077,7 +5085,9 @@ function filterPlayerIpData(playerData, canSeeIp) {
             return {
               ...rest,
               ipHash: canSeeIp ? source.ipHash : null,
-              ipHashShort: canSeeIp ? source.ipHashShort : null,
+              ipHashShort: canSeeIp
+                ? toShortIpHash(source.ipHashShort || source.ipHash)
+                : null,
               isp: canSeeIp ? source.isp : null,
               country: canSeeIp ? source.country : null,
               asn: canSeeIp ? source.asn : null,
