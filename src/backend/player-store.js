@@ -16,6 +16,14 @@ import { pool, redis } from "./runtime.js";
 
 const RUST_APP_ID = 252490;
 const AIM_SERVER_KEYWORDS = ["ukn", "aim"];
+const RELATED_PROFILE_WARM_LIMIT = (() => {
+  const parsed = Number.parseInt(
+    process.env.RELATED_PROFILE_WARM_LIMIT ?? "8",
+    10,
+  );
+  if (!Number.isFinite(parsed)) return 8;
+  return Math.min(50, Math.max(0, parsed));
+})();
 
 async function findBMIdBySteamId(steamId, orgId) {
   const keys = await getAvailableExternalKeys(orgId, "battlemetrics");
@@ -1427,7 +1435,18 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
   }
 }
 
-async function warmRelatedProfilesCache(accounts, steamOrg) {
+async function warmRelatedProfilesCache(accounts, altDetails, steamOrg, sourceOrgId) {
+  const NON_PROXY_CONN_TYPES = new Set(["residential", "business", "mobile"]);
+  const detailsByKey = new Map();
+  for (const detail of altDetails ?? []) {
+    if (detail?.relatedSteamId) {
+      detailsByKey.set(`steam:${String(detail.relatedSteamId)}`, detail);
+    }
+    if (detail?.relatedBmId) {
+      detailsByKey.set(`bm:${String(detail.relatedBmId)}`, detail);
+    }
+  }
+
   const warmTargets = dedupBy(
     (accounts ?? [])
       .filter((a) => a?.nonProxyLinked && a?.relatedSteamId)
@@ -1435,14 +1454,36 @@ async function warmRelatedProfilesCache(accounts, steamOrg) {
         steamId: String(a.relatedSteamId),
         bmId: a.relatedBmId ? String(a.relatedBmId) : null,
         relatedName: a.relatedName ?? null,
+        sharedIps: (detailsByKey.get(`steam:${String(a.relatedSteamId)}`) ??
+          detailsByKey.get(`bm:${String(a.relatedBmId ?? "")}`)
+          ?? { sharedIps: [] }
+        ).sharedIps,
+        sharedIpMetaByHash: new Map(
+          (a.sharedIps ?? [])
+            .filter((row) => row?.ipHash)
+            .map((row) => [String(row.ipHash), row]),
+        ),
       })),
     (x) => x.steamId,
-  ).slice(0, 8);
+  ).slice(0, RELATED_PROFILE_WARM_LIMIT);
 
   if (!warmTargets.length) return;
 
   const settled = await Promise.allSettled(
     warmTargets.map(async (target) => {
+      const nonProxySharedIpRows = (target.sharedIps ?? [])
+        .map((ip) => {
+          const hash = ipHmac(String(ip));
+          const meta = target.sharedIpMetaByHash.get(hash);
+          if (!NON_PROXY_CONN_TYPES.has(meta?.connType)) return null;
+          return { ip: String(ip), isProxy: false };
+        })
+        .filter(Boolean);
+
+      if (nonProxySharedIpRows.length) {
+        await writeIpsToHistory(target.steamId, nonProxySharedIpRows, sourceOrgId);
+      }
+
       await ensurePlayerCacheRow(target.steamId);
       await pool.query(
         `UPDATE player_cache
@@ -1900,7 +1941,7 @@ export async function refreshPlayerData(
           computeAltEvidence(subjectCtx, alt, ipResults),
         );
         await writeRelatedAccountsToCache(steamId, scored);
-        await warmRelatedProfilesCache(scored, steamOrg);
+        await warmRelatedProfilesCache(scored, altDetails, steamOrg, orgId);
       }
     } catch (err) {
       console.error(
