@@ -14033,7 +14033,7 @@ function normalizePlayerIpLookupQuery(value) {
 
   const normalizedHash = raw.toLowerCase().replace(/[^a-f0-9]/g, "");
   if (!/^[a-f0-9]{6,64}$/.test(normalizedHash)) return "";
-  return normalizedHash.toUpperCase();
+  return normalizedHash;
 }
 
 async function handleSearchPlayersByIpHash(request, hashQuery) {
