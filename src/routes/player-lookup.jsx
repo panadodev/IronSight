@@ -320,6 +320,13 @@ function PlayerLookupPage() {
     ? hasOrgPermission(fetchOrgId, "player_kick")
     : false;
 
+  const canViewChatInOrg = (id) =>
+    hasOrgPermission(id, "chat_view") || hasOrgPermission(id, "players_view");
+  const chatOrgId =
+    selectedOrgIds.find(canViewChatInOrg) ??
+    lookupOrgs.find((o) => canViewChatInOrg(o.id))?.id ??
+    null;
+
   // IP access spans all the caller's orgs (matches the server, which shows IPs
   // when the caller has ip_read anywhere). Per-IP source filtering happens below.
   const canViewIpConnections = orgs.some((o) =>
@@ -503,17 +510,23 @@ function PlayerLookupPage() {
 
   // Chat history for this player across the org's servers
   useEffect(() => {
-    if (!steamId || !fetchOrgId) {
+    if (!steamId || !chatOrgId) {
       setChatLines([]);
       return;
     }
     let cancelled = false;
     setChatLoading(true);
     fetch(
-      `/api/players/${encodeURIComponent(steamId)}/chat?orgId=${encodeURIComponent(fetchOrgId)}&limit=50`,
+      `/api/players/${encodeURIComponent(steamId)}/chat?orgId=${encodeURIComponent(chatOrgId)}&limit=50`,
       { credentials: "include" },
     )
-      .then((r) => r.json())
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(body?.error ?? "Failed to load chat history.");
+        }
+        return body;
+      })
       .then((b) => {
         if (!cancelled) setChatLines(b.lines ?? []);
       })
@@ -526,7 +539,7 @@ function PlayerLookupPage() {
     return () => {
       cancelled = true;
     };
-  }, [steamId, fetchOrgId]);
+  }, [steamId, chatOrgId]);
 
   const submit = (e) => {
     e.preventDefault();
