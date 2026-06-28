@@ -2111,13 +2111,6 @@ function flagEmoji(isoCode) {
   );
 }
 
-function formatCoords(lat, lng) {
-  const hasLat = Number.isFinite(Number(lat));
-  const hasLng = Number.isFinite(Number(lng));
-  if (!hasLat || !hasLng) return null;
-  return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
-}
-
 const CONN_TYPE_META = {
   residential: { label: "Residential", cls: "text-success bg-success/10 ring-success/30" },
   business:    { label: "Business",    cls: "text-brand bg-brand/10 ring-brand/30" },
@@ -2215,10 +2208,6 @@ function ConnectionPointsSection({
                 undefined,
                 tz ? { timeZone: tz } : {},
               )
-            : null;
-          const coords = formatCoords(entry.latitude, entry.longitude);
-          const mapHref = coords
-            ? `https://maps.google.com/?q=${encodeURIComponent(`${Number(entry.latitude)},${Number(entry.longitude)}`)}`
             : null;
           const rawType = entry.rawType || null;
           const pc = entry.proxycheckData ?? null;
@@ -2437,12 +2426,6 @@ function ConnectionPointsSection({
                         <dd className="font-mono text-foreground">{entry.continent}</dd>
                       </div>
                     )}
-                    {entry.postalCode && (
-                      <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Postal Code</dt>
-                        <dd className="font-mono text-foreground">{entry.postalCode}</dd>
-                      </div>
-                    )}
                     {entry.timezone && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Timezone</dt>
@@ -2453,12 +2436,6 @@ function ConnectionPointsSection({
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Local Time</dt>
                         <dd className="font-mono text-foreground">{localTime}</dd>
-                      </div>
-                    )}
-                    {entry.currency && (
-                      <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Currency</dt>
-                        <dd className="font-mono text-foreground">{entry.currency}</dd>
                       </div>
                     )}
                     {operator?.name && (
@@ -2490,24 +2467,6 @@ function ConnectionPointsSection({
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator Popularity</dt>
                         <dd className="font-mono text-foreground">{operator.popularity}</dd>
-                      </div>
-                    )}
-                    {coords && (
-                      <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Coordinates</dt>
-                        <dd className="font-mono text-foreground flex items-center gap-2">
-                          <span>{coords}</span>
-                          {mapHref && (
-                            <a
-                              href={mapHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-brand hover:underline"
-                            >
-                              Map
-                            </a>
-                          )}
-                        </dd>
                       </div>
                     )}
                     {firstSeenDate && (

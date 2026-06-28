@@ -13187,7 +13187,9 @@ async function handleRefreshPlayer(request, steamId) {
   // Fire the refresh in the background; poll Redis for core data (written mid-refresh,
   // after BM/Steam calls complete) rather than awaiting the full ~4s pipeline.
   // Once the refresh completes, evaluate threat triggers against the fresh data.
-  refreshPlayerData(steamId, orgId, candidateOrgIds)
+  refreshPlayerData(steamId, orgId, candidateOrgIds, {
+    forceProxycheckRefresh: true,
+  })
     .then(() => evaluateThreatTriggers(orgId, steamId, "refresh"))
     .catch((err) =>
       console.error(`[player:refresh] bg error for ${steamId}:`, err.message),

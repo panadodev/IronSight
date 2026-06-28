@@ -999,8 +999,9 @@ function hasRichProxycheckDetails(row) {
   );
 }
 
-async function runProxycheckForIps(ipList, orgId) {
+async function runProxycheckForIps(ipList, orgId, options = {}) {
   if (!ipList.length) return {};
+  const forceFetch = options?.forceFetch === true;
 
   // Hash the IPs for the cache query (ip_metadata is keyed by HMAC hash).
   // The in-memory results map stays keyed by plaintext IP so callers can
@@ -1055,9 +1056,9 @@ async function runProxycheckForIps(ipList, orgId) {
   }
 
   const cachedIps = new Set(Object.keys(results));
-  const uncachedIps = ipList.filter(
-    (ip) => !cachedIps.has(ip) || staleRichDetailIps.has(ip),
-  );
+  const uncachedIps = forceFetch
+    ? ipList
+    : ipList.filter((ip) => !cachedIps.has(ip) || staleRichDetailIps.has(ip));
 
   if (!uncachedIps.length) {
     console.log(
@@ -1596,7 +1597,13 @@ async function writeProxycheckToCache(ipResults) {
 
 // ── Main player refresh orchestrator ─────────────────────────────────────────
 
-export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) {
+export async function refreshPlayerData(
+  steamId,
+  orgId,
+  candidateOrgIds = null,
+  options = {},
+) {
+  const forceProxycheckRefresh = options?.forceProxycheckRefresh === true;
   const locked = await acquirePlayerFetchLock(steamId);
   if (!locked) {
     console.log(`[player:refresh] ${steamId} — already in progress, skipping`);
@@ -1760,7 +1767,9 @@ export async function refreshPlayerData(steamId, orgId, candidateOrgIds = null) 
               )
             : Promise.resolve(null),
           ipsOnly.length
-            ? runProxycheckForIps(ipsOnly, proxyOrg)
+            ? runProxycheckForIps(ipsOnly, proxyOrg, {
+                forceFetch: forceProxycheckRefresh,
+              })
             : Promise.resolve({}),
           fetchSteamGroups(steamId, steamOrg),
           // Grab the subject's COMPLETE session history (not just the recent
