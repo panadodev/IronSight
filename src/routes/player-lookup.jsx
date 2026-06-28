@@ -1246,6 +1246,7 @@ function PlayerLookupPage() {
                   <ConnectionPointsSection
                     ipHistory={visibleIpHistory}
                     relatedAccounts={playerData.relatedAccounts}
+                    currentSteamId={playerData.steamId}
                     tz={tz}
                     onSearchHash={(hash) =>
                       navigate({ search: { steam: undefined, ipHash: hash } })
@@ -1974,16 +1975,31 @@ const CONN_TYPE_META = {
   hosting:     { label: "Hosting",     cls: "text-warning bg-warning/10 ring-warning/30" },
 };
 
-function ConnectionPointsSection({ ipHistory, relatedAccounts, tz, onSearchHash }) {
+function ConnectionPointsSection({
+  ipHistory,
+  relatedAccounts,
+  currentSteamId,
+  tz,
+  onSearchHash,
+}) {
   const [expanded, setExpanded] = useState(null);
+  const [copiedHash, setCopiedHash] = useState(null);
 
   const sharedPlayerCountByIp = useMemo(() => {
+    const subjectSteamId = String(currentSteamId ?? "");
     const byIp = new Map();
     for (const account of relatedAccounts ?? []) {
+      const relatedSteamId = String(account?.relatedSteamId ?? "");
       const accountId = String(
         account?.relatedSteamId ?? account?.relatedBmId ?? "",
       );
       if (!accountId) continue;
+      if (
+        (subjectSteamId && relatedSteamId && relatedSteamId === subjectSteamId) ||
+        (subjectSteamId && accountId === subjectSteamId)
+      ) {
+        continue;
+      }
       const seenHashes = new Set();
       for (const sharedIp of account?.sharedIps ?? []) {
         const hash = String(sharedIp?.ipHash ?? "");
@@ -2001,12 +2017,25 @@ function ConnectionPointsSection({ ipHistory, relatedAccounts, tz, onSearchHash 
       counts.set(hash, accountIds.size);
     }
     return counts;
-  }, [relatedAccounts]);
+  }, [relatedAccounts, currentSteamId]);
 
   const entries = (ipHistory ?? []).filter((e) => e.ipHashShort);
   if (!entries.length) return null;
 
   const toggle = (hash) => setExpanded((prev) => (prev === hash ? null : hash));
+
+  const copyHash = async (hash) => {
+    if (!hash) return;
+    try {
+      await navigator.clipboard.writeText(hash);
+      setCopiedHash(hash);
+      setTimeout(() => {
+        setCopiedHash((prev) => (prev === hash ? null : prev));
+      }, 1200);
+    } catch {
+      // no-op: clipboard may be unavailable in some browser contexts
+    }
+  };
 
   return (
     <section>
@@ -2148,7 +2177,14 @@ function ConnectionPointsSection({ ipHistory, relatedAccounts, tz, onSearchHash 
                       </dd>
                     </div>
                   </dl>
-                  <div className="mt-3 flex justify-end">
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyHash(entry.ipHash)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded ring-1 ring-border bg-surface/50 text-foreground text-[10px] font-mono uppercase tracking-widest hover:bg-surface"
+                    >
+                      {copiedHash === entry.ipHash ? "Copied" : "Copy Hash"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => onSearchHash?.(entry.ipHash)}
