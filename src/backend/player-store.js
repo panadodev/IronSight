@@ -1427,6 +1427,45 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
   }
 }
 
+async function warmRelatedProfilesCache(accounts, steamOrg) {
+  const warmTargets = dedupBy(
+    (accounts ?? [])
+      .filter((a) => a?.nonProxyLinked && a?.relatedSteamId)
+      .map((a) => ({
+        steamId: String(a.relatedSteamId),
+        bmId: a.relatedBmId ? String(a.relatedBmId) : null,
+        relatedName: a.relatedName ?? null,
+      })),
+    (x) => x.steamId,
+  ).slice(0, 8);
+
+  if (!warmTargets.length) return;
+
+  const settled = await Promise.allSettled(
+    warmTargets.map(async (target) => {
+      await ensurePlayerCacheRow(target.steamId);
+      await pool.query(
+        `UPDATE player_cache
+         SET bm_id = COALESCE($2, bm_id),
+             display_name = COALESCE($3, display_name),
+             cache_expires_at = GREATEST(COALESCE(cache_expires_at, 0), unix_now() + 2592000)
+         WHERE steam_id = $1`,
+        [target.steamId, target.bmId, target.relatedName],
+      );
+
+      const steamData = await fetchSteamPlayerData(target.steamId, steamOrg);
+      if (steamData.success) {
+        await writeSteamDataToCache(target.steamId, steamData);
+      }
+    }),
+  );
+
+  const warmed = settled.filter((r) => r.status === "fulfilled").length;
+  console.log(
+    `[player:refresh] warmed ${warmed}/${warmTargets.length} non-proxy shared related profile cache row(s)`,
+  );
+}
+
 async function writeSessionWindowsToCache(steamId, windows) {
   await pool.query(`DELETE FROM player_session_windows WHERE steam_id = $1`, [
     steamId,
@@ -1861,6 +1900,7 @@ export async function refreshPlayerData(
           computeAltEvidence(subjectCtx, alt, ipResults),
         );
         await writeRelatedAccountsToCache(steamId, scored);
+        await warmRelatedProfilesCache(scored, steamOrg);
       }
     } catch (err) {
       console.error(
