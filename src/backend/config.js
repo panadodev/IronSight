@@ -62,6 +62,7 @@ export const env = {
   pterodactylEncryptionSecret:
     process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
   discordBotToken: process.env.DISCORD_BOT_TOKEN,
+  proxycheckHmacKey: process.env.PROXYCHECK_HMAC_KEY,
 
   // Cloudflare R2 (media storage — all sizes via presigned PUT or multipart)
   r2AccountId: process.env.R2_ACCOUNT_ID,

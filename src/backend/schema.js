@@ -968,6 +968,53 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`,
   );
+  // Extended Proxycheck metadata for richer Connection Points details in the
+  // player lookup UI.
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS raw_type TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS risk_score INTEGER`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS risk_confidence TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS estimate TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS last_update TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS hostname TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS company TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS organization TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS address_range TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS city TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS region TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS continent TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS timezone TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS postal_code TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ip_metadata ADD COLUMN IF NOT EXISTS currency TEXT`,
+  );
 
   // ── Cross-org data sharing ───────────────────────────────────────────────────
   // Directed, per-category read grants: owner_org_id shares the listed data

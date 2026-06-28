@@ -2008,6 +2008,13 @@ function flagEmoji(isoCode) {
   );
 }
 
+function formatCoords(lat, lng) {
+  const hasLat = Number.isFinite(Number(lat));
+  const hasLng = Number.isFinite(Number(lng));
+  if (!hasLat || !hasLng) return null;
+  return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+}
+
 const CONN_TYPE_META = {
   residential: { label: "Residential", cls: "text-success bg-success/10 ring-success/30" },
   business:    { label: "Business",    cls: "text-brand bg-brand/10 ring-brand/30" },
@@ -2106,6 +2113,11 @@ function ConnectionPointsSection({
                 tz ? { timeZone: tz } : {},
               )
             : null;
+          const coords = formatCoords(entry.latitude, entry.longitude);
+          const mapHref = coords
+            ? `https://maps.google.com/?q=${encodeURIComponent(`${Number(entry.latitude)},${Number(entry.longitude)}`)}`
+            : null;
+          const rawType = entry.rawType || null;
 
           return (
             <div key={entry.ipHash}>
@@ -2165,10 +2177,40 @@ function ConnectionPointsSection({
               {isOpen && (
                 <div className="px-4 pb-3 pt-1 bg-surface/30 border-t border-border">
                   <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+                    {entry.riskScore != null && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Risk Score</dt>
+                        <dd className="font-mono text-foreground">{entry.riskScore}%</dd>
+                      </div>
+                    )}
+                    {entry.riskConfidence && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Confidence</dt>
+                        <dd className="font-mono text-foreground">{entry.riskConfidence}</dd>
+                      </div>
+                    )}
+                    {entry.estimate && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Estimate</dt>
+                        <dd className="font-mono text-foreground">{entry.estimate}</dd>
+                      </div>
+                    )}
+                    {entry.lastUpdate && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Last Update</dt>
+                        <dd className="font-mono text-foreground">{entry.lastUpdate}</dd>
+                      </div>
+                    )}
                     {entry.asn && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">ASN</dt>
                         <dd className="font-mono text-foreground">{entry.asn}</dd>
+                      </div>
+                    )}
+                    {entry.hostname && (
+                      <div className="col-span-2">
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Hostname</dt>
+                        <dd className="font-mono text-foreground truncate" title={entry.hostname}>{entry.hostname}</dd>
                       </div>
                     )}
                     {entry.isp && (
@@ -2177,10 +2219,82 @@ function ConnectionPointsSection({
                         <dd className="font-mono text-foreground truncate" title={entry.isp}>{entry.isp}</dd>
                       </div>
                     )}
+                    {entry.company && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Company</dt>
+                        <dd className="font-mono text-foreground truncate" title={entry.company}>{entry.company}</dd>
+                      </div>
+                    )}
+                    {entry.organization && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Organisation</dt>
+                        <dd className="font-mono text-foreground truncate" title={entry.organization}>{entry.organization}</dd>
+                      </div>
+                    )}
+                    {entry.addressRange && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Address Range</dt>
+                        <dd className="font-mono text-foreground">{entry.addressRange}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Type</dt>
-                      <dd className="font-mono text-foreground">{summary}</dd>
+                      <dd className="font-mono text-foreground">{rawType ?? summary}</dd>
                     </div>
+                    {entry.city && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">City</dt>
+                        <dd className="font-mono text-foreground">{entry.city}</dd>
+                      </div>
+                    )}
+                    {entry.region && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Region</dt>
+                        <dd className="font-mono text-foreground">{entry.region}</dd>
+                      </div>
+                    )}
+                    {entry.continent && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Continent</dt>
+                        <dd className="font-mono text-foreground">{entry.continent}</dd>
+                      </div>
+                    )}
+                    {entry.postalCode && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Postal Code</dt>
+                        <dd className="font-mono text-foreground">{entry.postalCode}</dd>
+                      </div>
+                    )}
+                    {entry.timezone && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Timezone</dt>
+                        <dd className="font-mono text-foreground">{entry.timezone}</dd>
+                      </div>
+                    )}
+                    {entry.currency && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Currency</dt>
+                        <dd className="font-mono text-foreground">{entry.currency}</dd>
+                      </div>
+                    )}
+                    {coords && (
+                      <div className="col-span-2">
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Coordinates</dt>
+                        <dd className="font-mono text-foreground flex items-center gap-2">
+                          <span>{coords}</span>
+                          {mapHref && (
+                            <a
+                              href={mapHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-brand hover:underline"
+                            >
+                              Map
+                            </a>
+                          )}
+                        </dd>
+                      </div>
+                    )}
                     {firstSeenDate && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">First Seen</dt>

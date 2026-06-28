@@ -1,6 +1,8 @@
 // External API fetch layer: per-org key rotation, rate-limit handling, and
 // Steam concurrency throttling for BattleMetrics / Steam / Proxycheck.
 
+import crypto from "node:crypto";
+import { env } from "./config.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
 import { diagRecordOutgoing } from "./diagnostics.js";
 import { pool } from "./runtime.js";
@@ -276,13 +278,71 @@ export async function steamApiFetch(orgId, path, params = {}, opts = {}) {
 
 const VALID_IP_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
 
+function normalizeProxycheckSignature(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/^sha256=/i, "")
+    .replace(/^hmac-sha256=/i, "")
+    .trim()
+    .toLowerCase();
+}
+
+function signaturesMatch(expected, received) {
+  if (!expected || !received || expected.length !== received.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(
+    Buffer.from(expected, "utf8"),
+    Buffer.from(received, "utf8"),
+  );
+}
+
+async function verifyProxycheckResponseSignature(resp) {
+  const hmacKey = env.proxycheckHmacKey?.trim();
+  if (!hmacKey) return resp;
+
+  const signature = normalizeProxycheckSignature(
+    resp.headers.get("http_x_signature") ?? resp.headers.get("x-signature"),
+  );
+  if (!signature) {
+    console.warn("[proxycheck] signature header missing; dropping response");
+    return null;
+  }
+
+  let bodyText = "";
+  try {
+    bodyText = await resp.text();
+  } catch {
+    console.warn("[proxycheck] unable to read response body for signature verification");
+    return null;
+  }
+
+  const expected = crypto
+    .createHmac("sha256", hmacKey)
+    .update(bodyText)
+    .digest("hex");
+  if (!signaturesMatch(expected, signature)) {
+    console.warn("[proxycheck] signature mismatch; dropping response");
+    return null;
+  }
+
+  return new Response(bodyText, {
+    status: resp.status,
+    statusText: resp.statusText,
+    headers: new Headers(resp.headers),
+  });
+}
+
 export async function proxycheckApiFetch(orgId, ipList) {
   const list = Array.isArray(ipList) ? ipList : [String(ipList)];
   const validIps = list.filter((ip) => VALID_IP_RE.test(String(ip).trim()));
   if (!validIps.length) return null;
   const ips = validIps.join(",");
-  return externalFetchWithRotation(orgId, "proxycheck", (key) => ({
-    url: `https://proxycheck.io/v2/${ips}?key=${encodeURIComponent(key)}&vpn=1&asn=1`,
+  const resp = await externalFetchWithRotation(orgId, "proxycheck", (key) => ({
+    url: `https://proxycheck.io/v2/${ips}?key=${encodeURIComponent(key)}&vpn=1&asn=1&risk=1&seen=1`,
     options: {},
   }));
+  if (!resp || !resp.ok) return resp;
+  return verifyProxycheckResponseSignature(resp);
 }

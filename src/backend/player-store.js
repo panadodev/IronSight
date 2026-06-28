@@ -831,6 +831,33 @@ function classifyConnType(meta) {
   return null;
 }
 
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function normalizeCurrency(meta) {
+  const cur = meta?.currency;
+  if (typeof cur === "string") {
+    const t = cur.trim();
+    return t || null;
+  }
+  if (!cur || typeof cur !== "object") return null;
+  const parts = [cur.name, cur.code, cur.symbol]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(" / ") : null;
+}
+
+function toInteger(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 async function runProxycheckForIps(ipList, orgId) {
   if (!ipList.length) return {};
 
@@ -842,7 +869,10 @@ async function runProxycheckForIps(ipList, orgId) {
 
   const { rows: cachedRows } = await pool.query(
     `SELECT ip_hash, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn,
-            latitude, longitude
+            latitude, longitude, raw_type, risk_score, risk_confidence,
+            estimate, last_update, hostname, company, organization,
+            address_range, city, region, continent, timezone, postal_code,
+            currency
      FROM ip_metadata
      WHERE ip_hash = ANY($1) AND cache_expires_at > unix_now()`,
     [Object.values(ipHashMap)],
@@ -862,6 +892,21 @@ async function runProxycheckForIps(ipList, orgId) {
       asn: r.asn,
       latitude: r.latitude ?? null,
       longitude: r.longitude ?? null,
+      rawType: r.raw_type ?? null,
+      riskScore: r.risk_score != null ? Number(r.risk_score) : null,
+      riskConfidence: r.risk_confidence ?? null,
+      estimate: r.estimate ?? null,
+      lastUpdate: r.last_update ?? null,
+      hostname: r.hostname ?? null,
+      company: r.company ?? null,
+      organization: r.organization ?? null,
+      addressRange: r.address_range ?? null,
+      city: r.city ?? null,
+      region: r.region ?? null,
+      continent: r.continent ?? null,
+      timezone: r.timezone ?? null,
+      postalCode: r.postal_code ?? null,
+      currency: r.currency ?? null,
     };
   }
 
@@ -920,6 +965,21 @@ async function runProxycheckForIps(ipList, orgId) {
         asn: meta.asn ?? null,
         latitude: Number.isFinite(lat) ? lat : null,
         longitude: Number.isFinite(lng) ? lng : null,
+        rawType: firstNonEmptyString(meta.type),
+        riskScore: toInteger(meta.risk_score ?? meta.risk),
+        riskConfidence: firstNonEmptyString(meta.risk_confidence, meta.confidence),
+        estimate: firstNonEmptyString(meta.estimate),
+        lastUpdate: firstNonEmptyString(meta.last_update, meta.lastseen),
+        hostname: firstNonEmptyString(meta.hostname),
+        company: firstNonEmptyString(meta.company),
+        organization: firstNonEmptyString(meta.organisation, meta.organization, meta.org),
+        addressRange: firstNonEmptyString(meta.range, meta.address_range, meta.cidr),
+        city: firstNonEmptyString(meta.city),
+        region: firstNonEmptyString(meta.region, meta.state),
+        continent: firstNonEmptyString(meta.continent),
+        timezone: firstNonEmptyString(meta.timezone),
+        postalCode: firstNonEmptyString(meta.postal_code, meta.postcode, meta.zip),
+        currency: normalizeCurrency(meta),
       };
     }
   }
@@ -1343,13 +1403,37 @@ async function writeProxycheckToCache(ipResults) {
     const hash = ipHmac(ip);
     const enc = encryptIp(ip);
     await pool.query(
-      `INSERT INTO ip_metadata (ip_hash, ip_encrypted, is_proxy, is_vpn, conn_type, isp, country, iso_code, asn, latitude, longitude)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO ip_metadata (
+         ip_hash, ip_encrypted, is_proxy, is_vpn, conn_type, isp, country,
+         iso_code, asn, latitude, longitude, raw_type, risk_score,
+         risk_confidence, estimate, last_update, hostname, company,
+         organization, address_range, city, region, continent, timezone,
+         postal_code, currency
+       )
+       VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+         $20,$21,$22,$23,$24,$25,$26
+       )
        ON CONFLICT (ip_hash) DO UPDATE SET
          is_proxy  = $3, is_vpn = $4, conn_type = $5, isp = $6,
          country   = $7, iso_code = COALESCE($8, ip_metadata.iso_code), asn = $9,
          latitude  = COALESCE($10, ip_metadata.latitude),
          longitude = COALESCE($11, ip_metadata.longitude),
+         raw_type = COALESCE($12, ip_metadata.raw_type),
+         risk_score = COALESCE($13, ip_metadata.risk_score),
+         risk_confidence = COALESCE($14, ip_metadata.risk_confidence),
+         estimate = COALESCE($15, ip_metadata.estimate),
+         last_update = COALESCE($16, ip_metadata.last_update),
+         hostname = COALESCE($17, ip_metadata.hostname),
+         company = COALESCE($18, ip_metadata.company),
+         organization = COALESCE($19, ip_metadata.organization),
+         address_range = COALESCE($20, ip_metadata.address_range),
+         city = COALESCE($21, ip_metadata.city),
+         region = COALESCE($22, ip_metadata.region),
+         continent = COALESCE($23, ip_metadata.continent),
+         timezone = COALESCE($24, ip_metadata.timezone),
+         postal_code = COALESCE($25, ip_metadata.postal_code),
+         currency = COALESCE($26, ip_metadata.currency),
          cached_at = unix_now(),
          cache_expires_at = unix_now() + 15552000`,
       [
@@ -1364,6 +1448,21 @@ async function writeProxycheckToCache(ipResults) {
         meta.asn,
         meta.latitude ?? null,
         meta.longitude ?? null,
+        firstNonEmptyString(meta.rawType),
+        toInteger(meta.riskScore),
+        firstNonEmptyString(meta.riskConfidence),
+        firstNonEmptyString(meta.estimate),
+        firstNonEmptyString(meta.lastUpdate),
+        firstNonEmptyString(meta.hostname),
+        firstNonEmptyString(meta.company),
+        firstNonEmptyString(meta.organization),
+        firstNonEmptyString(meta.addressRange),
+        firstNonEmptyString(meta.city),
+        firstNonEmptyString(meta.region),
+        firstNonEmptyString(meta.continent),
+        firstNonEmptyString(meta.timezone),
+        firstNonEmptyString(meta.postalCode),
+        firstNonEmptyString(meta.currency),
       ],
     );
     await pool.query(
@@ -1694,6 +1793,11 @@ export async function getPlayerCacheData(steamId) {
       pool.query(
         `SELECT pih.ip_hash, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
                 im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn,
+                im.latitude, im.longitude,
+                im.raw_type, im.risk_score, im.risk_confidence, im.estimate,
+                im.last_update, im.hostname, im.company, im.organization,
+                im.address_range, im.city, im.region, im.continent, im.timezone,
+                im.postal_code, im.currency,
                 COALESCE(
                   (SELECT array_agg(DISTINCT o.org_id)
                    FROM player_ip_observations o
@@ -1833,6 +1937,23 @@ export async function getPlayerCacheData(steamId) {
       country: r.country ?? null,
       isoCode: r.iso_code ?? null,
       asn: r.asn ?? null,
+      latitude: r.latitude != null ? Number(r.latitude) : null,
+      longitude: r.longitude != null ? Number(r.longitude) : null,
+      rawType: r.raw_type ?? null,
+      riskScore: r.risk_score != null ? Number(r.risk_score) : null,
+      riskConfidence: r.risk_confidence ?? null,
+      estimate: r.estimate ?? null,
+      lastUpdate: r.last_update ?? null,
+      hostname: r.hostname ?? null,
+      company: r.company ?? null,
+      organization: r.organization ?? null,
+      addressRange: r.address_range ?? null,
+      city: r.city ?? null,
+      region: r.region ?? null,
+      continent: r.continent ?? null,
+      timezone: r.timezone ?? null,
+      postalCode: r.postal_code ?? null,
+      currency: r.currency ?? null,
       serverName: r.server_name ?? null,
       firstSeen: r.first_seen,
       lastSeen: r.last_seen,
