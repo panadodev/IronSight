@@ -1,4 +1,5 @@
 import { LENGTH_OPTIONS } from "@/components/ban-dialog";
+import { EacBanStatus } from "@/components/eac-ban-status";
 import { ExternalBansSection } from "@/components/external-bans";
 import { HINTS } from "@/components/hint";
 import { LinkedAccountsSection } from "@/components/linked-accounts";
@@ -1379,6 +1380,9 @@ function PlayerLookupPage() {
 
                 {/* Risk alerts */}
                 {!isSupportOnly && <PlayerAlertsBanner alerts={alerts} />}
+
+                {/* EAC Ban Status */}
+                <EacBanStatus bmData={playerData.bm} />
 
                 {/* Connection Points */}
                 {canViewIpConnections && (
