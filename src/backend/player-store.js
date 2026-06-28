@@ -1805,6 +1805,37 @@ export async function refreshPlayerData(
         }
       }
 
+      // Also persist clean shared-IP links when Proxycheck has no usable row.
+      // This preserves non-proxy shared-IP evidence in ip_metadata/player_ip_history
+      // on refresh instead of only caching proxy-marked links.
+      const bmProxyByIp = new Map(
+        relIdentifiers.ips
+          .filter((x) => x?.ip)
+          .map((x) => [x.ip, x.isProxy === true]),
+      );
+      const relatedSharedIps = new Set(
+        (relIdentifiers.relatedPlayers ?? []).flatMap((rel) =>
+          Array.isArray(rel?.sharedIps) ? rel.sharedIps : [],
+        ),
+      );
+      for (const ip of relatedSharedIps) {
+        if (!ip || bmProxyByIp.get(ip) === true) continue;
+        const existing = ipResults[ip];
+        if (!existing) {
+          ipResults[ip] = {
+            isProxy: false,
+            isVpn: false,
+            connType: null,
+            isp: null,
+            country: null,
+            asn: null,
+          };
+        } else {
+          if (existing.isProxy == null) existing.isProxy = false;
+          if (existing.isVpn == null) existing.isVpn = false;
+        }
+      }
+
       await Promise.all([
         writeFriendsToCache(steamId, subjectFriends, steamOrg),
         writeProxycheckToCache(ipResults),
