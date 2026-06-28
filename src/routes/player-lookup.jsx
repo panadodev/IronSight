@@ -121,7 +121,7 @@ const BAN_STATUS_TONE = {
   success: "text-success bg-success/10 ring-success/30",
 };
 
-const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
+const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^(?=.*:)[\da-fA-F:]+$/;
 
 
 const Route = createFileRoute("/player-lookup")({

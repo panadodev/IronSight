@@ -281,7 +281,7 @@ function canAccessBans(session, orgId) {
   );
 }
 
-const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
+const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^(?=.*:)[\da-fA-F:]+$/;
 
 function isVpnOrProxyProxycheckMeta(meta) {
   if (!meta || typeof meta !== "object") return false;
