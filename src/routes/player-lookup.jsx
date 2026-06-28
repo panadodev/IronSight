@@ -26,7 +26,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangle, Ban, MessageSquare, MicOff, RefreshCw, Search, UserX } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const LENGTH_MINUTES = {
   "1h": 60,
@@ -1245,6 +1245,7 @@ function PlayerLookupPage() {
                 {canViewIpConnections && (
                   <ConnectionPointsSection
                     ipHistory={visibleIpHistory}
+                    relatedAccounts={playerData.relatedAccounts}
                     tz={tz}
                     onSearchHash={(hash) =>
                       navigate({ search: { steam: undefined, ipHash: hash } })
@@ -1973,8 +1974,34 @@ const CONN_TYPE_META = {
   hosting:     { label: "Hosting",     cls: "text-warning bg-warning/10 ring-warning/30" },
 };
 
-function ConnectionPointsSection({ ipHistory, tz, onSearchHash }) {
+function ConnectionPointsSection({ ipHistory, relatedAccounts, tz, onSearchHash }) {
   const [expanded, setExpanded] = useState(null);
+
+  const sharedPlayerCountByIp = useMemo(() => {
+    const byIp = new Map();
+    for (const account of relatedAccounts ?? []) {
+      const accountId = String(
+        account?.relatedSteamId ?? account?.relatedBmId ?? "",
+      );
+      if (!accountId) continue;
+      const seenHashes = new Set();
+      for (const sharedIp of account?.sharedIps ?? []) {
+        const hash = String(sharedIp?.ipHash ?? "");
+        if (!hash || seenHashes.has(hash)) continue;
+        seenHashes.add(hash);
+      }
+      for (const hash of seenHashes) {
+        if (!byIp.has(hash)) byIp.set(hash, new Set());
+        byIp.get(hash).add(accountId);
+      }
+    }
+
+    const counts = new Map();
+    for (const [hash, accountIds] of byIp.entries()) {
+      counts.set(hash, accountIds.size);
+    }
+    return counts;
+  }, [relatedAccounts]);
 
   const entries = (ipHistory ?? []).filter((e) => e.ipHashShort);
   if (!entries.length) return null;
@@ -1992,6 +2019,8 @@ function ConnectionPointsSection({ ipHistory, tz, onSearchHash }) {
           const flag = flagEmoji(entry.isoCode);
           const connMeta = CONN_TYPE_META[entry.connType] ?? null;
           const isOpen = expanded === entry.ipHash;
+          const sharedPlayerCount = sharedPlayerCountByIp.get(entry.ipHash) ?? 0;
+          const isSharedWithOthers = sharedPlayerCount > 0;
           const summary =
             connMeta?.label ??
             (entry.isProxy || entry.isVpn ? "Proxy/VPN" : "Unknown class");
@@ -2035,6 +2064,17 @@ function ConnectionPointsSection({ ipHistory, tz, onSearchHash }) {
                       {connMeta.label}
                     </span>
                   )}
+                  <span
+                    className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${
+                      isSharedWithOthers
+                        ? "text-warning bg-warning/10 ring-warning/30"
+                        : "text-muted-foreground bg-surface ring-border"
+                    }`}
+                  >
+                    {isSharedWithOthers
+                      ? `Shared (${sharedPlayerCount})`
+                      : "Not Shared"}
+                  </span>
                   {lastSeenDate && (
                     <span className="text-[10px] text-muted-foreground font-mono w-20 text-right">
                       {lastSeenDate}
@@ -2093,6 +2133,18 @@ function ConnectionPointsSection({ ipHistory, tz, onSearchHash }) {
                       <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Flagged</dt>
                       <dd className={`font-mono ${(entry.isProxy || entry.isVpn) ? "text-danger" : "text-success"}`}>
                         {entry.isVpn ? "VPN" : entry.isProxy ? "Proxy" : "Clean"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Shared</dt>
+                      <dd
+                        className={`font-mono ${
+                          isSharedWithOthers ? "text-warning" : "text-muted-foreground"
+                        }`}
+                      >
+                        {isSharedWithOthers
+                          ? `Yes (${sharedPlayerCount} player${sharedPlayerCount === 1 ? "" : "s"})`
+                          : "No"}
                       </dd>
                     </div>
                   </dl>
