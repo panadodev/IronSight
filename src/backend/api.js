@@ -29,7 +29,7 @@ import {
   redirect,
   requireConfiguredSysAdmin,
   requireSession,
-  sessionRankForOrg
+  sessionRankForOrg,
 } from "./core.js";
 import {
   decryptExternalApiKey,
@@ -48,9 +48,7 @@ import {
   diagRecordIncoming,
   diagRecordOutgoing,
 } from "./diagnostics.js";
-import {
-  bmFetch
-} from "./external-fetch.js";
+import { bmFetch, proxycheckApiFetch } from "./external-fetch.js";
 import {
   handleGetBlacklistedWordsForServer,
   handleIngestChatMessage,
@@ -102,7 +100,7 @@ import {
   setPool,
   setQueue,
   setRedis,
-  setRedisSub
+  setRedisSub,
 } from "./runtime.js";
 import {
   ensureRolePermissionSeed,
@@ -121,7 +119,7 @@ import {
   invalidateTicketCache,
   loadTicketFromDb,
   loadTicketMedia,
-  loadTicketMessages
+  loadTicketMessages,
 } from "./ticket-store.js";
 import {
   isValidSteamId,
@@ -280,6 +278,93 @@ function canAccessBans(session, orgId) {
     canModifyBans(session, orgId) ||
     orgHasPermission(session, orgId, "bans_delete")
   );
+}
+
+const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
+
+function isVpnOrProxyProxycheckMeta(meta) {
+  if (!meta || typeof meta !== "object") return false;
+  const t = String(meta.type ?? "").toLowerCase();
+  return (
+    meta.proxy === "yes" ||
+    t.includes("vpn") ||
+    t.includes("proxy") ||
+    t === "tor"
+  );
+}
+
+async function evaluateIpBanEligibility(orgId, ip) {
+  const normalizedIp = String(ip ?? "").trim();
+  if (!IP_ADDRESS_RE.test(normalizedIp)) {
+    return {
+      eligible: false,
+      reason: "identifier must be a valid IPv4 or IPv6 address",
+    };
+  }
+
+  const hash = ipHmac(normalizedIp);
+  try {
+    const cached = await pool.query(
+      `SELECT is_proxy, is_vpn, conn_type
+       FROM ip_metadata
+       WHERE ip_hash = $1 AND cache_expires_at > unix_now()
+       LIMIT 1`,
+      [hash],
+    );
+    const row = cached.rows[0];
+    if (row) {
+      const blocked =
+        Boolean(row.is_proxy) ||
+        Boolean(row.is_vpn) ||
+        String(row.conn_type ?? "") === "proxy_vpn";
+      if (blocked) {
+        return {
+          eligible: false,
+          reason: "IP bans are blocked for VPN/proxy IPs.",
+        };
+      }
+      return { eligible: true };
+    }
+  } catch {}
+
+  const resp = await proxycheckApiFetch(orgId, [normalizedIp]);
+  if (!resp || !resp.ok) {
+    return {
+      eligible: false,
+      reason: "Unable to verify IP classification with Proxycheck right now.",
+    };
+  }
+
+  const data = await resp.json().catch(() => null);
+  if (!data || typeof data !== "object") {
+    return {
+      eligible: false,
+      reason: "Unable to verify IP classification with Proxycheck right now.",
+    };
+  }
+  if (data.status && data.status !== "ok") {
+    return {
+      eligible: false,
+      reason: "Unable to verify IP classification with Proxycheck right now.",
+    };
+  }
+
+  const meta = data[normalizedIp];
+  if (!meta || typeof meta !== "object") {
+    return {
+      eligible: false,
+      reason: "Unable to verify IP classification with Proxycheck right now.",
+    };
+  }
+
+  if (isVpnOrProxyProxycheckMeta(meta)) {
+    return {
+      eligible: false,
+      reason: "IP bans are blocked for VPN/proxy IPs.",
+    };
+  }
+
+  return { eligible: true };
 }
 
 function hasDiscordModLegacy(session, orgId) {
@@ -664,9 +749,11 @@ async function init() {
       enableReadyCheck: true,
     });
     setRedisSub(redisSubClient);
-    redisSubClient.psubscribe("ticket-stream:*", "flagged-stream:*").catch((err) => {
-      console.error("[sse] redisSub psubscribe error:", err.message);
-    });
+    redisSubClient
+      .psubscribe("ticket-stream:*", "flagged-stream:*")
+      .catch((err) => {
+        console.error("[sse] redisSub psubscribe error:", err.message);
+      });
     redisSubClient.on("pmessage", (_pattern, channel, raw) => {
       if (channel.startsWith("ticket-stream:")) {
         const ticketId = parseInt(channel.slice("ticket-stream:".length), 10);
@@ -681,7 +768,11 @@ async function init() {
         }
         const chunk = sseEncoder.encode(`data: ${raw}\n\n`);
         for (const entry of set) {
-          if (event.type === "new_message" && event.message?.isInternal && !entry.isStaff)
+          if (
+            event.type === "new_message" &&
+            event.message?.isInternal &&
+            !entry.isStaff
+          )
             continue;
           try {
             entry.controller.enqueue(chunk);
@@ -731,7 +822,10 @@ async function init() {
       },
     );
     banExpireWorker.on("failed", (job, err) => {
-      console.error(`[worker] job ${job?.name} ${job?.id} failed:`, err.message);
+      console.error(
+        `[worker] job ${job?.name} ${job?.id} failed:`,
+        err.message,
+      );
     });
 
     await ensureSchema(pool);
@@ -749,7 +843,8 @@ async function init() {
     );
     for (const row of timedBans.rows) {
       await scheduleBanExpiry(String(row.ban_id), Number(row.expires_at)).catch(
-        (e) => console.error("[startup] ban-expire schedule failed:", e.message),
+        (e) =>
+          console.error("[startup] ban-expire schedule failed:", e.message),
       );
     }
 
@@ -833,7 +928,10 @@ async function revokeUserSessions(userId) {
       );
     }
   } catch (err) {
-    console.error(`[session] revokeUserSessions failed for ${userId}:`, err.message);
+    console.error(
+      `[session] revokeUserSessions failed for ${userId}:`,
+      err.message,
+    );
   }
 }
 
@@ -842,7 +940,8 @@ async function createSessionForUser(user, options = {}) {
 
   // Block login for users who are disabled in all their orgs (unless sysadmin)
   const sysAdminDiscordId = String(env.sysAdminDiscordId ?? "").trim();
-  const isSysAdmin = sysAdminDiscordId && String(user.discordId) === sysAdminDiscordId;
+  const isSysAdmin =
+    sysAdminDiscordId && String(user.discordId) === sysAdminDiscordId;
   if (!isSysAdmin) {
     const memberRes = await pool.query(
       `SELECT
@@ -1192,9 +1291,12 @@ async function exchangeDiscordCode(request, code, fetchGuilds = true) {
   let guilds = null;
   if (fetchGuilds) {
     try {
-      const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
-        headers: { authorization: `Bearer ${tokenBody.access_token}` },
-      });
+      const guildsRes = await fetch(
+        "https://discord.com/api/users/@me/guilds",
+        {
+          headers: { authorization: `Bearer ${tokenBody.access_token}` },
+        },
+      );
       if (guildsRes.ok) {
         const raw = await guildsRes.json();
         if (Array.isArray(raw)) {
@@ -1310,7 +1412,11 @@ async function handleDiscordCallback(request) {
   }
 
   try {
-    const discordUser = await exchangeDiscordCode(request, code, stateData.flow !== "public");
+    const discordUser = await exchangeDiscordCode(
+      request,
+      code,
+      stateData.flow !== "public",
+    );
 
     try {
       await init();
@@ -1468,8 +1574,11 @@ async function handleSteamCallback(request) {
     let cachedGuildsJson = null;
     try {
       if (redis) {
-        cachedGuildsJson = await redis.get(`discord:guilds:${pending.discordId}`);
-        if (cachedGuildsJson) await redis.del(`discord:guilds:${pending.discordId}`);
+        cachedGuildsJson = await redis.get(
+          `discord:guilds:${pending.discordId}`,
+        );
+        if (cachedGuildsJson)
+          await redis.del(`discord:guilds:${pending.discordId}`);
       }
     } catch {}
 
@@ -1487,7 +1596,12 @@ async function handleSteamCallback(request) {
              discord_guilds = COALESCE($4, discord_guilds),
              updated_at = unix_now()
          WHERE user_id = $1`,
-        [String(existingUser.user_id), pending.username, steamId, cachedGuildsJson],
+        [
+          String(existingUser.user_id),
+          pending.username,
+          steamId,
+          cachedGuildsJson,
+        ],
       );
 
       return createSessionForUser(
@@ -1511,9 +1625,12 @@ async function handleSteamCallback(request) {
       let avatarHash = null;
       try {
         if (env.discordBotToken) {
-          const userRes = await fetch(`https://discord.com/api/v10/users/${pending.discordId}`, {
-            headers: { authorization: `Bot ${env.discordBotToken}` },
-          });
+          const userRes = await fetch(
+            `https://discord.com/api/v10/users/${pending.discordId}`,
+            {
+              headers: { authorization: `Bot ${env.discordBotToken}` },
+            },
+          );
           if (userRes.ok) {
             const discordUser = await userRes.json();
             avatarHash = discordUser.avatar ?? null;
@@ -1524,7 +1641,14 @@ async function handleSteamCallback(request) {
       await pool.query(
         `INSERT INTO users (user_id, username, discord_id, steam_id, discord_guilds, discord_avatar_hash)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, pending.username, pending.discordId, steamId, cachedGuildsJson, avatarHash],
+        [
+          userId,
+          pending.username,
+          pending.discordId,
+          steamId,
+          cachedGuildsJson,
+          avatarHash,
+        ],
       );
     } catch (err) {
       if (err.code === "23505")
@@ -2081,7 +2205,16 @@ async function handleUpdateTodo(request, todoId) {
          END,
          updated_at = unix_now()
      WHERE todo_id = $1`,
-    [todoId, title, details, status, assigneeUserId, priority, isPublic, isPersonal],
+    [
+      todoId,
+      title,
+      details,
+      status,
+      assigneeUserId,
+      priority,
+      isPublic,
+      isPersonal,
+    ],
   );
 
   return json({ ok: true });
@@ -3082,7 +3215,12 @@ async function handleRemoveOrgMember(request, orgId, userId) {
     },
   });
 
-  return json({ ok: true, orgId, userId, warnings: discordWarning ? [discordWarning] : [] });
+  return json({
+    ok: true,
+    orgId,
+    userId,
+    warnings: discordWarning ? [discordWarning] : [],
+  });
 }
 
 async function handleUpdateOrgMemberTeam(request, orgId, userId) {
@@ -3279,17 +3417,19 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     },
   });
 
-  return json({ ok: true, orgId, userId, warnings: discordWarning ? [discordWarning] : [] });
+  return json({
+    ok: true,
+    orgId,
+    userId,
+    warnings: discordWarning ? [discordWarning] : [],
+  });
 }
 
 async function handleRevokeUserSession(request, orgId, userId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (
-    !session.globalAdmin &&
-    !(session.orgOwnerOrgIds ?? []).includes(orgId)
-  ) {
+  if (!session.globalAdmin && !(session.orgOwnerOrgIds ?? []).includes(orgId)) {
     return json({ error: "Forbidden: owner only" }, 403);
   }
 
@@ -3456,9 +3596,10 @@ async function handleGetOrgMembers(request, orgId) {
       steamId: row.steam_id == null ? null : String(row.steam_id),
       roleId: String(row.role_id),
       discordGuilds: row.discord_guilds ?? null,
-      discordAvatar: row.discord_avatar_hash && row.discord_id
-        ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar_hash}.png?size=64`
-        : null,
+      discordAvatar:
+        row.discord_avatar_hash && row.discord_id
+          ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar_hash}.png?size=64`
+          : null,
     })),
   });
 }
@@ -3538,8 +3679,7 @@ async function handleGetStaffAuditLog(request, orgId) {
 async function handleGetNotificationPrefs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const res = await pool.query(
     `SELECT enabled FROM staff_notification_prefs WHERE user_id = $1 AND org_id = $2`,
@@ -3551,11 +3691,14 @@ async function handleGetNotificationPrefs(request, orgId) {
 async function handlePutNotificationPrefs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
   const enabled = !!body?.enabled;
 
   await pool.query(
@@ -3665,13 +3808,26 @@ async function handleGetOrgDetails(request, orgId) {
       guildId: org.guild_id == null ? null : String(org.guild_id),
       bmOrgId: org.bm_org_id == null ? null : String(org.bm_org_id),
       bmAutoSync: org.bm_auto_sync === true,
-      bmBanListId: org.bm_ban_list_id == null ? null : String(org.bm_ban_list_id),
+      bmBanListId:
+        org.bm_ban_list_id == null ? null : String(org.bm_ban_list_id),
       syncPermsOnJoin: org.sync_perms_on_join === true,
       mediaExpiryMonths: org.media_expiry_months ?? null,
-      mediaStorageLimitBytes: org.media_storage_limit_bytes != null ? Number(org.media_storage_limit_bytes) : null,
-      mediaUserLimitBytes: org.media_user_limit_bytes != null ? Number(org.media_user_limit_bytes) : null,
-      mediaPublicFileLimitBytes: org.media_public_file_limit_bytes != null ? Number(org.media_public_file_limit_bytes) : null,
-      mediaPublicMaxFiles: org.media_public_max_files != null ? Number(org.media_public_max_files) : null,
+      mediaStorageLimitBytes:
+        org.media_storage_limit_bytes != null
+          ? Number(org.media_storage_limit_bytes)
+          : null,
+      mediaUserLimitBytes:
+        org.media_user_limit_bytes != null
+          ? Number(org.media_user_limit_bytes)
+          : null,
+      mediaPublicFileLimitBytes:
+        org.media_public_file_limit_bytes != null
+          ? Number(org.media_public_file_limit_bytes)
+          : null,
+      mediaPublicMaxFiles:
+        org.media_public_max_files != null
+          ? Number(org.media_public_max_files)
+          : null,
       name: String(org.name),
       createdAt: org.created_at == null ? null : Number(org.created_at),
     },
@@ -3724,7 +3880,9 @@ async function handleUpdateOrgDetails(request, orgId) {
 
   // syncPermsOnJoin: omitted (undefined) → don't touch; otherwise coerce to boolean.
   const syncPermsOnJoin =
-    body?.syncPermsOnJoin === undefined ? undefined : body.syncPermsOnJoin === true;
+    body?.syncPermsOnJoin === undefined
+      ? undefined
+      : body.syncPermsOnJoin === true;
 
   const mediaExpiryMonthsRaw = body?.mediaExpiryMonths;
   const mediaExpiryMonths =
@@ -3732,7 +3890,8 @@ async function handleUpdateOrgDetails(request, orgId) {
       ? undefined
       : mediaExpiryMonthsRaw === null
         ? null
-        : Math.max(1, Math.min(120, parseInt(mediaExpiryMonthsRaw, 10))) || null;
+        : Math.max(1, Math.min(120, parseInt(mediaExpiryMonthsRaw, 10))) ||
+          null;
 
   // Storage quota fields: bytes; null = unlimited.
   function parseByteLimit(raw) {
@@ -3750,7 +3909,9 @@ async function handleUpdateOrgDetails(request, orgId) {
 
   const mediaStorageLimitBytes = parseByteLimit(body?.mediaStorageLimitBytes);
   const mediaUserLimitBytes = parseByteLimit(body?.mediaUserLimitBytes);
-  const mediaPublicFileLimitBytes = parseByteLimit(body?.mediaPublicFileLimitBytes);
+  const mediaPublicFileLimitBytes = parseByteLimit(
+    body?.mediaPublicFileLimitBytes,
+  );
   const mediaPublicMaxFiles = parseIntLimit(body?.mediaPublicMaxFiles);
 
   if (name !== null && !name) {
@@ -3797,16 +3958,26 @@ async function handleUpdateOrgDetails(request, orgId) {
     [
       orgId,
       name,
-      guildId !== undefined, guildId ?? null,
-      bmOrgId !== undefined, bmOrgId ?? null,
-      bmAutoSync !== undefined, bmAutoSync ?? false,
-      bmBanListId !== undefined, bmBanListId ?? null,
-      syncPermsOnJoin !== undefined, syncPermsOnJoin ?? false,
-      mediaExpiryMonths !== undefined, mediaExpiryMonths ?? null,
-      mediaStorageLimitBytes !== undefined, mediaStorageLimitBytes ?? null,
-      mediaUserLimitBytes !== undefined, mediaUserLimitBytes ?? null,
-      mediaPublicFileLimitBytes !== undefined, mediaPublicFileLimitBytes ?? null,
-      mediaPublicMaxFiles !== undefined, mediaPublicMaxFiles ?? null,
+      guildId !== undefined,
+      guildId ?? null,
+      bmOrgId !== undefined,
+      bmOrgId ?? null,
+      bmAutoSync !== undefined,
+      bmAutoSync ?? false,
+      bmBanListId !== undefined,
+      bmBanListId ?? null,
+      syncPermsOnJoin !== undefined,
+      syncPermsOnJoin ?? false,
+      mediaExpiryMonths !== undefined,
+      mediaExpiryMonths ?? null,
+      mediaStorageLimitBytes !== undefined,
+      mediaStorageLimitBytes ?? null,
+      mediaUserLimitBytes !== undefined,
+      mediaUserLimitBytes ?? null,
+      mediaPublicFileLimitBytes !== undefined,
+      mediaPublicFileLimitBytes ?? null,
+      mediaPublicMaxFiles !== undefined,
+      mediaPublicMaxFiles ?? null,
     ],
   );
 
@@ -3822,25 +3993,36 @@ async function handleUpdateOrgDetails(request, orgId) {
       guildId: updated.guild_id == null ? null : String(updated.guild_id),
       bmOrgId: updated.bm_org_id == null ? null : String(updated.bm_org_id),
       bmAutoSync: updated.bm_auto_sync === true,
-      bmBanListId: updated.bm_ban_list_id == null ? null : String(updated.bm_ban_list_id),
+      bmBanListId:
+        updated.bm_ban_list_id == null ? null : String(updated.bm_ban_list_id),
       syncPermsOnJoin: updated.sync_perms_on_join === true,
       mediaExpiryMonths: updated.media_expiry_months ?? null,
-      mediaStorageLimitBytes: updated.media_storage_limit_bytes != null ? Number(updated.media_storage_limit_bytes) : null,
-      mediaUserLimitBytes: updated.media_user_limit_bytes != null ? Number(updated.media_user_limit_bytes) : null,
-      mediaPublicFileLimitBytes: updated.media_public_file_limit_bytes != null ? Number(updated.media_public_file_limit_bytes) : null,
-      mediaPublicMaxFiles: updated.media_public_max_files != null ? Number(updated.media_public_max_files) : null,
+      mediaStorageLimitBytes:
+        updated.media_storage_limit_bytes != null
+          ? Number(updated.media_storage_limit_bytes)
+          : null,
+      mediaUserLimitBytes:
+        updated.media_user_limit_bytes != null
+          ? Number(updated.media_user_limit_bytes)
+          : null,
+      mediaPublicFileLimitBytes:
+        updated.media_public_file_limit_bytes != null
+          ? Number(updated.media_public_file_limit_bytes)
+          : null,
+      mediaPublicMaxFiles:
+        updated.media_public_max_files != null
+          ? Number(updated.media_public_max_files)
+          : null,
       name: String(updated.name),
       createdAt: updated.created_at == null ? null : Number(updated.created_at),
     },
   });
 }
 
-
 async function handleGetBmOrgs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   let data;
   try {
@@ -3851,13 +4033,18 @@ async function handleGetBmOrgs(request, orgId) {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       return json(
-        { error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}` },
+        {
+          error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}`,
+        },
         502,
       );
     }
     data = await res.json();
   } catch (err) {
-    return json({ error: `Failed to reach BattleMetrics: ${err.message}` }, 502);
+    return json(
+      { error: `Failed to reach BattleMetrics: ${err.message}` },
+      502,
+    );
   }
 
   const orgs = (data?.data ?? []).map((item) => ({
@@ -3871,8 +4058,7 @@ async function handleGetBmOrgs(request, orgId) {
 async function handleGetBmBanLists(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const url = new URL(request.url);
   const bmOrgIdParam = url.searchParams.get("bmOrgId")?.trim();
@@ -3898,13 +4084,18 @@ async function handleGetBmBanLists(request, orgId) {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       return json(
-        { error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}` },
+        {
+          error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}`,
+        },
         502,
       );
     }
     data = await res.json();
   } catch (err) {
-    return json({ error: `Failed to reach BattleMetrics: ${err.message}` }, 502);
+    return json(
+      { error: `Failed to reach BattleMetrics: ${err.message}` },
+      502,
+    );
   }
 
   const banLists = (data?.data ?? []).map((item) => ({
@@ -3930,12 +4121,11 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
   const ban = banRes.rows[0];
   if (!ban) return;
 
-  const bmIdentifierType = ban.identifier_type === "steam_id" ? "steamID" : ban.identifier_type;
+  const bmIdentifierType =
+    ban.identifier_type === "steam_id" ? "steamID" : ban.identifier_type;
   // IP identifiers are stored encrypted; decrypt before sending to BattleMetrics.
   const rawBmIdentifier =
-    ban.identifier_type === "ip"
-      ? decryptIp(ban.identifier)
-      : ban.identifier;
+    ban.identifier_type === "ip" ? decryptIp(ban.identifier) : ban.identifier;
 
   // Look up the BM player ID to link the ban to the player's BM profile.
   // For IP bans with a known player_steam_id, use that to find the BM player.
@@ -3960,9 +4150,17 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         nativeEnabled: false,
         reason: ban.reason || "No reason provided",
         note: ban.note || "",
-        ...(ban.expires_at ? { expires: new Date(ban.expires_at * 1000).toISOString() } : {}),
+        ...(ban.expires_at
+          ? { expires: new Date(ban.expires_at * 1000).toISOString() }
+          : {}),
         identifiers: rawBmIdentifier
-          ? [{ type: bmIdentifierType, identifier: String(rawBmIdentifier), manual: true }]
+          ? [
+              {
+                type: bmIdentifierType,
+                identifier: String(rawBmIdentifier),
+                manual: true,
+              },
+            ]
           : [],
       },
       relationships: {
@@ -3970,7 +4168,11 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
           data: { type: "organization", id: String(org.bm_org_id) },
         },
         ...(org.bm_ban_list_id
-          ? { banList: { data: { type: "banList", id: String(org.bm_ban_list_id) } } }
+          ? {
+              banList: {
+                data: { type: "banList", id: String(org.bm_ban_list_id) },
+              },
+            }
           : {}),
         ...(bmPlayerId
           ? { player: { data: { type: "player", id: String(bmPlayerId) } } }
@@ -4000,10 +4202,10 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
         const responseData = await res.json().catch(() => null);
         const bmBanId = responseData?.data?.id;
         if (bmBanId) {
-          await pool.query("UPDATE player_bans SET bm_ban_id = $2 WHERE ban_id = $1", [
-            banId,
-            String(bmBanId),
-          ]);
+          await pool.query(
+            "UPDATE player_bans SET bm_ban_id = $2 WHERE ban_id = $1",
+            [banId, String(bmBanId)],
+          );
         }
       } else {
         const text = await res.text().catch(() => "");
@@ -4013,7 +4215,10 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
       }
     }
   } catch (err) {
-    console.error("[bm-sync] Failed to sync ban to BattleMetrics:", err.message);
+    console.error(
+      "[bm-sync] Failed to sync ban to BattleMetrics:",
+      err.message,
+    );
   }
 }
 
@@ -4021,7 +4226,10 @@ async function handleGetOnlineStaff(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "staff_online_view"))
-    return json({ error: "Forbidden: staff_online_view permission required" }, 403);
+    return json(
+      { error: "Forbidden: staff_online_view permission required" },
+      403,
+    );
 
   // Pull all non-admin/owner/disabled members, then check Redis presence.
   // Privacy ("private profile") now blocks player lookups, NOT presence — staff
@@ -4563,10 +4771,16 @@ async function handleCreateTicket(request) {
   const reportedPlayers = sanitizeReportedPlayers(body?.reportedPlayers);
 
   // Validate pending media IDs (uploaded via /api/public/ticket-media).
-  const rawMediaIds = Array.isArray(body?.mediaIds) ? body.mediaIds.slice(0, 10) : [];
+  const rawMediaIds = Array.isArray(body?.mediaIds)
+    ? body.mediaIds.slice(0, 10)
+    : [];
   const safeMediaIds = rawMediaIds
     .map((id) => String(id).trim())
-    .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+    .filter((id) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      ),
+    );
 
   if (!orgId || !title || !message) {
     return json({ error: "orgId, title, and message are required" }, 400);
@@ -4581,10 +4795,15 @@ async function handleCreateTicket(request) {
     [orgId],
   );
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
-  const maxFiles = Number(orgRes.rows[0].media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES);
+  const maxFiles = Number(
+    orgRes.rows[0].media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES,
+  );
 
   if (safeMediaIds.length > maxFiles)
-    return json({ error: `Maximum ${maxFiles} file(s) allowed per ticket` }, 400);
+    return json(
+      { error: `Maximum ${maxFiles} file(s) allowed per ticket` },
+      400,
+    );
 
   if (ticketTypeId !== null) {
     const typeRes = await pool.query(
@@ -4743,7 +4962,7 @@ async function handleStreamTicket(request, ticketIdStr) {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });
@@ -4919,7 +5138,10 @@ function filterIpHistoryBySource(playerData, entitledOrgs) {
 function applyIpEntitlement(playerData, entitlement) {
   if (entitlement === null) return filterPlayerIpData(playerData, false);
   if (entitlement === "ALL") return filterPlayerIpData(playerData, true);
-  return filterPlayerIpData(filterIpHistoryBySource(playerData, entitlement), true);
+  return filterPlayerIpData(
+    filterIpHistoryBySource(playerData, entitlement),
+    true,
+  );
 }
 
 // External (BattleMetrics) bans are unioned across the caller's orgs: each is
@@ -5432,10 +5654,7 @@ async function handleSavePteroKey(request, orgId) {
   try {
     panelUrl = normalizePterodactylPanelUrl(body?.panelUrl ?? "");
   } catch {
-    return json(
-      { error: "panelUrl must be a valid public https URL" },
-      400,
-    );
+    return json({ error: "panelUrl must be a valid public https URL" }, 400);
   }
 
   if (!panelUrl || !apiKey) {
@@ -5988,8 +6207,7 @@ async function fetchPteroRconConfig(panelUrl, apiKey, identifier) {
     return null;
   }
 
-  const allocs =
-    serverData?.attributes?.relationships?.allocations?.data ?? [];
+  const allocs = serverData?.attributes?.relationships?.allocations?.data ?? [];
   const defaultAlloc =
     allocs.find((a) => a?.attributes?.is_default) ?? allocs[0] ?? null;
   const rawIp =
@@ -6923,7 +7141,9 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
   }
   if (body?.ticketTypeIds !== undefined) {
     const rawIds = Array.isArray(body.ticketTypeIds)
-      ? body.ticketTypeIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      ? body.ticketTypeIds
+          .map(Number)
+          .filter((n) => Number.isInteger(n) && n > 0)
       : [];
     let validIds = [];
     if (rawIds.length > 0) {
@@ -7085,7 +7305,10 @@ async function handleListAIModerationTriggers(request, orgId) {
       category: r.category,
       threshold: Number(r.threshold),
       action: r.action,
-      muteDurationMinutes: r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
+      muteDurationMinutes:
+        r.mute_duration_minutes != null
+          ? Number(r.mute_duration_minutes)
+          : null,
       applyToAllServers: Boolean(r.apply_to_all_servers),
       enabled: Boolean(r.enabled),
       createdAt: Number(r.created_at),
@@ -7100,7 +7323,10 @@ async function handleCreateAIModerationTrigger(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "toxicity_manage"))
-    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: toxicity_manage permission required" },
+      403,
+    );
 
   let body;
   try {
@@ -7140,7 +7366,10 @@ async function handleCreateAIModerationTrigger(request, orgId) {
       category: r.category,
       threshold: Number(r.threshold),
       action: r.action,
-      muteDurationMinutes: r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
+      muteDurationMinutes:
+        r.mute_duration_minutes != null
+          ? Number(r.mute_duration_minutes)
+          : null,
       applyToAllServers: Boolean(r.apply_to_all_servers),
       enabled: Boolean(r.enabled),
       createdAt: Number(r.created_at),
@@ -7154,7 +7383,10 @@ async function handleUpdateAIModerationTrigger(request, orgId, triggerId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "toxicity_manage"))
-    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: toxicity_manage permission required" },
+      403,
+    );
 
   let body;
   try {
@@ -7181,7 +7413,10 @@ async function handleUpdateAIModerationTrigger(request, orgId, triggerId) {
     params.push(body.action);
   }
   if ("muteDurationMinutes" in body) {
-    const v = body.muteDurationMinutes == null ? null : Math.max(1, Math.floor(Number(body.muteDurationMinutes)));
+    const v =
+      body.muteDurationMinutes == null
+        ? null
+        : Math.max(1, Math.floor(Number(body.muteDurationMinutes)));
     sets.push(`mute_duration_minutes = $${idx++}`);
     params.push(v);
   }
@@ -7205,7 +7440,8 @@ async function handleUpdateAIModerationTrigger(request, orgId, triggerId) {
     category: r.category,
     threshold: Number(r.threshold),
     action: r.action,
-    muteDurationMinutes: r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
+    muteDurationMinutes:
+      r.mute_duration_minutes != null ? Number(r.mute_duration_minutes) : null,
     applyToAllServers: Boolean(r.apply_to_all_servers),
     enabled: Boolean(r.enabled),
     createdAt: Number(r.created_at),
@@ -7217,7 +7453,10 @@ async function handleDeleteAIModerationTrigger(request, orgId, triggerId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "toxicity_manage"))
-    return json({ error: "Forbidden: toxicity_manage permission required" }, 403);
+    return json(
+      { error: "Forbidden: toxicity_manage permission required" },
+      403,
+    );
 
   const res = await pool.query(
     `DELETE FROM org_ai_moderation_triggers WHERE trigger_id = $1 AND org_id = $2`,
@@ -7238,12 +7477,22 @@ async function handleListFlaggedMessages(request, orgId) {
     !orgHasPermission(session, orgId, "flagged_messages_confirm") &&
     !orgHasPermission(session, orgId, "flagged_messages_clear")
   )
-    return json({ error: "Forbidden: requires toxicity_manage, flagged_messages_resolve, flagged_messages_confirm, or flagged_messages_clear" }, 403);
+    return json(
+      {
+        error:
+          "Forbidden: requires toxicity_manage, flagged_messages_resolve, flagged_messages_confirm, or flagged_messages_clear",
+      },
+      403,
+    );
 
   const url = new URL(request.url);
   const resolvedParam = url.searchParams.get("resolved");
-  const resolved = resolvedParam === "true" ? true : resolvedParam === "false" ? false : null;
-  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
+  const resolved =
+    resolvedParam === "true" ? true : resolvedParam === "false" ? false : null;
+  const limit = Math.min(
+    100,
+    Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50),
+  );
   const rowLimit = Math.min(500, limit * 5);
 
   const conditions = ["f.org_id = $1"];
@@ -7284,7 +7533,9 @@ async function handleListFlaggedMessages(request, orgId) {
 
   const grouped = new Map();
   for (const row of rows) {
-    const key = row.chat_log_id ? `chat:${row.chat_log_id}` : `flag:${row.flag_id}`;
+    const key = row.chat_log_id
+      ? `chat:${row.chat_log_id}`
+      : `flag:${row.flag_id}`;
     const existing = grouped.get(key);
 
     let signalEntries = [];
@@ -7295,10 +7546,12 @@ async function handleListFlaggedMessages(request, orgId) {
       }));
     }
     if (!signalEntries.length && row.triggered_category) {
-      signalEntries = [{
-        category: row.triggered_category,
-        score: Number(row.score),
-      }];
+      signalEntries = [
+        {
+          category: row.triggered_category,
+          score: Number(row.score),
+        },
+      ];
     }
 
     if (!existing) {
@@ -7328,7 +7581,8 @@ async function handleListFlaggedMessages(request, orgId) {
       existing.createdAt = Number(row.created_at);
       existing.flagId = row.flag_id;
     }
-    if (!existing.serverName && row.server_name) existing.serverName = row.server_name;
+    if (!existing.serverName && row.server_name)
+      existing.serverName = row.server_name;
     for (const entry of signalEntries) {
       const prior = existing.signalScores.get(entry.category);
       const nextScore = Number(entry.score);
@@ -7381,7 +7635,13 @@ async function handleStreamFlaggedMessages(request, orgId) {
     !orgHasPermission(session, orgId, "flagged_messages_confirm") &&
     !orgHasPermission(session, orgId, "flagged_messages_clear")
   )
-    return json({ error: "Forbidden: requires toxicity_manage, flagged_messages_resolve, flagged_messages_confirm, or flagged_messages_clear" }, 403);
+    return json(
+      {
+        error:
+          "Forbidden: requires toxicity_manage, flagged_messages_resolve, flagged_messages_confirm, or flagged_messages_clear",
+      },
+      403,
+    );
 
   let entry;
   let heartbeat;
@@ -7413,7 +7673,7 @@ async function handleStreamFlaggedMessages(request, orgId) {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });
@@ -7428,7 +7688,11 @@ async function handleResolveFlaggedMessage(request, orgId, flagId) {
   if (!["confirmed", "cleared"].includes(type))
     return json({ error: "type must be 'confirmed' or 'cleared'" }, 400);
 
-  const hasResolve = orgHasPermission(session, orgId, "flagged_messages_resolve");
+  const hasResolve = orgHasPermission(
+    session,
+    orgId,
+    "flagged_messages_resolve",
+  );
   const hasToxicity = orgHasPermission(session, orgId, "toxicity_manage");
   const canConfirm =
     hasResolve ||
@@ -7440,9 +7704,21 @@ async function handleResolveFlaggedMessage(request, orgId, flagId) {
     orgHasPermission(session, orgId, "flagged_messages_clear");
 
   if (type === "confirmed" && !canConfirm)
-    return json({ error: "Forbidden: flagged_messages_confirm (or flagged_messages_resolve) permission required" }, 403);
+    return json(
+      {
+        error:
+          "Forbidden: flagged_messages_confirm (or flagged_messages_resolve) permission required",
+      },
+      403,
+    );
   if (type === "cleared" && !canClear)
-    return json({ error: "Forbidden: flagged_messages_clear (or flagged_messages_resolve) permission required" }, 403);
+    return json(
+      {
+        error:
+          "Forbidden: flagged_messages_clear (or flagged_messages_resolve) permission required",
+      },
+      403,
+    );
 
   const rl = await checkRateLimit(
     `rl:flag-resolve:${session.userId}`,
@@ -7490,7 +7766,9 @@ async function handleResolveFlaggedMessage(request, orgId, flagId) {
           error: "Flag already resolved by another moderator",
           conflict: true,
           resolutionType: existing.resolution_type ?? null,
-          resolvedAt: existing.resolved_at ? Number(existing.resolved_at) : null,
+          resolvedAt: existing.resolved_at
+            ? Number(existing.resolved_at)
+            : null,
           resolvedByName: existing.resolved_by_name ?? null,
         },
         409,
@@ -7760,7 +8038,9 @@ async function handleListPlugins(request, orgId) {
 
   return json({
     plugins: rows.map((r) => {
-      const assignedTags = Array.isArray(r.assigned_tags) ? r.assigned_tags : [];
+      const assignedTags = Array.isArray(r.assigned_tags)
+        ? r.assigned_tags
+        : [];
       return {
         id: r.plugin_id,
         name: r.name,
@@ -9564,16 +9844,17 @@ async function handleListOrgBans(request, orgId) {
   const url = new URL(request.url);
   const actionType = url.searchParams.get("type") ?? "ban";
   const identifierSearch = url.searchParams.get("identifier") ?? null;
-  const canSeeIpInBans = canManageOrg(session, orgId) ||
-    orgHasPermission(session, orgId, "ip_read");
+  const canSeeIpInBans =
+    canManageOrg(session, orgId) || orgHasPermission(session, orgId, "ip_read");
 
   // For IP ban searches, compare against identifier_hash (HMAC of the IP).
   // For steam_id searches, use the plaintext identifier column directly.
   const isIpSearch =
     identifierSearch != null &&
     /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]{2,}$/.test(identifierSearch.trim());
-  const identifierHashSearch =
-    isIpSearch ? ipHmac(identifierSearch.trim()) : null;
+  const identifierHashSearch = isIpSearch
+    ? ipHmac(identifierSearch.trim())
+    : null;
 
   const { rows } = await pool.query(
     `SELECT b.ban_id, b.org_id, b.action_type, b.identifier, b.identifier_type,
@@ -9619,7 +9900,9 @@ async function handleListOrgBans(request, orgId) {
       // Decrypt IP bans for callers with ip_read / manage permission; others see null.
       identifier:
         r.identifier_type === "ip"
-          ? (canSeeIpInBans ? (decryptIp(r.identifier) ?? "[encrypted]") : null)
+          ? canSeeIpInBans
+            ? (decryptIp(r.identifier) ?? "[encrypted]")
+            : null
           : String(r.identifier),
       identifierType: String(r.identifier_type),
       playerSteamId: r.player_steam_id ?? null,
@@ -9754,17 +10037,15 @@ async function handleCreateBan(request, orgId) {
 
   if (!identifier?.trim())
     return json({ error: "identifier is required" }, 400);
+  const rawIdentifier = identifier.trim();
   if (!["steam_id", "ip"].includes(identifierType)) {
     return json({ error: "identifierType must be 'steam_id' or 'ip'" }, 400);
   }
 
-  if (identifierType === "steam_id" && !/^\d{17}$/.test(identifier.trim())) {
+  if (identifierType === "steam_id" && !/^\d{17}$/.test(rawIdentifier)) {
     return json({ error: "identifier must be a 17-digit Steam64 ID" }, 400);
   }
-  if (
-    identifierType === "ip" &&
-    !/^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/.test(identifier.trim())
-  ) {
+  if (identifierType === "ip" && !IP_ADDRESS_RE.test(rawIdentifier)) {
     return json(
       { error: "identifier must be a valid IPv4 or IPv6 address" },
       400,
@@ -9781,6 +10062,12 @@ async function handleCreateBan(request, orgId) {
   if (identifierType === "ip" && !canIssueIpBans(session, orgId)) {
     return json({ error: "Forbidden: IP ban permission required" }, 403);
   }
+  if (identifierType === "ip") {
+    const eligibility = await evaluateIpBanEligibility(orgId, rawIdentifier);
+    if (!eligibility.eligible) {
+      return json({ error: eligibility.reason }, 400);
+    }
+  }
 
   const banId = crypto.randomUUID();
   let expiresAtUnix = null;
@@ -9793,7 +10080,6 @@ async function handleCreateBan(request, orgId) {
 
   // IP bans: store the address encrypted (for display) and its HMAC hash (for
   // fast lookups at connect time). Steam-ID bans keep identifier as plaintext.
-  const rawIdentifier = identifier.trim();
   const storedIdentifier =
     identifierType === "ip" ? encryptIp(rawIdentifier) : rawIdentifier;
   const storedIdentifierHash =
@@ -9915,15 +10201,17 @@ async function handleCreateBan(request, orgId) {
       } else {
         command = `ban ${safeId} "${safeReason}"`;
       }
-      return executeRconCommand(rconUrl, command).then((result) => ({
-        srv,
-        ok: true,
-        response: result.response,
-      })).catch((err) => ({
-        srv,
-        ok: false,
-        error: String(err.message),
-      }));
+      return executeRconCommand(rconUrl, command)
+        .then((result) => ({
+          srv,
+          ok: true,
+          response: result.response,
+        }))
+        .catch((err) => ({
+          srv,
+          ok: false,
+          error: String(err.message),
+        }));
     });
     const rconOutcomes = await Promise.all(rconPromises);
     for (const outcome of rconOutcomes) {
@@ -9931,7 +10219,9 @@ async function handleCreateBan(request, orgId) {
         serverId: String(outcome.srv.server_id),
         serverName: String(outcome.srv.server_name),
         ok: outcome.ok,
-        ...(outcome.ok ? { response: outcome.response } : { error: outcome.error }),
+        ...(outcome.ok
+          ? { response: outcome.response }
+          : { error: outcome.error }),
       });
     }
   }
@@ -10075,7 +10365,8 @@ async function handleRevokeBan(request, orgId, banId) {
   if (!banCheck.rows[0])
     return json({ error: "Ban not found or already revoked" }, 404);
 
-  const { identifier, identifier_type, action_type, bm_ban_id } = banCheck.rows[0];
+  const { identifier, identifier_type, action_type, bm_ban_id } =
+    banCheck.rows[0];
 
   await pool.query(
     `UPDATE player_bans SET revoked = TRUE, revoked_at = unix_now(), revoked_by = $3
@@ -10164,7 +10455,11 @@ async function handleRevokeBan(request, orgId, banId) {
     }
   }
 
-  return json({ ok: true, rconResults, ...(bmDeleteError ? { bmDeleteError } : {}) });
+  return json({
+    ok: true,
+    rconResults,
+    ...(bmDeleteError ? { bmDeleteError } : {}),
+  });
 }
 
 async function handlePurgeBan(request, orgId, banId) {
@@ -10281,7 +10576,9 @@ async function processBanExpireJob(job) {
 
     for (const srv of targetServers.rows) {
       try {
-        const password = decryptPterodactylApiKey(String(srv.rcon_password_enc));
+        const password = decryptPterodactylApiKey(
+          String(srv.rcon_password_enc),
+        );
         const rconUrl = `ws://${srv.rcon_host}:${srv.rcon_port}/${encodeURIComponent(password)}`;
         const rconIdentifier =
           identifier_type === "ip" ? decryptIp(String(identifier)) : null;
@@ -10303,10 +10600,8 @@ async function processBanExpireJob(job) {
         );
       }
     }
-
   }
 }
-
 
 async function handleGetBlacklistedWords(request, orgId) {
   const { session, error } = await requireSession(request);
@@ -10923,7 +11218,8 @@ function serializeMedia(r) {
     fileSize: r.file_size != null ? Number(r.file_size) : null,
     title: r.title ?? "",
     uploadedAt: Number(r.uploaded_at),
-    lastAccessedAt: r.last_accessed_at != null ? Number(r.last_accessed_at) : null,
+    lastAccessedAt:
+      r.last_accessed_at != null ? Number(r.last_accessed_at) : null,
     storageBackend: r.storage_backend ?? "zipline",
   };
 }
@@ -10953,18 +11249,29 @@ async function handleListAllMedia(request) {
   if (error) return error;
 
   const url = new URL(request.url);
-  const limitParam = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)));
-  const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10));
+  const limitParam = Math.min(
+    100,
+    Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)),
+  );
+  const offset = Math.max(
+    0,
+    parseInt(url.searchParams.get("offset") ?? "0", 10),
+  );
   const fileType = url.searchParams.get("type") ?? null;
   const sysAdmin = isConfiguredSysAdmin(session);
 
-  const conditions = ["m.deleted = FALSE", "m.confirmed = TRUE", "m.source = 'staff'"];
+  const conditions = [
+    "m.deleted = FALSE",
+    "m.confirmed = TRUE",
+    "m.source = 'staff'",
+  ];
   const params = [];
   let paramIdx = 1;
 
   if (!sysAdmin) {
     const userOrgs = await listUserOrganizations(session.userId);
-    if (userOrgs.length === 0) return json({ media: [], total: 0, isSysAdmin: false });
+    if (userOrgs.length === 0)
+      return json({ media: [], total: 0, isSysAdmin: false });
 
     const orgIds = userOrgs.map((o) => String(o.orgId));
     const elevatedOrgSet = new Set(
@@ -11033,17 +11340,33 @@ async function handleListAllMedia(request) {
 async function handleListOrgMedia(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  const canManage = canManageOrg(session, orgId) || isConfiguredSysAdmin(session);
-  if (!canManage && !orgHasPermission(session, orgId, "players_view") &&
-      !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
+  const canManage =
+    canManageOrg(session, orgId) || isConfiguredSysAdmin(session);
+  if (
+    !canManage &&
+    !orgHasPermission(session, orgId, "players_view") &&
+    !orgHasPermission(session, orgId, "bans_create") &&
+    !orgHasPermission(session, orgId, "bans_manage")
+  )
     return json({ error: "Forbidden" }, 403);
 
   const url = new URL(request.url);
-  const limitParam = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)));
-  const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10));
+  const limitParam = Math.min(
+    100,
+    Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)),
+  );
+  const offset = Math.max(
+    0,
+    parseInt(url.searchParams.get("offset") ?? "0", 10),
+  );
   const fileType = url.searchParams.get("type") ?? null;
 
-  const conditions = ["m.org_id = $1", "m.deleted = FALSE", "m.confirmed = TRUE", "m.source = 'staff'"];
+  const conditions = [
+    "m.org_id = $1",
+    "m.deleted = FALSE",
+    "m.confirmed = TRUE",
+    "m.source = 'staff'",
+  ];
   const params = [orgId];
   let paramIdx = 2;
 
@@ -11096,25 +11419,48 @@ async function handlePrepareMedia(request, orgId) {
   }
 
   if (!r2Configured())
-    return json({ error: "R2 storage is not configured on this server. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, and R2_PUBLIC_URL." }, 503);
+    return json(
+      {
+        error:
+          "R2 storage is not configured on this server. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, and R2_PUBLIC_URL.",
+      },
+      503,
+    );
 
-  const rl = await checkRateLimit(`rl:media-prepare:${session.userId}`, env.mediaPrepareRateLimitPerMinute, 60);
+  const rl = await checkRateLimit(
+    `rl:media-prepare:${session.userId}`,
+    env.mediaPrepareRateLimitPerMinute,
+    60,
+  );
   if (rl) return rl;
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
 
   const filename = String(body?.filename ?? "upload").slice(0, 255);
-  const mimeType = String(body?.mimeType ?? "").trim().toLowerCase();
+  const mimeType = String(body?.mimeType ?? "")
+    .trim()
+    .toLowerCase();
   const fileSize = Number(body?.fileSize ?? 0);
-  const title = String(body?.title ?? "").trim().slice(0, 255);
+  const title = String(body?.title ?? "")
+    .trim()
+    .slice(0, 255);
 
   if (!STAFF_ALLOWED_MIME.has(mimeType))
     return json({ error: `File type not allowed: ${mimeType}` }, 415);
   if (!fileSize || fileSize < 1)
     return json({ error: "fileSize is required" }, 400);
   if (fileSize > MAX_FILE_SIZE)
-    return json({ error: `File too large (max ${Math.round(MAX_FILE_SIZE / 1024 / 1024 / 1024)} GB)` }, 413);
+    return json(
+      {
+        error: `File too large (max ${Math.round(MAX_FILE_SIZE / 1024 / 1024 / 1024)} GB)`,
+      },
+      413,
+    );
 
   // Check org storage quota.
   const orgRes = await pool.query(
@@ -11130,7 +11476,10 @@ async function handlePrepareMedia(request, orgId) {
   if (orgRow?.media_user_limit_bytes) {
     const used = await getUserStorageUsed(orgId, session.userId);
     if (used + fileSize > Number(orgRow.media_user_limit_bytes))
-      return json({ error: "Your personal storage quota for this organization is full." }, 413);
+      return json(
+        { error: "Your personal storage quota for this organization is full." },
+        413,
+      );
   }
 
   const r2Key = buildObjectKey(orgId, `user/${session.userId}`, filename);
@@ -11152,14 +11501,31 @@ async function handlePrepareMedia(request, orgId) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'r2','staff',FALSE,$9,$10)
      RETURNING media_id`,
     [
-      orgId, session.userId, filename, mediaFileType(mimeType), mimeType, fileSize, title,
-      r2Key, nowSec, multipart?.uploadId ?? null,
+      orgId,
+      session.userId,
+      filename,
+      mediaFileType(mimeType),
+      mimeType,
+      fileSize,
+      title,
+      r2Key,
+      nowSec,
+      multipart?.uploadId ?? null,
     ],
   );
   const mediaId = String(rows[0].media_id);
 
-  console.log(`[r2] prepare org=${orgId} user=${session.userId} key=${r2Key} size=${fileSize} multipart=${!!multipart}`);
-  return json({ uploadUrl, mediaId, multipart: multipart ? { ...multipart, key: r2Key } : null }, 200);
+  console.log(
+    `[r2] prepare org=${orgId} user=${session.userId} key=${r2Key} size=${fileSize} multipart=${!!multipart}`,
+  );
+  return json(
+    {
+      uploadUrl,
+      mediaId,
+      multipart: multipart ? { ...multipart, key: r2Key } : null,
+    },
+    200,
+  );
 }
 
 // Phase 2: confirm the upload completed, mark the record active.
@@ -11177,7 +11543,11 @@ async function handleConfirmMedia(request, orgId) {
   }
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
 
   const mediaId = String(body?.mediaId ?? "").trim();
   if (!mediaId) return json({ error: "mediaId is required" }, 400);
@@ -11191,18 +11561,34 @@ async function handleConfirmMedia(request, orgId) {
   if (!rows[0]) return json({ error: "Pending media not found" }, 404);
   const row = rows[0];
 
-  if (String(row.uploaded_by) !== String(session.userId) && !canManageOrg(session, orgId))
+  if (
+    String(row.uploaded_by) !== String(session.userId) &&
+    !canManageOrg(session, orgId)
+  )
     return json({ error: "Forbidden" }, 403);
 
   // For R2 multipart, the frontend sends the ETags from each part so we can complete.
   if (row.multipart_upload_id && Array.isArray(body?.parts)) {
-    const parts = body.parts.map((p) => ({ partNumber: Number(p.partNumber), etag: String(p.etag) }));
+    const parts = body.parts.map((p) => ({
+      partNumber: Number(p.partNumber),
+      etag: String(p.etag),
+    }));
     if (parts.length === 0 || parts.some((p) => !p.partNumber || !p.etag))
-      return json({ error: "Invalid parts array for multipart completion" }, 400);
+      return json(
+        { error: "Invalid parts array for multipart completion" },
+        400,
+      );
     try {
-      await completeMultipartUpload(String(row.r2_key), String(row.multipart_upload_id), parts);
+      await completeMultipartUpload(
+        String(row.r2_key),
+        String(row.multipart_upload_id),
+        parts,
+      );
     } catch (err) {
-      console.error(`[r2] complete multipart failed mediaId=${mediaId}:`, err?.message);
+      console.error(
+        `[r2] complete multipart failed mediaId=${mediaId}:`,
+        err?.message,
+      );
       return json({ error: "Failed to complete multipart upload" }, 502);
     }
   }
@@ -11218,8 +11604,13 @@ async function handleConfirmMedia(request, orgId) {
     [mediaId, actualSize],
   );
 
-  console.log(`[r2] confirmed mediaId=${mediaId} backend=${row.storage_backend}`);
-  return json({ media: serializeMedia({ ...updated[0], uploaded_by_name: null }) }, 200);
+  console.log(
+    `[r2] confirmed mediaId=${mediaId} backend=${row.storage_backend}`,
+  );
+  return json(
+    { media: serializeMedia({ ...updated[0], uploaded_by_name: null }) },
+    200,
+  );
 }
 
 async function handleDeleteMedia(request, orgId, mediaId) {
@@ -11242,25 +11633,41 @@ async function handleDeleteMedia(request, orgId, mediaId) {
 
   const row = rows[0];
   const isOwner = String(row.uploaded_by) === String(session.userId);
-  if (!isOwner && !canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "bans_manage"))
-    return json({ error: "Forbidden: you can only delete your own uploads" }, 403);
+  if (
+    !isOwner &&
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "bans_manage")
+  )
+    return json(
+      { error: "Forbidden: you can only delete your own uploads" },
+      403,
+    );
 
   if (row.r2_key) {
     await deleteMediaObject(String(row.r2_key));
   }
   if (row.multipart_upload_id) {
-    await abortMultipartUpload(String(row.r2_key), String(row.multipart_upload_id));
+    await abortMultipartUpload(
+      String(row.r2_key),
+      String(row.multipart_upload_id),
+    );
   }
 
-  await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [mediaId]);
+  await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [
+    mediaId,
+  ]);
   return json({ ok: true });
 }
 
 async function handleGetMediaItem(request, orgId, mediaId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "players_view") &&
-      !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "players_view") &&
+    !orgHasPermission(session, orgId, "bans_create") &&
+    !orgHasPermission(session, orgId, "bans_manage")
+  )
     return json({ error: "Forbidden" }, 403);
 
   const { rows } = await pool.query(
@@ -11275,15 +11682,22 @@ async function handleGetMediaItem(request, orgId, mediaId) {
   );
   if (!rows[0]) return json({ error: "Media not found" }, 404);
 
-  await pool.query(`UPDATE org_media SET last_accessed_at = unix_now() WHERE media_id = $1`, [mediaId]);
+  await pool.query(
+    `UPDATE org_media SET last_accessed_at = unix_now() WHERE media_id = $1`,
+    [mediaId],
+  );
   return json({ media: serializeMedia(rows[0]) });
 }
 
 async function handleGetBanMedia(request, orgId, banId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canManageOrg(session, orgId) && !orgHasPermission(session, orgId, "players_view") &&
-      !orgHasPermission(session, orgId, "bans_create") && !orgHasPermission(session, orgId, "bans_manage"))
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "players_view") &&
+    !orgHasPermission(session, orgId, "bans_create") &&
+    !orgHasPermission(session, orgId, "bans_manage")
+  )
     return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
@@ -11310,15 +11724,25 @@ async function handleGetBanMedia(request, orgId, banId) {
 async function handlePublicMediaPrepare(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!session.steamId) return json({ error: "Steam account required to upload files." }, 403);
+  if (!session.steamId)
+    return json({ error: "Steam account required to upload files." }, 403);
 
-  if (!r2Configured()) return json({ error: "R2 storage not configured." }, 503);
+  if (!r2Configured())
+    return json({ error: "R2 storage not configured." }, 503);
 
-  const rl = await checkRateLimit(`rl:pub-media:${session.userId}`, env.publicMediaPrepareRateLimitPerMinute, 60);
+  const rl = await checkRateLimit(
+    `rl:pub-media:${session.userId}`,
+    env.publicMediaPrepareRateLimitPerMinute,
+    60,
+  );
   if (rl) return rl;
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
 
   const orgId = String(body?.orgId ?? "").trim();
   if (!orgId) return json({ error: "orgId is required" }, 400);
@@ -11330,19 +11754,35 @@ async function handlePublicMediaPrepare(request) {
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
   const org = orgRes.rows[0];
 
-  const fileLimitBytes = Number(org.media_public_file_limit_bytes ?? DEFAULT_PUBLIC_FILE_LIMIT);
-  const maxFiles = Number(org.media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES);
+  const fileLimitBytes = Number(
+    org.media_public_file_limit_bytes ?? DEFAULT_PUBLIC_FILE_LIMIT,
+  );
+  const maxFiles = Number(
+    org.media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES,
+  );
 
   const filename = String(body?.filename ?? "upload").slice(0, 255);
-  const mimeType = String(body?.mimeType ?? "").trim().toLowerCase();
+  const mimeType = String(body?.mimeType ?? "")
+    .trim()
+    .toLowerCase();
   const fileSize = Number(body?.fileSize ?? 0);
 
   if (!PUBLIC_ALLOWED_MIME.has(mimeType))
-    return json({ error: `File type not allowed: ${mimeType}. Allowed: images (jpeg/png/gif/webp) and video (mp4/webm/mov).` }, 415);
+    return json(
+      {
+        error: `File type not allowed: ${mimeType}. Allowed: images (jpeg/png/gif/webp) and video (mp4/webm/mov).`,
+      },
+      415,
+    );
   if (!fileSize || fileSize < 1)
     return json({ error: "fileSize is required" }, 400);
   if (fileSize > fileLimitBytes)
-    return json({ error: `File too large (max ${Math.round(fileLimitBytes / 1024 / 1024)} MB for this organization)` }, 413);
+    return json(
+      {
+        error: `File too large (max ${Math.round(fileLimitBytes / 1024 / 1024)} MB for this organization)`,
+      },
+      413,
+    );
 
   // Count existing pending/confirmed media for this session to enforce per-submission cap.
   const countRes = await pool.query(
@@ -11352,7 +11792,10 @@ async function handlePublicMediaPrepare(request) {
     [orgId, session.userId, Math.floor(Date.now() / 1000) - 3600],
   );
   if (Number(countRes.rows[0].cnt) >= maxFiles)
-    return json({ error: `Maximum ${maxFiles} file(s) allowed per submission.` }, 429);
+    return json(
+      { error: `Maximum ${maxFiles} file(s) allowed per submission.` },
+      429,
+    );
 
   const r2Key = buildObjectKey(orgId, `pending/${session.userId}`, filename);
   const nowSec = Math.floor(Date.now() / 1000);
@@ -11364,7 +11807,16 @@ async function handlePublicMediaPrepare(request) {
         r2_key, storage_backend, source, confirmed, pending_since)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'r2','pending',FALSE,$8)
      RETURNING media_id`,
-    [orgId, session.userId, filename, mediaFileType(mimeType), mimeType, fileSize, r2Key, nowSec],
+    [
+      orgId,
+      session.userId,
+      filename,
+      mediaFileType(mimeType),
+      mimeType,
+      fileSize,
+      r2Key,
+      nowSec,
+    ],
   );
   const mediaId = String(rows[0].media_id);
 
@@ -11378,7 +11830,11 @@ async function handlePublicMediaConfirm(request) {
   if (!session.steamId) return json({ error: "Steam account required." }, 403);
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
 
   const mediaId = String(body?.mediaId ?? "").trim();
   if (!mediaId) return json({ error: "mediaId is required" }, 400);
@@ -11409,12 +11865,20 @@ async function purgeExpiredMedia() {
   );
   for (const row of stale) {
     if (row.r2_key) {
-      if (row.multipart_upload_id) await abortMultipartUpload(String(row.r2_key), String(row.multipart_upload_id));
+      if (row.multipart_upload_id)
+        await abortMultipartUpload(
+          String(row.r2_key),
+          String(row.multipart_upload_id),
+        );
       await deleteMediaObject(String(row.r2_key));
     }
-    await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [row.media_id]);
+    await pool.query(
+      `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
+      [row.media_id],
+    );
   }
-  if (stale.length) console.log(`[media-expiry] removed ${stale.length} abandoned upload(s)`);
+  if (stale.length)
+    console.log(`[media-expiry] removed ${stale.length} abandoned upload(s)`);
 
   // Soft-delete confirmed media older than the org's configured expiry window.
   // R2 does not support bucket lifecycle rules, so this BullMQ job is the sole expiry mechanism.
@@ -11422,7 +11886,8 @@ async function purgeExpiredMedia() {
     `SELECT org_id, media_expiry_months FROM organizations WHERE media_expiry_months IS NOT NULL`,
   );
   for (const org of orgs) {
-    const thresholdSeconds = Math.floor(Date.now() / 1000) - org.media_expiry_months * 30 * 86400;
+    const thresholdSeconds =
+      Math.floor(Date.now() / 1000) - org.media_expiry_months * 30 * 86400;
     const { rows: expired } = await pool.query(
       `SELECT media_id, r2_key FROM org_media
        WHERE org_id = $1 AND deleted = FALSE AND confirmed = TRUE
@@ -11431,9 +11896,15 @@ async function purgeExpiredMedia() {
     );
     for (const row of expired) {
       if (row.r2_key) await deleteMediaObject(String(row.r2_key));
-      await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [row.media_id]);
+      await pool.query(
+        `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
+        [row.media_id],
+      );
     }
-    if (expired.length) console.log(`[media-expiry] purged ${expired.length} item(s) for org ${org.org_id}`);
+    if (expired.length)
+      console.log(
+        `[media-expiry] purged ${expired.length} item(s) for org ${org.org_id}`,
+      );
   }
 }
 
@@ -12129,11 +12600,16 @@ async function syncPermsOnJoinForPlayer(server, steamId, playerName) {
   if (!member) return; // not a staff member
 
   // Check whether the role grants server_admin on this specific server.
-  const targetIds = await resolveRoleServerAdminServerIds(orgId, member.role_id);
+  const targetIds = await resolveRoleServerAdminServerIds(
+    orgId,
+    member.role_id,
+  );
   if (!targetIds.includes(String(server.server_id))) return;
 
   // Grant (from empty current set so the command always fires).
-  const rconRows = await loadRconServersByIds(orgId, [String(server.server_id)]);
+  const rconRows = await loadRconServersByIds(orgId, [
+    String(server.server_id),
+  ]);
   if (!rconRows.length) return;
 
   const cmds = serverAdminGrantCommands(steamId, member.username ?? playerName);
@@ -12211,7 +12687,8 @@ const FLAG_RESOLVE_RATE_LIMIT_PER_MINUTE = 60;
 function sessionCandidateOrgIds(session, preferredOrgId) {
   const set = new Set();
   if (preferredOrgId) set.add(String(preferredOrgId));
-  for (const id of Object.keys(session.orgPermissions ?? {})) set.add(String(id));
+  for (const id of Object.keys(session.orgPermissions ?? {}))
+    set.add(String(id));
   for (const id of session.orgAdminOrgIds ?? []) set.add(String(id));
   for (const id of session.orgOwnerOrgIds ?? []) set.add(String(id));
   set.delete(SYSADMIN.globalOrgId);
@@ -12403,8 +12880,7 @@ async function handleAcceptShareGrant(request, orgId, grantId) {
      RETURNING grant_id`,
     [grantId, orgId],
   );
-  if (!rows[0])
-    return json({ error: "No pending grant to accept" }, 404);
+  if (!rows[0]) return json({ error: "No pending grant to accept" }, 404);
   await bumpShareVersion();
   return json({ ok: true });
 }
@@ -12556,6 +13032,58 @@ async function handleGetPlayer(request, steamId) {
   return json(applyShareEntitlement(cached, ipEntitlement, bmEntitlement));
 }
 
+async function handleGetPlayerIpBanEligibility(request, orgId, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canCreateBans(session, orgId)) {
+    return json({ error: "Forbidden: ban create permission required" }, 403);
+  }
+  if (!canIssueIpBans(session, orgId)) {
+    return json({ allowed: false, reason: "IP ban permission required" });
+  }
+  if (!/^\d{17}$/.test(String(steamId ?? ""))) {
+    return json({ error: "Invalid Steam ID" }, 400);
+  }
+
+  const latestIpRow = await pool.query(
+    `SELECT pih.ip_encrypted
+     FROM player_ip_history pih
+     WHERE pih.steam_id = $1
+       AND (
+         pih.server_id IS NULL
+         OR pih.server_id IN (
+           SELECT s.server_id FROM servers s WHERE s.owner_org_id = $2
+         )
+       )
+     ORDER BY pih.last_seen DESC
+     LIMIT 1`,
+    [steamId, orgId],
+  );
+
+  if (latestIpRow.rows.length === 0 || !latestIpRow.rows[0].ip_encrypted) {
+    return json({
+      allowed: false,
+      reason: "No known recent IP for this player in this org.",
+    });
+  }
+
+  let latestIp = null;
+  try {
+    latestIp = decryptIp(String(latestIpRow.rows[0].ip_encrypted));
+  } catch {
+    return json({
+      allowed: false,
+      reason: "Could not read the player's latest IP for verification.",
+    });
+  }
+
+  const eligibility = await evaluateIpBanEligibility(orgId, latestIp);
+  return json({
+    allowed: eligibility.eligible,
+    reason: eligibility.reason ?? null,
+  });
+}
+
 async function handleRefreshPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -12634,7 +13162,11 @@ async function handleRefreshPlayer(request, steamId) {
     await new Promise((r) => setTimeout(r, 500));
     const fresh = await getPlayerDataFromRedis(steamId);
     if (fresh) {
-      const payload = applyShareEntitlement(fresh, ipEntitlement, bmEntitlement);
+      const payload = applyShareEntitlement(
+        fresh,
+        ipEntitlement,
+        bmEntitlement,
+      );
       if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
       return json(payload);
     }
@@ -12656,7 +13188,8 @@ async function handleKickPlayer(request, steamId) {
   const orgId = url.searchParams.get("orgId");
   const serverId = url.searchParams.get("serverId");
   if (!orgId) return json({ error: "orgId query parameter required" }, 400);
-  if (!serverId) return json({ error: "serverId query parameter required" }, 400);
+  if (!serverId)
+    return json({ error: "serverId query parameter required" }, 400);
 
   if (!orgHasPermission(session, orgId, "player_kick"))
     return json({ error: "Forbidden: player_kick permission required" }, 403);
@@ -12703,15 +13236,24 @@ async function handleGetPlayerChat(request, steamId) {
 
   const url = new URL(request.url);
   const orgId = url.searchParams.get("orgId");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "100", 10), 200);
+  const limit = Math.min(
+    parseInt(url.searchParams.get("limit") ?? "100", 10),
+    200,
+  );
   const before = url.searchParams.get("before")
     ? Math.floor(Number(url.searchParams.get("before")))
     : null;
 
   if (!orgId) return json({ error: "orgId query parameter required" }, 400);
 
-  if (!orgHasPermission(session, orgId, "chat_view") && !orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: chat_view or players_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "chat_view") &&
+    !orgHasPermission(session, orgId, "players_view")
+  )
+    return json(
+      { error: "Forbidden: chat_view or players_view permission required" },
+      403,
+    );
 
   const params = [steamId, orgId, limit + 1];
   let idx = 4;
@@ -13353,15 +13895,48 @@ async function handleSearchOrgPlayers(request, orgId) {
   if (q.length < 2) return json({ players: [] });
 
   const { rows } = await pool.query(
-    `SELECT pc.steam_id, COALESCE(pc.display_name, pc.steam_id) AS name, ops.last_seen_at
+    `SELECT pc.steam_id,
+            COALESCE(pc.display_name, pc.steam_id) AS name,
+            ops.last_seen_at,
+            CASE
+              WHEN pc.display_name ILIKE $2 THEN 'display_name'
+              WHEN EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(COALESCE(pc.bm_name_aliases, '[]'::jsonb)) alias(name)
+                WHERE alias.name ILIKE $2
+              ) THEN 'previous_name'
+              ELSE 'steam_id'
+            END AS match_type,
+            (
+              SELECT alias.name
+              FROM jsonb_array_elements_text(COALESCE(pc.bm_name_aliases, '[]'::jsonb)) alias(name)
+              WHERE alias.name ILIKE $2
+              ORDER BY LENGTH(alias.name) ASC
+              LIMIT 1
+            ) AS matched_alias
      FROM org_player_sightings ops
      JOIN player_cache pc ON pc.steam_id = ops.steam_id
      WHERE ops.org_id = $1
        AND (
          pc.display_name ILIKE $2
+         OR EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements_text(COALESCE(pc.bm_name_aliases, '[]'::jsonb)) alias(name)
+           WHERE alias.name ILIKE $2
+         )
          OR pc.steam_id LIKE $3
        )
-     ORDER BY ops.last_seen_at DESC
+     ORDER BY
+       CASE
+         WHEN pc.display_name ILIKE $2 THEN 0
+         WHEN EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements_text(COALESCE(pc.bm_name_aliases, '[]'::jsonb)) alias(name)
+           WHERE alias.name ILIKE $2
+         ) THEN 1
+         ELSE 2
+       END,
+       ops.last_seen_at DESC
      LIMIT 20`,
     [orgId, `%${q}%`, `${q}%`],
   );
@@ -13371,6 +13946,8 @@ async function handleSearchOrgPlayers(request, orgId) {
       steamId: String(r.steam_id),
       name: String(r.name),
       lastSeenAt: Number(r.last_seen_at),
+      matchType: String(r.match_type ?? "display_name"),
+      matchedAlias: r.matched_alias ? String(r.matched_alias) : null,
     })),
   });
 }
@@ -14032,39 +14609,86 @@ async function _handleApiRequest(request) {
     // ── Docs routes ───────────────────────────────────────────────────────────
     const docsMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs$/);
     if (docsMatch) {
-      if (request.method === "GET") return handleListOrgDocs(request, docsMatch[1]);
+      if (request.method === "GET")
+        return handleListOrgDocs(request, docsMatch[1]);
     }
 
-    const docsCatsMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/categories$/);
+    const docsCatsMatch = pathname.match(
+      /^\/api\/orgs\/([^/]+)\/docs\/categories$/,
+    );
     if (docsCatsMatch) {
-      if (request.method === "POST") return handleCreateDocCategory(request, docsCatsMatch[1]);
+      if (request.method === "POST")
+        return handleCreateDocCategory(request, docsCatsMatch[1]);
     }
 
-    const docsCatMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/categories\/([^/]+)$/);
+    const docsCatMatch = pathname.match(
+      /^\/api\/orgs\/([^/]+)\/docs\/categories\/([^/]+)$/,
+    );
     if (docsCatMatch) {
-      if (request.method === "PATCH")  return handleUpdateDocCategory(request, docsCatMatch[1], docsCatMatch[2]);
-      if (request.method === "DELETE") return handleDeleteDocCategory(request, docsCatMatch[1], docsCatMatch[2]);
+      if (request.method === "PATCH")
+        return handleUpdateDocCategory(
+          request,
+          docsCatMatch[1],
+          docsCatMatch[2],
+        );
+      if (request.method === "DELETE")
+        return handleDeleteDocCategory(
+          request,
+          docsCatMatch[1],
+          docsCatMatch[2],
+        );
     }
 
-    const docsArticlesMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles$/);
+    const docsArticlesMatch = pathname.match(
+      /^\/api\/orgs\/([^/]+)\/docs\/articles$/,
+    );
     if (docsArticlesMatch) {
-      if (request.method === "POST") return handleCreateDocArticle(request, docsArticlesMatch[1]);
+      if (request.method === "POST")
+        return handleCreateDocArticle(request, docsArticlesMatch[1]);
     }
 
-    const docsArticleVersionsMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)\/versions\/([^/]+)$/);
+    const docsArticleVersionsMatch = pathname.match(
+      /^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)\/versions\/([^/]+)$/,
+    );
     if (docsArticleVersionsMatch) {
-      if (request.method === "DELETE") return handleDeleteDocVersion(request, docsArticleVersionsMatch[1], docsArticleVersionsMatch[2], docsArticleVersionsMatch[3]);
+      if (request.method === "DELETE")
+        return handleDeleteDocVersion(
+          request,
+          docsArticleVersionsMatch[1],
+          docsArticleVersionsMatch[2],
+          docsArticleVersionsMatch[3],
+        );
     }
 
-    const docsArticleRestoreMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)\/restore\/([^/]+)$/);
+    const docsArticleRestoreMatch = pathname.match(
+      /^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)\/restore\/([^/]+)$/,
+    );
     if (docsArticleRestoreMatch) {
-      if (request.method === "POST") return handleRestoreDocVersion(request, docsArticleRestoreMatch[1], docsArticleRestoreMatch[2], docsArticleRestoreMatch[3]);
+      if (request.method === "POST")
+        return handleRestoreDocVersion(
+          request,
+          docsArticleRestoreMatch[1],
+          docsArticleRestoreMatch[2],
+          docsArticleRestoreMatch[3],
+        );
     }
 
-    const docsArticleMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)$/);
+    const docsArticleMatch = pathname.match(
+      /^\/api\/orgs\/([^/]+)\/docs\/articles\/([^/]+)$/,
+    );
     if (docsArticleMatch) {
-      if (request.method === "PATCH")  return handleUpdateDocArticle(request, docsArticleMatch[1], docsArticleMatch[2]);
-      if (request.method === "DELETE") return handleDeleteDocArticle(request, docsArticleMatch[1], docsArticleMatch[2]);
+      if (request.method === "PATCH")
+        return handleUpdateDocArticle(
+          request,
+          docsArticleMatch[1],
+          docsArticleMatch[2],
+        );
+      if (request.method === "DELETE")
+        return handleDeleteDocArticle(
+          request,
+          docsArticleMatch[1],
+          docsArticleMatch[2],
+        );
     }
 
     const orgTicketsMatch = pathname.match(
@@ -14171,9 +14795,17 @@ async function _handleApiRequest(request) {
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/triggers\/([a-f0-9-]+)$/,
     );
     if (aiTriggerItemMatch && request.method === "PATCH")
-      return handleUpdateAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
+      return handleUpdateAIModerationTrigger(
+        request,
+        aiTriggerItemMatch[1],
+        aiTriggerItemMatch[2],
+      );
     if (aiTriggerItemMatch && request.method === "DELETE")
-      return handleDeleteAIModerationTrigger(request, aiTriggerItemMatch[1], aiTriggerItemMatch[2]);
+      return handleDeleteAIModerationTrigger(
+        request,
+        aiTriggerItemMatch[1],
+        aiTriggerItemMatch[2],
+      );
 
     // AI Moderation: flagged messages
     const aiFlaggedStreamMatch = pathname.match(
@@ -14192,7 +14824,11 @@ async function _handleApiRequest(request) {
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ai-moderation\/flagged\/([a-f0-9-]+)\/resolve$/,
     );
     if (aiFlagResolveMatch && request.method === "POST")
-      return handleResolveFlaggedMessage(request, aiFlagResolveMatch[1], aiFlagResolveMatch[2]);
+      return handleResolveFlaggedMessage(
+        request,
+        aiFlagResolveMatch[1],
+        aiFlagResolveMatch[2],
+      );
 
     // Manage Org: ban/mute configs
     const orgBanConfigsMatch = pathname.match(
@@ -14258,11 +14894,7 @@ async function _handleApiRequest(request) {
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/purge$/,
     );
     if (orgBanPurgeMatch && request.method === "DELETE")
-      return handlePurgeBan(
-        request,
-        orgBanPurgeMatch[1],
-        orgBanPurgeMatch[2],
-      );
+      return handlePurgeBan(request, orgBanPurgeMatch[1], orgBanPurgeMatch[2]);
 
     // Scripts CRUD
     const orgScriptsMatch = pathname.match(
@@ -14640,9 +15272,17 @@ async function _handleApiRequest(request) {
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/media\/([a-f0-9-]+)$/,
     );
     if (orgMediaItemMatch && request.method === "GET")
-      return handleGetMediaItem(request, orgMediaItemMatch[1], orgMediaItemMatch[2]);
+      return handleGetMediaItem(
+        request,
+        orgMediaItemMatch[1],
+        orgMediaItemMatch[2],
+      );
     if (orgMediaItemMatch && request.method === "DELETE")
-      return handleDeleteMedia(request, orgMediaItemMatch[1], orgMediaItemMatch[2]);
+      return handleDeleteMedia(
+        request,
+        orgMediaItemMatch[1],
+        orgMediaItemMatch[2],
+      );
 
     const banMediaMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/media$/,
@@ -14651,9 +15291,15 @@ async function _handleApiRequest(request) {
       return handleGetBanMedia(request, banMediaMatch[1], banMediaMatch[2]);
 
     // Public ticket media (presigned upload for public submitters)
-    if (pathname === "/api/public/ticket-media/prepare" && request.method === "POST")
+    if (
+      pathname === "/api/public/ticket-media/prepare" &&
+      request.method === "POST"
+    )
       return handlePublicMediaPrepare(request);
-    if (pathname === "/api/public/ticket-media/confirm" && request.method === "POST")
+    if (
+      pathname === "/api/public/ticket-media/confirm" &&
+      request.method === "POST"
+    )
       return handlePublicMediaConfirm(request);
 
     // Blacklisted words (management UI)
@@ -14689,6 +15335,16 @@ async function _handleApiRequest(request) {
     if (orgPlayerSearchMatch && request.method === "GET")
       return handleSearchOrgPlayers(request, orgPlayerSearchMatch[1]);
 
+    const orgPlayerIpBanEligibilityMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/(\d+)\/ip-ban-eligibility$/,
+    );
+    if (orgPlayerIpBanEligibilityMatch && request.method === "GET")
+      return handleGetPlayerIpBanEligibility(
+        request,
+        orgPlayerIpBanEligibilityMatch[1],
+        orgPlayerIpBanEligibilityMatch[2],
+      );
+
     // Org player list
     const orgPlayerListMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/player-list$/,
@@ -14704,7 +15360,9 @@ async function _handleApiRequest(request) {
       return handleGetOrgRecentReports(request, orgRecentReportsMatch[1]);
 
     // Player lookup
-    const playerByHashMatch = pathname.match(/^\/api\/players\/by-ip-hash\/([a-zA-Z0-9_-]+)$/);
+    const playerByHashMatch = pathname.match(
+      /^\/api\/players\/by-ip-hash\/([a-zA-Z0-9_-]+)$/,
+    );
     if (playerByHashMatch && request.method === "GET")
       return handleSearchPlayersByIpHash(request, playerByHashMatch[1]);
 
@@ -14761,7 +15419,10 @@ async function _handleApiRequest(request) {
       /^\/api\/players\/(\d+)\/notes$/,
     );
     if (playerNotesCombinedMatch && request.method === "GET")
-      return handleListPlayerNotesCombined(request, playerNotesCombinedMatch[1]);
+      return handleListPlayerNotesCombined(
+        request,
+        playerNotesCombinedMatch[1],
+      );
 
     const orgNoteRolesMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/note-roles$/,
@@ -14882,7 +15543,8 @@ async function checkServerHealthAlerts() {
       [owner_org_id, server_id, nowSec],
     );
     const lastNotified = stateRes.rows[0]?.last_notified_at;
-    if (lastNotified && nowSec - Number(lastNotified) < ALERT_COOLDOWN_SECONDS) continue;
+    if (lastNotified && nowSec - Number(lastNotified) < ALERT_COOLDOWN_SECONDS)
+      continue;
 
     // Get subscribed staff Discord IDs
     const subsRes = await pool.query(
@@ -15078,7 +15740,12 @@ async function handleGetOrgDiscordRoles(request, orgId) {
   return json({
     discordRoles: allRoles
       .filter((r) => !r.managed && r.name !== "@everyone")
-      .map((r) => ({ id: r.id, name: r.name, color: r.color, position: r.position ?? 0 }))
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        position: r.position ?? 0,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     callerDiscordPosition,
   });
@@ -15222,7 +15889,9 @@ async function pruneOldDiscordMessages() {
     [DISCORD_MSG_RETENTION_SECONDS],
   );
   if (result.rowCount > 0) {
-    console.log(`[discord-prune] deleted ${result.rowCount} expired message(s)`);
+    console.log(
+      `[discord-prune] deleted ${result.rowCount} expired message(s)`,
+    );
   }
 }
 
@@ -15384,7 +16053,8 @@ async function handleBotGetStaffList(request) {
      LIMIT 1`,
     [ownerDiscordId],
   );
-  if (!ownerRes.rows[0]) return json({ error: "No owner org found for this Discord ID" }, 404);
+  if (!ownerRes.rows[0])
+    return json({ error: "No owner org found for this Discord ID" }, 404);
   const { org_id: orgId, org_name: orgName } = ownerRes.rows[0];
 
   const staffRes = await pool.query(
@@ -15421,7 +16091,10 @@ async function handleBotDeactivateMember(request) {
 
   const { ownerDiscordId, targetDiscordId } = body ?? {};
   if (!ownerDiscordId || !targetDiscordId)
-    return json({ error: "ownerDiscordId and targetDiscordId are required" }, 400);
+    return json(
+      { error: "ownerDiscordId and targetDiscordId are required" },
+      400,
+    );
 
   // Verify the caller is an owner in some org
   const ownerRes = await pool.query(
@@ -15432,7 +16105,8 @@ async function handleBotDeactivateMember(request) {
      LIMIT 1`,
     [ownerDiscordId],
   );
-  if (!ownerRes.rows[0]) return json({ error: "Caller is not an org owner" }, 403);
+  if (!ownerRes.rows[0])
+    return json({ error: "Caller is not an org owner" }, 403);
   const { org_id: orgId } = ownerRes.rows[0];
 
   // Find the target member in the same org
@@ -15444,10 +16118,13 @@ async function handleBotDeactivateMember(request) {
      LIMIT 1`,
     [orgId, targetDiscordId],
   );
-  if (!targetRes.rows[0]) return json({ error: "Target member not found in your org" }, 404);
+  if (!targetRes.rows[0])
+    return json({ error: "Target member not found in your org" }, 404);
   const target = targetRes.rows[0];
-  if (target.role_id === "org_owner") return json({ error: "Cannot disable another owner" }, 403);
-  if (target.role_id === "org_disabled") return json({ ok: true, message: "Already disabled" });
+  if (target.role_id === "org_owner")
+    return json({ error: "Cannot disable another owner" }, 403);
+  if (target.role_id === "org_disabled")
+    return json({ ok: true, message: "Already disabled" });
 
   await pool.query(
     `UPDATE organization_members SET role_id = 'org_disabled' WHERE org_id = $1 AND user_id = $2`,
@@ -15752,7 +16429,10 @@ async function handleDiscordModAction(request, orgId) {
 
   if (["timeout", "untimeout", "mute", "unmute"].includes(action)) {
     if (!canDiscordTimeout(session, orgId)) {
-      return json({ error: "Forbidden: discord_timeout permission required" }, 403);
+      return json(
+        { error: "Forbidden: discord_timeout permission required" },
+        403,
+      );
     }
   }
   if (action === "kick" && !canDiscordKick(session, orgId)) {
@@ -15761,7 +16441,11 @@ async function handleDiscordModAction(request, orgId) {
   if (["ban", "unban"].includes(action) && !canDiscordBan(session, orgId)) {
     return json({ error: "Forbidden: discord_ban permission required" }, 403);
   }
-  if (action === "ban" && body.deleteMessages && !canDiscordDeleteMessages(session, orgId)) {
+  if (
+    action === "ban" &&
+    body.deleteMessages &&
+    !canDiscordDeleteMessages(session, orgId)
+  ) {
     return json(
       { error: "Forbidden: discord_delete_messages permission required" },
       403,
@@ -15969,10 +16653,7 @@ async function handleDiscordWarn(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canDiscordWarn(session, orgId)) {
-    return json(
-      { error: "Forbidden: discord_warn permission required" },
-      403,
-    );
+    return json({ error: "Forbidden: discord_warn permission required" }, 403);
   }
   if (!env.discordBotToken) {
     return json({ error: "DISCORD_BOT_TOKEN is not configured" }, 503);
@@ -16117,7 +16798,10 @@ async function handleGetDiscordBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canDiscordViewBans(session, orgId))
-    return json({ error: "Forbidden: discord_bans_view permission required" }, 403);
+    return json(
+      { error: "Forbidden: discord_bans_view permission required" },
+      403,
+    );
   if (!env.discordBotToken)
     return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
@@ -16130,8 +16814,14 @@ async function handleGetDiscordBans(request, orgId) {
     return json({ error: "Organization has no guild_id configured" }, 400);
 
   const url = new URL(request.url);
-  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "100", 10), 1), 500);
-  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
+  const limit = Math.min(
+    Math.max(parseInt(url.searchParams.get("limit") ?? "100", 10), 1),
+    500,
+  );
+  const offset = Math.max(
+    parseInt(url.searchParams.get("offset") ?? "0", 10),
+    0,
+  );
   const query = (url.searchParams.get("query") ?? "").toLowerCase().trim();
 
   const allBans = await fetchAllDiscordBans(org.guild_id);
@@ -16178,7 +16868,10 @@ async function handleSyncDiscordBans(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canDiscordViewBans(session, orgId))
-    return json({ error: "Forbidden: discord_bans_view permission required" }, 403);
+    return json(
+      { error: "Forbidden: discord_bans_view permission required" },
+      403,
+    );
   if (!env.discordBotToken)
     return json({ error: "DISCORD_BOT_TOKEN not configured" }, 503);
 
@@ -16286,7 +16979,10 @@ async function handleGetDiscordModLog(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canDiscordViewModLog(session, orgId)) {
-    return json({ error: "Forbidden: discord_modlog_view permission required" }, 403);
+    return json(
+      { error: "Forbidden: discord_modlog_view permission required" },
+      403,
+    );
   }
 
   const url = new URL(request.url);
@@ -16361,7 +17057,10 @@ function docArticleRow(a, versions) {
 async function handleListOrgDocs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!orgHasPermission(session, orgId, "tickets_view") && !canManageOrg(session, orgId))
+  if (
+    !orgHasPermission(session, orgId, "tickets_view") &&
+    !canManageOrg(session, orgId)
+  )
     return json({ error: "Forbidden" }, 403);
 
   const callerRank = sessionRankForOrg(session, orgId);
@@ -16409,7 +17108,7 @@ async function handleListOrgDocs(request, orgId) {
       sortOrder: Number(c.sort_order),
     })),
     articles: articlesRes.rows.map((a) =>
-      docArticleRow(a, versionsByArticle[a.article_id] ?? [])
+      docArticleRow(a, versionsByArticle[a.article_id] ?? []),
     ),
   });
 }
@@ -16421,7 +17120,11 @@ async function handleCreateDocCategory(request, orgId) {
     return json({ error: "Forbidden: docs_edit permission required" }, 403);
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
   const name = String(body?.name ?? "").trim();
   if (!name) return json({ error: "name is required" }, 400);
   const parentId = body?.parentId ? String(body.parentId) : null;
@@ -16431,7 +17134,8 @@ async function handleCreateDocCategory(request, orgId) {
       `SELECT 1 FROM doc_categories WHERE category_id = $1 AND org_id = $2`,
       [parentId, orgId],
     );
-    if (!check.rows[0]) return json({ error: "Parent category not found" }, 404);
+    if (!check.rows[0])
+      return json({ error: "Parent category not found" }, 404);
   }
 
   const categoryId = crypto.randomUUID();
@@ -16439,9 +17143,18 @@ async function handleCreateDocCategory(request, orgId) {
     `INSERT INTO doc_categories (category_id, org_id, name, parent_id) VALUES ($1, $2, $3, $4)`,
     [categoryId, orgId, name, parentId],
   );
-  return json({
-    category: { id: categoryId, orgId, name, parentId: parentId ?? null, sortOrder: 0 },
-  }, 201);
+  return json(
+    {
+      category: {
+        id: categoryId,
+        orgId,
+        name,
+        parentId: parentId ?? null,
+        sortOrder: 0,
+      },
+    },
+    201,
+  );
 }
 
 async function handleUpdateDocCategory(request, orgId, categoryId) {
@@ -16457,7 +17170,11 @@ async function handleUpdateDocCategory(request, orgId, categoryId) {
   if (!check.rows[0]) return json({ error: "Category not found" }, 404);
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
   const name = String(body?.name ?? "").trim();
   if (!name) return json({ error: "name is required" }, 400);
 
@@ -16480,9 +17197,18 @@ async function handleDeleteDocCategory(request, orgId, categoryId) {
   );
   if (!check.rows[0]) return json({ error: "Category not found" }, 404);
 
-  await pool.query(`UPDATE doc_categories SET parent_id = NULL WHERE parent_id = $1`, [categoryId]);
-  await pool.query(`UPDATE doc_articles SET category_id = NULL WHERE category_id = $1 AND org_id = $2`, [categoryId, orgId]);
-  await pool.query(`DELETE FROM doc_categories WHERE category_id = $1 AND org_id = $2`, [categoryId, orgId]);
+  await pool.query(
+    `UPDATE doc_categories SET parent_id = NULL WHERE parent_id = $1`,
+    [categoryId],
+  );
+  await pool.query(
+    `UPDATE doc_articles SET category_id = NULL WHERE category_id = $1 AND org_id = $2`,
+    [categoryId, orgId],
+  );
+  await pool.query(
+    `DELETE FROM doc_categories WHERE category_id = $1 AND org_id = $2`,
+    [categoryId, orgId],
+  );
   return json({ ok: true });
 }
 
@@ -16493,7 +17219,11 @@ async function handleCreateDocArticle(request, orgId) {
     return json({ error: "Forbidden: docs_edit permission required" }, 403);
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
   const title = String(body?.title ?? "").trim() || "Untitled";
   const articleBody = String(body?.body ?? "");
   const minRank = Math.max(1, Math.min(4, Number(body?.minRank ?? 1) || 1));
@@ -16512,14 +17242,36 @@ async function handleCreateDocArticle(request, orgId) {
   await pool.query(
     `INSERT INTO doc_articles (article_id, org_id, category_id, title, body, min_rank, updated_at, updated_by_user_id, updated_by_name)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [articleId, orgId, categoryId, title, articleBody, minRank, now, session.userId, session.username ?? null],
+    [
+      articleId,
+      orgId,
+      categoryId,
+      title,
+      articleBody,
+      minRank,
+      now,
+      session.userId,
+      session.username ?? null,
+    ],
   );
-  return json({
-    article: docArticleRow(
-      { article_id: articleId, org_id: orgId, category_id: categoryId, title, body: articleBody, min_rank: minRank, updated_at: now, updated_by_name: session.username ?? null },
-      [],
-    ),
-  }, 201);
+  return json(
+    {
+      article: docArticleRow(
+        {
+          article_id: articleId,
+          org_id: orgId,
+          category_id: categoryId,
+          title,
+          body: articleBody,
+          min_rank: minRank,
+          updated_at: now,
+          updated_by_name: session.username ?? null,
+        },
+        [],
+      ),
+    },
+    201,
+  );
 }
 
 async function handleUpdateDocArticle(request, orgId, articleId) {
@@ -16536,14 +17288,25 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
   const prev = existing.rows[0];
 
   let body;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
 
-  const title = body?.title != null ? String(body.title).trim() || prev.title : prev.title;
+  const title =
+    body?.title != null ? String(body.title).trim() || prev.title : prev.title;
   const articleBody = body?.body != null ? String(body.body) : prev.body;
-  const minRank = body?.minRank != null ? Math.max(1, Math.min(4, Number(body.minRank) || 1)) : Number(prev.min_rank);
-  const categoryId = "categoryId" in body
-    ? (body.categoryId ? String(body.categoryId) : null)
-    : prev.category_id;
+  const minRank =
+    body?.minRank != null
+      ? Math.max(1, Math.min(4, Number(body.minRank) || 1))
+      : Number(prev.min_rank);
+  const categoryId =
+    "categoryId" in body
+      ? body.categoryId
+        ? String(body.categoryId)
+        : null
+      : prev.category_id;
 
   const versionId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
@@ -16551,14 +17314,32 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
   await pool.query(
     `INSERT INTO doc_article_versions (version_id, article_id, title, body, saved_at, saved_by_user_id, saved_by_name)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [versionId, articleId, prev.title, prev.body, now, session.userId, session.username ?? null],
+    [
+      versionId,
+      articleId,
+      prev.title,
+      prev.body,
+      now,
+      session.userId,
+      session.username ?? null,
+    ],
   );
   await pool.query(
     `UPDATE doc_articles
      SET title = $1, body = $2, min_rank = $3, category_id = $4, updated_at = $5,
          updated_by_user_id = $6, updated_by_name = $7
      WHERE article_id = $8 AND org_id = $9`,
-    [title, articleBody, minRank, categoryId, now, session.userId, session.username ?? null, articleId, orgId],
+    [
+      title,
+      articleBody,
+      minRank,
+      categoryId,
+      now,
+      session.userId,
+      session.username ?? null,
+      articleId,
+      orgId,
+    ],
   );
 
   const versionsRes = await pool.query(
@@ -16568,7 +17349,16 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
   );
   return json({
     article: docArticleRow(
-      { article_id: articleId, org_id: orgId, category_id: categoryId, title, body: articleBody, min_rank: minRank, updated_at: now, updated_by_name: session.username ?? null },
+      {
+        article_id: articleId,
+        org_id: orgId,
+        category_id: categoryId,
+        title,
+        body: articleBody,
+        min_rank: minRank,
+        updated_at: now,
+        updated_by_name: session.username ?? null,
+      },
       versionsRes.rows,
     ),
   });
@@ -16578,7 +17368,10 @@ async function handleDeleteDocArticle(request, orgId, articleId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden: org admin required to delete articles" }, 403);
+    return json(
+      { error: "Forbidden: org admin required to delete articles" },
+      403,
+    );
 
   const check = await pool.query(
     `SELECT 1 FROM doc_articles WHERE article_id = $1 AND org_id = $2`,
@@ -16586,8 +17379,13 @@ async function handleDeleteDocArticle(request, orgId, articleId) {
   );
   if (!check.rows[0]) return json({ error: "Article not found" }, 404);
 
-  await pool.query(`DELETE FROM doc_article_versions WHERE article_id = $1`, [articleId]);
-  await pool.query(`DELETE FROM doc_articles WHERE article_id = $1 AND org_id = $2`, [articleId, orgId]);
+  await pool.query(`DELETE FROM doc_article_versions WHERE article_id = $1`, [
+    articleId,
+  ]);
+  await pool.query(
+    `DELETE FROM doc_articles WHERE article_id = $1 AND org_id = $2`,
+    [articleId, orgId],
+  );
   return json({ ok: true });
 }
 
@@ -16604,7 +17402,8 @@ async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
      WHERE a.article_id = $1 AND a.org_id = $3`,
     [articleId, versionId, orgId],
   );
-  if (!existing.rows[0]) return json({ error: "Article or version not found" }, 404);
+  if (!existing.rows[0])
+    return json({ error: "Article or version not found" }, 404);
   const row = existing.rows[0];
 
   const now = Math.floor(Date.now() / 1000);
@@ -16612,13 +17411,29 @@ async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
   await pool.query(
     `INSERT INTO doc_article_versions (version_id, article_id, title, body, saved_at, saved_by_user_id, saved_by_name)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [newVersionId, articleId, row.title, row.body, now, session.userId, session.username ?? null],
+    [
+      newVersionId,
+      articleId,
+      row.title,
+      row.body,
+      now,
+      session.userId,
+      session.username ?? null,
+    ],
   );
   await pool.query(
     `UPDATE doc_articles
      SET title = $1, body = $2, updated_at = $3, updated_by_user_id = $4, updated_by_name = $5
      WHERE article_id = $6 AND org_id = $7`,
-    [row.v_title, row.v_body, now, session.userId, session.username ?? null, articleId, orgId],
+    [
+      row.v_title,
+      row.v_body,
+      now,
+      session.userId,
+      session.username ?? null,
+      articleId,
+      orgId,
+    ],
   );
 
   const versionsRes = await pool.query(
@@ -16628,7 +17443,16 @@ async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
   );
   return json({
     article: docArticleRow(
-      { article_id: articleId, org_id: orgId, category_id: row.category_id, title: row.v_title, body: row.v_body, min_rank: row.min_rank, updated_at: now, updated_by_name: session.username ?? null },
+      {
+        article_id: articleId,
+        org_id: orgId,
+        category_id: row.category_id,
+        title: row.v_title,
+        body: row.v_body,
+        min_rank: row.min_rank,
+        updated_at: now,
+        updated_by_name: session.username ?? null,
+      },
       versionsRes.rows,
     ),
   });
@@ -16638,7 +17462,10 @@ async function handleDeleteDocVersion(request, orgId, articleId, versionId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canManageOrg(session, orgId))
-    return json({ error: "Forbidden: org admin required to delete versions" }, 403);
+    return json(
+      { error: "Forbidden: org admin required to delete versions" },
+      403,
+    );
 
   const check = await pool.query(
     `SELECT 1 FROM doc_article_versions v
@@ -16648,7 +17475,9 @@ async function handleDeleteDocVersion(request, orgId, articleId, versionId) {
   );
   if (!check.rows[0]) return json({ error: "Version not found" }, 404);
 
-  await pool.query(`DELETE FROM doc_article_versions WHERE version_id = $1`, [versionId]);
+  await pool.query(`DELETE FROM doc_article_versions WHERE version_id = $1`, [
+    versionId,
+  ]);
   return json({ ok: true });
 }
 

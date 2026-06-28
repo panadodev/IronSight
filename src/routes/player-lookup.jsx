@@ -236,6 +236,10 @@ function PlayerLookupPage() {
   const [ipHashMatches, setIpHashMatches] = useState([]);
   const [ipHashLoading, setIpHashLoading] = useState(false);
   const [ipHashError, setIpHashError] = useState("");
+  const [nameQuery, setNameQuery] = useState("");
+  const [nameMatches, setNameMatches] = useState([]);
+  const [nameSearchLoading, setNameSearchLoading] = useState(false);
+  const [nameSearchError, setNameSearchError] = useState("");
 
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
@@ -288,7 +292,7 @@ function PlayerLookupPage() {
     if (nextInput !== input) {
       setInput(nextInput);
     }
-  }, [search.steam, search.ipHash, steamId, ipHashQuery, input]);
+  }, [search.steam, search.ipHash]);
 
   // Player lookup needs players_view; issuing bans needs the ban-create perm
   // (legacy bans_manage still implies it). Prefer a selected org the user has
@@ -387,6 +391,56 @@ function PlayerLookupPage() {
     },
     [steamId, fetchOrgId],
   );
+
+  const searchPlayersByName = useCallback(
+    async (query) => {
+      const q = String(query ?? "").trim();
+      if (q.length < 2) {
+        setNameQuery("");
+        setNameMatches([]);
+        setNameSearchError("");
+        return;
+      }
+      if (!fetchOrgId) {
+        setNameQuery(q);
+        setNameMatches([]);
+        setNameSearchError("No organization with player lookup access is available.");
+        return;
+      }
+
+      setNameSearchLoading(true);
+      setNameQuery(q);
+      setNameSearchError("");
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(fetchOrgId)}/players/search?q=${encodeURIComponent(q)}`,
+          { credentials: "include" },
+        );
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setNameMatches([]);
+          setNameSearchError(body?.error ?? "Failed to search players by name.");
+          return;
+        }
+        setNameMatches(Array.isArray(body.players) ? body.players : []);
+      } catch {
+        setNameMatches([]);
+        setNameSearchError("Failed to search players by name.");
+      } finally {
+        setNameSearchLoading(false);
+      }
+    },
+    [fetchOrgId],
+  );
+
+  useEffect(() => {
+    if (steamId || ipHashQuery) {
+      setNameQuery("");
+      setNameMatches([]);
+      setNameSearchError("");
+      setNameSearchLoading(false);
+    }
+  }, [steamId, ipHashQuery]);
 
   useEffect(() => {
     if (!orgsLoaded) return;
@@ -546,7 +600,7 @@ function PlayerLookupPage() {
     const trimmed = input.trim();
     const normalizedHash = normalizeIpHashToken(trimmed);
     const isSteam = /^\d{17}$/.test(trimmed);
-    if (!isSteam && !normalizedHash) return;
+    if (!isSteam && !normalizedHash && trimmed.length < 2) return;
     // Update the URL; the sync effect picks it up and drives the fetch. Using
     // navigate keeps the address bar, state, and any shared link consistent.
     if (isSteam && trimmed === search.steam && !search.ipHash) {
@@ -554,6 +608,9 @@ function PlayerLookupPage() {
       fetchPlayer(false);
     } else if (!isSteam && normalizedHash === search.ipHash && !search.steam) {
       setIpHashQuery(normalizedHash);
+    } else if (!isSteam && !normalizedHash) {
+      navigate({ search: { steam: undefined, ipHash: undefined } });
+      searchPlayersByName(trimmed);
     } else {
       navigate({
         search: isSteam
@@ -822,7 +879,7 @@ function PlayerLookupPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Paste a 17-digit Steam ID or hashed IP token"
+                    placeholder="Search by Steam ID, hashed IP token, current name, or previous name"
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
@@ -836,18 +893,29 @@ function PlayerLookupPage() {
               </form>
               {input.trim().length > 0 &&
                 !/^\d{17}$/.test(input.trim()) &&
-                !normalizeIpHashToken(input.trim()) && (
+                !normalizeIpHashToken(input.trim()) &&
+                input.trim().length < 2 && (
                 <p className="mt-2 text-[11px] text-warning">
-                  Use a 17-digit Steam ID or a 6-64 char hex hash.
+                  Enter at least 2 characters for name search, or use a Steam ID / IP hash.
                 </p>
               )}
             </div>
           </div>
 
-          {!steamId && !ipHashQuery ? (
+          {!steamId && !ipHashQuery && !nameQuery ? (
             <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
-              Enter a Steam ID or hashed IP token above.
+              Enter a Steam ID, hashed IP token, or player name above.
             </div>
+          ) : nameQuery ? (
+            <NameSearchResults
+              query={nameQuery}
+              loading={nameSearchLoading}
+              error={nameSearchError}
+              matches={nameMatches}
+              onOpenPlayer={(id) =>
+                navigate({ search: { steam: id, ipHash: undefined } })
+              }
+            />
           ) : ipHashQuery ? (
             <IpHashSearchResults
               hash={ipHashQuery}
@@ -1812,6 +1880,65 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
                       : ""}
                     {m.matches
                       ? ` · ${m.matches} connection${m.matches === 1 ? "" : "s"}`
+                      : ""}
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => onOpenPlayer(m.steamId)}>
+                  Open
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NameSearchResults({ query, loading, error, matches, onOpenPlayer }) {
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
+        <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
+          <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+            Name Search
+          </h2>
+          <p className="text-xs text-muted-foreground font-mono">Query: {query}</p>
+        </section>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Searching...</p>
+        ) : error ? (
+          <p className="text-sm text-danger">{error}</p>
+        ) : matches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No players found for this name.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {matches.map((m) => (
+              <li
+                key={m.steamId}
+                className="bg-surface/40 ring-1 ring-border rounded px-3 py-2.5 flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold truncate">
+                      {m.name ?? m.steamId}
+                    </p>
+                    {m.matchType === "previous_name" && (
+                      <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-warning bg-warning/10 ring-warning/30">
+                        Previous Name Match
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                    {m.steamId}
+                    {m.matchType === "previous_name" && m.matchedAlias
+                      ? ` · matched alias: ${m.matchedAlias}`
+                      : ""}
+                    {m.lastSeenAt
+                      ? ` · last seen ${new Date(m.lastSeenAt * 1000).toLocaleDateString()}`
                       : ""}
                   </p>
                 </div>

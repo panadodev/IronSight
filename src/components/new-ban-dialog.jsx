@@ -1,21 +1,21 @@
 import { MediaPicker } from "@/components/media-picker";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
@@ -97,6 +97,11 @@ export function NewBanDialog({
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [linkedMediaIds, setLinkedMediaIds] = useState([]);
   const [linkedMediaItems, setLinkedMediaItems] = useState([]);
+  const [ipBanEligibility, setIpBanEligibility] = useState({
+    loading: false,
+    allowed: true,
+    reason: "",
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -111,6 +116,7 @@ export function NewBanDialog({
   }, [open, serversProp]);
 
   const canIssueIp = orgId ? hasOrgPermission(orgId, "bans_ip") : false;
+  const canOfferIpBan = canIssueIp && (!playerSteamId || ipBanEligibility.allowed);
 
   useEffect(() => {
     if (!open || !orgId) return;
@@ -143,6 +149,59 @@ export function NewBanDialog({
   useEffect(() => {
     if (!canIssueIp && identifierType === "ip") setIdentifierType("steam_id");
   }, [canIssueIp, identifierType]);
+
+  useEffect(() => {
+    if (!canOfferIpBan && identifierType === "ip") {
+      setIdentifierType("steam_id");
+    }
+  }, [canOfferIpBan, identifierType]);
+
+  useEffect(() => {
+    if (!open || actionType !== "ban" || !canIssueIp || !playerSteamId || !orgId) {
+      setIpBanEligibility({ loading: false, allowed: true, reason: "" });
+      return;
+    }
+
+    let cancelled = false;
+    setIpBanEligibility({ loading: true, allowed: false, reason: "" });
+
+    fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/players/${encodeURIComponent(playerSteamId)}/ip-ban-eligibility`,
+      { credentials: "include" },
+    )
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          setIpBanEligibility({
+            loading: false,
+            allowed: false,
+            reason: body?.error ?? "Unable to verify IP ban eligibility.",
+          });
+          return;
+        }
+        setIpBanEligibility({
+          loading: false,
+          allowed: body?.allowed === true,
+          reason:
+            body?.allowed === true
+              ? ""
+              : (body?.reason ?? "IP bans are not available for this player."),
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setIpBanEligibility({
+          loading: false,
+          allowed: false,
+          reason: "Unable to verify IP ban eligibility.",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, actionType, canIssueIp, playerSteamId, orgId]);
 
   useEffect(() => {
     // Keep evidence scoped to the currently selected org.
@@ -333,7 +392,7 @@ export function NewBanDialog({
                   Identifier Type
                 </Label>
                 <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
-                  {["steam_id", "ip"].map((t) => (
+                  {["steam_id", ...(canOfferIpBan ? ["ip"] : [])].map((t) => (
                     <button
                       key={t}
                       onClick={() => setIdentifierType(t)}
@@ -348,6 +407,17 @@ export function NewBanDialog({
                     </button>
                   ))}
                 </div>
+                {playerSteamId && ipBanEligibility.loading && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Checking latest IP classification before allowing IP bans...
+                  </p>
+                )}
+                {playerSteamId && !ipBanEligibility.loading && !canOfferIpBan && (
+                  <p className="text-[10px] text-warning">
+                    {ipBanEligibility.reason ||
+                      "IP ban is unavailable because the latest IP is VPN/proxy-classified."}
+                  </p>
+                )}
                 {identifierType === "ip" && (
                   <p className="text-[10px] text-warning">
                     IP ban: anyone who later connects from this IP is
