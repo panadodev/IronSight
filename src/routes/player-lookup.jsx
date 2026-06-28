@@ -946,8 +946,8 @@ function PlayerLookupPage() {
       <div className="h-screen bg-background flex flex-col overflow-hidden">
         <SiteNav />
         <main className="flex-1 flex flex-col min-h-0">
-          <div className="border-b border-border bg-surface/30 px-6 py-5">
-            <div className="max-w-3xl mx-auto">
+          <div className="border-b border-border bg-surface/30 px-4 sm:px-6 lg:px-8 xl:px-10 py-5">
+            <div className="w-full mx-auto">
               <div className="flex items-center justify-between mb-2">
                 <h1 className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground">
                   Player Lookup
@@ -1095,7 +1095,7 @@ function PlayerLookupPage() {
             <ProtectedStaffProfile playerData={playerData} steamId={steamId} />
           ) : (
             <div className="flex-1 overflow-y-auto">
-              <div className="max-w-7xl mx-auto px-6 py-8">
+              <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-8">
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
                   {/* Left Panel */}
                   <div className="space-y-6 xl:col-span-3">
