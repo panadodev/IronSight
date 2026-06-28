@@ -627,6 +627,8 @@ function PlayerLookupPage() {
   // visible regardless of the toggle.
   const ownOrgIdSet = new Set(orgs.map((o) => o.id));
   const selectedSet = new Set(selectedOrgIds);
+  const selectedIpSet = new Set(selectedOrgIds);
+  if (fetchOrgId) selectedIpSet.add(fetchOrgId);
   // Shared rule for every source-tagged dataset (IPs, offenses, external bans):
   // hide a row only when all its sources are own-orgs the user has unchecked;
   // shared-in (foreign) and untagged rows stay visible.
@@ -639,7 +641,13 @@ function PlayerLookupPage() {
       return ownSources.some((o) => selectedSet.has(o));
     });
 
-  const visibleIpHistory = filterBySource(playerData?.ipHistory);
+  const visibleIpHistory = (playerData?.ipHistory ?? []).filter((e) => {
+    const src = Array.isArray(e.sourceOrgIds) ? e.sourceOrgIds : [];
+    if (src.length === 0) return true;
+    const ownSources = src.filter((o) => ownOrgIdSet.has(o));
+    if (ownSources.length === 0) return true;
+    return ownSources.some((o) => selectedIpSet.has(o));
+  });
   const visibleBmBans = filterBySource(playerData?.bmBans);
   const visibleReports = filterBySource(reports);
 
