@@ -306,6 +306,10 @@ function PlayerLookupPage() {
   // of refetching.
   const lookupOrgs = orgs.filter((o) => hasOrgPermission(o.id, "players_view"));
   const fetchOrgId = lookupOrgs[0]?.id ?? null;
+  const nameSearchOrgIds =
+    selectedOrgIds.filter((id) => hasOrgPermission(id, "players_view")).length > 0
+      ? selectedOrgIds.filter((id) => hasOrgPermission(id, "players_view"))
+      : lookupOrgs.map((o) => o.id);
 
   const banOrgId =
     selectedOrgIds.find(canCreateBansInOrg) ??
@@ -398,7 +402,7 @@ function PlayerLookupPage() {
         setNameSearchError("");
         return;
       }
-      if (!fetchOrgId) {
+      if (nameSearchOrgIds.length === 0) {
         setNameQuery(q);
         setNameMatches([]);
         setNameSearchError("No organization with player lookup access is available.");
@@ -409,17 +413,57 @@ function PlayerLookupPage() {
       setNameQuery(q);
       setNameSearchError("");
       try {
-        const res = await fetch(
-          `/api/orgs/${encodeURIComponent(fetchOrgId)}/players/search?q=${encodeURIComponent(q)}`,
-          { credentials: "include" },
+        const responses = await Promise.all(
+          nameSearchOrgIds.map(async (orgId) => {
+            const res = await fetch(
+              `/api/orgs/${encodeURIComponent(orgId)}/players/search?q=${encodeURIComponent(q)}`,
+              { credentials: "include" },
+            );
+            const body = await res.json().catch(() => ({}));
+            return { ok: res.ok, body };
+          }),
         );
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
+
+        const successful = responses.filter((r) => r.ok);
+        if (successful.length === 0) {
+          const firstError = responses.find((r) => !r.ok)?.body?.error;
           setNameMatches([]);
-          setNameSearchError(body?.error ?? "Failed to search players by name.");
+          setNameSearchError(firstError ?? "Failed to search players by name.");
           return;
         }
-        setNameMatches(Array.isArray(body.players) ? body.players : []);
+
+        const priority = {
+          display_name: 0,
+          previous_name: 1,
+          steam_id: 2,
+        };
+        const merged = new Map();
+        for (const { body } of successful) {
+          for (const player of Array.isArray(body?.players) ? body.players : []) {
+            const steam = String(player?.steamId ?? "");
+            if (!steam) continue;
+            const existing = merged.get(steam);
+            if (!existing) {
+              merged.set(steam, player);
+              continue;
+            }
+            const currentRank = priority[String(player?.matchType ?? "steam_id")] ?? 3;
+            const existingRank = priority[String(existing?.matchType ?? "steam_id")] ?? 3;
+            const currentSeen = Number(player?.lastSeenAt ?? 0);
+            const existingSeen = Number(existing?.lastSeenAt ?? 0);
+            if (currentRank < existingRank || (currentRank === existingRank && currentSeen > existingSeen)) {
+              merged.set(steam, player);
+            }
+          }
+        }
+
+        const mergedList = [...merged.values()].sort((a, b) => {
+          const aRank = priority[String(a?.matchType ?? "steam_id")] ?? 3;
+          const bRank = priority[String(b?.matchType ?? "steam_id")] ?? 3;
+          if (aRank !== bRank) return aRank - bRank;
+          return Number(b?.lastSeenAt ?? 0) - Number(a?.lastSeenAt ?? 0);
+        });
+        setNameMatches(mergedList.slice(0, 20));
       } catch {
         setNameMatches([]);
         setNameSearchError("Failed to search players by name.");
@@ -427,7 +471,7 @@ function PlayerLookupPage() {
         setNameSearchLoading(false);
       }
     },
-    [fetchOrgId],
+    [nameSearchOrgIds],
   );
 
   useEffect(() => {
