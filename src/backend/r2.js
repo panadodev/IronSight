@@ -102,13 +102,10 @@ export function buildObjectKey(orgId, subfolder, filename) {
 
 // ── Presigned single-part PUT (files < 300 MB) ────────────────────────────────
 
-export async function generatePresignedPut(key, mimeType, fileSizeBytes) {
+export async function generatePresignedPut(key, _mimeType, _fileSizeBytes) {
   const cmd = new PutObjectCommand({
     Bucket: env.r2BucketName,
     Key: key,
-    ContentType: mimeType,
-    ContentLength: fileSizeBytes,
-    CacheControl: "public, max-age=31536000, immutable",
   });
   return getSignedUrl(getR2Client(), cmd, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 }
