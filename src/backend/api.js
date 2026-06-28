@@ -13986,12 +13986,14 @@ async function handleSearchOrgPlayers(request, orgId) {
   });
 }
 
-function normalizeIpHashQuery(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-f0-9]/g, "")
-    .slice(0, 64);
+function normalizePlayerIpLookupQuery(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (IP_ADDRESS_RE.test(raw)) return raw;
+
+  const normalizedHash = raw.toLowerCase().replace(/[^a-f0-9]/g, "");
+  if (!/^[a-f0-9]{6,64}$/.test(normalizedHash)) return "";
+  return normalizedHash.toUpperCase();
 }
 
 async function handleSearchPlayersByIpHash(request, hashQuery) {
@@ -14009,17 +14011,30 @@ async function handleSearchPlayersByIpHash(request, hashQuery) {
     return json({ error: "Forbidden: ip_read permission required" }, 403);
   }
 
-  const normalized = normalizeIpHashQuery(hashQuery);
-  if (normalized.length < 6) {
-    return json({ error: "ip hash must be at least 6 hex characters" }, 400);
+  const rawQuery = String(hashQuery ?? "");
+  let decodedQuery = rawQuery;
+  try {
+    decodedQuery = decodeURIComponent(rawQuery);
+  } catch {
+    // Leave the raw segment as-is; validation below will reject it if needed.
   }
+  const normalized = normalizePlayerIpLookupQuery(decodedQuery);
+  if (!normalized) {
+    return json(
+      { error: "IP lookup must be a valid raw IP address or hash token" },
+      400,
+    );
+  }
+
+  const isRawIpSearch = IP_ADDRESS_RE.test(normalized);
+  const hashLookup = isRawIpSearch ? ipHmac(normalized) : normalized;
 
   const entitlement = await entitledIpSourceOrgs(session);
   if (entitlement === null) {
     return json({ error: "Forbidden: ip_read permission required" }, 403);
   }
 
-  const params = [normalized + "%"];
+  const params = [hashLookup + "%"];
   let scopeClause = "";
   if (entitlement !== "ALL") {
     params.push([...entitlement]);
@@ -14055,7 +14070,9 @@ async function handleSearchPlayersByIpHash(request, hashQuery) {
   );
 
   return json({
-    queryHash: normalized.toUpperCase(),
+    queryHash: isRawIpSearch ? hashLookup : normalized,
+    queryInput: normalized,
+    queryType: isRawIpSearch ? "ip" : "hash",
     matches: rows.map((r) => ({
       steamId: String(r.steam_id),
       displayName: String(r.display_name),
@@ -15411,7 +15428,7 @@ async function _handleApiRequest(request) {
 
     // Player lookup
     const playerByHashMatch = pathname.match(
-      /^\/api\/players\/by-ip-hash\/([a-zA-Z0-9_-]+)$/,
+      /^\/api\/players\/by-ip-hash\/([^/]+)$/,
     );
     if (playerByHashMatch && request.method === "GET")
       return handleSearchPlayersByIpHash(request, playerByHashMatch[1]);

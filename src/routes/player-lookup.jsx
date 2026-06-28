@@ -120,6 +120,8 @@ const BAN_STATUS_TONE = {
   success: "text-success bg-success/10 ring-success/30",
 };
 
+const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
+
 
 const Route = createFileRoute("/player-lookup")({
   head: () => ({
@@ -131,15 +133,18 @@ const Route = createFileRoute("/player-lookup")({
         ? s.steam
         : void 0,
     ipHash:
-      typeof s.ipHash === "string" && /^[a-fA-F0-9]{6,64}$/.test(s.ipHash)
-        ? s.ipHash.toUpperCase()
+      typeof s.ipHash === "string" &&
+      (IP_ADDRESS_RE.test(s.ipHash.trim()) || /^[a-fA-F0-9]{6,64}$/.test(s.ipHash))
+        ? normalizePlayerLookupIpQuery(s.ipHash)
         : void 0,
   }),
   component: PlayerLookupPage,
 });
 
-function normalizeIpHashToken(value) {
+function normalizePlayerLookupIpQuery(value) {
   const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (IP_ADDRESS_RE.test(raw)) return raw;
   if (!/^[a-fA-F0-9]{6,64}$/.test(raw)) return "";
   return raw.toUpperCase();
 }
@@ -256,6 +261,7 @@ function PlayerLookupPage() {
   const [ipHashMatches, setIpHashMatches] = useState([]);
   const [ipHashLoading, setIpHashLoading] = useState(false);
   const [ipHashError, setIpHashError] = useState("");
+  const [ipSearchTick, setIpSearchTick] = useState(0);
   const [nameQuery, setNameQuery] = useState("");
   const [nameMatches, setNameMatches] = useState([]);
   const [nameSearchLoading, setNameSearchLoading] = useState(false);
@@ -572,7 +578,7 @@ function PlayerLookupPage() {
     return () => {
       cancelled = true;
     };
-  }, [ipHashQuery, fetchOrgId]);
+  }, [ipHashQuery, fetchOrgId, ipSearchTick]);
 
   // One combined fetch resolves bans + mutes across every org the caller is
   // entitled to (their own orgs + 'bans'/'mutes' shares), each tagged with its
@@ -670,24 +676,24 @@ function PlayerLookupPage() {
   const submit = (e) => {
     e.preventDefault();
     const trimmed = input.trim();
-    const normalizedHash = normalizeIpHashToken(trimmed);
+    const normalizedLookup = normalizePlayerLookupIpQuery(trimmed);
     const isSteam = /^\d{17}$/.test(trimmed);
-    if (!isSteam && !normalizedHash && trimmed.length < 2) return;
+    if (!isSteam && !normalizedLookup && trimmed.length < 2) return;
     // Update the URL; the sync effect picks it up and drives the fetch. Using
     // navigate keeps the address bar, state, and any shared link consistent.
     if (isSteam && trimmed === search.steam && !search.ipHash) {
       // Same ID re-submitted (URL won't change → effect won't fire): refetch.
       fetchPlayer(false);
-    } else if (!isSteam && normalizedHash === search.ipHash && !search.steam) {
-      setIpHashQuery(normalizedHash);
-    } else if (!isSteam && !normalizedHash) {
+    } else if (!isSteam && normalizedLookup && normalizedLookup === search.ipHash && !search.steam) {
+      setIpSearchTick((n) => n + 1);
+    } else if (!isSteam && !normalizedLookup) {
       navigate({ search: { steam: undefined, ipHash: undefined } });
       searchPlayersByName(trimmed);
     } else {
       navigate({
         search: isSteam
           ? { steam: trimmed, ipHash: undefined }
-          : { steam: undefined, ipHash: normalizedHash },
+          : { steam: undefined, ipHash: normalizedLookup },
       });
     }
   };
@@ -1012,7 +1018,7 @@ function PlayerLookupPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Search by Steam ID, hashed IP token, current name, or previous name"
+                    placeholder="Search by Steam ID, raw IP or hashed IP token, current name, or previous name"
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
@@ -1026,10 +1032,10 @@ function PlayerLookupPage() {
               </form>
               {input.trim().length > 0 &&
                 !/^\d{17}$/.test(input.trim()) &&
-                !normalizeIpHashToken(input.trim()) &&
+                !normalizePlayerLookupIpQuery(input.trim()) &&
                 input.trim().length < 2 && (
                 <p className="mt-2 text-[11px] text-warning">
-                  Enter at least 2 characters for name search, or use a Steam ID / IP hash.
+                  Enter at least 2 characters for name search, or use a Steam ID / IP / IP hash.
                 </p>
               )}
             </div>
@@ -1037,7 +1043,7 @@ function PlayerLookupPage() {
 
           {!steamId && !ipHashQuery && !nameQuery ? (
             <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
-              Enter a Steam ID, hashed IP token, or player name above.
+              Enter a Steam ID, raw IP, hashed IP token, or player name above.
             </div>
           ) : nameQuery ? (
             <NameSearchResults
@@ -1979,12 +1985,13 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
 }
 
 function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
+  const isRawIpSearch = IP_ADDRESS_RE.test(hash);
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
         <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
           <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
-            Hashed IP Search
+            {isRawIpSearch ? "Raw IP Search" : "Hashed IP Search"}
           </h2>
           <p className="text-xs text-muted-foreground font-mono">Query: {hash}</p>
         </section>
@@ -1995,7 +2002,7 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
           <p className="text-sm text-danger">{error}</p>
         ) : matches.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No players found for this hash.
+            No players found for this {isRawIpSearch ? "IP" : "hash"}.
           </p>
         ) : (
           <ul className="space-y-2">
