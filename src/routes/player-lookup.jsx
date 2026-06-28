@@ -23,9 +23,10 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
+import { playerSearchHistory, usePlayerSearchHistory } from "@/lib/player-search-history";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, Ban, MessageSquare, MicOff, RefreshCw, Search, UserX } from "lucide-react";
+import { AlertTriangle, Ban, Clock, MessageSquare, MicOff, RefreshCw, Search, UserX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const LENGTH_MINUTES = {
@@ -222,7 +223,29 @@ function PlayerLookupPage() {
     hasOrgPermission,
     orgsLoaded,
     adminableOrgIds,
+    sessionUser,
   } = useAuth();
+
+  const recentHistory = usePlayerSearchHistory();
+  const [recentOpen, setRecentOpen] = useState(false);
+  const recentRef = useRef(null);
+
+  // Initialize the history store with the current user's ID
+  useEffect(() => {
+    if (sessionUser?.userId) playerSearchHistory.init(sessionUser.userId);
+  }, [sessionUser?.userId]);
+
+  // Close the recent dropdown when clicking outside
+  useEffect(() => {
+    if (!recentOpen) return;
+    const handler = (e) => {
+      if (recentRef.current && !recentRef.current.contains(e.target)) {
+        setRecentOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [recentOpen]);
   const tz = useTimezone();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -381,6 +404,14 @@ function PlayerLookupPage() {
           setPlayerData(body);
           if (body.bmRateLimitWarning) setBmRateLimitWarning(true);
           else setBmRateLimitWarning(false);
+          // Record this player in the per-user search history
+          if (body.steamId) {
+            playerSearchHistory.push({
+              steamId: body.steamId,
+              displayName: body.displayName ?? body.steamId,
+              avatarUrl: body.avatarUrl ?? null,
+            });
+          }
         }
       } catch {
         setPlayerError("Failed to fetch player data.");
@@ -910,9 +941,70 @@ function PlayerLookupPage() {
         <main className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border bg-surface/30 px-6 py-5">
             <div className="max-w-3xl mx-auto">
-              <h1 className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground mb-2">
-                Player Lookup
-              </h1>
+              <div className="flex items-center justify-between mb-2">
+                <h1 className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground">
+                  Player Lookup
+                </h1>
+                {recentHistory.length > 0 && (
+                  <div className="relative" ref={recentRef}>
+                    <button
+                      type="button"
+                      onClick={() => setRecentOpen((o) => !o)}
+                      className="inline-flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-mono bg-surface text-muted-foreground ring-1 ring-border rounded-md hover:bg-surface-bright hover:text-foreground transition-colors"
+                    >
+                      <Clock className="size-3 shrink-0" />
+                      Recent
+                    </button>
+                    {recentOpen && (
+                      <div className="absolute right-0 top-full mt-1 w-72 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+                        <p className="px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60 border-b border-border">
+                          Recent Searches
+                        </p>
+                        <ul className="py-1 max-h-80 overflow-y-auto">
+                          {recentHistory.map((entry) => (
+                            <li key={entry.steamId}>
+                              <button
+                                type="button"
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-bright text-left transition-colors"
+                                onClick={() => {
+                                  setRecentOpen(false);
+                                  navigate({ search: { steam: entry.steamId, ipHash: undefined } });
+                                }}
+                              >
+                                {entry.avatarUrl ? (
+                                  <img
+                                    src={entry.avatarUrl}
+                                    alt=""
+                                    className="size-7 rounded ring-1 ring-black/30 shrink-0 object-cover"
+                                  />
+                                ) : (
+                                  <div
+                                    className="size-7 rounded ring-1 ring-black/30 grid place-items-center font-mono font-bold text-background shrink-0 text-[10px]"
+                                    style={{ background: steamIdColor(entry.steamId) }}
+                                  >
+                                    {(entry.displayName ?? entry.steamId)
+                                      .replace(/[\[\]]/g, "")
+                                      .slice(0, 2)
+                                      .toUpperCase()}
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-foreground truncate">
+                                    {entry.displayName}
+                                  </p>
+                                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                                    {entry.steamId}
+                                  </p>
+                                </div>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <form onSubmit={submit} className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
