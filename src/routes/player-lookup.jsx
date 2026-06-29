@@ -8,20 +8,20 @@ import { PlayerFriendsSection } from "@/components/player-friends";
 import { PlayerLinks } from "@/components/player-links";
 import { PlayerNotesSection } from "@/components/player-notes";
 import {
-    Field,
-    OffensesTable,
-    ServerHistorySection,
+  Field,
+  OffensesTable,
+  ServerHistorySection,
 } from "@/components/player-sidebar";
 import { SessionTimeline } from "@/components/session-timeline";
 import { SiteNav } from "@/components/site-nav";
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
 import { playerSearchHistory, usePlayerSearchHistory } from "@/lib/player-search-history";
@@ -2290,18 +2290,18 @@ function ConnectionPointsSection({
               <button
                 type="button"
                 onClick={() => toggle(entry.ipHash)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface/60 transition-colors"
+                className="w-full flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-left hover:bg-surface/60 transition-colors"
               >
                 <span className="text-base leading-none shrink-0" aria-hidden>
                   {flag}
                 </span>
-                <span className="font-mono text-xs text-foreground shrink-0 w-36 truncate">
+                <span className="font-mono text-xs text-foreground shrink-0 w-28 sm:w-36 truncate">
                   {entry.ipHashShort}
                 </span>
-                <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
+                <span className="text-xs text-muted-foreground truncate flex-1 min-w-0 sm:min-w-[12rem]">
                   {entry.country ?? "Unknown location"} · {summary}
                 </span>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 ml-auto">
                   {(entry.isProxy || entry.isVpn) && (
                     <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-danger bg-danger/10 ring-danger/30">
                       {entry.isVpn ? "VPN" : "Proxy"}
