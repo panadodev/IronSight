@@ -267,6 +267,8 @@ function PlayerLookupPage() {
   const [nameMatches, setNameMatches] = useState([]);
   const [nameSearchLoading, setNameSearchLoading] = useState(false);
   const [nameSearchError, setNameSearchError] = useState("");
+  const [bmResolving, setBmResolving] = useState(false);
+  const [bmResolveError, setBmResolveError] = useState("");
 
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
@@ -679,7 +681,41 @@ function PlayerLookupPage() {
     const trimmed = input.trim();
     const normalizedLookup = normalizePlayerLookupIpQuery(trimmed);
     const isSteam = /^\d{17}$/.test(trimmed);
+
+    // BattleMetrics: bare numeric ID (non-Steam) or a battlemetrics.com/players URL.
+    const bmUrlMatch = trimmed.match(
+      /battlemetrics\.com\/players\/([0-9]+)/i,
+    );
+    const isBmNumeric = !isSteam && /^[0-9]{1,15}$/.test(trimmed);
+    const bmId = bmUrlMatch ? bmUrlMatch[1] : isBmNumeric ? trimmed : null;
+
+    if (bmId) {
+      setBmResolveError("");
+      setBmResolving(true);
+      const orgId = fetchOrgId;
+      const queryParam = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+      fetch(`/api/players/by-bm/${encodeURIComponent(bmId)}${queryParam}`, {
+        credentials: "include",
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.steamId) {
+            navigate({ search: { steam: data.steamId, ipHash: undefined } });
+          } else {
+            setBmResolveError(
+              data.error ?? "Could not resolve BattleMetrics ID to a Steam ID.",
+            );
+          }
+        })
+        .catch(() =>
+          setBmResolveError("Network error resolving BattleMetrics ID."),
+        )
+        .finally(() => setBmResolving(false));
+      return;
+    }
+
     if (!isSteam && !normalizedLookup && trimmed.length < 2) return;
+    setBmResolveError("");
     // Update the URL; the sync effect picks it up and drives the fetch. Using
     // navigate keeps the address bar, state, and any shared link consistent.
     if (isSteam && trimmed === search.steam && !search.ipHash) {
@@ -1019,18 +1055,21 @@ function PlayerLookupPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Search by Steam ID, raw IP or hashed IP token, current name, or previous name"
+                    placeholder="Search by Steam ID, BattleMetrics ID or URL, raw IP, IP hash, or player name"
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
                 <button
                   type="submit"
-                  disabled={playerLoading || firstFetch}
+                  disabled={playerLoading || firstFetch || bmResolving}
                   className="px-4 py-2.5 bg-brand text-brand-foreground rounded-md text-sm font-semibold hover:opacity-90 disabled:opacity-50"
                 >
-                  Lookup
+                  {bmResolving ? "Resolving…" : "Lookup"}
                 </button>
               </form>
+              {bmResolveError && (
+                <p className="mt-2 text-[11px] text-destructive">{bmResolveError}</p>
+              )}
               {input.trim().length > 0 &&
                 !/^\d{17}$/.test(input.trim()) &&
                 !normalizePlayerLookupIpQuery(input.trim()) &&

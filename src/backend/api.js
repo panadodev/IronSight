@@ -14036,6 +14036,67 @@ function normalizePlayerIpLookupQuery(value) {
   return normalizedHash;
 }
 
+async function handleResolveBmId(request, bmId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  // Must have players_view in at least one org.
+  const url = new URL(request.url);
+  const orgId = url.searchParams.get("orgId") ?? null;
+  if (
+    orgId
+      ? !orgHasPermission(session, orgId, "players_view")
+      : !session.orgPermissions ||
+        !Object.keys(session.orgPermissions).some((id) =>
+          orgHasPermission(session, id, "players_view"),
+        )
+  ) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+  }
+
+  // 1. Fast path: already in our cache.
+  const cacheRes = await pool.query(
+    `SELECT steam_id FROM player_cache WHERE bm_id = $1 LIMIT 1`,
+    [bmId],
+  );
+  if (cacheRes.rows[0]) {
+    return json({ steamId: String(cacheRes.rows[0].steam_id) });
+  }
+
+  // 2. Ask BattleMetrics.
+  const lookupOrgId =
+    orgId ??
+    Object.keys(session.orgPermissions ?? {}).find((id) =>
+      orgHasPermission(session, id, "players_view"),
+    ) ??
+    null;
+
+  if (!lookupOrgId) {
+    return json({ error: "No suitable org found to resolve BattleMetrics ID" }, 400);
+  }
+
+  try {
+    const bmRes = await bmFetch(
+      lookupOrgId,
+      `https://api.battlemetrics.com/players/${encodeURIComponent(bmId)}?include=identifier`,
+    );
+    if (!bmRes?.ok) {
+      return json({ error: "BattleMetrics player not found" }, 404);
+    }
+    const bmData = await bmRes.json();
+    const steamInc = (bmData.included ?? []).find(
+      (inc) => inc.type === "identifier" && inc.attributes?.type === "steamID",
+    );
+    if (!steamInc?.attributes?.identifier) {
+      return json({ error: "No Steam ID linked to this BattleMetrics player" }, 404);
+    }
+    const steamId = String(steamInc.attributes.identifier);
+    return json({ steamId });
+  } catch {
+    return json({ error: "Failed to resolve BattleMetrics ID" }, 502);
+  }
+}
+
 async function handleSearchPlayersByIpHash(request, hashQuery) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -15472,6 +15533,10 @@ async function _handleApiRequest(request) {
     );
     if (playerByHashMatch && request.method === "GET")
       return handleSearchPlayersByIpHash(request, playerByHashMatch[1]);
+
+    const playerByBmMatch = pathname.match(/^\/api\/players\/by-bm\/(\d+)$/);
+    if (playerByBmMatch && request.method === "GET")
+      return handleResolveBmId(request, playerByBmMatch[1]);
 
     const playerMatch = pathname.match(/^\/api\/players\/(\d+)$/);
     if (playerMatch && request.method === "GET")
