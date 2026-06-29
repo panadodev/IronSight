@@ -13308,22 +13308,31 @@ async function handleGetPlayerChat(request, steamId) {
     ? Math.floor(Number(url.searchParams.get("before")))
     : null;
 
-  if (!orgId) return json({ error: "orgId query parameter required" }, 400);
+  const candidateOrgIds = sessionCandidateOrgIds(session, null).filter(
+    (o) =>
+      orgHasPermission(session, o, "chat_view") ||
+      orgHasPermission(session, o, "players_view") ||
+      orgHasPermission(session, o, "org_manage"),
+  );
 
-  if (
-    !orgHasPermission(session, orgId, "chat_view") &&
-    !orgHasPermission(session, orgId, "players_view") &&
-    !orgHasPermission(session, orgId, "org_manage")
-  )
-    return json(
-      {
-        error:
-          "Forbidden: chat_view, players_view, or org_manage permission required",
-      },
-      403,
-    );
+  let scopedOrgIds;
+  if (orgId) {
+    if (!candidateOrgIds.includes(String(orgId)))
+      return json(
+        {
+          error:
+            "Forbidden: chat_view, players_view, or org_manage permission required",
+        },
+        403,
+      );
+    scopedOrgIds = [String(orgId)];
+  } else {
+    scopedOrgIds = candidateOrgIds;
+  }
 
-  const params = [steamId, orgId, limit + 1];
+  if (scopedOrgIds.length === 0) return json({ lines: [], hasMore: false });
+
+  const params = [steamId, scopedOrgIds, limit + 1];
   let idx = 4;
   let beforeClause = "";
   if (before != null) {
@@ -13337,7 +13346,7 @@ async function handleGetPlayerChat(request, steamId) {
      FROM text_chat_log tcl
      JOIN servers s ON s.server_id = tcl.server_id
      WHERE tcl.steam_id = $1
-       AND s.owner_org_id = $2${beforeClause}
+       AND s.owner_org_id = ANY($2)${beforeClause}
      ORDER BY tcl.created_at DESC
      LIMIT $3`,
     params,

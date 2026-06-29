@@ -2,18 +2,18 @@ import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Activity,
-  ChevronDown,
-  Copy,
-  ExternalLink,
-  FileIcon,
-  Gamepad2,
-  LayoutList,
-  Search,
-  Shield,
-  UserSearch,
-  Users,
-  Wifi,
+    Activity,
+    ChevronDown,
+    Copy,
+    ExternalLink,
+    FileIcon,
+    Gamepad2,
+    LayoutList,
+    Search,
+    Shield,
+    UserSearch,
+    Users,
+    Wifi,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -1124,7 +1124,7 @@ function ExternalLinks({ steamId, size = 13 }) {
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0">
       <a
-        href={`/player-lookup?steam="${steamId}"`}
+        href={`/player-lookup?steam=${encodeURIComponent(steamId)}`}
         title="Open in Player Lookup"
         className="inline-flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground p-1"
       >
@@ -1383,7 +1383,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
           IP-Linked Accounts
         </span>
         <a
-          href={`/player-lookup?steam="${steamId}"`}
+          href={`/player-lookup?steam=${encodeURIComponent(steamId)}`}
           className="text-[9px] font-mono uppercase tracking-wider text-brand hover:underline inline-flex items-center gap-1"
         >
           Lookup <ExternalLink className="size-2.5" aria-hidden />

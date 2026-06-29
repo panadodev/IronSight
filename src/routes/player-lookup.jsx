@@ -123,6 +123,11 @@ const BAN_STATUS_TONE = {
 
 const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^(?=.*:)[\da-fA-F:]+$/;
 
+function normalizeSteamLookupQuery(value) {
+  const raw = String(value ?? "").trim().replace(/^['\"]+|['\"]+$/g, "");
+  return /^\d{17}$/.test(raw) ? raw : "";
+}
+
 
 const Route = createFileRoute("/player-lookup")({
   head: () => ({
@@ -130,8 +135,8 @@ const Route = createFileRoute("/player-lookup")({
   }),
   validateSearch: (s) => ({
     steam:
-      typeof s.steam === "string" && /^\d{17}$/.test(s.steam)
-        ? s.steam
+      typeof s.steam === "string" && normalizeSteamLookupQuery(s.steam)
+        ? normalizeSteamLookupQuery(s.steam)
         : void 0,
     ipHash:
       typeof s.ipHash === "string" &&
@@ -653,10 +658,9 @@ function PlayerLookupPage() {
     }
     let cancelled = false;
     setChatLoading(true);
-    fetch(
-      `/api/players/${encodeURIComponent(steamId)}/chat?orgId=${encodeURIComponent(chatOrgId)}&limit=50`,
-      { credentials: "include" },
-    )
+    fetch(`/api/players/${encodeURIComponent(steamId)}/chat?limit=50`, {
+      credentials: "include",
+    })
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
         if (!r.ok) {
