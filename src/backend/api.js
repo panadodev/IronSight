@@ -12325,6 +12325,24 @@ async function handleGetGlobalpingLimits(request, orgId) {
 // ── Player connect ingest ─────────────────────────────────────────────────────
 
 const CONNECT_INGEST_RATE_LIMIT_PER_MINUTE = 300;
+const SESSION_DISCONNECT_FALLBACK_AFTER_SECONDS = 24 * 60 * 60;
+
+async function closeStaleServerSessions({
+  orgId = null,
+  serverId = null,
+  steamId = null,
+}) {
+  await pool.query(
+    `UPDATE server_player_sessions
+     SET disconnected_at = connected_at + $1
+     WHERE disconnected_at IS NULL
+       AND connected_at <= unix_now() - $1
+       AND ($2::text IS NULL OR org_id = $2::text)
+       AND ($3::uuid IS NULL OR server_id = $3::uuid)
+       AND ($4::text IS NULL OR steam_id = $4::text)`,
+    [SESSION_DISCONNECT_FALLBACK_AFTER_SECONDS, orgId, serverId, steamId],
+  );
+}
 
 // Background IP-ban evasion enforcement. When a player connects from an IP that
 // has an active IP ban in the org, auto-create a regular (Steam-ID) ban record
@@ -12552,6 +12570,11 @@ async function handleIngestPlayerConnect(request) {
         : needsRefresh
           ? "stale(>1h)"
           : "fresh";
+  // If a disconnect event was missed, automatically close stale sessions.
+  await closeStaleServerSessions({
+    serverId: server.server_id,
+    steamId,
+  });
   // Close any dangling open session (handles reconnects after a crash)
   await pool.query(
     `UPDATE server_player_sessions
@@ -12668,6 +12691,10 @@ async function handleIngestPlayerDisconnect(request) {
 
   // Close the active session
   try {
+    await closeStaleServerSessions({
+      serverId: server.server_id,
+      steamId,
+    });
     await pool.query(
       `UPDATE server_player_sessions
        SET disconnected_at = unix_now()
@@ -14208,6 +14235,9 @@ async function handleGetOrgPlayerList(request, orgId) {
     const cached = await redis.get(cacheKey);
     if (cached) return json(JSON.parse(cached));
   } catch {}
+
+  // Reconcile missed disconnect events so online status stays accurate.
+  await closeStaleServerSessions({ orgId });
 
   const [sessionsRes, allServersRes] = await Promise.all([
     pool.query(
