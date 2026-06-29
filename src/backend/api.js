@@ -308,6 +308,23 @@ function normalizeConnectionType(value) {
   return t || "unknown";
 }
 
+function isAllowedIpBanConnectionType(connType) {
+  return connType === "residential" || connType === "business";
+}
+
+function ipBanPolicyReason(connType, isProxyVpn) {
+  if (isProxyVpn) {
+    return "IP bans are only allowed for residential/business IPs. This IP is classified as VPN/proxy.";
+  }
+  if (connType === "mobile") {
+    return "IP bans are only allowed for residential/business IPs. This IP is classified as mobile.";
+  }
+  if (connType === "hosting") {
+    return "IP bans are only allowed for residential/business IPs. This IP is classified as hosting/datacenter.";
+  }
+  return "IP bans are only allowed for residential/business IPs.";
+}
+
 async function evaluateIpBanEligibility(orgId, ip) {
   const normalizedIp = String(ip ?? "").trim();
   if (!IP_ADDRESS_RE.test(normalizedIp)) {
@@ -331,16 +348,16 @@ async function evaluateIpBanEligibility(orgId, ip) {
     const row = cached.rows[0];
     if (row) {
       const connType = normalizeConnectionType(row.conn_type);
-      const blocked =
+      const isProxyVpn =
         Boolean(row.is_proxy) ||
         Boolean(row.is_vpn) ||
         connType === "proxy_vpn";
-      if (blocked) {
+      if (isProxyVpn || !isAllowedIpBanConnectionType(connType)) {
         return {
           eligible: false,
-          reason: "IP bans are blocked for VPN/proxy IPs.",
+          reason: ipBanPolicyReason(connType, isProxyVpn),
           connectionType: connType,
-          isProxyVpn: true,
+          isProxyVpn,
         };
       }
       return {
@@ -390,13 +407,14 @@ async function evaluateIpBanEligibility(orgId, ip) {
   }
 
   const connType = normalizeConnectionType(meta.type);
+  const isProxyVpn = isVpnOrProxyProxycheckMeta(meta);
 
-  if (isVpnOrProxyProxycheckMeta(meta)) {
+  if (isProxyVpn || !isAllowedIpBanConnectionType(connType)) {
     return {
       eligible: false,
-      reason: "IP bans are blocked for VPN/proxy IPs.",
-      connectionType: "proxy_vpn",
-      isProxyVpn: true,
+      reason: ipBanPolicyReason(connType, isProxyVpn),
+      connectionType: isProxyVpn ? "proxy_vpn" : connType,
+      isProxyVpn,
     };
   }
 

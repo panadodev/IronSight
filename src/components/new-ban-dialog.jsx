@@ -496,27 +496,29 @@ export function NewBanDialog({
                 </div>
                 {playerSteamId && ipBanEligibility.loading && (
                   <p className="text-[10px] text-muted-foreground">
-                    Checking latest IP classification before allowing IP bans...
+                    Checking latest IP classification (Residential/Business required) before allowing IP bans...
                   </p>
                 )}
                 {playerSteamId && !ipBanEligibility.loading && !canOfferIpBan && (
                   <p className="text-[10px] text-warning">
                     {ipBanEligibility.reason ||
-                      "IP ban is unavailable because the latest IP is VPN/proxy-classified."}
+                      "IP ban is unavailable because the latest IP is not Residential/Business-classified."}
                   </p>
                 )}
                 {playerSteamId && !ipBanEligibility.loading && ipBanEligibility.latestIp && (
                   <p
                     className={
                       "text-[10px] " +
-                      (ipBanEligibility.isProxyVpn
-                        ? "text-danger"
+                      (!ipBanEligibility.allowed
+                        ? (ipBanEligibility.isProxyVpn ? "text-danger" : "text-warning")
                         : "text-muted-foreground")
                     }
                   >
                     Latest player IP: {ipBanEligibility.latestIp} ({ipConnectionLabel})
-                    {ipBanEligibility.isProxyVpn
-                      ? " - VPN/Proxy detected, IP ban blocked."
+                    {!ipBanEligibility.allowed
+                      ? (ipBanEligibility.isProxyVpn
+                          ? " - VPN/Proxy detected, IP ban blocked."
+                          : " - IP ban blocked: only Residential/Business IPs are allowed.")
                       : " - auto-selected when choosing IP."}
                   </p>
                 )}
