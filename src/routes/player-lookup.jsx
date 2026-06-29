@@ -2285,6 +2285,11 @@ function ConnectionPointsSection({
           const deviceEstimate = pc?.deviceEstimate ?? null;
           const delist = pc?.delist ?? null;
           const operator = pc?.operator ?? null;
+          const operatorName =
+            typeof operator?.name === "string" ? operator.name.trim() : "";
+          const showOperatorInOverview =
+            (entry.isProxy || entry.isVpn || entry.connType === "proxy_vpn") &&
+            operatorName.length > 0;
           const detectionFirstSeen = det?.firstSeen
             ? new Date(det.firstSeen).toLocaleString(undefined, tz ? { timeZone: tz } : {})
             : null;
@@ -2352,6 +2357,7 @@ function ConnectionPointsSection({
                 </span>
                 <span className="text-xs text-muted-foreground truncate flex-1 min-w-0 sm:min-w-[12rem]">
                   {entry.country ?? "Unknown location"} · {summary}
+                  {showOperatorInOverview ? ` · Operator: ${operatorName}` : ""}
                 </span>
                 <div className="flex items-center gap-2 shrink-0 ml-auto">
                   {(entry.isProxy || entry.isVpn) && (
