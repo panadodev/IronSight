@@ -101,6 +101,9 @@ export function NewBanDialog({
     loading: false,
     allowed: true,
     reason: "",
+    latestIp: "",
+    connectionType: "",
+    isProxyVpn: false,
   });
 
   useEffect(() => {
@@ -140,6 +143,14 @@ export function NewBanDialog({
     setRconResults(null);
     setLinkedMediaIds([]);
     setLinkedMediaItems([]);
+    setIpBanEligibility({
+      loading: false,
+      allowed: true,
+      reason: "",
+      latestIp: "",
+      connectionType: "",
+      isProxyVpn: false,
+    });
   }, [open, manageableOrgIds, defaultActionType, defaultIdentifier]);
 
   useEffect(() => {
@@ -158,12 +169,26 @@ export function NewBanDialog({
 
   useEffect(() => {
     if (!open || actionType !== "ban" || !canIssueIp || !playerSteamId || !orgId) {
-      setIpBanEligibility({ loading: false, allowed: true, reason: "" });
+      setIpBanEligibility({
+        loading: false,
+        allowed: true,
+        reason: "",
+        latestIp: "",
+        connectionType: "",
+        isProxyVpn: false,
+      });
       return;
     }
 
     let cancelled = false;
-    setIpBanEligibility({ loading: true, allowed: false, reason: "" });
+    setIpBanEligibility({
+      loading: true,
+      allowed: false,
+      reason: "",
+      latestIp: "",
+      connectionType: "",
+      isProxyVpn: false,
+    });
 
     fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/players/${encodeURIComponent(playerSteamId)}/ip-ban-eligibility`,
@@ -177,6 +202,9 @@ export function NewBanDialog({
             loading: false,
             allowed: false,
             reason: body?.error ?? "Unable to verify IP ban eligibility.",
+            latestIp: "",
+            connectionType: "",
+            isProxyVpn: false,
           });
           return;
         }
@@ -187,6 +215,13 @@ export function NewBanDialog({
             body?.allowed === true
               ? ""
               : (body?.reason ?? "IP bans are not available for this player."),
+          latestIp:
+            typeof body?.latestIp === "string" ? body.latestIp.trim() : "",
+          connectionType:
+            typeof body?.connectionType === "string"
+              ? body.connectionType.trim()
+              : "",
+          isProxyVpn: body?.isProxyVpn === true,
         });
       })
       .catch(() => {
@@ -195,6 +230,9 @@ export function NewBanDialog({
           loading: false,
           allowed: false,
           reason: "Unable to verify IP ban eligibility.",
+          latestIp: "",
+          connectionType: "",
+          isProxyVpn: false,
         });
       });
 
@@ -208,6 +246,51 @@ export function NewBanDialog({
     setLinkedMediaIds([]);
     setLinkedMediaItems([]);
   }, [orgId]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (identifierType === "steam_id") {
+      if (playerSteamId && defaultIdentifier) {
+        setIdentifier(defaultIdentifier);
+      }
+      return;
+    }
+    if (identifierType !== "ip") return;
+    if (!playerSteamId) return;
+    if (!ipBanEligibility.latestIp) return;
+    setIdentifier(ipBanEligibility.latestIp);
+  }, [
+    open,
+    identifierType,
+    playerSteamId,
+    ipBanEligibility.latestIp,
+    defaultIdentifier,
+  ]);
+
+  const ipConnectionLabel = useMemo(() => {
+    switch (ipBanEligibility.connectionType) {
+      case "residential":
+        return "Residential";
+      case "business":
+        return "Business";
+      case "mobile":
+        return "Mobile";
+      case "hosting":
+        return "Hosting";
+      case "proxy_vpn":
+        return "VPN / Proxy";
+      default:
+        return "Unknown";
+    }
+  }, [ipBanEligibility.connectionType]);
+
+  const ipSubmitBlocked =
+    actionType === "ban" &&
+    identifierType === "ip" &&
+    Boolean(playerSteamId) &&
+    (ipBanEligibility.loading ||
+      !ipBanEligibility.allowed ||
+      !ipBanEligibility.latestIp);
 
   const activeConfig = useMemo(() => {
     if (actionType === "mute") return orgMuteConfigs[orgId] ?? null;
@@ -392,12 +475,16 @@ export function NewBanDialog({
                   Identifier Type
                 </Label>
                 <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
-                  {["steam_id", ...(canOfferIpBan ? ["ip"] : [])].map((t) => (
+                    {["steam_id", ...(canIssueIp ? ["ip"] : [])].map((t) => (
                     <button
                       key={t}
-                      onClick={() => setIdentifierType(t)}
+                        onClick={() => {
+                          if (t === "ip" && !canOfferIpBan) return;
+                          setIdentifierType(t);
+                        }}
+                        disabled={t === "ip" && !canOfferIpBan}
                       className={
-                        "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
+                          "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed " +
                         (identifierType === t
                           ? "bg-brand text-brand-foreground"
                           : "text-muted-foreground hover:text-foreground")
@@ -416,6 +503,21 @@ export function NewBanDialog({
                   <p className="text-[10px] text-warning">
                     {ipBanEligibility.reason ||
                       "IP ban is unavailable because the latest IP is VPN/proxy-classified."}
+                  </p>
+                )}
+                {playerSteamId && !ipBanEligibility.loading && ipBanEligibility.latestIp && (
+                  <p
+                    className={
+                      "text-[10px] " +
+                      (ipBanEligibility.isProxyVpn
+                        ? "text-danger"
+                        : "text-muted-foreground")
+                    }
+                  >
+                    Latest player IP: {ipBanEligibility.latestIp} ({ipConnectionLabel})
+                    {ipBanEligibility.isProxyVpn
+                      ? " - VPN/Proxy detected, IP ban blocked."
+                      : " - auto-selected when choosing IP."}
                   </p>
                 )}
                 {identifierType === "ip" && (
@@ -661,7 +763,7 @@ export function NewBanDialog({
               <Button variant="ghost" onClick={onClose} disabled={submitting}>
                 Cancel
               </Button>
-              <Button onClick={submit} disabled={submitting}>
+              <Button onClick={submit} disabled={submitting || ipSubmitBlocked}>
                 {submitting
                   ? "Issuing…"
                   : `Issue ${actionType === "mute" ? "Mute" : "Ban"}`}

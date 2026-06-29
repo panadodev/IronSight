@@ -294,12 +294,28 @@ function isVpnOrProxyProxycheckMeta(meta) {
   );
 }
 
+function normalizeConnectionType(value) {
+  const t = String(value ?? "").trim().toLowerCase();
+  if (t.includes("vpn") || t.includes("proxy") || t === "tor") {
+    return "proxy_vpn";
+  }
+  if (t.includes("residential")) return "residential";
+  if (t.includes("business")) return "business";
+  if (t.includes("mobile")) return "mobile";
+  if (t.includes("hosting") || t.includes("datacenter") || t.includes("server")) {
+    return "hosting";
+  }
+  return t || "unknown";
+}
+
 async function evaluateIpBanEligibility(orgId, ip) {
   const normalizedIp = String(ip ?? "").trim();
   if (!IP_ADDRESS_RE.test(normalizedIp)) {
     return {
       eligible: false,
       reason: "identifier must be a valid IPv4 or IPv6 address",
+      connectionType: "unknown",
+      isProxyVpn: false,
     };
   }
 
@@ -314,17 +330,24 @@ async function evaluateIpBanEligibility(orgId, ip) {
     );
     const row = cached.rows[0];
     if (row) {
+      const connType = normalizeConnectionType(row.conn_type);
       const blocked =
         Boolean(row.is_proxy) ||
         Boolean(row.is_vpn) ||
-        String(row.conn_type ?? "") === "proxy_vpn";
+        connType === "proxy_vpn";
       if (blocked) {
         return {
           eligible: false,
           reason: "IP bans are blocked for VPN/proxy IPs.",
+          connectionType: connType,
+          isProxyVpn: true,
         };
       }
-      return { eligible: true };
+      return {
+        eligible: true,
+        connectionType: connType,
+        isProxyVpn: false,
+      };
     }
   } catch {}
 
@@ -333,6 +356,8 @@ async function evaluateIpBanEligibility(orgId, ip) {
     return {
       eligible: false,
       reason: "Unable to verify IP classification with Proxycheck right now.",
+      connectionType: "unknown",
+      isProxyVpn: false,
     };
   }
 
@@ -341,12 +366,16 @@ async function evaluateIpBanEligibility(orgId, ip) {
     return {
       eligible: false,
       reason: "Unable to verify IP classification with Proxycheck right now.",
+      connectionType: "unknown",
+      isProxyVpn: false,
     };
   }
   if (data.status && data.status !== "ok") {
     return {
       eligible: false,
       reason: "Unable to verify IP classification with Proxycheck right now.",
+      connectionType: "unknown",
+      isProxyVpn: false,
     };
   }
 
@@ -355,17 +384,27 @@ async function evaluateIpBanEligibility(orgId, ip) {
     return {
       eligible: false,
       reason: "Unable to verify IP classification with Proxycheck right now.",
+      connectionType: "unknown",
+      isProxyVpn: false,
     };
   }
+
+  const connType = normalizeConnectionType(meta.type);
 
   if (isVpnOrProxyProxycheckMeta(meta)) {
     return {
       eligible: false,
       reason: "IP bans are blocked for VPN/proxy IPs.",
+      connectionType: "proxy_vpn",
+      isProxyVpn: true,
     };
   }
 
-  return { eligible: true };
+  return {
+    eligible: true,
+    connectionType: connType,
+    isProxyVpn: false,
+  };
 }
 
 function hasDiscordModLegacy(session, orgId) {
@@ -13126,6 +13165,9 @@ async function handleGetPlayerIpBanEligibility(request, orgId, steamId) {
     return json({
       allowed: false,
       reason: "No known recent IP for this player in this org.",
+      latestIp: null,
+      connectionType: "unknown",
+      isProxyVpn: false,
     });
   }
 
@@ -13136,6 +13178,9 @@ async function handleGetPlayerIpBanEligibility(request, orgId, steamId) {
     return json({
       allowed: false,
       reason: "Could not read the player's latest IP for verification.",
+      latestIp: null,
+      connectionType: "unknown",
+      isProxyVpn: false,
     });
   }
 
@@ -13143,6 +13188,9 @@ async function handleGetPlayerIpBanEligibility(request, orgId, steamId) {
   return json({
     allowed: eligibility.eligible,
     reason: eligibility.reason ?? null,
+    latestIp,
+    connectionType: eligibility.connectionType ?? "unknown",
+    isProxyVpn: eligibility.isProxyVpn === true,
   });
 }
 
