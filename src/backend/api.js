@@ -13218,6 +13218,41 @@ async function handleGetPlayerIpBanEligibility(request, orgId, steamId) {
   });
 }
 
+async function handleGetOrgPlayerOnlineStatus(request, orgId, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!orgHasPermission(session, orgId, "players_view")) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+  }
+  if (!/^\d{17}$/.test(String(steamId ?? ""))) {
+    return json({ error: "Invalid Steam ID" }, 400);
+  }
+
+  // Keep online status accurate even if a plugin missed a disconnect event.
+  await closeStaleServerSessions({ orgId, steamId });
+
+  const activeRes = await pool.query(
+    `SELECT sps.server_id::text AS server_id, s.server_name, sps.connected_at
+     FROM server_player_sessions sps
+     JOIN servers s ON s.server_id = sps.server_id
+     WHERE sps.org_id = $1
+       AND sps.steam_id = $2
+       AND sps.disconnected_at IS NULL
+     ORDER BY sps.connected_at DESC
+     LIMIT 1`,
+    [orgId, steamId],
+  );
+
+  const row = activeRes.rows[0] ?? null;
+  return json({
+    isOnline: Boolean(row),
+    serverId: row?.server_id ?? null,
+    serverName: row?.server_name ?? null,
+    connectedAt: row?.connected_at != null ? Number(row.connected_at) : null,
+  });
+}
+
 async function handleRefreshPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -15626,6 +15661,16 @@ async function _handleApiRequest(request) {
         request,
         orgPlayerIpBanEligibilityMatch[1],
         orgPlayerIpBanEligibilityMatch[2],
+      );
+
+    const orgPlayerOnlineStatusMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/(\d+)\/online-status$/,
+    );
+    if (orgPlayerOnlineStatusMatch && request.method === "GET")
+      return handleGetOrgPlayerOnlineStatus(
+        request,
+        orgPlayerOnlineStatusMatch[1],
+        orgPlayerOnlineStatusMatch[2],
       );
 
     // Org player list

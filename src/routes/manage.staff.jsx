@@ -1,52 +1,52 @@
 import { GateRank, SectionHeader } from "@/components/manage-section";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectSeparator,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { useAuth } from "@/lib/auth-context";
 import { invalidateAuthMe } from "@/lib/auth-cache";
+import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { toast } from "sonner";
 import {
-  Activity,
-  ArrowDown,
-  ArrowUpDown,
-  Crown,
-  Eye,
-  Gavel,
-  LogOut,
-  ScrollText,
-  Search,
-  Server,
-  ShieldCheck,
-  Ticket,
-  Trash2,
-  UserPlus,
-  Users,
+    Activity,
+    ArrowDown,
+    ArrowUpDown,
+    Crown,
+    Eye,
+    Gavel,
+    LogOut,
+    ScrollText,
+    Search,
+    Server,
+    ShieldCheck,
+    Ticket,
+    Trash2,
+    UserPlus,
+    Users,
 } from "lucide-react";
-import { useMemo, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/manage/staff")({
   component: StaffPage,
@@ -469,6 +469,16 @@ function StaffPage() {
     });
   }, [members, roleFilter, search]);
 
+  const rosterMembers = useMemo(() => {
+    return [...members].sort((a, b) => {
+      const an = String(a?.username ?? "").toLocaleLowerCase();
+      const bn = String(b?.username ?? "").toLocaleLowerCase();
+      const byName = an.localeCompare(bn);
+      if (byName !== 0) return byName;
+      return String(a?.userId ?? "").localeCompare(String(b?.userId ?? ""));
+    });
+  }, [members]);
+
   const performanceRows = useMemo(() => {
     const statsMap = {};
     for (const s of staffStats?.memberStats ?? []) statsMap[s.userId] = s;
@@ -596,7 +606,7 @@ function StaffPage() {
             No members yet.
           </p>
         ) : (
-          members.map((m) => {
+          rosterMembers.map((m) => {
             const isOwnerRow = m.roleId === "org_owner";
             const isDisabledRow = m.roleId === "org_disabled";
             const isMe = sessionUser?.userId === m.userId;

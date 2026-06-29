@@ -278,6 +278,12 @@ function PlayerLookupPage() {
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
   const [playerError, setPlayerError] = useState(null);
+  const [liveServerStatus, setLiveServerStatus] = useState({
+    isOnline: false,
+    serverId: null,
+    serverName: null,
+    connectedAt: null,
+  });
   const [firstFetch, setFirstFetch] = useState(false);
   const pollRef = useRef(null);
   const pollAttemptsRef = useRef(0);
@@ -361,6 +367,8 @@ function PlayerLookupPage() {
   const canKick = fetchOrgId
     ? hasOrgPermission(fetchOrgId, "player_kick")
     : false;
+  const isLiveOnServer = liveServerStatus.isOnline === true;
+  const liveServerName = liveServerStatus.serverName ?? null;
 
   const canViewChatInOrg = (id) =>
     hasOrgPermission(id, "chat_view") ||
@@ -439,6 +447,26 @@ function PlayerLookupPage() {
     },
     [steamId, fetchOrgId],
   );
+
+  const fetchLiveServerStatus = useCallback(async () => {
+    if (!steamId || !fetchOrgId) return;
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(fetchOrgId)}/players/${encodeURIComponent(steamId)}/online-status`,
+        { credentials: "include" },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body) return;
+      setLiveServerStatus({
+        isOnline: body.isOnline === true,
+        serverId: body.serverId ?? null,
+        serverName: body.serverName ?? null,
+        connectedAt: body.connectedAt ?? null,
+      });
+    } catch {
+      // Keep the previous indicator state on transient network errors.
+    }
+  }, [steamId, fetchOrgId]);
 
   const searchPlayersByName = useCallback(
     async (query) => {
@@ -552,6 +580,25 @@ function PlayerLookupPage() {
     pollAttemptsRef.current = 0;
     fetchPlayer(orgSwitched);
   }, [steamId, fetchOrgId, orgsLoaded, ipHashQuery]);
+
+  useEffect(() => {
+    if (!steamId || !fetchOrgId || !playerData) {
+      setLiveServerStatus({
+        isOnline: false,
+        serverId: null,
+        serverName: null,
+        connectedAt: null,
+      });
+      return;
+    }
+
+    fetchLiveServerStatus();
+    const id = setInterval(() => {
+      fetchLiveServerStatus();
+    }, 15000);
+
+    return () => clearInterval(id);
+  }, [steamId, fetchOrgId, playerData, fetchLiveServerStatus]);
 
   useEffect(() => {
     if (!ipHashQuery || !fetchOrgId) {
@@ -764,7 +811,8 @@ function PlayerLookupPage() {
       setOrgServers(rconServers);
       if (rconServers.length === 1) setKickServerId(rconServers[0].serverId);
       else {
-        const sessionServer = playerData?.bmSessions?.[0]?.serverName;
+        const sessionServer =
+          liveServerName ?? playerData?.bmSessions?.[0]?.serverName;
         const match = rconServers.find(
           (s) => s.serverName.toLowerCase().includes((sessionServer ?? "").toLowerCase().slice(0, 8)),
         );
@@ -1242,6 +1290,24 @@ function PlayerLookupPage() {
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
+                            <span
+                              className={
+                                "inline-block size-2 rounded-full ring-1 ring-black/20 shrink-0 " +
+                                (isLiveOnServer
+                                  ? "bg-success"
+                                  : "bg-muted-foreground/40")
+                              }
+                              title={
+                                isLiveOnServer
+                                  ? `Online${liveServerName ? ` on ${liveServerName}` : " on a server"}`
+                                  : "Offline"
+                              }
+                              aria-label={
+                                isLiveOnServer
+                                  ? `Online${liveServerName ? ` on ${liveServerName}` : " on a server"}`
+                                  : "Offline"
+                              }
+                            />
                             <h2 className="text-lg font-semibold truncate">
                               {playerData.displayName ?? playerData.steamId}
                             </h2>
@@ -1330,9 +1396,7 @@ function PlayerLookupPage() {
                             Ban
                           </button>
                         )}
-                        {canKick &&
-                          playerData.bmSessions?.[0]?.lastSeen &&
-                          Date.now() / 1000 - playerData.bmSessions[0].lastSeen < 300 && (
+                        {canKick && isLiveOnServer && (
                           <button
                             onClick={openKickDialog}
                             className="flex items-center gap-2 px-3 py-2 bg-surface text-foreground ring-1 ring-border rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-surface-bright"
@@ -2355,11 +2419,11 @@ function ConnectionPointsSection({
                 <span className="font-mono text-xs text-foreground shrink-0 w-28 sm:w-36 truncate">
                   {entry.ipHashShort}
                 </span>
-                <span className="text-xs text-muted-foreground truncate flex-1 min-w-0 sm:min-w-[12rem]">
+                <span className="text-xs text-muted-foreground truncate flex-1 min-w-0 sm:min-w-[12rem] pr-2 sm:pr-3">
                   {entry.country ?? "Unknown location"} · {summary}
                   {showOperatorInOverview ? ` · Operator: ${operatorName}` : ""}
                 </span>
-                <div className="flex items-center gap-2 shrink-0 ml-auto">
+                <div className="flex items-center gap-2 shrink-0 ml-auto pl-1">
                   {(entry.isProxy || entry.isVpn) && (
                     <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-danger bg-danger/10 ring-danger/30">
                       {entry.isVpn ? "VPN" : "Proxy"}
