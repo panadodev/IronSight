@@ -358,7 +358,9 @@ function PlayerLookupPage() {
     : false;
 
   const canViewChatInOrg = (id) =>
-    hasOrgPermission(id, "chat_view") || hasOrgPermission(id, "players_view");
+    hasOrgPermission(id, "chat_view") ||
+    hasOrgPermission(id, "players_view") ||
+    hasOrgPermission(id, "org_manage");
   const chatOrgId =
     selectedOrgIds.find(canViewChatInOrg) ??
     lookupOrgs.find((o) => canViewChatInOrg(o.id))?.id ??
@@ -1164,7 +1166,7 @@ function PlayerLookupPage() {
                     )}
 
                     {/* Chat History */}
-                    {!isSupportOnly && (
+                    {chatOrgId && (
                       <section>
                         <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
                           <MessageSquare className="size-3" />

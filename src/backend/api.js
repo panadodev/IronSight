@@ -6,126 +6,126 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import { Pool } from "pg";
 import {
-    AI_MODERATION_CATEGORIES,
-    getOrgModerationRateInfo,
-    getOrgOpenAIKey,
+  AI_MODERATION_CATEGORIES,
+  getOrgModerationRateInfo,
+  getOrgOpenAIKey,
 } from "./ai-moderation.js";
 import {
-    env,
-    PENDING_LINK_COOKIE,
-    SESSION_COOKIE,
-    SYSADMIN,
+  env,
+  PENDING_LINK_COOKIE,
+  SESSION_COOKIE,
+  SYSADMIN,
 } from "./config.js";
 import {
-    auditLog,
-    authenticateServerKey,
-    canManageOrg,
-    canWriteTodos,
-    checkRateLimit,
-    isConfiguredSysAdmin,
-    isGlobalAdmin,
-    orgActorPosition,
-    orgHasPermission,
-    redirect,
-    requireConfiguredSysAdmin,
-    requireSession,
-    sessionRankForOrg,
+  auditLog,
+  authenticateServerKey,
+  canManageOrg,
+  canWriteTodos,
+  checkRateLimit,
+  isConfiguredSysAdmin,
+  isGlobalAdmin,
+  orgActorPosition,
+  orgHasPermission,
+  redirect,
+  requireConfiguredSysAdmin,
+  requireSession,
+  sessionRankForOrg,
 } from "./core.js";
 import {
-    decryptExternalApiKey,
-    decryptIp,
-    decryptPterodactylApiKey,
-    encryptExternalApiKey,
-    encryptIp,
-    encryptPterodactylApiKey,
-    getPterodactylEncryptionKey,
-    ipHmac,
+  decryptExternalApiKey,
+  decryptIp,
+  decryptPterodactylApiKey,
+  encryptExternalApiKey,
+  encryptIp,
+  encryptPterodactylApiKey,
+  getPterodactylEncryptionKey,
+  ipHmac,
 } from "./crypto-keys.js";
 import {
-    diagErrors,
-    diagIncoming,
-    diagOutgoing,
-    diagRecordIncoming,
-    diagRecordOutgoing,
+  diagErrors,
+  diagIncoming,
+  diagOutgoing,
+  diagRecordIncoming,
+  diagRecordOutgoing,
 } from "./diagnostics.js";
 import { bmFetch, proxycheckApiFetch } from "./external-fetch.js";
 import {
-    handleGetBlacklistedWordsForServer,
-    handleIngestChatMessage,
-    handleIngestMuteSync,
-    handleIngestPvp,
-    handleIngestReport,
-    handleIngestServerLog,
-    handleIngestTeamEvent,
-    handleMuteCheck,
-    handleServerHealthCheck,
+  handleGetBlacklistedWordsForServer,
+  handleIngestChatMessage,
+  handleIngestMuteSync,
+  handleIngestPvp,
+  handleIngestReport,
+  handleIngestServerLog,
+  handleIngestTeamEvent,
+  handleMuteCheck,
+  handleServerHealthCheck,
 } from "./handlers/ingest.js";
 import {
-    handleGetChatLogs,
-    handleGetOrgRecentReports,
-    handleGetPvpLogs,
-    handleGetReports,
-    handleGetServerLogs,
-    handleGetTeamEvents,
+  handleGetChatLogs,
+  handleGetOrgRecentReports,
+  handleGetPvpLogs,
+  handleGetReports,
+  handleGetServerLogs,
+  handleGetTeamEvents,
 } from "./handlers/logs.js";
 import { getClientIp, json, parseLimit } from "./http.js";
 import {
-    ensurePlayerCacheRow,
-    getPlayerCacheData,
-    getPlayerDataFromRedis,
-    playerRedisKey,
-    refreshPlayerData,
-    seedFlaggedSteamGroups,
+  ensurePlayerCacheRow,
+  getPlayerCacheData,
+  getPlayerDataFromRedis,
+  playerRedisKey,
+  refreshPlayerData,
+  seedFlaggedSteamGroups,
 } from "./player-store.js";
 import {
-    abortMultipartUpload,
-    buildObjectKey,
-    completeMultipartUpload,
-    DEFAULT_PUBLIC_FILE_LIMIT,
-    DEFAULT_PUBLIC_MAX_FILES,
-    deleteMediaObject,
-    generatePresignedMultipart,
-    generatePresignedPut,
-    getPublicUrl,
-    MAX_FILE_SIZE,
-    MULTIPART_THRESHOLD,
-    PUBLIC_ALLOWED_MIME,
-    r2Configured,
-    STAFF_ALLOWED_MIME,
-    testR2BucketWriteDelete,
+  abortMultipartUpload,
+  buildObjectKey,
+  completeMultipartUpload,
+  DEFAULT_PUBLIC_FILE_LIMIT,
+  DEFAULT_PUBLIC_MAX_FILES,
+  deleteMediaObject,
+  generatePresignedMultipart,
+  generatePresignedPut,
+  getPublicUrl,
+  MAX_FILE_SIZE,
+  MULTIPART_THRESHOLD,
+  PUBLIC_ALLOWED_MIME,
+  r2Configured,
+  STAFF_ALLOWED_MIME,
+  testR2BucketWriteDelete,
 } from "./r2.js";
 import {
-    pool,
-    queue,
-    redis,
-    setPool,
-    setQueue,
-    setRedis,
-    setRedisSub,
+  pool,
+  queue,
+  redis,
+  setPool,
+  setQueue,
+  setRedis,
+  setRedisSub,
 } from "./runtime.js";
 import {
-    ensureRolePermissionSeed,
-    ensureSchema,
-    migrateTimestampsToUnix,
+  ensureRolePermissionSeed,
+  ensureSchema,
+  migrateTimestampsToUnix,
 } from "./schema.js";
 import {
-    evaluateThreatTriggers,
-    getThreatTriggerConfigOrDefault,
-    saveThreatTriggerConfig,
-    TRIGGER_FACTS,
+  evaluateThreatTriggers,
+  getThreatTriggerConfigOrDefault,
+  saveThreatTriggerConfig,
+  TRIGGER_FACTS,
 } from "./threat-triggers.js";
 import {
-    cacheTicket,
-    getCachedTicket,
-    invalidateTicketCache,
-    loadTicketFromDb,
-    loadTicketMedia,
-    loadTicketMessages,
+  cacheTicket,
+  getCachedTicket,
+  invalidateTicketCache,
+  loadTicketFromDb,
+  loadTicketMedia,
+  loadTicketMessages,
 } from "./ticket-store.js";
 import {
-    isValidSteamId,
-    sanitizeNext,
-    sanitizeReportedPlayers,
+  isValidSteamId,
+  sanitizeNext,
+  sanitizeReportedPlayers,
 } from "./validation.js";
 
 const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
@@ -13312,10 +13312,14 @@ async function handleGetPlayerChat(request, steamId) {
 
   if (
     !orgHasPermission(session, orgId, "chat_view") &&
-    !orgHasPermission(session, orgId, "players_view")
+    !orgHasPermission(session, orgId, "players_view") &&
+    !orgHasPermission(session, orgId, "org_manage")
   )
     return json(
-      { error: "Forbidden: chat_view or players_view permission required" },
+      {
+        error:
+          "Forbidden: chat_view, players_view, or org_manage permission required",
+      },
       403,
     );
 
