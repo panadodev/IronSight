@@ -36,8 +36,6 @@ import {
     UserCheck,
     UserMinus,
     Users,
-    Volume2,
-    VolumeX,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -189,17 +187,20 @@ function ActionButtons({
   canTimeout = false,
   canKick = false,
   canBan = false,
+  isStaff = false,
 }) {
   const cls = compact
     ? "p-1 rounded text-muted-foreground transition-colors"
     : "p-1.5 rounded text-muted-foreground transition-colors";
+  const disabledCls = `${cls} opacity-30 cursor-not-allowed`;
   return (
     <div className="flex items-center gap-0.5">
       {canWarn && (
         <button
-          onClick={() => onAction(discordId, username, "warn")}
-          title="Warn (DM)"
-          className={`${cls} hover:bg-sky-500/10 hover:text-sky-400`}
+          onClick={() => !isStaff && onAction(discordId, username, "warn")}
+          title={isStaff ? "Cannot warn a staff member" : "Warn (DM)"}
+          disabled={isStaff}
+          className={isStaff ? disabledCls : `${cls} hover:bg-sky-500/10 hover:text-sky-400`}
         >
           <MessageSquareWarning className="size-3.5" />
         </button>
@@ -207,35 +208,31 @@ function ActionButtons({
       {canTimeout && (
         <>
           <button
-            onClick={() => onAction(discordId, username, "timeout")}
-            title="Timeout"
-            className={`${cls} hover:bg-amber-500/10 hover:text-amber-400`}
+            onClick={() => !isStaff && onAction(discordId, username, "timeout")}
+            title={isStaff ? "Cannot timeout a staff member" : "Timeout"}
+            disabled={isStaff}
+            className={isStaff ? disabledCls : `${cls} hover:bg-amber-500/10 hover:text-amber-400`}
           >
             <Clock className="size-3.5" />
-          </button>
-          <button
-            onClick={() => onAction(discordId, username, "mute")}
-            title="Voice Mute"
-            className={`${cls} hover:bg-amber-500/10 hover:text-amber-400`}
-          >
-            <VolumeX className="size-3.5" />
           </button>
         </>
       )}
       {canKick && (
         <button
-          onClick={() => onAction(discordId, username, "kick")}
-          title="Kick"
-          className={`${cls} hover:bg-orange-500/10 hover:text-orange-400`}
+          onClick={() => !isStaff && onAction(discordId, username, "kick")}
+          title={isStaff ? "Cannot kick a staff member" : "Kick"}
+          disabled={isStaff}
+          className={isStaff ? disabledCls : `${cls} hover:bg-orange-500/10 hover:text-orange-400`}
         >
           <UserMinus className="size-3.5" />
         </button>
       )}
       {canBan && (
         <button
-          onClick={() => onAction(discordId, username, "ban")}
-          title="Ban"
-          className={`${cls} hover:bg-danger/10 hover:text-danger`}
+          onClick={() => !isStaff && onAction(discordId, username, "ban")}
+          title={isStaff ? "Cannot ban a staff member" : "Ban"}
+          disabled={isStaff}
+          className={isStaff ? disabledCls : `${cls} hover:bg-danger/10 hover:text-danger`}
         >
           <Ban className="size-3.5" />
         </button>
@@ -1077,16 +1074,24 @@ function DiscordModPage() {
                     <div className="text-[11px] font-mono text-muted-foreground">
                       {m.discordId}
                     </div>
-                    <ActionButtons
-                      discordId={m.discordId}
-                      username={m.username}
-                      onAction={openAction}
-                      compact
-                      canWarn={canWarn}
-                      canTimeout={canTimeout}
-                      canKick={canKick}
-                      canBan={canBan}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      {m.isStaff && (
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-brand/15 text-brand uppercase tracking-wide">
+                          Staff
+                        </span>
+                      )}
+                      <ActionButtons
+                        discordId={m.discordId}
+                        username={m.username}
+                        onAction={openAction}
+                        compact
+                        canWarn={canWarn}
+                        canTimeout={canTimeout}
+                        canKick={canKick}
+                        canBan={canBan}
+                        isStaff={m.isStaff ?? false}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1337,8 +1342,6 @@ function DiscordModPage() {
                     ? [
                         { value: "timeout", label: "Timeout", icon: Clock },
                         { value: "untimeout", label: "Untimeout", icon: ShieldOff },
-                        { value: "mute", label: "Voice Mute", icon: VolumeX },
-                        { value: "unmute", label: "Unmute", icon: Volume2 },
                       ]
                     : []),
                   ...(canKick

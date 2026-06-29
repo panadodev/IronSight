@@ -6,126 +6,126 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import { Pool } from "pg";
 import {
-  AI_MODERATION_CATEGORIES,
-  getOrgModerationRateInfo,
-  getOrgOpenAIKey,
+    AI_MODERATION_CATEGORIES,
+    getOrgModerationRateInfo,
+    getOrgOpenAIKey,
 } from "./ai-moderation.js";
 import {
-  env,
-  PENDING_LINK_COOKIE,
-  SESSION_COOKIE,
-  SYSADMIN,
+    env,
+    PENDING_LINK_COOKIE,
+    SESSION_COOKIE,
+    SYSADMIN,
 } from "./config.js";
 import {
-  auditLog,
-  authenticateServerKey,
-  canManageOrg,
-  canWriteTodos,
-  checkRateLimit,
-  isConfiguredSysAdmin,
-  isGlobalAdmin,
-  orgActorPosition,
-  orgHasPermission,
-  redirect,
-  requireConfiguredSysAdmin,
-  requireSession,
-  sessionRankForOrg,
+    auditLog,
+    authenticateServerKey,
+    canManageOrg,
+    canWriteTodos,
+    checkRateLimit,
+    isConfiguredSysAdmin,
+    isGlobalAdmin,
+    orgActorPosition,
+    orgHasPermission,
+    redirect,
+    requireConfiguredSysAdmin,
+    requireSession,
+    sessionRankForOrg,
 } from "./core.js";
 import {
-  decryptExternalApiKey,
-  decryptIp,
-  decryptPterodactylApiKey,
-  encryptExternalApiKey,
-  encryptIp,
-  encryptPterodactylApiKey,
-  getPterodactylEncryptionKey,
-  ipHmac,
+    decryptExternalApiKey,
+    decryptIp,
+    decryptPterodactylApiKey,
+    encryptExternalApiKey,
+    encryptIp,
+    encryptPterodactylApiKey,
+    getPterodactylEncryptionKey,
+    ipHmac,
 } from "./crypto-keys.js";
 import {
-  diagErrors,
-  diagIncoming,
-  diagOutgoing,
-  diagRecordIncoming,
-  diagRecordOutgoing,
+    diagErrors,
+    diagIncoming,
+    diagOutgoing,
+    diagRecordIncoming,
+    diagRecordOutgoing,
 } from "./diagnostics.js";
 import { bmFetch, proxycheckApiFetch } from "./external-fetch.js";
 import {
-  handleGetBlacklistedWordsForServer,
-  handleIngestChatMessage,
-  handleIngestMuteSync,
-  handleIngestPvp,
-  handleIngestReport,
-  handleIngestServerLog,
-  handleIngestTeamEvent,
-  handleMuteCheck,
-  handleServerHealthCheck,
+    handleGetBlacklistedWordsForServer,
+    handleIngestChatMessage,
+    handleIngestMuteSync,
+    handleIngestPvp,
+    handleIngestReport,
+    handleIngestServerLog,
+    handleIngestTeamEvent,
+    handleMuteCheck,
+    handleServerHealthCheck,
 } from "./handlers/ingest.js";
 import {
-  handleGetChatLogs,
-  handleGetOrgRecentReports,
-  handleGetPvpLogs,
-  handleGetReports,
-  handleGetServerLogs,
-  handleGetTeamEvents,
+    handleGetChatLogs,
+    handleGetOrgRecentReports,
+    handleGetPvpLogs,
+    handleGetReports,
+    handleGetServerLogs,
+    handleGetTeamEvents,
 } from "./handlers/logs.js";
 import { getClientIp, json, parseLimit } from "./http.js";
 import {
-  ensurePlayerCacheRow,
-  getPlayerCacheData,
-  getPlayerDataFromRedis,
-  playerRedisKey,
-  refreshPlayerData,
-  seedFlaggedSteamGroups,
+    ensurePlayerCacheRow,
+    getPlayerCacheData,
+    getPlayerDataFromRedis,
+    playerRedisKey,
+    refreshPlayerData,
+    seedFlaggedSteamGroups,
 } from "./player-store.js";
 import {
-  abortMultipartUpload,
-  buildObjectKey,
-  completeMultipartUpload,
-  DEFAULT_PUBLIC_FILE_LIMIT,
-  DEFAULT_PUBLIC_MAX_FILES,
-  deleteMediaObject,
-  generatePresignedMultipart,
-  generatePresignedPut,
-  getPublicUrl,
-  MAX_FILE_SIZE,
-  MULTIPART_THRESHOLD,
-  PUBLIC_ALLOWED_MIME,
-  r2Configured,
-  STAFF_ALLOWED_MIME,
-  testR2BucketWriteDelete,
+    abortMultipartUpload,
+    buildObjectKey,
+    completeMultipartUpload,
+    DEFAULT_PUBLIC_FILE_LIMIT,
+    DEFAULT_PUBLIC_MAX_FILES,
+    deleteMediaObject,
+    generatePresignedMultipart,
+    generatePresignedPut,
+    getPublicUrl,
+    MAX_FILE_SIZE,
+    MULTIPART_THRESHOLD,
+    PUBLIC_ALLOWED_MIME,
+    r2Configured,
+    STAFF_ALLOWED_MIME,
+    testR2BucketWriteDelete,
 } from "./r2.js";
 import {
-  pool,
-  queue,
-  redis,
-  setPool,
-  setQueue,
-  setRedis,
-  setRedisSub,
+    pool,
+    queue,
+    redis,
+    setPool,
+    setQueue,
+    setRedis,
+    setRedisSub,
 } from "./runtime.js";
 import {
-  ensureRolePermissionSeed,
-  ensureSchema,
-  migrateTimestampsToUnix,
+    ensureRolePermissionSeed,
+    ensureSchema,
+    migrateTimestampsToUnix,
 } from "./schema.js";
 import {
-  evaluateThreatTriggers,
-  getThreatTriggerConfigOrDefault,
-  saveThreatTriggerConfig,
-  TRIGGER_FACTS,
+    evaluateThreatTriggers,
+    getThreatTriggerConfigOrDefault,
+    saveThreatTriggerConfig,
+    TRIGGER_FACTS,
 } from "./threat-triggers.js";
 import {
-  cacheTicket,
-  getCachedTicket,
-  invalidateTicketCache,
-  loadTicketFromDb,
-  loadTicketMedia,
-  loadTicketMessages,
+    cacheTicket,
+    getCachedTicket,
+    invalidateTicketCache,
+    loadTicketFromDb,
+    loadTicketMedia,
+    loadTicketMessages,
 } from "./ticket-store.js";
 import {
-  isValidSteamId,
-  sanitizeNext,
-  sanitizeReportedPlayers,
+    isValidSteamId,
+    sanitizeNext,
+    sanitizeReportedPlayers,
 } from "./validation.js";
 
 const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
@@ -16597,6 +16597,24 @@ async function handleDiscordModAction(request, orgId) {
   }
 
   const guildId = org.guild_id;
+
+  // Prevent punitive actions against active staff members of this org.
+  const PUNITIVE_ACTIONS = ["timeout", "mute", "kick", "ban"];
+  if (PUNITIVE_ACTIONS.includes(action) && targetDiscordId) {
+    const staffCheck = await pool.query(
+      `SELECT 1 FROM organization_members om
+       JOIN users u ON u.user_id = om.user_id
+       WHERE om.org_id = $1 AND u.discord_id = $2 LIMIT 1`,
+      [orgId, targetDiscordId],
+    );
+    if (staffCheck.rows.length > 0) {
+      return json(
+        { error: "Cannot perform this action on an active staff member." },
+        403,
+      );
+    }
+  }
+
   let discordRes;
 
   switch (action) {
@@ -16655,7 +16673,9 @@ async function handleDiscordModAction(request, orgId) {
         `/guilds/${guildId}/bans/${targetDiscordId}`,
         {
           method: "PUT",
-          body: JSON.stringify({ delete_message_seconds: 0 }),
+          body: JSON.stringify({
+            delete_message_seconds: body.deleteMessages ? 604800 : 0,
+          }),
         },
       );
       if ((discordRes.ok || discordRes.status === 204) && body.deleteMessages) {
@@ -17096,17 +17116,28 @@ async function handleSearchDiscordMembers(request, orgId) {
   if (!res.ok) return json({ members: [] });
 
   const members = await res.json();
+  if (!Array.isArray(members) || members.length === 0) return json({ members: [] });
+
+  // Cross-reference with panel staff so the UI can block punitive actions.
+  const discordIds = members.map((m) => m.user.id);
+  const staffCheckRes = await pool.query(
+    `SELECT u.discord_id FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     WHERE om.org_id = $1 AND u.discord_id = ANY($2::text[])`,
+    [orgId, discordIds],
+  );
+  const staffDiscordIds = new Set(staffCheckRes.rows.map((r) => r.discord_id));
+
   return json({
-    members: Array.isArray(members)
-      ? members.map((m) => ({
-          discordId: m.user.id,
-          username: m.user.global_name ?? m.user.username,
-          nickname: m.nick ?? null,
-          avatar: m.user.avatar
-            ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png?size=64`
-            : null,
-        }))
-      : [],
+    members: members.map((m) => ({
+      discordId: m.user.id,
+      username: m.user.global_name ?? m.user.username,
+      nickname: m.nick ?? null,
+      avatar: m.user.avatar
+        ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png?size=64`
+        : null,
+      isStaff: staffDiscordIds.has(m.user.id),
+    })),
   });
 }
 
