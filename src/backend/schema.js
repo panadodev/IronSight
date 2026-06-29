@@ -1075,6 +1075,24 @@ export async function ensureSchema(pool) {
      ON player_ip_observations(steam_id, ip_hash)`,
   );
 
+  // Per-connection event log for player IP usage. Unlike player_ip_history
+  // (first/last aggregate), this preserves individual connection timestamps so
+  // the UI can show a newest->oldest connection list per IP.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_ip_connection_events (
+      event_id     BIGSERIAL PRIMARY KEY,
+      steam_id     TEXT NOT NULL,
+      ip_hash      TEXT NOT NULL,
+      seen_at      BIGINT NOT NULL DEFAULT unix_now(),
+      server_id    UUID,
+      server_name  TEXT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_ip_connection_events_lookup
+     ON player_ip_connection_events(steam_id, ip_hash, seen_at DESC)`,
+  );
+
   // Which of OUR orgs' BattleMetrics keys surfaced a given external ban. The
   // intrinsic ban facts live once in player_bm_bans_cache (keyed by bm_ban_id);
   // this records the observing org so the lookup unions bans across the caller's

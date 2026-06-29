@@ -12578,6 +12578,12 @@ async function handleIngestPlayerConnect(request) {
       [steamId, ipHash, server.server_id],
     );
 
+    await pool.query(
+      `INSERT INTO player_ip_connection_events (steam_id, ip_hash, seen_at, server_id, server_name)
+       VALUES ($1, $2, unix_now(), $3, $4)`,
+      [steamId, ipHash, server.server_id, server.server_name ?? null],
+    );
+
     // IP-ban evasion enforcement (fire-and-forget so connect stays fast).
     enforceIpBanEvasion(server, steamId, ip, ipHash, playerName).catch((err) =>
       console.error("[ip-ban-evasion] unhandled:", err.message),

@@ -2183,6 +2183,7 @@ function ConnectionPointsSection({
   onSearchHash,
 }) {
   const [expanded, setExpanded] = useState(null);
+  const [expandedHistoryByIp, setExpandedHistoryByIp] = useState({});
   const [copiedHash, setCopiedHash] = useState(null);
 
   const sharedPlayerCountByIp = useMemo(() => {
@@ -2219,7 +2220,13 @@ function ConnectionPointsSection({
     return counts;
   }, [relatedAccounts, currentSteamId]);
 
-  const entries = (ipHistory ?? []).filter((e) => e.ipHashShort);
+  const entries = useMemo(
+    () =>
+      (ipHistory ?? [])
+        .filter((e) => e.ipHashShort)
+        .sort((a, b) => Number(b?.lastSeen ?? 0) - Number(a?.lastSeen ?? 0)),
+    [ipHistory],
+  );
   if (!entries.length) return null;
 
   const toggle = (hash) => setExpanded((prev) => (prev === hash ? null : hash));
@@ -2235,6 +2242,13 @@ function ConnectionPointsSection({
     } catch {
       // no-op: clipboard may be unavailable in some browser contexts
     }
+  };
+
+  const toggleConnectionHistory = (hash) => {
+    setExpandedHistoryByIp((prev) => ({
+      ...prev,
+      [hash]: !prev[hash],
+    }));
   };
 
   return (
@@ -2290,6 +2304,38 @@ function ConnectionPointsSection({
                 timeZone: entry.timezone,
               })
             : null;
+          const connectionHistory = (
+            Array.isArray(entry.connectionHistory) ? entry.connectionHistory : []
+          )
+            .map((event) => ({
+              seenAt: Number(event?.seenAt ?? 0),
+              serverName:
+                typeof event?.serverName === "string" ? event.serverName : null,
+            }))
+            .filter((event) => Number.isFinite(event.seenAt) && event.seenAt > 0)
+            .sort((a, b) => b.seenAt - a.seenAt);
+
+          if (connectionHistory.length === 0) {
+            if (entry.lastSeen) {
+              connectionHistory.push({
+                seenAt: Number(entry.lastSeen),
+                serverName: entry.serverName ?? null,
+              });
+            }
+            if (entry.firstSeen && Number(entry.firstSeen) !== Number(entry.lastSeen)) {
+              connectionHistory.push({
+                seenAt: Number(entry.firstSeen),
+                serverName: entry.serverName ?? null,
+              });
+            }
+            connectionHistory.sort((a, b) => b.seenAt - a.seenAt);
+          }
+
+          const historyExpanded = Boolean(expandedHistoryByIp[entry.ipHash]);
+          const visibleConnectionHistory = historyExpanded
+            ? connectionHistory
+            : connectionHistory.slice(0, 10);
+          const hasHiddenHistory = connectionHistory.length > 10;
 
           return (
             <div key={entry.ipHash}>
@@ -2349,6 +2395,49 @@ function ConnectionPointsSection({
               {isOpen && (
                 <div className="px-4 pb-3 pt-1 bg-surface/30 border-t border-border">
                   <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+                    {connectionHistory.length > 0 && (
+                      <div className="col-span-2 sm:col-span-3 md:col-span-4">
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                          Connection Times ({connectionHistory.length})
+                        </dt>
+                        <dd>
+                          <div className="rounded-md ring-1 ring-border bg-surface/40 divide-y divide-border/60 max-h-56 overflow-y-auto">
+                            {visibleConnectionHistory.map((event, idx) => (
+                              <div
+                                key={`${entry.ipHash}-${event.seenAt}-${idx}`}
+                                className="px-2.5 py-1.5 flex items-center justify-between gap-2"
+                              >
+                                <span className="font-mono text-[11px] text-foreground">
+                                  {new Date(event.seenAt * 1000).toLocaleString(
+                                    undefined,
+                                    tz ? { timeZone: tz } : {},
+                                  )}
+                                </span>
+                                {event.serverName && (
+                                  <span
+                                    className="text-[10px] text-muted-foreground truncate"
+                                    title={event.serverName}
+                                  >
+                                    {event.serverName}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          {hasHiddenHistory && (
+                            <button
+                              type="button"
+                              onClick={() => toggleConnectionHistory(entry.ipHash)}
+                              className="mt-1.5 text-[10px] font-mono uppercase tracking-wider text-brand hover:underline"
+                            >
+                              {historyExpanded
+                                ? "Show Less"
+                                : `Show All (${connectionHistory.length})`}
+                            </button>
+                          )}
+                        </dd>
+                      </div>
+                    )}
                     {det && (
                       <div className="col-span-2 sm:col-span-3 md:col-span-4">
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Specific Detections</dt>

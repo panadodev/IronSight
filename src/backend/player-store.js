@@ -2002,7 +2002,16 @@ async function enrichFriendsWithBans(friendIds) {
 }
 
 export async function getPlayerCacheData(steamId) {
-  const [profile, sessions, bans, friendsMeta, ips, related, sessionWindows] =
+  const [
+    profile,
+    sessions,
+    bans,
+    friendsMeta,
+    ips,
+    ipConnectionEvents,
+    related,
+    sessionWindows,
+  ] =
     await Promise.all([
       pool.query(
         `SELECT *, cache_expires_at < unix_now() AS is_stale
@@ -2055,6 +2064,14 @@ export async function getPlayerCacheData(steamId) {
         [steamId],
       ),
       pool.query(
+        `SELECT ip_hash, seen_at, server_name
+         FROM player_ip_connection_events
+         WHERE steam_id = $1
+         ORDER BY seen_at DESC
+         LIMIT 2000`,
+        [steamId],
+      ),
+      pool.query(
         `SELECT related_bm_id, related_steam_id, related_name, name_aliases,
                 match_count, has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban,
                 name_similarity, shared_ips, non_proxy_linked, mutual_friends,
@@ -2091,6 +2108,19 @@ export async function getPlayerCacheData(steamId) {
     );
     friendsList = fr.rows.map((r) => String(r.friend_steam_id));
     friendsEnriched = await enrichFriendsWithBans(friendsList);
+  }
+
+  const ipConnectionEventsByHash = new Map();
+  for (const row of ipConnectionEvents.rows) {
+    const hash = String(row.ip_hash ?? "");
+    if (!hash) continue;
+    if (!ipConnectionEventsByHash.has(hash)) {
+      ipConnectionEventsByHash.set(hash, []);
+    }
+    ipConnectionEventsByHash.get(hash).push({
+      seenAt: row.seen_at != null ? Number(row.seen_at) : null,
+      serverName: row.server_name ?? null,
+    });
   }
 
   return {
@@ -2157,6 +2187,7 @@ export async function getPlayerCacheData(steamId) {
       sourceOrgIds: Array.isArray(r.source_org_ids)
         ? r.source_org_ids.map(String)
         : [],
+      connectionHistory: ipConnectionEventsByHash.get(String(r.ip_hash)) ?? [],
     })),
     friends: {
       public: friendsMetaRow?.friends_public ?? null,
