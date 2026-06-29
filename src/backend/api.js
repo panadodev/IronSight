@@ -13222,31 +13222,39 @@ async function handleGetOrgPlayerOnlineStatus(request, orgId, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!orgHasPermission(session, orgId, "players_view")) {
-    return json({ error: "Forbidden: players_view permission required" }, 403);
-  }
   if (!/^\d{17}$/.test(String(steamId ?? ""))) {
     return json({ error: "Invalid Steam ID" }, 400);
   }
 
+  // Player lookup is cross-org in practice; resolve live presence across every
+  // org this caller can view so we don't incorrectly show "offline" when the
+  // player is online in another entitled org's server.
+  const candidateOrgs = sessionCandidateOrgIds(session, orgId).filter((o) =>
+    orgHasPermission(session, o, "players_view"),
+  );
+  if (candidateOrgs.length === 0) {
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+  }
+
   // Keep online status accurate even if a plugin missed a disconnect event.
-  await closeStaleServerSessions({ orgId, steamId });
+  await closeStaleServerSessions({ steamId });
 
   const activeRes = await pool.query(
-    `SELECT sps.server_id::text AS server_id, s.server_name, sps.connected_at
+    `SELECT sps.org_id, sps.server_id::text AS server_id, s.server_name, sps.connected_at
      FROM server_player_sessions sps
      JOIN servers s ON s.server_id = sps.server_id
-     WHERE sps.org_id = $1
-       AND sps.steam_id = $2
+     WHERE sps.steam_id = $1
+       AND sps.org_id = ANY($2::text[])
        AND sps.disconnected_at IS NULL
      ORDER BY sps.connected_at DESC
      LIMIT 1`,
-    [orgId, steamId],
+    [steamId, candidateOrgs],
   );
 
   const row = activeRes.rows[0] ?? null;
   return json({
     isOnline: Boolean(row),
+    orgId: row?.org_id ?? null,
     serverId: row?.server_id ?? null,
     serverName: row?.server_name ?? null,
     connectedAt: row?.connected_at != null ? Number(row.connected_at) : null,
