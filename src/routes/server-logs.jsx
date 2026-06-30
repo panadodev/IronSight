@@ -262,8 +262,7 @@ function ServerLogsPage() {
 
   const eventTypes = useMemo(() => {
     const counts = {};
-    for (const l of logs)
-      counts[l.eventType] = (counts[l.eventType] ?? 0) + 1;
+    for (const l of logs) counts[l.eventType] = (counts[l.eventType] ?? 0) + 1;
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .map(([t]) => t);
@@ -438,9 +437,21 @@ function ServerLogsPage() {
                           <thead>
                             <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
                               {[
-                                { key: "createdAt", label: "When", cls: "w-28" },
-                                { key: "eventType", label: "Event", cls: "w-32" },
-                                { key: "serverName", label: "Server", cls: "w-24" },
+                                {
+                                  key: "createdAt",
+                                  label: "When",
+                                  cls: "w-28",
+                                },
+                                {
+                                  key: "eventType",
+                                  label: "Event",
+                                  cls: "w-32",
+                                },
+                                {
+                                  key: "serverName",
+                                  label: "Server",
+                                  cls: "w-24",
+                                },
                                 { key: "admin", label: "Admin", cls: "w-36" },
                                 { key: "target", label: "Target", cls: "w-36" },
                               ].map(({ key, label, cls }) => (
@@ -522,9 +533,7 @@ function ServerLogsPage() {
 
                       {visibleCount < sortedLogs.length && (
                         <button
-                          onClick={() =>
-                            setVisibleCount((n) => n + PAGE_SIZE)
-                          }
+                          onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
                           className="mt-3 flex items-center gap-1 text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
                         >
                           <ChevronDown className="size-3" />

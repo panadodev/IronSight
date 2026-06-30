@@ -3,7 +3,11 @@
 
 import { pool, redis } from "../runtime.js";
 import { json } from "../http.js";
-import { authenticateServerKey, checkRateLimit, sendDiscordDm } from "../core.js";
+import {
+  authenticateServerKey,
+  checkRateLimit,
+  sendDiscordDm,
+} from "../core.js";
 import { evaluateThreatTriggers } from "../threat-triggers.js";
 import { runChatModerationAsync } from "../ai-moderation.js";
 
@@ -39,7 +43,8 @@ export async function handleServerHealthCheck(request) {
   const prevPing = prevPingRes.rows[0]?.last_health_ping;
   const nowSec = Math.floor(Date.now() / 1000);
   const wasStale =
-    prevPing != null && nowSec - Number(prevPing) > RECOVERY_STALE_THRESHOLD_SECONDS;
+    prevPing != null &&
+    nowSec - Number(prevPing) > RECOVERY_STALE_THRESHOLD_SECONDS;
 
   await pool.query(
     `UPDATE servers SET last_health_ping = unix_now() WHERE server_id = $1`,
@@ -69,7 +74,10 @@ export async function handleServerHealthCheck(request) {
           [server.owner_org_id, server.server_id],
         );
       } catch (err) {
-        console.error(`[health-check] recovery DM failed for ${server.server_id}:`, err.message);
+        console.error(
+          `[health-check] recovery DM failed for ${server.server_id}:`,
+          err.message,
+        );
       }
     });
   }
@@ -595,7 +603,6 @@ export async function handleGetBlacklistedWordsForServer(request) {
   });
 }
 
-
 export async function handleIngestServerLog(request) {
   const { server, error } = await authenticateServerKey(request);
   if (error) return error;
@@ -615,7 +622,9 @@ export async function handleIngestServerLog(request) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const eventType = String(body?.event_type ?? "").trim().toUpperCase();
+  const eventType = String(body?.event_type ?? "")
+    .trim()
+    .toUpperCase();
   if (!eventType) return json({ error: "event_type is required" }, 400);
 
   const adminSteamId =
@@ -641,7 +650,10 @@ export async function handleIngestServerLog(request) {
 
   let coordinates = null;
   if (body?.coordinates != null) {
-    if (typeof body.coordinates === "object" && !Array.isArray(body.coordinates)) {
+    if (
+      typeof body.coordinates === "object" &&
+      !Array.isArray(body.coordinates)
+    ) {
       const x = Number(body.coordinates.x);
       const y = Number(body.coordinates.y);
       const z = Number(body.coordinates.z);

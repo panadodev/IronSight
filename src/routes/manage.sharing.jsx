@@ -6,7 +6,14 @@ import { SectionHeader } from "@/components/manage-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, Plus, Check, X, ArrowRight, ArrowLeft } from "lucide-react";
+import {
+  ShieldAlert,
+  Plus,
+  Check,
+  X,
+  ArrowRight,
+  ArrowLeft,
+} from "lucide-react";
 
 const Route = createFileRoute("/manage/sharing")({
   component: SharingPage,
@@ -235,16 +242,16 @@ function SharingPage() {
             </span>
           </div>
         )}
-        {createError && <p className="text-xs text-destructive">{createError}</p>}
+        {createError && (
+          <p className="text-xs text-destructive">{createError}</p>
+        )}
         <p className="text-[11px] text-muted-foreground">
           The partner org must accept the offer before any data is shared. Ask
           them for their organization ID.
         </p>
       </div>
 
-      {loading && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
+      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* Incoming — others sharing with us */}

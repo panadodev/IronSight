@@ -314,7 +314,9 @@ async function verifyProxycheckResponseSignature(resp) {
   try {
     bodyText = await resp.text();
   } catch {
-    console.warn("[proxycheck] unable to read response body for signature verification");
+    console.warn(
+      "[proxycheck] unable to read response body for signature verification",
+    );
     return null;
   }
 

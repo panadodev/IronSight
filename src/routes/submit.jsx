@@ -2,10 +2,24 @@ import { SiteNav } from "@/components/site-nav";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
-const PUBLIC_ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "mp4", "webm", "mov"];
+const PUBLIC_ALLOWED_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "mp4",
+  "webm",
+  "mov",
+];
 const PUBLIC_ALLOWED_MIME = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp",
-  "video/mp4", "video/webm", "video/quicktime",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
 ]);
 
 function formatBytes(b) {
@@ -22,12 +36,12 @@ function putToPresignedUrl(url, file, onProgress) {
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
-    xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
+    xhr.onload = () =>
+      xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
     xhr.onerror = () => reject(new Error("Network error"));
     // Keep presigned PUT requests header-minimal: avoid implicit Content-Type.
-    const body = file instanceof Blob && file.type
-      ? file.slice(0, file.size, "")
-      : file;
+    const body =
+      file instanceof Blob && file.type ? file.slice(0, file.size, "") : file;
     xhr.send(body);
   });
 }
@@ -204,7 +218,9 @@ function SubmitPage() {
 
   async function uploadAttachment(att, index) {
     const updateAtt = (patch) =>
-      setAttachments((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+      setAttachments((prev) =>
+        prev.map((a, i) => (i === index ? { ...a, ...patch } : a)),
+      );
 
     updateAtt({ status: "preparing" });
     try {
@@ -221,7 +237,8 @@ function SubmitPage() {
         }),
       });
       const prepareBody = await prepareRes.json().catch(() => null);
-      if (!prepareRes.ok) throw new Error(prepareBody?.error ?? "Failed to prepare upload");
+      if (!prepareRes.ok)
+        throw new Error(prepareBody?.error ?? "Failed to prepare upload");
 
       // Step 2: PUT file directly to R2.
       updateAtt({ status: "uploading", progress: 0 });
@@ -239,7 +256,11 @@ function SubmitPage() {
       });
       if (!confirmRes.ok) throw new Error("Failed to confirm upload");
 
-      updateAtt({ status: "done", progress: 100, mediaId: prepareBody.mediaId });
+      updateAtt({
+        status: "done",
+        progress: 100,
+        mediaId: prepareBody.mediaId,
+      });
     } catch (err) {
       updateAtt({ status: "error", error: err.message ?? "Upload failed" });
     }
@@ -249,10 +270,19 @@ function SubmitPage() {
     const toAdd = Array.from(files)
       .filter((f) => {
         const ext = f.name.split(".").pop()?.toLowerCase();
-        return PUBLIC_ALLOWED_MIME.has(f.type) && PUBLIC_ALLOWED_EXTENSIONS.includes(ext);
+        return (
+          PUBLIC_ALLOWED_MIME.has(f.type) &&
+          PUBLIC_ALLOWED_EXTENSIONS.includes(ext)
+        );
       })
       .slice(0, 5 - attachments.length);
-    const newAtts = toAdd.map((file) => ({ file, status: "pending", progress: 0, mediaId: null, error: null }));
+    const newAtts = toAdd.map((file) => ({
+      file,
+      status: "pending",
+      progress: 0,
+      mediaId: null,
+      error: null,
+    }));
     setAttachments((prev) => [...prev, ...newAtts]);
   }
 
@@ -296,15 +326,22 @@ function SubmitPage() {
       .map((a, i) => (a.status === "pending" ? i : null))
       .filter((i) => i !== null);
     if (pendingIndices.length > 0) {
-      await Promise.all(pendingIndices.map((i) => uploadAttachment(attachments[i], i)));
+      await Promise.all(
+        pendingIndices.map((i) => uploadAttachment(attachments[i], i)),
+      );
     }
 
     // Re-read state after uploads complete.
     const latestAtts = await new Promise((resolve) => {
-      setAttachments((prev) => { resolve(prev); return prev; });
+      setAttachments((prev) => {
+        resolve(prev);
+        return prev;
+      });
     });
     if (latestAtts.some((a) => a.status === "error")) {
-      setSubmitError("One or more attachments failed to upload. Remove them or try again.");
+      setSubmitError(
+        "One or more attachments failed to upload. Remove them or try again.",
+      );
       setSubmitting(false);
       return;
     }
@@ -898,31 +935,58 @@ function SubmitPage() {
           {selectedType && session?.steamId && (
             <section className="space-y-2">
               <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                Attachments <span className="normal-case font-normal text-muted-foreground/60">(optional — images &amp; videos only)</span>
+                Attachments{" "}
+                <span className="normal-case font-normal text-muted-foreground/60">
+                  (optional — images &amp; videos only)
+                </span>
               </label>
               {attachments.length > 0 && (
                 <ul className="space-y-1.5">
                   {attachments.map((att, i) => (
-                    <li key={i} className="flex items-center gap-2 bg-surface/30 rounded-md px-3 py-2 text-sm">
-                      <span className="flex-1 truncate text-xs">{att.file.name}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{formatBytes(att.file.size)}</span>
+                    <li
+                      key={i}
+                      className="flex items-center gap-2 bg-surface/30 rounded-md px-3 py-2 text-sm"
+                    >
+                      <span className="flex-1 truncate text-xs">
+                        {att.file.name}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {formatBytes(att.file.size)}
+                      </span>
                       {att.status === "pending" && (
-                        <span className="text-[10px] text-muted-foreground">Pending</span>
-                      )}
-                      {(att.status === "preparing" || att.status === "uploading" || att.status === "confirming") && (
                         <span className="text-[10px] text-muted-foreground">
-                          {att.status === "preparing" ? "Preparing…" : att.status === "confirming" ? "Finalizing…" : `${att.progress}%`}
+                          Pending
+                        </span>
+                      )}
+                      {(att.status === "preparing" ||
+                        att.status === "uploading" ||
+                        att.status === "confirming") && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {att.status === "preparing"
+                            ? "Preparing…"
+                            : att.status === "confirming"
+                              ? "Finalizing…"
+                              : `${att.progress}%`}
                         </span>
                       )}
                       {att.status === "done" && (
                         <span className="text-[10px] text-emerald-500">✓</span>
                       )}
                       {att.status === "error" && (
-                        <span className="text-[10px] text-danger truncate max-w-[120px]" title={att.error}>{att.error}</span>
+                        <span
+                          className="text-[10px] text-danger truncate max-w-[120px]"
+                          title={att.error}
+                        >
+                          {att.error}
+                        </span>
                       )}
                       <button
                         type="button"
-                        onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                        onClick={() =>
+                          setAttachments((prev) =>
+                            prev.filter((_, j) => j !== i),
+                          )
+                        }
                         disabled={submitting}
                         className="text-muted-foreground hover:text-danger transition-colors"
                       >
@@ -948,10 +1012,14 @@ function SubmitPage() {
                 className="hidden"
                 multiple
                 accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
-                onChange={(e) => { addAttachmentFiles(e.target.files); e.target.value = ""; }}
+                onChange={(e) => {
+                  addAttachmentFiles(e.target.files);
+                  e.target.value = "";
+                }}
               />
               <p className="text-[10px] text-muted-foreground">
-                Supported: jpg, png, gif, webp, mp4, webm, mov · Max 100 MB each · Up to 5 files · Uploaded securely to cloud storage
+                Supported: jpg, png, gif, webp, mp4, webm, mov · Max 100 MB each
+                · Up to 5 files · Uploaded securely to cloud storage
               </p>
             </section>
           )}

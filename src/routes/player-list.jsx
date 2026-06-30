@@ -3,24 +3,24 @@ import { SiteNav } from "@/components/site-nav";
 import { SteamRequiredGate } from "@/components/steam-required-gate";
 import { Input } from "@/components/ui/input";
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-    ArrowDown,
-    ArrowUp,
-    Check,
-    ChevronDown,
-    Copy,
-    Flag,
-    KeyRound,
-    RefreshCw,
-    ShieldAlert,
-    Trash2,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Copy,
+  Flag,
+  KeyRound,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -215,7 +215,15 @@ function PlayerListPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [serverIds, query, onlineOnly, includeBanned, sortKey, sortDir, selectedOrgIds]);
+  }, [
+    serverIds,
+    query,
+    onlineOnly,
+    includeBanned,
+    sortKey,
+    sortDir,
+    selectedOrgIds,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -351,425 +359,431 @@ function PlayerListPage() {
         <SiteNav />
         <div className="flex-1 overflow-hidden flex">
           <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-xl font-bold tracking-tight">
-                  Player List
-                </h1>
-                <p className="text-xs text-muted-foreground mt-1">
-                  All players seen on your servers. Sus score is based on Steam
-                  hours, K/D ratio, and report count.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                {lastRefresh && (
-                  <span className="text-[10px] font-mono text-muted-foreground">
-                    {players.length} players ·{" "}
-                    {players.filter((p) => p.isOnline).length} online
-                  </span>
-                )}
-                <button
-                  onClick={fetchData}
-                  disabled={loading}
-                  className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface text-xs disabled:opacity-50"
-                  title="Refresh player list"
-                >
-                  <RefreshCw
-                    className={`size-3 ${loading ? "animate-spin" : ""}`}
-                  />
-                  Refresh
-                </button>
-                {sessionUser?.isSysAdmin && (
-                  <button
-                    onClick={handleClearAllCache}
-                    disabled={cacheClearBusy}
-                    className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface hover:text-danger hover:ring-danger/40 text-xs disabled:opacity-50 transition-colors"
-                    title="Clear all player cache (sysadmin)"
-                  >
-                    <Trash2 className="size-3" />
-                    Clear Cache
-                  </button>
-                )}
-                {sessionUser?.isSysAdmin && (
-                  <button
-                    onClick={handleResetKeyLimits}
-                    disabled={keyResetBusy}
-                    className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface hover:text-brand hover:ring-brand/40 text-xs disabled:opacity-50 transition-colors"
-                    title="Reset external API key rate limits (sysadmin)"
-                  >
-                    <KeyRound className="size-3" />
-                    Reset Key Limits
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* RCON errors */}
-            {rconErrors.length > 0 && (
-              <div className="rounded-md ring-1 ring-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning space-y-0.5">
-                {rconErrors.map((s) => (
-                  <div key={s.serverId}>
-                    <span className="font-medium">{s.serverName}</span>
-                    {" — "}
-                    {s.rconError}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Error */}
-            {error && (
-              <div className="rounded-md ring-1 ring-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">
-                Failed to load player list: {error}
-              </div>
-            )}
-
-            {/* Filters */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <Input
-                placeholder="Search name or Steam ID…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="h-9 max-w-xs"
-              />
-              <button
-                onClick={() => setOnlineOnly((v) => !v)}
-                aria-pressed={onlineOnly}
-                className={
-                  "flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 text-xs transition-colors " +
-                  (onlineOnly
-                    ? "ring-success/40 bg-success/10 text-success"
-                    : "ring-border bg-surface/40 hover:bg-surface text-muted-foreground")
-                }
-                title="Show only players currently online"
-              >
-                <span
-                  className={
-                    "size-1.5 rounded-full " +
-                    (onlineOnly ? "bg-success" : "bg-muted-foreground/50")
-                  }
-                />
-                Online only
-              </button>
-              <button
-                onClick={() => setIncludeBanned((v) => !v)}
-                aria-pressed={includeBanned}
-                className={
-                  "flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 text-xs transition-colors " +
-                  (includeBanned
-                    ? "ring-warning/40 bg-warning/10 text-warning"
-                    : "ring-border bg-surface/40 hover:bg-surface text-muted-foreground")
-                }
-                title="Include actively banned players in the list"
-              >
-                <span
-                  className={
-                    "size-1.5 rounded-full " +
-                    (includeBanned ? "bg-warning" : "bg-muted-foreground/50")
-                  }
-                />
-                Include banned
-              </button>
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
-                Sorted by {SORT_LABEL[sortKey]} {sortDir === "desc" ? "↓" : "↑"}{" "}
-                {"\xB7"} click a column to change
-              </div>
-            </div>
-
-            {/* Loading skeleton */}
-            {loading && players.length === 0 && (
-              <div className="rounded-md ring-1 ring-border bg-surface/40 px-4 py-10 text-center text-xs text-muted-foreground animate-pulse">
-                Loading player list…
-              </div>
-            )}
-
-            {/* Table */}
-            {(!loading || players.length > 0) && (
-              <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                <div className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
-                  <HeaderCell
-                    label="Player"
-                    k="name"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                  />
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        className={
-                          "px-1 flex items-center gap-1 hover:text-foreground transition-colors text-left " +
-                          (effectiveArr.length !== visibleServerIds.length
-                            ? "text-brand"
-                            : "")
-                        }
-                        title={serverLabel}
-                      >
-                        <span>Server</span>
-                        <ChevronDown className="size-3" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-72 p-2">
-                      <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
-                        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                          Filter servers
-                        </span>
-                        <button
-                          onClick={() => {
-                            setServerIds(
-                              effectiveArr.length === visibleServerIds.length
-                                ? []
-                                : visibleServerIds,
-                            );
-                          }}
-                          className="text-[10px] font-semibold text-brand hover:underline"
-                        >
-                          {effectiveArr.length === visibleServerIds.length
-                            ? "Clear"
-                            : "Select all"}
-                        </button>
-                      </div>
-                      <div className="space-y-0.5">
-                        {visibleServers.length === 0 && (
-                          <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                            No servers in the selected orgs.
-                          </div>
-                        )}
-                        {visibleServers.map((s) => {
-                          const checked = effectiveServerIds.has(s.serverId);
-                          const org = orgs.find((o) => o.id === s.ownerOrgId);
-                          const status = serverStatuses.find(
-                            (st) => st.serverId === s.serverId,
-                          );
-                          return (
-                            <button
-                              key={s.serverId}
-                              onClick={() => toggleServer(s.serverId)}
-                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
-                            >
-                              <span
-                                className={
-                                  "size-3.5 rounded-sm ring-1 " +
-                                  (checked
-                                    ? "bg-brand ring-brand"
-                                    : "ring-border")
-                                }
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs font-medium truncate normal-case tracking-normal">
-                                  {s.serverName}
-                                </div>
-                                <div className="text-[9px] font-mono text-muted-foreground normal-case tracking-normal">
-                                  {org?.short}
-                                  {status?.rconError ? (
-                                    <span className="text-danger ml-1">
-                                      · RCON error
-                                    </span>
-                                  ) : status ? (
-                                    <span className="ml-1">
-                                      · {status.playerCount} online
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-
-                  <HeaderCell
-                    label="Sus"
-                    k="susScore"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
-                  <HeaderCell
-                    label="Kills"
-                    k="kills"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
-                  <HeaderCell
-                    label="Deaths"
-                    k="deaths"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
-                  <HeaderCell
-                    label="K/D"
-                    k="kd"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
-                  <HeaderCell
-                    label="Steam h"
-                    k="rustHours"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
-                  <HeaderCell
-                    label="BM h"
-                    k="bmHours"
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onClick={setSort}
-                    align="right"
-                  />
-                  <div className="px-1 text-right">Proxy</div>
+            <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight">
+                    Player List
+                  </h1>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    All players seen on your servers. Sus score is based on
+                    Steam hours, K/D ratio, and report count.
+                  </p>
                 </div>
-
-                <div className="divide-y divide-border/60">
-                  {pageRows.map((p) => {
-                    const avatarColor = steamIdAvatarColor(p.steamId);
-                    return (
-                      <div
-                        key={p.steamId}
-                        className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          {p.avatarUrl ? (
-                            <img
-                              src={p.avatarUrl}
-                              alt={p.name}
-                              className="size-7 rounded ring-1 ring-black/40 shrink-0 object-cover"
-                            />
-                          ) : (
-                            <div
-                              className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[10px] text-background shrink-0"
-                              style={{ background: avatarColor }}
-                            >
-                              {p.name
-                                .replace(/\[[^\]]*\]\s*/g, "")
-                                .slice(0, 2)
-                                .toUpperCase() || "??"}
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="font-medium truncate flex items-center gap-1.5">
-                              <span className="truncate">{p.name}</span>
-                              <PlayerLinks steamId={p.steamId} />
-                            </div>
-                            <div className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1">
-                              {p.steamId}
-                              <button
-                                onClick={() => copySteamId(p.steamId)}
-                                className="inline-flex items-center justify-center rounded hover:text-foreground transition-colors"
-                                title="Copy Steam ID"
-                              >
-                                {copiedId === p.steamId ? (
-                                  <Check className="size-3 text-success" />
-                                ) : (
-                                  <Copy className="size-3" />
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        <div
-                          className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1"
-                          title={p.serverName ?? ""}
-                        >
-                          {p.isOnline ? (
-                            <>
-                              <span className="size-1.5 rounded-full bg-success shrink-0" />
-                              {p.serverName.replace(/^\[[^\]]+\]\s*/, "")}
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground/40">—</span>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <span
-                            className={
-                              "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
-                              susColor(p.susScore)
-                            }
-                          >
-                            {Math.min(p.susScore, 100)}
-                          </span>
-                        </div>
-                        <div className="text-right font-mono">{p.kills}</div>
-                        <div className="text-right font-mono">{p.deaths}</div>
-                        <div className="text-right font-mono">
-                          {p.kd.toFixed(2)}
-                        </div>
-                        <div className="text-right font-mono">
-                          {p.rustHours > 0 ? p.rustHours : "—"}
-                        </div>
-                        <div className="text-right font-mono">
-                          {p.bmHours > 0 ? p.bmHours : "—"}
-                        </div>
-                        <div className="text-right">
-                          <span
-                            className={
-                              "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ring-1 " +
-                              (p.isProxy
-                                ? "bg-danger/15 text-danger ring-danger/40"
-                                : "bg-surface ring-border text-muted-foreground")
-                            }
-                          >
-                            {p.isProxy ? "YES" : "NO"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {rows.length === 0 && !loading && (
-                    <div className="px-4 py-10 text-center text-xs text-muted-foreground">
-                      {selectedOrgIds.length === 0
-                        ? "No organization selected."
-                        : players.length === 0
-                          ? "No players have been seen on your servers yet."
-                          : "No players match your filters."}
-                    </div>
+                <div className="flex items-center gap-3">
+                  {lastRefresh && (
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      {players.length} players ·{" "}
+                      {players.filter((p) => p.isOnline).length} online
+                    </span>
+                  )}
+                  <button
+                    onClick={fetchData}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface text-xs disabled:opacity-50"
+                    title="Refresh player list"
+                  >
+                    <RefreshCw
+                      className={`size-3 ${loading ? "animate-spin" : ""}`}
+                    />
+                    Refresh
+                  </button>
+                  {sessionUser?.isSysAdmin && (
+                    <button
+                      onClick={handleClearAllCache}
+                      disabled={cacheClearBusy}
+                      className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface hover:text-danger hover:ring-danger/40 text-xs disabled:opacity-50 transition-colors"
+                      title="Clear all player cache (sysadmin)"
+                    >
+                      <Trash2 className="size-3" />
+                      Clear Cache
+                    </button>
+                  )}
+                  {sessionUser?.isSysAdmin && (
+                    <button
+                      onClick={handleResetKeyLimits}
+                      disabled={keyResetBusy}
+                      className="flex items-center gap-1.5 px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface hover:text-brand hover:ring-brand/40 text-xs disabled:opacity-50 transition-colors"
+                      title="Reset external API key rate limits (sysadmin)"
+                    >
+                      <KeyRound className="size-3" />
+                      Reset Key Limits
+                    </button>
                   )}
                 </div>
               </div>
-            )}
 
-            {/* Pagination */}
-            {rows.length > PAGE_SIZE && (
-              <div className="flex items-center justify-between text-xs">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                  Showing {(safePage - 1) * PAGE_SIZE + 1}–
-                  {Math.min(safePage * PAGE_SIZE, rows.length)} of {rows.length}
+              {/* RCON errors */}
+              {rconErrors.length > 0 && (
+                <div className="rounded-md ring-1 ring-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning space-y-0.5">
+                  {rconErrors.map((s) => (
+                    <div key={s.serverId}>
+                      <span className="font-medium">{s.serverName}</span>
+                      {" — "}
+                      {s.rconError}
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={safePage === 1}
-                    className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
-                  >
-                    Prev
-                  </button>
-                  <span className="font-mono px-2">
-                    {safePage} / {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={safePage === totalPages}
-                    className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
-                  >
-                    Next
-                  </button>
+              )}
+
+              {/* Error */}
+              {error && (
+                <div className="rounded-md ring-1 ring-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">
+                  Failed to load player list: {error}
+                </div>
+              )}
+
+              {/* Filters */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Input
+                  placeholder="Search name or Steam ID…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="h-9 max-w-xs"
+                />
+                <button
+                  onClick={() => setOnlineOnly((v) => !v)}
+                  aria-pressed={onlineOnly}
+                  className={
+                    "flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 text-xs transition-colors " +
+                    (onlineOnly
+                      ? "ring-success/40 bg-success/10 text-success"
+                      : "ring-border bg-surface/40 hover:bg-surface text-muted-foreground")
+                  }
+                  title="Show only players currently online"
+                >
+                  <span
+                    className={
+                      "size-1.5 rounded-full " +
+                      (onlineOnly ? "bg-success" : "bg-muted-foreground/50")
+                    }
+                  />
+                  Online only
+                </button>
+                <button
+                  onClick={() => setIncludeBanned((v) => !v)}
+                  aria-pressed={includeBanned}
+                  className={
+                    "flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 text-xs transition-colors " +
+                    (includeBanned
+                      ? "ring-warning/40 bg-warning/10 text-warning"
+                      : "ring-border bg-surface/40 hover:bg-surface text-muted-foreground")
+                  }
+                  title="Include actively banned players in the list"
+                >
+                  <span
+                    className={
+                      "size-1.5 rounded-full " +
+                      (includeBanned ? "bg-warning" : "bg-muted-foreground/50")
+                    }
+                  />
+                  Include banned
+                </button>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
+                  Sorted by {SORT_LABEL[sortKey]}{" "}
+                  {sortDir === "desc" ? "↓" : "↑"} {"\xB7"} click a column to
+                  change
                 </div>
               </div>
-            )}
-          </div>
+
+              {/* Loading skeleton */}
+              {loading && players.length === 0 && (
+                <div className="rounded-md ring-1 ring-border bg-surface/40 px-4 py-10 text-center text-xs text-muted-foreground animate-pulse">
+                  Loading player list…
+                </div>
+              )}
+
+              {/* Table */}
+              {(!loading || players.length > 0) && (
+                <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
+                  <div className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+                    <HeaderCell
+                      label="Player"
+                      k="name"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          className={
+                            "px-1 flex items-center gap-1 hover:text-foreground transition-colors text-left " +
+                            (effectiveArr.length !== visibleServerIds.length
+                              ? "text-brand"
+                              : "")
+                          }
+                          title={serverLabel}
+                        >
+                          <span>Server</span>
+                          <ChevronDown className="size-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-72 p-2">
+                        <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
+                          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                            Filter servers
+                          </span>
+                          <button
+                            onClick={() => {
+                              setServerIds(
+                                effectiveArr.length === visibleServerIds.length
+                                  ? []
+                                  : visibleServerIds,
+                              );
+                            }}
+                            className="text-[10px] font-semibold text-brand hover:underline"
+                          >
+                            {effectiveArr.length === visibleServerIds.length
+                              ? "Clear"
+                              : "Select all"}
+                          </button>
+                        </div>
+                        <div className="space-y-0.5">
+                          {visibleServers.length === 0 && (
+                            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                              No servers in the selected orgs.
+                            </div>
+                          )}
+                          {visibleServers.map((s) => {
+                            const checked = effectiveServerIds.has(s.serverId);
+                            const org = orgs.find((o) => o.id === s.ownerOrgId);
+                            const status = serverStatuses.find(
+                              (st) => st.serverId === s.serverId,
+                            );
+                            return (
+                              <button
+                                key={s.serverId}
+                                onClick={() => toggleServer(s.serverId)}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface text-left"
+                              >
+                                <span
+                                  className={
+                                    "size-3.5 rounded-sm ring-1 " +
+                                    (checked
+                                      ? "bg-brand ring-brand"
+                                      : "ring-border")
+                                  }
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-medium truncate normal-case tracking-normal">
+                                    {s.serverName}
+                                  </div>
+                                  <div className="text-[9px] font-mono text-muted-foreground normal-case tracking-normal">
+                                    {org?.short}
+                                    {status?.rconError ? (
+                                      <span className="text-danger ml-1">
+                                        · RCON error
+                                      </span>
+                                    ) : status ? (
+                                      <span className="ml-1">
+                                        · {status.playerCount} online
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
+                    <HeaderCell
+                      label="Sus"
+                      k="susScore"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                      align="right"
+                    />
+                    <HeaderCell
+                      label="Kills"
+                      k="kills"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                      align="right"
+                    />
+                    <HeaderCell
+                      label="Deaths"
+                      k="deaths"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                      align="right"
+                    />
+                    <HeaderCell
+                      label="K/D"
+                      k="kd"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                      align="right"
+                    />
+                    <HeaderCell
+                      label="Steam h"
+                      k="rustHours"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                      align="right"
+                    />
+                    <HeaderCell
+                      label="BM h"
+                      k="bmHours"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onClick={setSort}
+                      align="right"
+                    />
+                    <div className="px-1 text-right">Proxy</div>
+                  </div>
+
+                  <div className="divide-y divide-border/60">
+                    {pageRows.map((p) => {
+                      const avatarColor = steamIdAvatarColor(p.steamId);
+                      return (
+                        <div
+                          key={p.steamId}
+                          className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            {p.avatarUrl ? (
+                              <img
+                                src={p.avatarUrl}
+                                alt={p.name}
+                                className="size-7 rounded ring-1 ring-black/40 shrink-0 object-cover"
+                              />
+                            ) : (
+                              <div
+                                className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[10px] text-background shrink-0"
+                                style={{ background: avatarColor }}
+                              >
+                                {p.name
+                                  .replace(/\[[^\]]*\]\s*/g, "")
+                                  .slice(0, 2)
+                                  .toUpperCase() || "??"}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-medium truncate flex items-center gap-1.5">
+                                <span className="truncate">{p.name}</span>
+                                <PlayerLinks steamId={p.steamId} />
+                              </div>
+                              <div className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1">
+                                {p.steamId}
+                                <button
+                                  onClick={() => copySteamId(p.steamId)}
+                                  className="inline-flex items-center justify-center rounded hover:text-foreground transition-colors"
+                                  title="Copy Steam ID"
+                                >
+                                  {copiedId === p.steamId ? (
+                                    <Check className="size-3 text-success" />
+                                  ) : (
+                                    <Copy className="size-3" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <div
+                            className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1"
+                            title={p.serverName ?? ""}
+                          >
+                            {p.isOnline ? (
+                              <>
+                                <span className="size-1.5 rounded-full bg-success shrink-0" />
+                                {p.serverName.replace(/^\[[^\]]+\]\s*/, "")}
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground/40">
+                                —
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span
+                              className={
+                                "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                                susColor(p.susScore)
+                              }
+                            >
+                              {Math.min(p.susScore, 100)}
+                            </span>
+                          </div>
+                          <div className="text-right font-mono">{p.kills}</div>
+                          <div className="text-right font-mono">{p.deaths}</div>
+                          <div className="text-right font-mono">
+                            {p.kd.toFixed(2)}
+                          </div>
+                          <div className="text-right font-mono">
+                            {p.rustHours > 0 ? p.rustHours : "—"}
+                          </div>
+                          <div className="text-right font-mono">
+                            {p.bmHours > 0 ? p.bmHours : "—"}
+                          </div>
+                          <div className="text-right">
+                            <span
+                              className={
+                                "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ring-1 " +
+                                (p.isProxy
+                                  ? "bg-danger/15 text-danger ring-danger/40"
+                                  : "bg-surface ring-border text-muted-foreground")
+                              }
+                            >
+                              {p.isProxy ? "YES" : "NO"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {rows.length === 0 && !loading && (
+                      <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                        {selectedOrgIds.length === 0
+                          ? "No organization selected."
+                          : players.length === 0
+                            ? "No players have been seen on your servers yet."
+                            : "No players match your filters."}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {rows.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between text-xs">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                    {Math.min(safePage * PAGE_SIZE, rows.length)} of{" "}
+                    {rows.length}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
+                      className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
+                    >
+                      Prev
+                    </button>
+                    <span className="font-mono px-2">
+                      {safePage} / {totalPages}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setPage((p) => Math.min(totalPages, p + 1))
+                      }
+                      disabled={safePage === totalPages}
+                      className="px-2.5 h-8 rounded ring-1 ring-border bg-surface/40 hover:bg-surface disabled:opacity-40 disabled:hover:bg-surface/40"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Recent F7 reports sidebar */}
@@ -811,7 +825,10 @@ function RecentReportsSidebar({ reports, loading }) {
           </div>
         )}
         {reports.map((r) => (
-          <div key={r.id} className="px-3 py-2.5 space-y-1 hover:bg-surface/40 transition-colors">
+          <div
+            key={r.id}
+            className="px-3 py-2.5 space-y-1 hover:bg-surface/40 transition-colors"
+          >
             <div className="flex items-start justify-between gap-1">
               <span className="text-[10px] font-mono text-muted-foreground truncate flex-1">
                 {r.serverName.replace(/^\[[^\]]+\]\s*/, "")}

@@ -84,7 +84,15 @@ function hash(s) {
 // Returns the offense/stat shape that the sidebar components expect.
 // Filled with nulls until real ban-history data is wired from the API.
 export function deriveStats(_p) {
-  return { bmHours: null, proxy: false, pingMs: null, kd: null, hitPct: null, atHours: null, offenses: [] };
+  return {
+    bmHours: null,
+    proxy: false,
+    pingMs: null,
+    kd: null,
+    hitPct: null,
+    atHours: null,
+    offenses: [],
+  };
 }
 function pingTone(ms) {
   if (ms < 80) return { color: "bg-success", label: "good" };

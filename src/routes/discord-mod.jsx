@@ -1,41 +1,41 @@
 import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-    Ban,
-    Clock,
-    Download,
-    FileText,
-    Hash,
-    MessageSquareWarning,
-    Paperclip,
-    RefreshCw,
-    Search,
-    ShieldAlert,
-    ShieldOff,
-    UserCheck,
-    UserMinus,
-    Users,
+  Ban,
+  Clock,
+  Download,
+  FileText,
+  Hash,
+  MessageSquareWarning,
+  Paperclip,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  ShieldOff,
+  UserCheck,
+  UserMinus,
+  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -96,8 +96,12 @@ function MessageAttachments({ attachments }) {
   return (
     <div className="flex flex-wrap gap-1.5 mt-1.5">
       {attachments.map((att) => {
-        const isImage = att.content_type?.startsWith("image/") || /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(att.filename ?? "");
-        const isVideo = att.content_type?.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(att.filename ?? "");
+        const isImage =
+          att.content_type?.startsWith("image/") ||
+          /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(att.filename ?? "");
+        const isVideo =
+          att.content_type?.startsWith("video/") ||
+          /\.(mp4|webm|mov)$/i.test(att.filename ?? "");
         if (isImage) {
           return (
             <a
@@ -124,7 +128,11 @@ function MessageAttachments({ attachments }) {
             rel="noreferrer"
             className="flex items-center gap-1.5 px-2 py-1 rounded ring-1 ring-border hover:ring-brand/60 bg-surface/50 hover:bg-surface transition-colors text-xs text-muted-foreground hover:text-foreground max-w-[260px]"
           >
-            {isVideo ? <Paperclip className="size-3 shrink-0 text-brand" /> : <FileText className="size-3 shrink-0" />}
+            {isVideo ? (
+              <Paperclip className="size-3 shrink-0 text-brand" />
+            ) : (
+              <FileText className="size-3 shrink-0" />
+            )}
             <span className="truncate">{att.filename ?? "file"}</span>
             {att.size != null && (
               <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60">
@@ -200,7 +208,11 @@ function ActionButtons({
           onClick={() => !isStaff && onAction(discordId, username, "warn")}
           title={isStaff ? "Cannot warn a staff member" : "Warn (DM)"}
           disabled={isStaff}
-          className={isStaff ? disabledCls : `${cls} hover:bg-sky-500/10 hover:text-sky-400`}
+          className={
+            isStaff
+              ? disabledCls
+              : `${cls} hover:bg-sky-500/10 hover:text-sky-400`
+          }
         >
           <MessageSquareWarning className="size-3.5" />
         </button>
@@ -211,7 +223,11 @@ function ActionButtons({
             onClick={() => !isStaff && onAction(discordId, username, "timeout")}
             title={isStaff ? "Cannot timeout a staff member" : "Timeout"}
             disabled={isStaff}
-            className={isStaff ? disabledCls : `${cls} hover:bg-amber-500/10 hover:text-amber-400`}
+            className={
+              isStaff
+                ? disabledCls
+                : `${cls} hover:bg-amber-500/10 hover:text-amber-400`
+            }
           >
             <Clock className="size-3.5" />
           </button>
@@ -222,7 +238,11 @@ function ActionButtons({
           onClick={() => !isStaff && onAction(discordId, username, "kick")}
           title={isStaff ? "Cannot kick a staff member" : "Kick"}
           disabled={isStaff}
-          className={isStaff ? disabledCls : `${cls} hover:bg-orange-500/10 hover:text-orange-400`}
+          className={
+            isStaff
+              ? disabledCls
+              : `${cls} hover:bg-orange-500/10 hover:text-orange-400`
+          }
         >
           <UserMinus className="size-3.5" />
         </button>
@@ -232,7 +252,11 @@ function ActionButtons({
           onClick={() => !isStaff && onAction(discordId, username, "ban")}
           title={isStaff ? "Cannot ban a staff member" : "Ban"}
           disabled={isStaff}
-          className={isStaff ? disabledCls : `${cls} hover:bg-danger/10 hover:text-danger`}
+          className={
+            isStaff
+              ? disabledCls
+              : `${cls} hover:bg-danger/10 hover:text-danger`
+          }
         >
           <Ban className="size-3.5" />
         </button>
@@ -445,54 +469,63 @@ function DiscordModPage() {
     }
   }, [orgId, modLogOffset, modLogHasMore]);
 
-  const fetchBans = useCallback(async (query = "") => {
-    if (!orgId) return;
-    setBansLoading(true);
-    setBans([]);
-    setBansOffset(0);
-    setBansHasMore(false);
-    setBansTotal(0);
-    try {
-      const params = new URLSearchParams({ limit: "100", offset: "0" });
-      if (query) params.set("query", query);
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/discord/bans?${params}`,
-        { credentials: "include" },
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setBans(data.bans ?? []);
-      setBansTotal(data.total ?? 0);
-      setBansHasMore(data.hasMore ?? false);
-      setBansOffset(data.bans?.length ?? 0);
-    } finally {
-      setBansLoading(false);
-    }
-  }, [orgId]);
+  const fetchBans = useCallback(
+    async (query = "") => {
+      if (!orgId) return;
+      setBansLoading(true);
+      setBans([]);
+      setBansOffset(0);
+      setBansHasMore(false);
+      setBansTotal(0);
+      try {
+        const params = new URLSearchParams({ limit: "100", offset: "0" });
+        if (query) params.set("query", query);
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/discord/bans?${params}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setBans(data.bans ?? []);
+        setBansTotal(data.total ?? 0);
+        setBansHasMore(data.hasMore ?? false);
+        setBansOffset(data.bans?.length ?? 0);
+      } finally {
+        setBansLoading(false);
+      }
+    },
+    [orgId],
+  );
 
-  const loadMoreBans = useCallback(async (query = "", currentOffset = 0) => {
-    if (!orgId || loadingMoreBansRef.current) return;
-    loadingMoreBansRef.current = true;
-    setLoadingMoreBans(true);
-    try {
-      const params = new URLSearchParams({ limit: "100", offset: String(currentOffset) });
-      if (query) params.set("query", query);
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/discord/bans?${params}`,
-        { credentials: "include" },
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      const more = data.bans ?? [];
-      setBans((prev) => [...prev, ...more]);
-      setBansTotal(data.total ?? 0);
-      setBansHasMore(data.hasMore ?? false);
-      setBansOffset((prev) => prev + more.length);
-    } finally {
-      loadingMoreBansRef.current = false;
-      setLoadingMoreBans(false);
-    }
-  }, [orgId]);
+  const loadMoreBans = useCallback(
+    async (query = "", currentOffset = 0) => {
+      if (!orgId || loadingMoreBansRef.current) return;
+      loadingMoreBansRef.current = true;
+      setLoadingMoreBans(true);
+      try {
+        const params = new URLSearchParams({
+          limit: "100",
+          offset: String(currentOffset),
+        });
+        if (query) params.set("query", query);
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/discord/bans?${params}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const more = data.bans ?? [];
+        setBans((prev) => [...prev, ...more]);
+        setBansTotal(data.total ?? 0);
+        setBansHasMore(data.hasMore ?? false);
+        setBansOffset((prev) => prev + more.length);
+      } finally {
+        loadingMoreBansRef.current = false;
+        setLoadingMoreBans(false);
+      }
+    },
+    [orgId],
+  );
 
   const searchMembers = useCallback(async () => {
     const q = memberQuery.trim();
@@ -670,7 +703,9 @@ function DiscordModPage() {
 
     setActionTarget({ discordId, username });
     setActionType(
-      allowedActions.includes(defaultAction) ? defaultAction : allowedActions[0],
+      allowedActions.includes(defaultAction)
+        ? defaultAction
+        : allowedActions[0],
     );
     setActionReason("");
     setActionDuration(3600);
@@ -782,10 +817,13 @@ function DiscordModPage() {
 
   const TABS = [];
 
-  if (canViewMessages) TABS.push({ id: "messages", label: "Messages", icon: Hash });
-  if (canSearchMembers) TABS.push({ id: "members", label: "Members", icon: Users });
+  if (canViewMessages)
+    TABS.push({ id: "messages", label: "Messages", icon: Hash });
+  if (canSearchMembers)
+    TABS.push({ id: "members", label: "Members", icon: Users });
   if (canViewBans) TABS.push({ id: "bans", label: "Bans", icon: ShieldAlert });
-  if (canViewModLog) TABS.push({ id: "modlog", label: "Mod Log", icon: ShieldOff });
+  if (canViewModLog)
+    TABS.push({ id: "modlog", label: "Mod Log", icon: ShieldOff });
 
   // Keep the active tab within what this user is allowed to see (warn-only staff
   // can land here with the default "messages" tab they have no access to).
@@ -964,7 +1002,9 @@ function DiscordModPage() {
                               {fmtAgo(msg.createdAt)}
                             </span>
                           </div>
-                          <p className={`text-sm mt-0.5 break-words whitespace-pre-wrap${msg.deleted ? " line-through text-muted-foreground" : " text-foreground/90"}`}>
+                          <p
+                            className={`text-sm mt-0.5 break-words whitespace-pre-wrap${msg.deleted ? " line-through text-muted-foreground" : " text-foreground/90"}`}
+                          >
                             {msg.content || (
                               <em className="text-muted-foreground">
                                 [no text]
@@ -1323,7 +1363,9 @@ function DiscordModPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {canTimeout || canKick || canBan ? "Moderate member" : "Warn member"}
+              {canTimeout || canKick || canBan
+                ? "Moderate member"
+                : "Warn member"}
             </DialogTitle>
             <DialogDescription>
               {actionTarget?.username} ({actionTarget?.discordId})
@@ -1336,12 +1378,22 @@ function DiscordModPage() {
               <div className="grid grid-cols-3 gap-1.5">
                 {[
                   ...(canWarn
-                    ? [{ value: "warn", label: "Warn (DM)", icon: MessageSquareWarning }]
+                    ? [
+                        {
+                          value: "warn",
+                          label: "Warn (DM)",
+                          icon: MessageSquareWarning,
+                        },
+                      ]
                     : []),
                   ...(canTimeout
                     ? [
                         { value: "timeout", label: "Timeout", icon: Clock },
-                        { value: "untimeout", label: "Untimeout", icon: ShieldOff },
+                        {
+                          value: "untimeout",
+                          label: "Untimeout",
+                          icon: ShieldOff,
+                        },
                       ]
                     : []),
                   ...(canKick
@@ -1415,8 +1467,8 @@ function DiscordModPage() {
               />
               {actionType === "warn" && (
                 <p className="text-[10px] text-muted-foreground">
-                  The bot DMs this to the player. If they have DMs disabled we'll
-                  tell you it couldn't be delivered.
+                  The bot DMs this to the player. If they have DMs disabled
+                  we'll tell you it couldn't be delivered.
                 </p>
               )}
             </div>

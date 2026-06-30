@@ -124,7 +124,14 @@ function TicketTypeToggle({ ticketTypes, selected, onChange }) {
   );
 }
 
-function PredefinesPanel({ orgId, items, ticketTypes = [], onAdd, onUpdate, onRemove }) {
+function PredefinesPanel({
+  orgId,
+  items,
+  ticketTypes = [],
+  onAdd,
+  onUpdate,
+  onRemove,
+}) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({

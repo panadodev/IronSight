@@ -1,7 +1,6 @@
 // Database schema + additive migrations, extracted from api.js.
 // Pure SQL against the provided pg Pool — no other backend runtime deps.
 
-
 export async function ensureSchema(pool) {
   await pool.query(`
     CREATE OR REPLACE FUNCTION unix_now()
@@ -1653,8 +1652,12 @@ export async function ensureSchema(pool) {
     )
   `);
   await pool.query(
+    `ALTER TABLE doc_articles ADD COLUMN IF NOT EXISTS min_position INTEGER NOT NULL DEFAULT 0`,
+  );
+  await pool.query(`DROP INDEX IF EXISTS idx_doc_articles_org`);
+  await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_doc_articles_org
-     ON doc_articles(org_id, min_rank)`,
+     ON doc_articles(org_id, min_position)`,
   );
 
   await pool.query(`
@@ -1708,19 +1711,29 @@ export async function ensureSchema(pool) {
 
   // Drop the zipline service from per-org external API keys — R2 credentials
   // are environment-level, not per-org.
-  await pool.query(`ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service`);
-  await pool.query(`DELETE FROM org_external_api_keys WHERE service = 'zipline'`);
+  await pool.query(
+    `ALTER TABLE org_external_api_keys DROP CONSTRAINT IF EXISTS chk_ext_api_key_service`,
+  );
+  await pool.query(
+    `DELETE FROM org_external_api_keys WHERE service = 'zipline'`,
+  );
   await pool.query(`
     ALTER TABLE org_external_api_keys ADD CONSTRAINT chk_ext_api_key_service
       CHECK (service IN ('battlemetrics', 'steam', 'proxycheck', 'openai'))
   `);
 
   // Make legacy Zipline columns nullable so new rows don't require them.
-  await pool.query(`ALTER TABLE org_media ALTER COLUMN zipline_file_id DROP NOT NULL`);
-  await pool.query(`ALTER TABLE org_media ALTER COLUMN zipline_url DROP NOT NULL`);
+  await pool.query(
+    `ALTER TABLE org_media ALTER COLUMN zipline_file_id DROP NOT NULL`,
+  );
+  await pool.query(
+    `ALTER TABLE org_media ALTER COLUMN zipline_url DROP NOT NULL`,
+  );
 
   // R2/S3 object key and storage backend.
-  await pool.query(`ALTER TABLE org_media ADD COLUMN IF NOT EXISTS r2_key TEXT`);
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS r2_key TEXT`,
+  );
   await pool.query(
     `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'zipline'`,
   );
@@ -1843,7 +1856,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('rcon_access',         'Use RCON console'),
       ('scripts_view',        'View RCON scripts'),
       ('scripts_manage',      'Manage RCON scripts'),
-      ('presets_manage',      'Manage server presets'),
+      ('presets_manage',      'Manage server plugins'),
       ('status_view',         'View server status'),
       ('servers_manage',      'Manage server connections'),
       ('tickets_view',        'View support tickets'),
@@ -1875,7 +1888,9 @@ export async function ensureRolePermissionSeed(pool) {
       ('flagged_messages_resolve', 'Resolve AI-flagged chat messages (confirm and clear)'),
       ('flagged_messages_confirm', 'Confirm AI-flagged chat messages as violations'),
       ('flagged_messages_clear',   'Clear (dismiss) AI-flagged chat messages'),
-      ('media_upload',             'Upload and manage media files')
+      ('media_upload',             'Upload and manage media files'),
+      ('docs_view',                'View documentation wiki'),
+      ('docs_edit',                'Create and edit documentation articles')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 
@@ -1935,4 +1950,3 @@ export async function ensureRolePermissionSeed(pool) {
      FROM ranked WHERE r.role_id = ranked.role_id`,
   );
 }
-

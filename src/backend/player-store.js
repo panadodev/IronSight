@@ -4,11 +4,11 @@
 
 import { decryptIp, encryptIp, ipHmac } from "./crypto-keys.js";
 import {
-    availableKeyOrgsByService,
-    bmFetch,
-    getAvailableExternalKeys,
-    proxycheckApiFetch,
-    steamApiFetch,
+  availableKeyOrgsByService,
+  bmFetch,
+  getAvailableExternalKeys,
+  proxycheckApiFetch,
+  steamApiFetch,
 } from "./external-fetch.js";
 import { pool, redis } from "./runtime.js";
 
@@ -149,7 +149,8 @@ async function fetchSteamPlayerData(steamId, orgId) {
       if (games?.length) {
         hoursPublic = true;
         const rust = games.find((g) => g.appid === RUST_APP_ID);
-        if (rust) rustHours = Math.round((rust.playtime_forever / 60) * 10) / 10;
+        if (rust)
+          rustHours = Math.round((rust.playtime_forever / 60) * 10) / 10;
       }
     } catch {
       console.warn(`[player:steam] playtime JSON parse error for ${steamId}`);
@@ -201,7 +202,9 @@ async function fetchBMPlayerData(bmId, orgId) {
   try {
     json = await resp.json();
   } catch {
-    console.warn(`[player:bm] JSON parse error fetching player data bmId=${bmId}`);
+    console.warn(
+      `[player:bm] JSON parse error fetching player data bmId=${bmId}`,
+    );
     return null;
   }
   const steamIdentifier = (json.included ?? []).find(
@@ -280,7 +283,9 @@ async function fetchBMRelatedIdentifiers(bmId, orgId) {
   try {
     data = await resp.json();
   } catch {
-    console.warn(`[player:bm] JSON parse error fetching related identifiers bmId=${bmId}`);
+    console.warn(
+      `[player:bm] JSON parse error fetching related identifiers bmId=${bmId}`,
+    );
     return { ips: [], relatedPlayers: [] };
   }
   const ips = [];
@@ -413,7 +418,9 @@ async function fetchBMActivity(bmId, orgId) {
     try {
       json = await resp.json();
     } catch {
-      console.warn(`[player:bm] JSON parse error fetching activity bmId=${bmId}`);
+      console.warn(
+        `[player:bm] JSON parse error fetching activity bmId=${bmId}`,
+      );
       break;
     }
     activities.push(...(json.data ?? []));
@@ -875,10 +882,24 @@ function toBooleanOrNull(value) {
 
 function classifyConnTypeFromRaw(typeRaw, detections) {
   const t = String(typeRaw ?? "").toLowerCase();
-  if (detections?.proxy || detections?.vpn || t.includes("vpn") || t.includes("proxy") || t === "tor") return "proxy_vpn";
-  if (detections?.hosting || t.includes("hosting") || t.includes("data center") || t.includes("server")) return "hosting";
+  if (
+    detections?.proxy ||
+    detections?.vpn ||
+    t.includes("vpn") ||
+    t.includes("proxy") ||
+    t === "tor"
+  )
+    return "proxy_vpn";
+  if (
+    detections?.hosting ||
+    t.includes("hosting") ||
+    t.includes("data center") ||
+    t.includes("server")
+  )
+    return "hosting";
   if (t.includes("business")) return "business";
-  if (t.includes("wireless") || t.includes("mobile") || t.includes("cellular")) return "mobile";
+  if (t.includes("wireless") || t.includes("mobile") || t.includes("cellular"))
+    return "mobile";
   if (t.includes("residential")) return "residential";
   return null;
 }
@@ -886,10 +907,14 @@ function classifyConnTypeFromRaw(typeRaw, detections) {
 function normalizeProxycheckRecord(meta) {
   if (!meta || typeof meta !== "object") return null;
 
-  const network = meta.network && typeof meta.network === "object" ? meta.network : {};
-  const location = meta.location && typeof meta.location === "object" ? meta.location : {};
+  const network =
+    meta.network && typeof meta.network === "object" ? meta.network : {};
+  const location =
+    meta.location && typeof meta.location === "object" ? meta.location : {};
   const detections =
-    meta.detections && typeof meta.detections === "object" ? meta.detections : {};
+    meta.detections && typeof meta.detections === "object"
+      ? meta.detections
+      : {};
   const deviceEstimate =
     meta.device_estimate && typeof meta.device_estimate === "object"
       ? meta.device_estimate
@@ -898,7 +923,8 @@ function normalizeProxycheckRecord(meta) {
     meta.detection_history && typeof meta.detection_history === "object"
       ? meta.detection_history
       : {};
-  const operator = meta.operator && typeof meta.operator === "object" ? meta.operator : {};
+  const operator =
+    meta.operator && typeof meta.operator === "object" ? meta.operator : {};
 
   const proxyFlag = toBooleanOrNull(detections.proxy);
   const vpnFlag = toBooleanOrNull(detections.vpn);
@@ -919,8 +945,12 @@ function normalizeProxycheckRecord(meta) {
     isVpn: vpnFlag ?? String(typeRaw ?? "").toLowerCase() === "vpn",
     connType,
     isp:
-      firstNonEmptyString(network.provider, meta.isp, meta.provider, meta.organisation) ??
-      null,
+      firstNonEmptyString(
+        network.provider,
+        meta.isp,
+        meta.provider,
+        meta.organisation,
+      ) ?? null,
     country: firstNonEmptyString(location.country_name, meta.country),
     isoCode: firstNonEmptyString(location.country_code, meta.isocode),
     asn: firstNonEmptyString(network.asn, meta.asn),
@@ -936,18 +966,39 @@ function normalizeProxycheckRecord(meta) {
       toInteger(deviceEstimate.address) != null
         ? `${toInteger(deviceEstimate.address)} devices`
         : firstNonEmptyString(meta.estimate),
-    lastUpdate: firstNonEmptyString(meta.last_updated, detections.last_seen, meta.last_update, meta.lastseen),
+    lastUpdate: firstNonEmptyString(
+      meta.last_updated,
+      detections.last_seen,
+      meta.last_update,
+      meta.lastseen,
+    ),
     hostname: firstNonEmptyString(network.hostname, meta.hostname),
     company: firstNonEmptyString(network.provider, meta.company),
-    organization: firstNonEmptyString(network.organisation, meta.organisation, meta.organization, meta.org),
-    addressRange: firstNonEmptyString(network.range, meta.range, meta.address_range, meta.cidr),
+    organization: firstNonEmptyString(
+      network.organisation,
+      meta.organisation,
+      meta.organization,
+      meta.org,
+    ),
+    addressRange: firstNonEmptyString(
+      network.range,
+      meta.range,
+      meta.address_range,
+      meta.cidr,
+    ),
     city: firstNonEmptyString(location.city_name, meta.city),
     region: firstNonEmptyString(location.region_name, meta.region, meta.state),
     continent: firstNonEmptyString(location.continent_name, meta.continent),
     timezone: firstNonEmptyString(location.timezone, meta.timezone),
-    postalCode: firstNonEmptyString(location.postal_code, meta.postal_code, meta.postcode, meta.zip),
+    postalCode: firstNonEmptyString(
+      location.postal_code,
+      meta.postal_code,
+      meta.postcode,
+      meta.zip,
+    ),
     currency:
-      normalizeCurrency({ currency: location.currency }) ?? normalizeCurrency(meta),
+      normalizeCurrency({ currency: location.currency }) ??
+      normalizeCurrency(meta),
     proxycheckData: {
       detections: {
         proxy: toBooleanOrNull(detections.proxy),
@@ -990,20 +1041,20 @@ function hasRichProxycheckDetails(row) {
   return Boolean(
     row.proxycheck_json ||
     row.raw_type ||
-      row.risk_score != null ||
-      row.risk_confidence ||
-      row.estimate ||
-      row.last_update ||
-      row.hostname ||
-      row.company ||
-      row.organization ||
-      row.address_range ||
-      row.city ||
-      row.region ||
-      row.continent ||
-      row.timezone ||
-      row.postal_code ||
-      row.currency,
+    row.risk_score != null ||
+    row.risk_confidence ||
+    row.estimate ||
+    row.last_update ||
+    row.hostname ||
+    row.company ||
+    row.organization ||
+    row.address_range ||
+    row.city ||
+    row.region ||
+    row.continent ||
+    row.timezone ||
+    row.postal_code ||
+    row.currency,
   );
 }
 
@@ -1435,7 +1486,12 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
   }
 }
 
-async function warmRelatedProfilesCache(accounts, altDetails, steamOrg, sourceOrgId) {
+async function warmRelatedProfilesCache(
+  accounts,
+  altDetails,
+  steamOrg,
+  sourceOrgId,
+) {
   const NON_PROXY_CONN_TYPES = new Set(["residential", "business", "mobile"]);
   const detailsByKey = new Map();
   for (const detail of altDetails ?? []) {
@@ -1454,9 +1510,11 @@ async function warmRelatedProfilesCache(accounts, altDetails, steamOrg, sourceOr
         steamId: String(a.relatedSteamId),
         bmId: a.relatedBmId ? String(a.relatedBmId) : null,
         relatedName: a.relatedName ?? null,
-        sharedIps: (detailsByKey.get(`steam:${String(a.relatedSteamId)}`) ??
-          detailsByKey.get(`bm:${String(a.relatedBmId ?? "")}`)
-          ?? { sharedIps: [] }
+        sharedIps: (
+          detailsByKey.get(`steam:${String(a.relatedSteamId)}`) ??
+          detailsByKey.get(`bm:${String(a.relatedBmId ?? "")}`) ?? {
+            sharedIps: [],
+          }
         ).sharedIps,
         sharedIpMetaByHash: new Map(
           (a.sharedIps ?? [])
@@ -1481,7 +1539,11 @@ async function warmRelatedProfilesCache(accounts, altDetails, steamOrg, sourceOr
         .filter(Boolean);
 
       if (nonProxySharedIpRows.length) {
-        await writeIpsToHistory(target.steamId, nonProxySharedIpRows, sourceOrgId);
+        await writeIpsToHistory(
+          target.steamId,
+          nonProxySharedIpRows,
+          sourceOrgId,
+        );
       }
 
       await ensurePlayerCacheRow(target.steamId);
@@ -1541,7 +1603,9 @@ async function writeFriendsToCache(steamId, result, orgId) {
   if (!result.isPublic) {
     // Account went private — purge stale friend rows so we don't serve
     // outdated relationship data from before privacy was enabled.
-    await pool.query(`DELETE FROM player_friends WHERE steam_id = $1`, [steamId]);
+    await pool.query(`DELETE FROM player_friends WHERE steam_id = $1`, [
+      steamId,
+    ]);
     return;
   }
   if (!result.friends?.length) return;
@@ -1759,9 +1823,13 @@ export async function refreshPlayerData(
       ]);
 
       if (bmDataResult.status === "rejected")
-        console.warn(`[player:refresh] ${steamId} — BM player data failed: ${bmDataResult.reason?.message}`);
+        console.warn(
+          `[player:refresh] ${steamId} — BM player data failed: ${bmDataResult.reason?.message}`,
+        );
       if (relResult.status === "rejected")
-        console.warn(`[player:refresh] ${steamId} — BM related identifiers failed: ${relResult.reason?.message}`);
+        console.warn(
+          `[player:refresh] ${steamId} — BM related identifiers failed: ${relResult.reason?.message}`,
+        );
 
       bmData = bmDataResult.status === "fulfilled" ? bmDataResult.value : null;
       relIdentifiers =
@@ -1920,7 +1988,9 @@ export async function refreshPlayerData(
         writeFriendsToCache(steamId, subjectFriends, steamOrg),
         writeProxycheckToCache(ipResults),
         writeSessionWindowsToCache(steamId, subjectWindows),
-        subjectGroups ? writeGroupsToCache(steamId, subjectGroups) : Promise.resolve(),
+        subjectGroups
+          ? writeGroupsToCache(steamId, subjectGroups)
+          : Promise.resolve(),
       ]);
 
       // Phase B: per-alt enrichment + evidence scoring against the subject.
@@ -2011,21 +2081,20 @@ export async function getPlayerCacheData(steamId) {
     ipConnectionEvents,
     related,
     sessionWindows,
-  ] =
-    await Promise.all([
-      pool.query(
-        `SELECT *, cache_expires_at < unix_now() AS is_stale
+  ] = await Promise.all([
+    pool.query(
+      `SELECT *, cache_expires_at < unix_now() AS is_stale
          FROM player_cache WHERE steam_id = $1`,
-        [steamId],
-      ),
-      pool.query(
-        `SELECT bm_server_id, server_name, hours_played, last_seen
+      [steamId],
+    ),
+    pool.query(
+      `SELECT bm_server_id, server_name, hours_played, last_seen
          FROM player_bm_sessions WHERE steam_id = $1
          ORDER BY last_seen DESC NULLS LAST`,
-        [steamId],
-      ),
-      pool.query(
-        `SELECT b.bm_ban_id, b.bm_org_id, b.bm_org_name, b.reason, b.note,
+      [steamId],
+    ),
+    pool.query(
+      `SELECT b.bm_ban_id, b.bm_org_id, b.bm_org_name, b.reason, b.note,
                 b.expires_at, b.banned_at, b.permanent, b.cached_at,
                 COALESCE(
                   (SELECT array_agg(DISTINCT o.org_id)
@@ -2035,15 +2104,15 @@ export async function getPlayerCacheData(steamId) {
                 ) AS source_org_ids
          FROM player_bm_bans_cache b WHERE b.steam_id = $1
          ORDER BY b.banned_at DESC NULLS LAST`,
-        [steamId],
-      ),
-      pool.query(
-        `SELECT friends_public, friend_count, cached_at, cache_expires_at
+      [steamId],
+    ),
+    pool.query(
+      `SELECT friends_public, friend_count, cached_at, cache_expires_at
          FROM player_friends_meta WHERE steam_id = $1`,
-        [steamId],
-      ),
-      pool.query(
-        `SELECT pih.ip_hash, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
+      [steamId],
+    ),
+    pool.query(
+      `SELECT pih.ip_hash, pih.is_vpn, pih.server_name, pih.first_seen, pih.last_seen,
                 im.is_proxy, im.conn_type, im.isp, im.country, im.iso_code, im.asn,
                 im.latitude, im.longitude,
                 im.raw_type, im.risk_score, im.risk_confidence, im.estimate,
@@ -2061,39 +2130,39 @@ export async function getPlayerCacheData(steamId) {
          LEFT JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
          WHERE pih.steam_id = $1
          ORDER BY pih.last_seen DESC`,
-        [steamId],
-      ),
-      pool.query(
-        `SELECT ip_hash, seen_at, server_name
+      [steamId],
+    ),
+    pool.query(
+      `SELECT ip_hash, seen_at, server_name
          FROM player_ip_connection_events
          WHERE steam_id = $1
          ORDER BY seen_at DESC
          LIMIT 2000`,
-        [steamId],
-      ),
-      pool.query(
-        `SELECT related_bm_id, related_steam_id, related_name, name_aliases,
+      [steamId],
+    ),
+    pool.query(
+      `SELECT related_bm_id, related_steam_id, related_name, name_aliases,
                 match_count, has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban,
                 name_similarity, shared_ips, non_proxy_linked, mutual_friends,
                 shared_groups, server_overlap, co_presence, alt_confidence, cached_at
          FROM player_related_accounts WHERE steam_id = $1
          ORDER BY match_count DESC`,
-        [steamId],
-      ),
-      // Raw session windows for the activity timeline — the 500 most recent
-      // across the player's full cached history (no time cap). server_name is
-      // joined from the per-server totals table for display.
-      pool.query(
-        `SELECT psw.bm_server_id, psw.started_at, psw.stopped_at, pbs.server_name
+      [steamId],
+    ),
+    // Raw session windows for the activity timeline — the 500 most recent
+    // across the player's full cached history (no time cap). server_name is
+    // joined from the per-server totals table for display.
+    pool.query(
+      `SELECT psw.bm_server_id, psw.started_at, psw.stopped_at, pbs.server_name
          FROM player_session_windows psw
          LEFT JOIN player_bm_sessions pbs
            ON pbs.steam_id = psw.steam_id AND pbs.bm_server_id = psw.bm_server_id
          WHERE psw.steam_id = $1
          ORDER BY psw.started_at DESC
          LIMIT 500`,
-        [steamId],
-      ),
-    ]);
+      [steamId],
+    ),
+  ]);
 
   const p = profile.rows[0] ?? null;
   if (!p) return null;
@@ -2267,8 +2336,7 @@ export async function getPlayerCacheData(steamId) {
                         .slice(0, 8)
                         .toUpperCase()
                     : String(ipHashFromRow).slice(0, 8).toUpperCase(),
-                connType:
-                  typeof s.connType === "string" ? s.connType : null,
+                connType: typeof s.connType === "string" ? s.connType : null,
                 isp: typeof s.isp === "string" ? s.isp : null,
                 asn: typeof s.asn === "string" ? s.asn : null,
                 country: typeof s.country === "string" ? s.country : null,
@@ -2292,15 +2360,23 @@ export async function getPlayerCacheData(steamId) {
     })),
     isStale: Boolean(p.is_stale),
     cacheExpiresAt: p.cache_expires_at,
-    steamGroups: Array.isArray(p.steam_groups) ? p.steam_groups.map(String) : [],
+    steamGroups: Array.isArray(p.steam_groups)
+      ? p.steam_groups.map(String)
+      : [],
     flaggedGroups: await (async () => {
-      const gids = Array.isArray(p.steam_groups) ? p.steam_groups.map(String) : [];
+      const gids = Array.isArray(p.steam_groups)
+        ? p.steam_groups.map(String)
+        : [];
       if (!gids.length) return [];
       const { rows } = await pool.query(
         `SELECT gid, label, vanity FROM flagged_steam_groups WHERE gid = ANY($1)`,
         [gids],
       );
-      return rows.map((r) => ({ gid: String(r.gid), label: String(r.label), vanity: r.vanity ?? null }));
+      return rows.map((r) => ({
+        gid: String(r.gid),
+        label: String(r.label),
+        vanity: r.vanity ?? null,
+      }));
     })(),
   };
 }
@@ -2322,7 +2398,10 @@ async function resolveGroupVanityToGid(vanity) {
 
 export async function seedFlaggedSteamGroups() {
   const toSeed = [
-    { vanity: "archiasf", label: "Possible botted account (Archias Farming group)" },
+    {
+      vanity: "archiasf",
+      label: "Possible botted account (Archias Farming group)",
+    },
   ];
   for (const { vanity, label } of toSeed) {
     try {

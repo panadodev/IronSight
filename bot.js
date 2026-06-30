@@ -119,13 +119,19 @@ async function handleDeactivateCommand(authorId) {
   );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    await sendDm(authorId, `❌ ${body.error ?? "Could not retrieve staff list. Are you an org owner?"}`);
+    await sendDm(
+      authorId,
+      `❌ ${body.error ?? "Could not retrieve staff list. Are you an org owner?"}`,
+    );
     return;
   }
   const { orgId, orgName, staff } = await res.json();
 
   if (staff.length === 0) {
-    await sendDm(authorId, `ℹ️ There are no active staff members in **${orgName}** to deactivate.`);
+    await sendDm(
+      authorId,
+      `ℹ️ There are no active staff members in **${orgName}** to deactivate.`,
+    );
     return;
   }
 
@@ -156,13 +162,19 @@ async function handleDeactivateReply(authorId, content, pending) {
 
   const targetDiscordId = content.trim().replace(/\D/g, "");
   if (!targetDiscordId) {
-    await sendDm(authorId, "❌ Invalid Discord ID. Please provide a numeric Discord user ID.");
+    await sendDm(
+      authorId,
+      "❌ Invalid Discord ID. Please provide a numeric Discord user ID.",
+    );
     return;
   }
 
   const match = pending.staff.find((s) => s.discordId === targetDiscordId);
   if (!match) {
-    await sendDm(authorId, `❌ Discord ID \`${targetDiscordId}\` is not in the staff list for **${pending.orgName}**. No action taken.`);
+    await sendDm(
+      authorId,
+      `❌ Discord ID \`${targetDiscordId}\` is not in the staff list for **${pending.orgName}**. No action taken.`,
+    );
     return;
   }
 
@@ -174,10 +186,18 @@ async function handleDeactivateReply(authorId, content, pending) {
   const body = await res.json().catch(() => ({}));
 
   if (res.ok && body.ok) {
-    await sendDm(authorId, `✅ **${match.username}** (\`${targetDiscordId}\`) has been disabled in **${pending.orgName}**. Their active sessions have been revoked.`);
-    console.log(`[IronSight Bot] Deactivated ${match.username} (${targetDiscordId}) in org ${pending.orgId} by owner ${authorId}`);
+    await sendDm(
+      authorId,
+      `✅ **${match.username}** (\`${targetDiscordId}\`) has been disabled in **${pending.orgName}**. Their active sessions have been revoked.`,
+    );
+    console.log(
+      `[IronSight Bot] Deactivated ${match.username} (${targetDiscordId}) in org ${pending.orgId} by owner ${authorId}`,
+    );
   } else {
-    await sendDm(authorId, `❌ Failed to disable member: ${body.error ?? "Unknown error"}`);
+    await sendDm(
+      authorId,
+      `❌ Failed to disable member: ${body.error ?? "Unknown error"}`,
+    );
   }
 }
 

@@ -1,11 +1,11 @@
 import {
-    AbortMultipartUploadCommand,
-    CompleteMultipartUploadCommand,
-    CreateMultipartUploadCommand,
-    DeleteObjectCommand,
-    PutObjectCommand,
-    S3Client,
-    UploadPartCommand,
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
+  DeleteObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "node:crypto";
@@ -79,7 +79,12 @@ function getR2Client() {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 export function r2Configured() {
-  return !!(env.r2AccountId && env.r2AccessKeyId && env.r2SecretAccessKey && env.r2BucketName);
+  return !!(
+    env.r2AccountId &&
+    env.r2AccessKeyId &&
+    env.r2SecretAccessKey &&
+    env.r2BucketName
+  );
 }
 
 export function getPublicUrl(key) {
@@ -88,11 +93,13 @@ export function getPublicUrl(key) {
 }
 
 export function sanitizeFilename(name) {
-  return String(name ?? "upload")
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .replace(/_{2,}/g, "_")
-    .replace(/^[._-]+/, "")
-    .slice(0, 120) || "file";
+  return (
+    String(name ?? "upload")
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/_{2,}/g, "_")
+      .replace(/^[._-]+/, "")
+      .slice(0, 120) || "file"
+  );
 }
 
 export function buildObjectKey(orgId, subfolder, filename) {
@@ -108,7 +115,9 @@ export async function generatePresignedPut(key, _mimeType, _fileSizeBytes) {
     Bucket: env.r2BucketName,
     Key: key,
   });
-  return getSignedUrl(getR2Client(), cmd, { expiresIn: PRESIGN_EXPIRY_SECONDS });
+  return getSignedUrl(getR2Client(), cmd, {
+    expiresIn: PRESIGN_EXPIRY_SECONDS,
+  });
 }
 
 // ── Presigned multipart (files >= 300 MB) ─────────────────────────────────────

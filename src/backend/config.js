@@ -72,8 +72,12 @@ export const env = {
   r2PublicUrl: process.env.R2_PUBLIC_URL?.replace(/\/+$/, ""),
 
   // Media rate limits
-  mediaPrepareRateLimitPerMinute: Number(process.env.MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 30),
-  publicMediaPrepareRateLimitPerMinute: Number(process.env.PUBLIC_MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 20),
+  mediaPrepareRateLimitPerMinute: Number(
+    process.env.MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 30,
+  ),
+  publicMediaPrepareRateLimitPerMinute: Number(
+    process.env.PUBLIC_MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 20,
+  ),
 };
 
 if (!env.databaseUrl) {

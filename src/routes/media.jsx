@@ -1,36 +1,36 @@
 import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-    ExternalLink,
-    FileIcon,
-    Film,
-    HardDrive,
-    Image,
-    Plus,
-    RefreshCw,
-    ShieldAlert,
-    Trash2,
-    Upload,
-    X,
+  ExternalLink,
+  FileIcon,
+  Film,
+  HardDrive,
+  Image,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -45,7 +45,8 @@ function formatBytes(bytes) {
   if (!bytes) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -81,9 +82,8 @@ function uploadChunkXhr(url, blob, onProgress) {
     };
     xhr.onerror = () => reject(new Error("Network error during upload"));
     // Keep presigned PUT requests header-minimal: avoid implicit Content-Type.
-    const body = blob instanceof Blob && blob.type
-      ? blob.slice(0, blob.size, "")
-      : blob;
+    const body =
+      blob instanceof Blob && blob.type ? blob.slice(0, blob.size, "") : blob;
     xhr.send(body);
   });
 }
@@ -120,17 +120,20 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
 
     try {
       setStatusText("Preparing upload…");
-      const prepareRes = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/prepare`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          mimeType: file.type || "application/octet-stream",
-          fileSize: file.size,
-          title: title.trim(),
-        }),
-      });
+      const prepareRes = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/media/prepare`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: file.size,
+            title: title.trim(),
+          }),
+        },
+      );
       const prepareBody = await prepareRes.json().catch(() => null);
       if (!prepareRes.ok) {
         setError(prepareBody?.error ?? "Upload preparation failed.");
@@ -161,12 +164,15 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
 
       setStatusText("Finalizing…");
       setProgress(98);
-      const confirmRes = await fetch(`/api/orgs/${encodeURIComponent(orgId)}/media/confirm`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mediaId, parts, fileSize: file.size }),
-      });
+      const confirmRes = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/media/confirm`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mediaId, parts, fileSize: file.size }),
+        },
+      );
       const confirmBody = await confirmRes.json().catch(() => null);
       if (!confirmRes.ok) {
         setError(confirmBody?.error ?? "Upload confirmation failed.");
@@ -190,7 +196,8 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
         <DialogHeader>
           <DialogTitle>Upload media</DialogTitle>
           <DialogDescription>
-            Files go directly from your browser to Cloudflare R2. Files ≥ 300 MB use multipart upload.
+            Files go directly from your browser to Cloudflare R2. Files ≥ 300 MB
+            use multipart upload.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleUpload} className="space-y-4 py-2">
@@ -203,7 +210,9 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
                 </SelectTrigger>
                 <SelectContent>
                   {orgs.map((o) => (
-                    <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -214,14 +223,25 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
             {file ? (
               <div className="flex items-center gap-2 rounded-md ring-1 ring-border bg-surface/40 px-3 py-2">
                 <FileTypeIcon
-                  fileType={file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "other"}
+                  fileType={
+                    file.type.startsWith("image/")
+                      ? "image"
+                      : file.type.startsWith("video/")
+                        ? "video"
+                        : "other"
+                  }
                   className="size-4 text-muted-foreground shrink-0"
                 />
                 <span className="text-xs flex-1 truncate">{file.name}</span>
-                <span className="text-[10px] text-muted-foreground shrink-0">{formatBytes(file.size)}</span>
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {formatBytes(file.size)}
+                </span>
                 <button
                   type="button"
-                  onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                  onClick={() => {
+                    setFile(null);
+                    if (fileRef.current) fileRef.current.value = "";
+                  }}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="size-3.5" />
@@ -235,7 +255,9 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
               >
                 <Upload className="size-6" />
                 <span className="text-sm">Click to select a file</span>
-                <span className="text-[11px]">Images, videos &amp; PDFs · up to 5 GB</span>
+                <span className="text-[11px]">
+                  Images, videos &amp; PDFs · up to 5 GB
+                </span>
               </button>
             )}
             <input
@@ -243,12 +265,17 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
               type="file"
               className="hidden"
               accept="image/*,video/*,application/pdf"
-              onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
+              onChange={(e) =>
+                e.target.files?.[0] && setFile(e.target.files[0])
+              }
             />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="upload-title">
-              Title <span className="text-muted-foreground font-normal">(optional)</span>
+              Title{" "}
+              <span className="text-muted-foreground font-normal">
+                (optional)
+              </span>
             </Label>
             <Input
               id="upload-title"
@@ -273,7 +300,12 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
             </div>
           )}
           <div className="flex gap-2 justify-end">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={uploading}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onClose}
+              disabled={uploading}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={!file || !orgId || uploading}>
@@ -309,7 +341,10 @@ function Thumbnail({ item }) {
   }
   return (
     <div className="size-9 rounded bg-surface/40 ring-1 ring-border flex items-center justify-center shrink-0">
-      <FileTypeIcon fileType={item.fileType} className="size-4 text-muted-foreground" />
+      <FileTypeIcon
+        fileType={item.fileType}
+        className="size-4 text-muted-foreground"
+      />
     </div>
   );
 }
@@ -321,29 +356,50 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
         <thead>
           <tr className="border-b border-border bg-surface/30">
             <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10" />
-            <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+              Name
+            </th>
             {isSysAdmin && (
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden md:table-cell">Org</th>
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden md:table-cell">
+                Org
+              </th>
             )}
             {isSysAdmin && (
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden lg:table-cell">Uploader</th>
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden lg:table-cell">
+                Uploader
+              </th>
             )}
-            <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell w-16">Type</th>
-            <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell w-20">Size</th>
-            <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">Uploaded</th>
-            <th className="text-right px-3 py-2 font-medium text-muted-foreground w-20">Actions</th>
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell w-16">
+              Type
+            </th>
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell w-20">
+              Size
+            </th>
+            <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">
+              Uploaded
+            </th>
+            <th className="text-right px-3 py-2 font-medium text-muted-foreground w-20">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {media.map((item) => (
-            <tr key={item.mediaId} className="hover:bg-surface/20 transition-colors">
+            <tr
+              key={item.mediaId}
+              className="hover:bg-surface/20 transition-colors"
+            >
               <td className="px-3 py-2">
                 <Thumbnail item={item} />
               </td>
               <td className="px-3 py-2 max-w-0">
-                <p className="font-medium truncate text-foreground">{item.title || item.filename}</p>
+                <p className="font-medium truncate text-foreground">
+                  {item.title || item.filename}
+                </p>
                 {item.title && (
-                  <p className="text-[10px] text-muted-foreground truncate">{item.filename}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {item.filename}
+                  </p>
                 )}
               </td>
               {isSysAdmin && (
@@ -436,9 +492,14 @@ function MediaPage() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
+      const params = new URLSearchParams({
+        limit: String(LIMIT),
+        offset: String(offset),
+      });
       if (typeFilter !== "all") params.set("type", typeFilter);
-      const res = await fetch(`/api/media?${params}`, { credentials: "include" });
+      const res = await fetch(`/api/media?${params}`, {
+        credentials: "include",
+      });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         setError(body?.error ?? "Failed to load media.");
@@ -454,8 +515,12 @@ function MediaPage() {
     }
   }, [typeFilter, offset]);
 
-  useEffect(() => { setOffset(0); }, [typeFilter]);
-  useEffect(() => { if (orgsLoaded) load(); }, [load, orgsLoaded]);
+  useEffect(() => {
+    setOffset(0);
+  }, [typeFilter]);
+  useEffect(() => {
+    if (orgsLoaded) load();
+  }, [load, orgsLoaded]);
 
   async function handleDelete(item) {
     setDeletingId(item.mediaId);
@@ -560,7 +625,9 @@ function MediaPage() {
                 title="Refresh"
                 className="inline-flex items-center h-7 px-2 text-xs rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface/70 transition-colors disabled:opacity-50"
               >
-                <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`size-3 ${loading ? "animate-spin" : ""}`}
+                />
               </button>
               {isSysAdmin && (
                 <Button
@@ -585,115 +652,140 @@ function MediaPage() {
             </div>
           </div>
 
-        {error && (
-          <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </div>
-        )}
+          {error && (
+            <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              {error}
+            </div>
+          )}
 
-        {bucketTestResult && (
-          <div
-            className={`rounded-md ring-1 px-3 py-2 text-sm ${
-              bucketTestResult.ok
-                ? "ring-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                : "ring-danger/40 bg-danger/10 text-danger"
-            }`}
-          >
-            {bucketTestResult.message}
-          </div>
-        )}
+          {bucketTestResult && (
+            <div
+              className={`rounded-md ring-1 px-3 py-2 text-sm ${
+                bucketTestResult.ok
+                  ? "ring-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "ring-danger/40 bg-danger/10 text-danger"
+              }`}
+            >
+              {bucketTestResult.message}
+            </div>
+          )}
 
-        {loading && media.length === 0 ? (
-          <div className="rounded-lg ring-1 ring-border overflow-hidden">
-            <div className="divide-y divide-border">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-2">
-                  <div className="size-9 rounded bg-surface/40 animate-pulse shrink-0" />
-                  <div className="flex-1 space-y-1.5">
-                    <div className="h-3 w-48 bg-surface/60 rounded animate-pulse" />
-                    <div className="h-2.5 w-32 bg-surface/40 rounded animate-pulse" />
+          {loading && media.length === 0 ? (
+            <div className="rounded-lg ring-1 ring-border overflow-hidden">
+              <div className="divide-y divide-border">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2">
+                    <div className="size-9 rounded bg-surface/40 animate-pulse shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 w-48 bg-surface/60 rounded animate-pulse" />
+                      <div className="h-2.5 w-32 bg-surface/40 rounded animate-pulse" />
+                    </div>
+                    <div className="h-3 w-16 bg-surface/40 rounded animate-pulse hidden sm:block" />
+                    <div className="h-3 w-20 bg-surface/40 rounded animate-pulse" />
                   </div>
-                  <div className="h-3 w-16 bg-surface/40 rounded animate-pulse hidden sm:block" />
-                  <div className="h-3 w-20 bg-surface/40 rounded animate-pulse" />
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ) : media.length === 0 ? (
-          <div className="rounded-lg ring-1 ring-border bg-surface/20 py-14 flex flex-col items-center gap-2 text-center">
-            <HardDrive className="size-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No media uploaded yet.</p>
-            <p className="text-xs text-muted-foreground max-w-xs">
-              Upload clips, screenshots, or evidence files. They can be linked to bans.
-            </p>
-            {orgs.length > 0 && (
-              <Button size="sm" className="mt-1" onClick={() => setUploadOpen(true)}>
-                <Upload className="size-3.5" />
-                Upload first file
-              </Button>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{total} file{total !== 1 ? "s" : ""}</span>
+          ) : media.length === 0 ? (
+            <div className="rounded-lg ring-1 ring-border bg-surface/20 py-14 flex flex-col items-center gap-2 text-center">
+              <HardDrive className="size-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                No media uploaded yet.
+              </p>
+              <p className="text-xs text-muted-foreground max-w-xs">
+                Upload clips, screenshots, or evidence files. They can be linked
+                to bans.
+              </p>
+              {orgs.length > 0 && (
+                <Button
+                  size="sm"
+                  className="mt-1"
+                  onClick={() => setUploadOpen(true)}
+                >
+                  <Upload className="size-3.5" />
+                  Upload first file
+                </Button>
+              )}
             </div>
-            <MediaTable
-              media={media}
-              onDelete={(item) => setConfirmDelete(item)}
-              deletingId={deletingId}
-              isSysAdmin={isSysAdmin}
-            />
-          </>
-        )}
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  {total} file{total !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <MediaTable
+                media={media}
+                onDelete={(item) => setConfirmDelete(item)}
+                deletingId={deletingId}
+                isSysAdmin={isSysAdmin}
+              />
+            </>
+          )}
 
-        {pages > 1 && (
-          <div className="flex items-center gap-2 justify-center pt-1">
-            <Button variant="ghost" size="sm" disabled={currentPage <= 1}
-              onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}>
-              Previous
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Page {currentPage} of {pages}
-            </span>
-            <Button variant="ghost" size="sm" disabled={currentPage >= pages}
-              onClick={() => setOffset((o) => o + LIMIT)}>
-              Next
-            </Button>
-          </div>
-        )}
-
-        <UploadDialog
-          open={uploadOpen}
-          onClose={() => setUploadOpen(false)}
-          orgs={uploadOrgs}
-          onUploaded={(item) => {
-            setMedia((prev) => [item, ...prev]);
-            setTotal((t) => t + 1);
-          }}
-        />
-
-        <Dialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Delete media?</DialogTitle>
-              <DialogDescription>
-                <span className="font-medium text-foreground">{confirmDelete?.title || confirmDelete?.filename}</span>
-                {" "}will be permanently deleted from cloud storage and removed from all linked bans. This cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex gap-2 justify-end pt-2">
-              <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+          {pages > 1 && (
+            <div className="flex items-center gap-2 justify-center pt-1">
               <Button
-                variant="destructive"
-                onClick={() => handleDelete(confirmDelete)}
-                disabled={!!deletingId}
+                variant="ghost"
+                size="sm"
+                disabled={currentPage <= 1}
+                onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}
               >
-                {deletingId ? "Deleting…" : "Delete"}
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {currentPage} of {pages}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={currentPage >= pages}
+                onClick={() => setOffset((o) => o + LIMIT)}
+              >
+                Next
               </Button>
             </div>
-          </DialogContent>
-        </Dialog>
+          )}
+
+          <UploadDialog
+            open={uploadOpen}
+            onClose={() => setUploadOpen(false)}
+            orgs={uploadOrgs}
+            onUploaded={(item) => {
+              setMedia((prev) => [item, ...prev]);
+              setTotal((t) => t + 1);
+            }}
+          />
+
+          <Dialog
+            open={!!confirmDelete}
+            onOpenChange={(o) => !o && setConfirmDelete(null)}
+          >
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Delete media?</DialogTitle>
+                <DialogDescription>
+                  <span className="font-medium text-foreground">
+                    {confirmDelete?.title || confirmDelete?.filename}
+                  </span>{" "}
+                  will be permanently deleted from cloud storage and removed
+                  from all linked bans. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex gap-2 justify-end pt-2">
+                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDelete(confirmDelete)}
+                  disabled={!!deletingId}
+                >
+                  {deletingId ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>

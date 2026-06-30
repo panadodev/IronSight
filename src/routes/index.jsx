@@ -169,8 +169,10 @@ function StaffDashboard() {
   useEffect(() => {
     const orgId = selectedOrgIds[0];
     if (!orgId) return;
-    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
         const types = body?.ticketTypes;
         if (Array.isArray(types) && types.length > 0) {
@@ -179,7 +181,7 @@ function StaffDashboard() {
               id: String(t.id ?? t.name),
               label: String(t.name ?? t.id),
               team: teamForType(inferType(t.name)),
-            }))
+            })),
           );
         }
       })
@@ -267,7 +269,8 @@ function StaffDashboard() {
       for (const id of ids) {
         if (id.toLowerCase().includes(q)) return true;
       }
-      if (t.reporterName && t.reporterName.toLowerCase().includes(q)) return true;
+      if (t.reporterName && t.reporterName.toLowerCase().includes(q))
+        return true;
       return false;
     };
     const filtered = tickets
@@ -305,10 +308,24 @@ function StaffDashboard() {
   const selected =
     tickets.find((t) => t.id === selectedId && canSee(t)) ?? visible[0] ?? null;
   const subject = selected?.subjectId
-    ? { name: selected.subjectName ?? selected.subjectId, steamId: selected.subjectId, avatar: null, playtimeHours: null, country: null, lastSeen: null }
+    ? {
+        name: selected.subjectName ?? selected.subjectId,
+        steamId: selected.subjectId,
+        avatar: null,
+        playtimeHours: null,
+        country: null,
+        lastSeen: null,
+      }
     : null;
   const reporter = selected
-    ? { name: selected.reporterName ?? selected.reporterId ?? "Unknown", steamId: selected.reporterId ?? "", avatar: null, playtimeHours: null, country: null, lastSeen: null }
+    ? {
+        name: selected.reporterName ?? selected.reporterId ?? "Unknown",
+        steamId: selected.reporterId ?? "",
+        avatar: null,
+        playtimeHours: null,
+        country: null,
+        lastSeen: null,
+      }
     : null;
   const isReport = selected?.type === "player_report";
 
@@ -1102,9 +1119,7 @@ function StaffDashboard() {
                 ) : (
                   <>
                     {selected.type === "ban_appeal" && (
-                      <AppealModerationActions
-                        appellant={reporter}
-                      />
+                      <AppealModerationActions appellant={reporter} />
                     )}
                     <button
                       onClick={requestClose}
@@ -1502,7 +1517,10 @@ function ReportsList({ reports, proofOnly, recencyDays }) {
       </p>
 
       {shown.map((r) => {
-        const p = { name: r.reporterName ?? r.reporterId?.slice(-5) ?? "?", steamId: r.reporterId ?? "" };
+        const p = {
+          name: r.reporterName ?? r.reporterId?.slice(-5) ?? "?",
+          steamId: r.reporterId ?? "",
+        };
         const tone =
           r.status === "banned"
             ? "text-danger ring-danger/30 bg-danger/10"

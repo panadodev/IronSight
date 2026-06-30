@@ -371,13 +371,15 @@ function ApiKeysSection({ orgId }) {
     }
   }
 
-  const keysByService = ["battlemetrics", "steam", "proxycheck", "openai"].reduce(
-    (acc, svc) => {
-      acc[svc] = keys.filter((k) => k.service === svc);
-      return acc;
-    },
-    {},
-  );
+  const keysByService = [
+    "battlemetrics",
+    "steam",
+    "proxycheck",
+    "openai",
+  ].reduce((acc, svc) => {
+    acc[svc] = keys.filter((k) => k.service === svc);
+    return acc;
+  }, {});
 
   return (
     <div className="space-y-4 border-t border-border pt-6">
@@ -647,9 +649,7 @@ function RateLimitBadge({ limit }) {
       }
     >
       {remaining.toLocaleString()} / {total.toLocaleString()} remaining
-      {resetMins != null && (
-        <span className="opacity-60">· {resetMins}m</span>
-      )}
+      {resetMins != null && <span className="opacity-60">· {resetMins}m</span>}
     </span>
   );
 }
@@ -1084,13 +1084,27 @@ function ManageDetailsPage() {
         setBmOrgId(body.organization?.bmOrgId ?? "");
         setBmAutoSync(body.organization?.bmAutoSync === true);
         setBmBanListId(body.organization?.bmBanListId ?? "");
-        setMediaExpiryMonths(body.organization?.mediaExpiryMonths != null ? String(body.organization.mediaExpiryMonths) : "");
-        const bytesToGb = (b) => (b != null ? String(Math.round(b / 1024 / 1024 / 1024)) : "");
-        const bytesToMb = (b) => (b != null ? String(Math.round(b / 1024 / 1024)) : "");
-        setMediaStorageLimitGb(bytesToGb(body.organization?.mediaStorageLimitBytes));
+        setMediaExpiryMonths(
+          body.organization?.mediaExpiryMonths != null
+            ? String(body.organization.mediaExpiryMonths)
+            : "",
+        );
+        const bytesToGb = (b) =>
+          b != null ? String(Math.round(b / 1024 / 1024 / 1024)) : "";
+        const bytesToMb = (b) =>
+          b != null ? String(Math.round(b / 1024 / 1024)) : "";
+        setMediaStorageLimitGb(
+          bytesToGb(body.organization?.mediaStorageLimitBytes),
+        );
         setMediaUserLimitMb(bytesToMb(body.organization?.mediaUserLimitBytes));
-        setMediaPublicFileLimitMb(bytesToMb(body.organization?.mediaPublicFileLimitBytes));
-        setMediaPublicMaxFiles(body.organization?.mediaPublicMaxFiles != null ? String(body.organization.mediaPublicMaxFiles) : "");
+        setMediaPublicFileLimitMb(
+          bytesToMb(body.organization?.mediaPublicFileLimitBytes),
+        );
+        setMediaPublicMaxFiles(
+          body.organization?.mediaPublicMaxFiles != null
+            ? String(body.organization.mediaPublicMaxFiles)
+            : "",
+        );
       } catch (err) {
         if (!cancelled && err?.code !== "AUTH_EXPIRED") {
           setError(err?.message ?? "Failed to load organization details.");
@@ -1174,13 +1188,20 @@ function ManageDetailsPage() {
           `/api/orgs/${orgId}/bm-ban-lists?bmOrgId=${encodeURIComponent(bmOrgId.trim())}`,
         );
         if (!res.ok) {
-          if (!cancelled) { setBmBanLists([]); setBmBanListsError(true); }
+          if (!cancelled) {
+            setBmBanLists([]);
+            setBmBanListsError(true);
+          }
           return;
         }
         const body = await res.json();
-        if (!cancelled) setBmBanLists(Array.isArray(body?.banLists) ? body.banLists : []);
+        if (!cancelled)
+          setBmBanLists(Array.isArray(body?.banLists) ? body.banLists : []);
       } catch {
-        if (!cancelled) { setBmBanLists([]); setBmBanListsError(true); }
+        if (!cancelled) {
+          setBmBanLists([]);
+          setBmBanListsError(true);
+        }
       } finally {
         if (!cancelled) setBmBanListsLoading(false);
       }
@@ -1209,11 +1230,21 @@ function ManageDetailsPage() {
           bmOrgId: bmOrgId.trim() || null,
           bmAutoSync,
           bmBanListId: bmBanListId || null,
-          mediaExpiryMonths: mediaExpiryMonths ? parseInt(mediaExpiryMonths, 10) : null,
-          mediaStorageLimitBytes: mediaStorageLimitGb ? Math.round(parseFloat(mediaStorageLimitGb) * 1024 * 1024 * 1024) : null,
-          mediaUserLimitBytes: mediaUserLimitMb ? Math.round(parseFloat(mediaUserLimitMb) * 1024 * 1024) : null,
-          mediaPublicFileLimitBytes: mediaPublicFileLimitMb ? Math.round(parseFloat(mediaPublicFileLimitMb) * 1024 * 1024) : null,
-          mediaPublicMaxFiles: mediaPublicMaxFiles ? parseInt(mediaPublicMaxFiles, 10) : null,
+          mediaExpiryMonths: mediaExpiryMonths
+            ? parseInt(mediaExpiryMonths, 10)
+            : null,
+          mediaStorageLimitBytes: mediaStorageLimitGb
+            ? Math.round(parseFloat(mediaStorageLimitGb) * 1024 * 1024 * 1024)
+            : null,
+          mediaUserLimitBytes: mediaUserLimitMb
+            ? Math.round(parseFloat(mediaUserLimitMb) * 1024 * 1024)
+            : null,
+          mediaPublicFileLimitBytes: mediaPublicFileLimitMb
+            ? Math.round(parseFloat(mediaPublicFileLimitMb) * 1024 * 1024)
+            : null,
+          mediaPublicMaxFiles: mediaPublicMaxFiles
+            ? parseInt(mediaPublicMaxFiles, 10)
+            : null,
         }),
       });
 
@@ -1229,13 +1260,27 @@ function ManageDetailsPage() {
       setBmOrgId(body.organization?.bmOrgId ?? bmOrgId.trim());
       setBmAutoSync(body.organization?.bmAutoSync ?? bmAutoSync);
       setBmBanListId(body.organization?.bmBanListId ?? bmBanListId);
-      setMediaExpiryMonths(body.organization?.mediaExpiryMonths != null ? String(body.organization.mediaExpiryMonths) : "");
-      const bytesToGb = (b) => (b != null ? String(Math.round(b / 1024 / 1024 / 1024)) : "");
-      const bytesToMb = (b) => (b != null ? String(Math.round(b / 1024 / 1024)) : "");
-      setMediaStorageLimitGb(bytesToGb(body.organization?.mediaStorageLimitBytes));
+      setMediaExpiryMonths(
+        body.organization?.mediaExpiryMonths != null
+          ? String(body.organization.mediaExpiryMonths)
+          : "",
+      );
+      const bytesToGb = (b) =>
+        b != null ? String(Math.round(b / 1024 / 1024 / 1024)) : "";
+      const bytesToMb = (b) =>
+        b != null ? String(Math.round(b / 1024 / 1024)) : "";
+      setMediaStorageLimitGb(
+        bytesToGb(body.organization?.mediaStorageLimitBytes),
+      );
       setMediaUserLimitMb(bytesToMb(body.organization?.mediaUserLimitBytes));
-      setMediaPublicFileLimitMb(bytesToMb(body.organization?.mediaPublicFileLimitBytes));
-      setMediaPublicMaxFiles(body.organization?.mediaPublicMaxFiles != null ? String(body.organization.mediaPublicMaxFiles) : "");
+      setMediaPublicFileLimitMb(
+        bytesToMb(body.organization?.mediaPublicFileLimitBytes),
+      );
+      setMediaPublicMaxFiles(
+        body.organization?.mediaPublicMaxFiles != null
+          ? String(body.organization.mediaPublicMaxFiles)
+          : "",
+      );
       setMessage("Organization details saved.");
     } catch (err) {
       if (err?.code !== "AUTH_EXPIRED") {
@@ -1392,11 +1437,15 @@ function ManageDetailsPage() {
             <div className="space-y-1">
               <Label htmlFor="bm-ban-list">BattleMetrics ban list</Label>
               {bmBanListsLoading ? (
-                <p className="text-[11px] text-muted-foreground">Loading ban lists…</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Loading ban lists…
+                </p>
               ) : bmBanLists.length > 0 ? (
                 <Select
                   value={bmBanListId || "__none__"}
-                  onValueChange={(v) => setBmBanListId(v === "__none__" ? "" : v)}
+                  onValueChange={(v) =>
+                    setBmBanListId(v === "__none__" ? "" : v)
+                  }
                   disabled={loading || saving}
                 >
                   <SelectTrigger id="bm-ban-list">
@@ -1457,7 +1506,8 @@ function ManageDetailsPage() {
                   >
                     Ban Sync
                   </a>{" "}
-                  is disabled — BattleMetrics will never natively ban the player.
+                  is disabled — BattleMetrics will never natively ban the
+                  player.
                 </p>
               </div>
             </div>
@@ -1467,8 +1517,10 @@ function ManageDetailsPage() {
             <div>
               <p className="text-sm font-medium">Media Storage (R2 / S3)</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Files go directly from the browser to Cloudflare R2 — single PUT under 300 MB, presigned multipart above.
-                Storage credentials are configured via server environment variables (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, etc.).
+                Files go directly from the browser to Cloudflare R2 — single PUT
+                under 300 MB, presigned multipart above. Storage credentials are
+                configured via server environment variables (R2_ACCOUNT_ID,
+                R2_ACCESS_KEY_ID, etc.).
               </p>
             </div>
 
@@ -1487,12 +1539,15 @@ function ManageDetailsPage() {
                   className="w-full"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Objects not accessed in this many months are purged. Also sets an R2 lifecycle rule for the org prefix.
+                  Objects not accessed in this many months are purged. Also sets
+                  an R2 lifecycle rule for the org prefix.
                 </p>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="media-storage-limit">Org storage cap (GB)</Label>
+                <Label htmlFor="media-storage-limit">
+                  Org storage cap (GB)
+                </Label>
                 <Input
                   id="media-storage-limit"
                   type="number"
@@ -1504,7 +1559,8 @@ function ManageDetailsPage() {
                   className="w-full"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Max total staff-gallery storage for this org. Leave blank for no limit.
+                  Max total staff-gallery storage for this org. Leave blank for
+                  no limit.
                 </p>
               </div>
 
@@ -1526,7 +1582,9 @@ function ManageDetailsPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="media-public-limit">Public upload limit (MB)</Label>
+                <Label htmlFor="media-public-limit">
+                  Public upload limit (MB)
+                </Label>
                 <Input
                   id="media-public-limit"
                   type="number"
@@ -1538,12 +1596,15 @@ function ManageDetailsPage() {
                   className="w-full"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Max size per file that public ticket submitters can upload. Default: 100 MB.
+                  Max size per file that public ticket submitters can upload.
+                  Default: 100 MB.
                 </p>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="media-public-max">Public max files / ticket</Label>
+                <Label htmlFor="media-public-max">
+                  Public max files / ticket
+                </Label>
                 <Input
                   id="media-public-max"
                   type="number"
@@ -1556,7 +1617,8 @@ function ManageDetailsPage() {
                   className="w-full"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Max files a public user can attach to a single ticket. Default: 5.
+                  Max files a public user can attach to a single ticket.
+                  Default: 5.
                 </p>
               </div>
             </div>

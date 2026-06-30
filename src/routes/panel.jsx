@@ -85,14 +85,10 @@ const Route = createFileRoute("/panel")({
     };
   },
 });
-const RANK_OPTIONS = [
-  { value: 1, label: "Support" },
-  { value: 2, label: "Admin" },
-  { value: 3, label: "Sr. Admin" },
-  { value: 4, label: "Management" },
-];
-const rankLabel = (r) =>
-  RANK_OPTIONS.find((x) => x.value === r)?.label ?? `Rank ${r}`;
+const rankLabel = (position, roles) => {
+  const role = roles.find((r) => r.position === position);
+  return role ? role.roleName : `Position ${position}`;
+};
 function extractVars(cmd) {
   const matches = cmd.match(/\{([a-zA-Z0-9_]+)\}/g) ?? [];
   return Array.from(new Set(matches.map((m) => m.slice(1, -1))));
@@ -391,10 +387,9 @@ function RconTab({ servers, orgId }) {
     liveRef.current = false;
     setLive(false);
     if (!selected || !feedEligible) return;
-    const es = new EventSource(
-      `/api/servers/${selected}/rcon/console/stream`,
-      { withCredentials: true },
-    );
+    const es = new EventSource(`/api/servers/${selected}/rcon/console/stream`, {
+      withCredentials: true,
+    });
     es.onopen = () => {
       liveRef.current = true;
       setLive(true);
@@ -594,7 +589,9 @@ function RconTab({ servers, orgId }) {
                 <span
                   className={
                     "size-1.5 rounded-full " +
-                    (live ? "bg-success animate-pulse" : "bg-muted-foreground/50")
+                    (live
+                      ? "bg-success animate-pulse"
+                      : "bg-muted-foreground/50")
                   }
                 />
                 {live ? "LIVE" : "OFFLINE"}
@@ -764,12 +761,14 @@ function ScriptPickerButton({ scripts, onPick, disabled }) {
   );
 }
 function ScriptsTab({ servers, orgId }) {
-  const { rankOf, hasOrgPermission } = useAuth();
-  const userRank = rankOf(orgId);
+  const { hasOrgPermission } = useAuth();
   const canManage = hasOrgPermission(orgId, "scripts_manage");
   const canRcon = hasOrgPermission(orgId, "rcon_access");
   const [scripts, setScripts] = useState([]);
   const [scriptsLoading, setScriptsLoading] = useState(true);
+  const [customRoles, setCustomRoles] = useState([]);
+  // undefined = not yet loaded; null = admin/owner (Infinity); number = position
+  const [callerPosition, setCallerPosition] = useState(undefined);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [pendingRun, setPendingRun] = useState(null);
@@ -790,6 +789,27 @@ function ScriptsTab({ servers, orgId }) {
       })
       .finally(() => {
         if (!cancelled) setScriptsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/orgs/${orgId}/roles`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (!cancelled) {
+          const sorted = (d.roles ?? [])
+            .slice()
+            .sort((a, b) => a.position - b.position);
+          setCustomRoles(sorted);
+          setCallerPosition(d.callerPosition ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCallerPosition(null);
       });
     return () => {
       cancelled = true;
@@ -943,7 +963,11 @@ function ScriptsTab({ servers, orgId }) {
         {scripts.map((s) => {
           const lines = s.command.split("\n").filter(Boolean);
           const vars = extractVars(s.command);
-          const allowed = userRank >= s.minRank;
+          const effectivePos =
+            callerPosition === undefined || callerPosition === null
+              ? Infinity
+              : callerPosition;
+          const allowed = effectivePos >= s.minRank;
           return (
             <div
               key={s.id}
@@ -975,7 +999,7 @@ function ScriptsTab({ servers, orgId }) {
                           : "Requires higher rank"
                       }
                     >
-                      {rankLabel(s.minRank)}+
+                      {rankLabel(s.minRank, customRoles)}+
                     </Badge>
                     {vars.map((v) => (
                       <Badge
@@ -1021,7 +1045,8 @@ function ScriptsTab({ servers, orgId }) {
 
               {canRcon && !allowed && (
                 <div className="text-[10px] font-mono text-destructive bg-destructive/5 ring-1 ring-destructive/30 rounded px-2 py-1">
-                  Requires {rankLabel(s.minRank)} or higher to execute.
+                  Requires {rankLabel(s.minRank, customRoles)} or higher to
+                  execute.
                 </div>
               )}
               {!canRcon && (
@@ -1116,6 +1141,7 @@ function ScriptsTab({ servers, orgId }) {
           setEditing(null);
         }}
         onSave={saveScript}
+        roles={customRoles}
       />
     </div>
   );
@@ -1361,13 +1387,14 @@ function RunVarsDialog({ pending, onClose, onRun }) {
     </Dialog>
   );
 }
-function ScriptEditDialog({ open, initial, onClose, onSave }) {
+function ScriptEditDialog({ open, initial, onClose, onSave, roles }) {
+  const defaultMinRank = roles.length > 0 ? roles[0].position : 1;
   const [draft, setDraft] = useState({
     id: "",
     name: "",
     command: "",
     description: "",
-    minRank: 2,
+    minRank: defaultMinRank,
   });
   useEffect(() => {
     if (open) {
@@ -1377,10 +1404,11 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
           name: "",
           command: "",
           description: "",
-          minRank: 2,
+          minRank: defaultMinRank,
         },
       );
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial]);
   const vars = extractVars(draft.command);
   return (
@@ -1429,26 +1457,37 @@ function ScriptEditDialog({ open, initial, onClose, onSave }) {
             )}
           </div>
           <div className="space-y-1.5">
-            <Label>Minimum rank required</Label>
-            <Select
-              value={String(draft.minRank)}
-              onValueChange={(v) => setDraft({ ...draft, minRank: Number(v) })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANK_OPTIONS.map((r) => (
-                  <SelectItem key={r.value} value={String(r.value)}>
-                    {r.label} (rank {r.value}+)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground">
-              Only staff with this team rank or higher in the active org can
-              execute this script.
-            </p>
+            <Label>Minimum role required</Label>
+            {roles.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                No custom roles defined for this org yet. Create roles in Manage
+                › Roles first.
+              </p>
+            ) : (
+              <>
+                <Select
+                  value={String(draft.minRank)}
+                  onValueChange={(v) =>
+                    setDraft({ ...draft, minRank: Number(v) })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((r) => (
+                      <SelectItem key={r.roleId} value={String(r.position)}>
+                        {r.roleName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Staff at this role or above in the hierarchy can execute this
+                  script.
+                </p>
+              </>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Description (optional)</Label>
@@ -1763,7 +1802,9 @@ function OrgPluginsTab({ orgId }) {
                     <button
                       key={r}
                       disabled={isBusy}
-                      onClick={() => r !== p.risk && patchPlugin(p.id, { risk: r })}
+                      onClick={() =>
+                        r !== p.risk && patchPlugin(p.id, { risk: r })
+                      }
                       title={RISK_META[r].title}
                       className={
                         "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
@@ -2025,8 +2066,8 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
                 className="font-mono"
               />
               <p className="text-[10px] text-muted-foreground">
-                The slug from umod.org/plugins/&lt;slug&gt; — used to look up the
-                latest version.
+                The slug from umod.org/plugins/&lt;slug&gt; — used to look up
+                the latest version.
               </p>
             </div>
           )}
@@ -2050,9 +2091,7 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
                       key={t}
                       type="button"
                       onClick={() =>
-                        setTags(
-                          on ? tags.filter((x) => x !== t) : [...tags, t],
-                        )
+                        setTags(on ? tags.filter((x) => x !== t) : [...tags, t])
                       }
                       className={
                         "px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
@@ -3088,7 +3127,7 @@ function WorldPlayerMap({ players }) {
       x = proj.x;
       y = proj.y;
       label = p.country
-        ? COUNTRY_NAMES[p.country] ?? p.country
+        ? (COUNTRY_NAMES[p.country] ?? p.country)
         : `${rLat}, ${rLng}`;
     } else if (p.country && COUNTRY_CENTROIDS[p.country]) {
       const c = COUNTRY_CENTROIDS[p.country];
@@ -3125,10 +3164,18 @@ function WorldPlayerMap({ players }) {
           strokeWidth={0.5}
         />
         {points.map((p) => {
-          const radius = Math.max(4, Math.min(12, 4 + Math.log(p.count + 1) * 3));
+          const radius = Math.max(
+            4,
+            Math.min(12, 4 + Math.log(p.count + 1) * 3),
+          );
           return (
             <g key={p.id}>
-              <circle cx={p.x} cy={p.y} r={radius * 1.8} className="fill-emerald-500/15" />
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={radius * 1.8}
+                className="fill-emerald-500/15"
+              />
               <circle
                 cx={p.x}
                 cy={p.y}
@@ -3165,6 +3212,9 @@ function WorldPlayerMap({ players }) {
 }
 
 function GlobalpingSection({ orgId }) {
+  const { hasOrgPermission } = useAuth();
+  const canViewPlayers = hasOrgPermission(orgId, "players_view");
+
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
@@ -3356,11 +3406,13 @@ function GlobalpingSection({ orgId }) {
             title="Server to plot on the map"
             className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
-            {(playerMode ? (playerData?.servers ?? servers) : servers).map((s) => (
-              <option key={s.serverId} value={s.serverId}>
-                {s.serverName}
-              </option>
-            ))}
+            {(playerMode ? (playerData?.servers ?? servers) : servers).map(
+              (s) => (
+                <option key={s.serverId} value={s.serverId}>
+                  {s.serverName}
+                </option>
+              ),
+            )}
           </select>
           {triggering ? (
             <span className="text-[10px] font-mono uppercase tracking-widest text-amber-500 flex items-center gap-1">
@@ -3390,19 +3442,21 @@ function GlobalpingSection({ orgId }) {
             >
               <Activity className="size-3" /> Latency
             </button>
-            <button
-              onClick={() => {
-                if (!playerMode) loadPlayers();
-                setPlayerMode(true);
-              }}
-              className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
-                playerMode
-                  ? "bg-surface text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Users className="size-3" /> Players
-            </button>
+            {canViewPlayers && (
+              <button
+                onClick={() => {
+                  if (!playerMode) loadPlayers();
+                  setPlayerMode(true);
+                }}
+                className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                  playerMode
+                    ? "bg-surface text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Users className="size-3" /> Players
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -3414,7 +3468,8 @@ function GlobalpingSection({ orgId }) {
             <>
               <WorldPlayerMap
                 players={(playerData?.players ?? []).filter(
-                  (p) => p.isOnline && (!mapServerId || p.serverId === mapServerId),
+                  (p) =>
+                    p.isOnline && (!mapServerId || p.serverId === mapServerId),
                 )}
               />
               {playerLoading && (
@@ -3425,7 +3480,10 @@ function GlobalpingSection({ orgId }) {
             </>
           ) : (
             <>
-              <WorldLatencyMap snapshot={currentSnap} countries={mapCountries} />
+              <WorldLatencyMap
+                snapshot={currentSnap}
+                countries={mapCountries}
+              />
               {historyLoading && !snaps.length && (
                 <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
                   Loading history…
@@ -3433,8 +3491,9 @@ function GlobalpingSection({ orgId }) {
               )}
               {!historyLoading && !snaps.length && (
                 <div className="absolute inset-0 grid place-items-center text-center text-[11px] font-mono text-muted-foreground bg-background/40 px-4">
-                  No measurement history yet for {mapServerName || "this server"}.
-                  Measurements run every few minutes — check back shortly.
+                  No measurement history yet for{" "}
+                  {mapServerName || "this server"}. Measurements run every few
+                  minutes — check back shortly.
                 </div>
               )}
             </>
@@ -3561,7 +3620,9 @@ function NotificationToggle({ orgId }) {
 
   useEffect(() => {
     if (!orgId) return;
-    fetch(`/api/orgs/${encodeURIComponent(orgId)}/notification-prefs`, { credentials: "include" })
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/notification-prefs`, {
+      credentials: "include",
+    })
       .then((r) => r.json())
       .then((d) => setEnabled(!!d.enabled))
       .catch(() => {});
@@ -3592,14 +3653,22 @@ function NotificationToggle({ orgId }) {
     <button
       onClick={toggle}
       disabled={busy}
-      title={enabled ? "Disable Discord DM alerts for this org" : "Enable Discord DM alerts for this org"}
+      title={
+        enabled
+          ? "Disable Discord DM alerts for this org"
+          : "Enable Discord DM alerts for this org"
+      }
       className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium ring-1 transition-colors ${
         enabled
           ? "ring-brand/40 bg-brand/10 text-brand hover:bg-brand/20"
           : "ring-border text-muted-foreground hover:text-foreground hover:bg-surface/50"
       }`}
     >
-      {enabled ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+      {enabled ? (
+        <Bell className="size-3.5" />
+      ) : (
+        <BellOff className="size-3.5" />
+      )}
       {enabled ? "Alerts on" : "Alerts off"}
     </button>
   );

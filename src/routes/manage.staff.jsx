@@ -1,27 +1,27 @@
 import { GateRank, SectionHeader } from "@/components/manage-section";
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectLabel,
-    SelectSeparator,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
@@ -29,21 +29,21 @@ import { useManageOrgId } from "@/lib/manage-org-store";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
-    Activity,
-    ArrowDown,
-    ArrowUpDown,
-    Crown,
-    Eye,
-    Gavel,
-    LogOut,
-    ScrollText,
-    Search,
-    Server,
-    ShieldCheck,
-    Ticket,
-    Trash2,
-    UserPlus,
-    Users,
+  Activity,
+  ArrowDown,
+  ArrowUpDown,
+  Crown,
+  Eye,
+  Gavel,
+  LogOut,
+  ScrollText,
+  Search,
+  Server,
+  ShieldCheck,
+  Ticket,
+  Trash2,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -318,7 +318,8 @@ function StaffPage() {
     callerPosition == null ? Number.POSITIVE_INFINITY : callerPosition;
   // Roles the caller may hand out: strictly below their own position.
   const assignableRoles = customRoles.filter(
-    (r) => callerPos === Number.POSITIVE_INFINITY || (r.position ?? 0) < callerPos,
+    (r) =>
+      callerPos === Number.POSITIVE_INFINITY || (r.position ?? 0) < callerPos,
   );
 
   async function handleAdd() {
@@ -439,8 +440,8 @@ function StaffPage() {
         body: JSON.stringify({ syncPermsOnJoin: next }),
       });
       if (res.ok) setSyncPermsOnJoin(next);
-    } catch {}
-    finally {
+    } catch {
+    } finally {
       setTogglingSync(false);
     }
   }

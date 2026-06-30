@@ -127,7 +127,7 @@ function SiteNav() {
   const canChat =
     anyOrgHas("chat_view") || anyOrgHas("players_view") || canOrgManage;
   const canDocs =
-    anyOrgHas("tickets_view") || anyOrgHas("docs_edit") || canOrgManage;
+    anyOrgHas("docs_view") || anyOrgHas("docs_edit") || canOrgManage;
   const canManageSection =
     canOrgManage ||
     canRoleManage ||
@@ -528,7 +528,8 @@ function SiteNav() {
   ]
     .map((g) => ({ ...g, links: g.links.filter((l) => l.show !== false) }))
     .filter((g) => g.links.length > 0);
-  const effectiveView = (sessionUser && (isSysAdminSession || orgs.length > 0)) ? view : "public";
+  const effectiveView =
+    sessionUser && (isSysAdminSession || orgs.length > 0) ? view : "public";
   const groups = effectiveView === "public" ? publicGroups : staffGroups;
   const hasNewTodo = false;
   useEffect(() => {
@@ -569,7 +570,10 @@ function SiteNav() {
             </aside>
           </SheetContent>
         </Sheet>
-        <Link to="/tickets" className="flex items-center gap-2 font-bold text-sm">
+        <Link
+          to="/tickets"
+          className="flex items-center gap-2 font-bold text-sm"
+        >
           IronSight
         </Link>
         <div className="ml-auto flex items-center gap-2">
@@ -1039,7 +1043,11 @@ function SiteNav() {
                 {["public", "staff"].map((v) => (
                   <button
                     key={v}
-                    disabled={(!sessionUser || (!isSysAdminSession && orgs.length === 0)) && v === "staff"}
+                    disabled={
+                      (!sessionUser ||
+                        (!isSysAdminSession && orgs.length === 0)) &&
+                      v === "staff"
+                    }
                     onClick={() => switchView(v)}
                     className={
                       "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
@@ -1192,73 +1200,83 @@ function SiteNav() {
               </p>
             </div>
 
-            {(isSysAdminSession || orgs.length > 0) && <div className="space-y-1.5">
-              <Label>Hints</Label>
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft({ ...draft, enableHints: draft.enableHints === false })
-                }
-                className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-surface/60 p-3 text-left transition-colors hover:bg-surface"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">Enable hints</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Show explanatory tooltips when hovering data like BM hours or
-                    Steam hours across the panel.
-                  </p>
-                </div>
-                <span
-                  className={
-                    "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
-                    (draft.enableHints !== false ? "bg-brand" : "bg-muted")
+            {(isSysAdminSession || orgs.length > 0) && (
+              <div className="space-y-1.5">
+                <Label>Hints</Label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      enableHints: draft.enableHints === false,
+                    })
                   }
+                  className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-surface/60 p-3 text-left transition-colors hover:bg-surface"
                 >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Enable hints</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Show explanatory tooltips when hovering data like BM hours
+                      or Steam hours across the panel.
+                    </p>
+                  </div>
                   <span
                     className={
-                      "inline-block size-4 rounded-full bg-background shadow transition-transform " +
-                      (draft.enableHints !== false
-                        ? "translate-x-4"
-                        : "translate-x-0.5")
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
+                      (draft.enableHints !== false ? "bg-brand" : "bg-muted")
                     }
-                  />
-                </span>
-              </button>
-            </div>}
+                  >
+                    <span
+                      className={
+                        "inline-block size-4 rounded-full bg-background shadow transition-transform " +
+                        (draft.enableHints !== false
+                          ? "translate-x-4"
+                          : "translate-x-0.5")
+                      }
+                    />
+                  </span>
+                </button>
+              </div>
+            )}
 
-            {(isSysAdminSession || orgs.length > 0) && <div className="space-y-1.5">
-              <Label>Privacy</Label>
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft({ ...draft, profilePrivate: !draft.profilePrivate })
-                }
-                className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-surface/60 p-3 text-left transition-colors hover:bg-surface"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">Private profile</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Stop other staff from looking up your player profile. Your
-                    online status stays visible to the team.
-                  </p>
-                </div>
-                <span
-                  className={
-                    "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
-                    (draft.profilePrivate ? "bg-brand" : "bg-muted")
+            {(isSysAdminSession || orgs.length > 0) && (
+              <div className="space-y-1.5">
+                <Label>Privacy</Label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      profilePrivate: !draft.profilePrivate,
+                    })
                   }
+                  className="flex w-full items-center justify-between gap-3 rounded-md ring-1 ring-border bg-surface/60 p-3 text-left transition-colors hover:bg-surface"
                 >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Private profile</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Stop other staff from looking up your player profile. Your
+                      online status stays visible to the team.
+                    </p>
+                  </div>
                   <span
                     className={
-                      "inline-block size-4 rounded-full bg-background shadow transition-transform " +
-                      (draft.profilePrivate
-                        ? "translate-x-4"
-                        : "translate-x-0.5")
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors " +
+                      (draft.profilePrivate ? "bg-brand" : "bg-muted")
                     }
-                  />
-                </span>
-              </button>
-            </div>}
+                  >
+                    <span
+                      className={
+                        "inline-block size-4 rounded-full bg-background shadow transition-transform " +
+                        (draft.profilePrivate
+                          ? "translate-x-4"
+                          : "translate-x-0.5")
+                      }
+                    />
+                  </span>
+                </button>
+              </div>
+            )}
 
             {profileError ? (
               <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

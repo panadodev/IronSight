@@ -22,7 +22,9 @@ async function testModeration(text, maxRetries = 5) {
     if (res.status === 429) {
       const retryAfter = res.headers.get("retry-after");
       const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
-      console.log(`  [429] rate limited — waiting ${wait}ms (attempt ${attempt + 1}/${maxRetries})`);
+      console.log(
+        `  [429] rate limited — waiting ${wait}ms (attempt ${attempt + 1}/${maxRetries})`,
+      );
       await new Promise((r) => setTimeout(r, wait));
       delay *= 2;
       continue;

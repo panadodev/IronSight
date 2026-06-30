@@ -1,25 +1,25 @@
 import { PlayerLinks } from "@/components/player-links";
 import { ServerOverlapSection } from "@/components/server-overlap-section";
 import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Link } from "@tanstack/react-router";
 import {
-    AlertOctagon,
-    Ban,
-    Building2,
-    Check,
-    ChevronDown,
-    Clock,
-    Copy,
-    ExternalLink,
-    Filter,
-    ShieldAlert,
-    Users,
-    Wifi,
+  AlertOctagon,
+  Ban,
+  Building2,
+  Check,
+  ChevronDown,
+  Clock,
+  Copy,
+  ExternalLink,
+  Filter,
+  ShieldAlert,
+  Users,
+  Wifi,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -613,12 +613,7 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
   );
 }
 
-function ComparisonDialog({
-  open,
-  onClose,
-  subjectName,
-  account,
-}) {
+function ComparisonDialog({ open, onClose, subjectName, account }) {
   const [copied, setCopied] = useState(false);
   if (!account) return null;
 

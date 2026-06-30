@@ -1,4 +1,3 @@
-
 function relativeTimeFromNow(unixSeconds) {
   if (!unixSeconds) return null;
   const now = Math.floor(Date.now() / 1000);
@@ -62,7 +61,9 @@ export function EacBanStatus({ bmData }) {
         <div className="text-danger mt-0.5">{banIcon}</div>
         <div className="flex-1">
           <p className="text-sm font-semibold text-foreground mb-1">
-            {rustBansBanned ? "Currently EAC Banned" : "Not Currently EAC Banned"}
+            {rustBansBanned
+              ? "Currently EAC Banned"
+              : "Not Currently EAC Banned"}
           </p>
           <p className="text-xs text-muted-foreground space-y-1">
             <span className="block">
@@ -70,9 +71,11 @@ export function EacBanStatus({ bmData }) {
             </span>
             {rustBansLastBan && formattedDate && (
               <span className="block">
-                Banned <time dateTime={new Date(rustBansLastBan * 1000).toISOString()}>
+                Banned{" "}
+                <time dateTime={new Date(rustBansLastBan * 1000).toISOString()}>
                   {formattedDate}
-                </time>, <span className="font-mono">{relativeTime} ago</span>.
+                </time>
+                , <span className="font-mono">{relativeTime} ago</span>.
               </span>
             )}
           </p>

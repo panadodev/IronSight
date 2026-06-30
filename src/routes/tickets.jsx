@@ -2,18 +2,18 @@ import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-    Activity,
-    ChevronDown,
-    Copy,
-    ExternalLink,
-    FileIcon,
-    Gamepad2,
-    LayoutList,
-    Search,
-    Shield,
-    UserSearch,
-    Users,
-    Wifi,
+  Activity,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  FileIcon,
+  Gamepad2,
+  LayoutList,
+  Search,
+  Shield,
+  UserSearch,
+  Users,
+  Wifi,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -705,7 +705,8 @@ function PredefinesPicker({ predefines, ticketTypeId, onSelect }) {
           <div className="max-h-52 overflow-y-auto">
             {relevant.length === 0 ? (
               <div className="px-3 py-3 text-[10px] font-mono text-muted-foreground">
-                No pre-defines{query ? " match your search" : " for this ticket type"}.
+                No pre-defines
+                {query ? " match your search" : " for this ticket type"}.
               </div>
             ) : (
               relevant.map((p) => (
@@ -1020,7 +1021,9 @@ function TicketDetail({
                     replyText ? `${replyText}\n\n${content}` : content,
                   );
                 } else {
-                  onNoteChange(noteText ? `${noteText}\n\n${content}` : content);
+                  onNoteChange(
+                    noteText ? `${noteText}\n\n${content}` : content,
+                  );
                 }
               }}
             />

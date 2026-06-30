@@ -2,44 +2,44 @@ import { SiteNav } from "@/components/site-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-    Building2,
-    Check,
-    CheckCircle2,
-    ChevronDown,
-    Globe,
-    Loader2,
-    Lock,
-    Plus,
-    Search,
-    Trash2,
-    UserPlus,
-    Users,
-    X,
+  Building2,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Globe,
+  Loader2,
+  Lock,
+  Plus,
+  Search,
+  Trash2,
+  UserPlus,
+  Users,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -234,8 +234,7 @@ function TodoPage() {
   }, [orgs]);
 
   const selectedBoardOrgIds = useMemo(
-    () =>
-      Array.isArray(boardOrgIds) ? boardOrgIds : orgs.map((o) => o.orgId),
+    () => (Array.isArray(boardOrgIds) ? boardOrgIds : orgs.map((o) => o.orgId)),
     [boardOrgIds, orgs],
   );
 

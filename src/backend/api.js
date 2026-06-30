@@ -250,6 +250,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "flagged_messages_resolve",
   "flagged_messages_confirm",
   "flagged_messages_clear",
+  "docs_view",
   "docs_edit",
   "player_kick",
 ];
@@ -295,14 +296,20 @@ function isVpnOrProxyProxycheckMeta(meta) {
 }
 
 function normalizeConnectionType(value) {
-  const t = String(value ?? "").trim().toLowerCase();
+  const t = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (t.includes("vpn") || t.includes("proxy") || t === "tor") {
     return "proxy_vpn";
   }
   if (t.includes("residential")) return "residential";
   if (t.includes("business")) return "business";
   if (t.includes("mobile")) return "mobile";
-  if (t.includes("hosting") || t.includes("datacenter") || t.includes("server")) {
+  if (
+    t.includes("hosting") ||
+    t.includes("datacenter") ||
+    t.includes("server")
+  ) {
     return "hosting";
   }
   return t || "unknown";
@@ -2671,10 +2678,16 @@ async function handleListOrgRoles(request, orgId) {
   if (error) return error;
   if (
     !orgHasPermission(session, orgId, "role_create") &&
-    !orgHasPermission(session, orgId, "org_manage")
+    !orgHasPermission(session, orgId, "org_manage") &&
+    !orgHasPermission(session, orgId, "scripts_manage") &&
+    !orgHasPermission(session, orgId, "scripts_view") &&
+    !orgHasPermission(session, orgId, "rcon_access")
   ) {
     return json(
-      { error: "Forbidden: role_create or org_manage permission required" },
+      {
+        error:
+          "Forbidden: role_create, org_manage, or scripts permission required",
+      },
       403,
     );
   }
@@ -6923,8 +6936,8 @@ async function handleCreateScript(request, orgId) {
   if (!command) return json({ error: "command is required" }, 400);
   if (name.length > 128)
     return json({ error: "name must be 128 characters or fewer" }, 400);
-  if (!Number.isInteger(minRank) || minRank < 1 || minRank > 5)
-    return json({ error: "minRank must be 1–5" }, 400);
+  if (!Number.isInteger(minRank) || minRank < 1)
+    return json({ error: "minRank must be a positive integer" }, 400);
 
   const { rows } = await pool.query(
     `INSERT INTO org_scripts (org_id, name, command, description, min_rank, created_by)
@@ -6997,8 +7010,8 @@ async function handleUpdateScript(request, orgId, scriptId) {
   }
   if (body?.minRank !== undefined) {
     const minRank = Number(body.minRank);
-    if (!Number.isInteger(minRank) || minRank < 1 || minRank > 5)
-      return json({ error: "minRank must be 1–5" }, 400);
+    if (!Number.isInteger(minRank) || minRank < 1)
+      return json({ error: "minRank must be a positive integer" }, 400);
     params.push(minRank);
     setClauses.push(`min_rank = $${params.length}`);
   }
@@ -7065,8 +7078,8 @@ async function handleExecScriptRcon(request, orgId, scriptId) {
   if (!scriptRes.rows[0]) return json({ error: "Script not found" }, 404);
 
   const { name: scriptName, command: rawCommand, min_rank } = scriptRes.rows[0];
-  const userRank = sessionRankForOrg(session, orgId);
-  if (userRank < Number(min_rank))
+  const userPosition = await orgActorPosition(session, orgId);
+  if (userPosition < Number(min_rank))
     return json(
       { error: "Forbidden: insufficient rank to execute this script" },
       403,
@@ -14337,7 +14350,10 @@ async function handleResolveBmId(request, bmId) {
     null;
 
   if (!lookupOrgId) {
-    return json({ error: "No suitable org found to resolve BattleMetrics ID" }, 400);
+    return json(
+      { error: "No suitable org found to resolve BattleMetrics ID" },
+      400,
+    );
   }
 
   try {
@@ -14353,7 +14369,10 @@ async function handleResolveBmId(request, bmId) {
       (inc) => inc.type === "identifier" && inc.attributes?.type === "steamID",
     );
     if (!steamInc?.attributes?.identifier) {
-      return json({ error: "No Steam ID linked to this BattleMetrics player" }, 404);
+      return json(
+        { error: "No Steam ID linked to this BattleMetrics player" },
+        404,
+      );
     }
     const steamId = String(steamInc.attributes.identifier);
     return json({ steamId });
@@ -14461,12 +14480,9 @@ async function handleGetOrgPlayerList(request, orgId) {
   const includeBannedParam = String(
     url.searchParams.get("includeBanned") ?? "1",
   ).toLowerCase();
-  const includeBanned = ![
-    "0",
-    "false",
-    "no",
-    "off",
-  ].includes(includeBannedParam);
+  const includeBanned = !["0", "false", "no", "off"].includes(
+    includeBannedParam,
+  );
 
   const cacheKey = `player-list:${orgId}:${includeBanned ? "with-banned" : "without-banned"}`;
   try {
@@ -17459,7 +17475,8 @@ async function handleSearchDiscordMembers(request, orgId) {
   if (!res.ok) return json({ members: [] });
 
   const members = await res.json();
-  if (!Array.isArray(members) || members.length === 0) return json({ members: [] });
+  if (!Array.isArray(members) || members.length === 0)
+    return json({ members: [] });
 
   // Cross-reference with panel staff so the UI can block punitive actions.
   const discordIds = members.map((m) => m.user.id);
@@ -17551,6 +17568,7 @@ function docArticleRow(a, versions) {
     title: String(a.title),
     body: String(a.body),
     minRank: Number(a.min_rank),
+    minPosition: a.min_position != null ? Number(a.min_position) : 0,
     updatedAt: Number(a.updated_at),
     updatedByName: a.updated_by_name ?? null,
     versions: (versions ?? []).map((v) => ({
@@ -17567,27 +17585,57 @@ async function handleListOrgDocs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (
-    !orgHasPermission(session, orgId, "tickets_view") &&
+    !orgHasPermission(session, orgId, "docs_view") &&
+    !orgHasPermission(session, orgId, "docs_edit") &&
     !canManageOrg(session, orgId)
   )
     return json({ error: "Forbidden" }, 403);
 
-  const callerRank = sessionRankForOrg(session, orgId);
+  const isFullAccess =
+    orgHasPermission(session, orgId, "docs_edit") ||
+    canManageOrg(session, orgId);
 
-  const [catsRes, articlesRes] = await Promise.all([
-    pool.query(
-      `SELECT category_id, org_id, name, parent_id, sort_order, created_at
-       FROM doc_categories WHERE org_id = $1 ORDER BY sort_order, created_at`,
-      [orgId],
-    ),
-    pool.query(
+  const catsPromise = pool.query(
+    `SELECT category_id, org_id, name, parent_id, sort_order, created_at
+     FROM doc_categories WHERE org_id = $1 ORDER BY sort_order, created_at`,
+    [orgId],
+  );
+  const rolesPromise = pool.query(
+    `SELECT role_id, role_name, position
+     FROM roles
+     WHERE role_id LIKE ($1 || '_%')
+       AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
+     ORDER BY position ASC, role_name ASC`,
+    [orgId],
+  );
+
+  let articlesPromise;
+  if (isFullAccess) {
+    articlesPromise = pool.query(
       `SELECT a.article_id, a.org_id, a.category_id, a.title, a.body,
-              a.min_rank, a.updated_at, a.updated_by_name
+              a.min_rank, a.min_position, a.updated_at, a.updated_by_name
        FROM doc_articles a
-       WHERE a.org_id = $1 AND a.min_rank <= $2
+       WHERE a.org_id = $1
        ORDER BY a.updated_at DESC`,
-      [orgId, callerRank],
-    ),
+      [orgId],
+    );
+  } else {
+    const callerPos = await orgActorPosition(session, orgId);
+    const posFilter = Number.isFinite(callerPos) ? callerPos : 0;
+    articlesPromise = pool.query(
+      `SELECT a.article_id, a.org_id, a.category_id, a.title, a.body,
+              a.min_rank, a.min_position, a.updated_at, a.updated_by_name
+       FROM doc_articles a
+       WHERE a.org_id = $1 AND a.min_position <= $2
+       ORDER BY a.updated_at DESC`,
+      [orgId, posFilter],
+    );
+  }
+
+  const [catsRes, articlesRes, rolesRes] = await Promise.all([
+    catsPromise,
+    articlesPromise,
+    rolesPromise,
   ]);
 
   const articleIds = articlesRes.rows.map((r) => r.article_id);
@@ -17619,6 +17667,11 @@ async function handleListOrgDocs(request, orgId) {
     articles: articlesRes.rows.map((a) =>
       docArticleRow(a, versionsByArticle[a.article_id] ?? []),
     ),
+    roles: rolesRes.rows.map((r) => ({
+      roleId: String(r.role_id),
+      roleName: String(r.role_name),
+      position: Number(r.position),
+    })),
   });
 }
 
@@ -17735,7 +17788,9 @@ async function handleCreateDocArticle(request, orgId) {
   }
   const title = String(body?.title ?? "").trim() || "Untitled";
   const articleBody = String(body?.body ?? "");
-  const minRank = Math.max(1, Math.min(4, Number(body?.minRank ?? 1) || 1));
+  if (articleBody.length > 512 * 1024)
+    return json({ error: "Article body too large (max 512 KB)" }, 413);
+  const minPosition = Math.max(0, Number(body?.minPosition ?? 0) || 0);
   const categoryId = body?.categoryId ? String(body.categoryId) : null;
 
   if (categoryId) {
@@ -17749,15 +17804,15 @@ async function handleCreateDocArticle(request, orgId) {
   const articleId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
   await pool.query(
-    `INSERT INTO doc_articles (article_id, org_id, category_id, title, body, min_rank, updated_at, updated_by_user_id, updated_by_name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO doc_articles (article_id, org_id, category_id, title, body, min_rank, min_position, updated_at, updated_by_user_id, updated_by_name)
+     VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9)`,
     [
       articleId,
       orgId,
       categoryId,
       title,
       articleBody,
-      minRank,
+      minPosition,
       now,
       session.userId,
       session.username ?? null,
@@ -17772,7 +17827,8 @@ async function handleCreateDocArticle(request, orgId) {
           category_id: categoryId,
           title,
           body: articleBody,
-          min_rank: minRank,
+          min_rank: 1,
+          min_position: minPosition,
           updated_at: now,
           updated_by_name: session.username ?? null,
         },
@@ -17806,10 +17862,12 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
   const title =
     body?.title != null ? String(body.title).trim() || prev.title : prev.title;
   const articleBody = body?.body != null ? String(body.body) : prev.body;
-  const minRank =
-    body?.minRank != null
-      ? Math.max(1, Math.min(4, Number(body.minRank) || 1))
-      : Number(prev.min_rank);
+  if (articleBody.length > 512 * 1024)
+    return json({ error: "Article body too large (max 512 KB)" }, 413);
+  const minPosition =
+    body?.minPosition != null
+      ? Math.max(0, Number(body.minPosition) || 0)
+      : Number(prev.min_position ?? 0);
   const categoryId =
     "categoryId" in body
       ? body.categoryId
@@ -17835,13 +17893,14 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
   );
   await pool.query(
     `UPDATE doc_articles
-     SET title = $1, body = $2, min_rank = $3, category_id = $4, updated_at = $5,
-         updated_by_user_id = $6, updated_by_name = $7
-     WHERE article_id = $8 AND org_id = $9`,
+     SET title = $1, body = $2, min_rank = $3, min_position = $4, category_id = $5,
+         updated_at = $6, updated_by_user_id = $7, updated_by_name = $8
+     WHERE article_id = $9 AND org_id = $10`,
     [
       title,
       articleBody,
-      minRank,
+      Number(prev.min_rank),
+      minPosition,
       categoryId,
       now,
       session.userId,
@@ -17864,7 +17923,8 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
         category_id: categoryId,
         title,
         body: articleBody,
-        min_rank: minRank,
+        min_rank: Number(prev.min_rank),
+        min_position: minPosition,
         updated_at: now,
         updated_by_name: session.username ?? null,
       },
@@ -17995,7 +18055,7 @@ async function handleGetServerEacBans(request, serverId, bmId) {
   // This endpoint is called from the client when viewing linked accounts.
   // It fetches EAC (Easy Anti-Cheat) bans issued on the specified server
   // for the specified BattleMetrics player ID.
-  
+
   // Minimal auth: just verify user has a session (no specific org required
   // since EAC data is global).
   const { session, error } = await requireSession(request);
@@ -18016,7 +18076,11 @@ async function handleGetServerEacBans(request, serverId, bmId) {
   // Filter for EAC-related bans (check reason/note for EAC keywords)
   const eacBans = rows.filter((r) => {
     const text = `${r.reason ?? ""} ${r.note ?? ""}`.toLowerCase();
-    return text.includes("eac") || text.includes("easy anti-cheat") || text.includes("anticheat");
+    return (
+      text.includes("eac") ||
+      text.includes("easy anti-cheat") ||
+      text.includes("anticheat")
+    );
   });
 
   return json({
@@ -18038,7 +18102,7 @@ async function handleGetServerBmBans(request, serverId, bmId) {
   // This endpoint is called from the client when viewing linked accounts.
   // It fetches BattleMetrics (BM) bans issued on the specified server
   // for the specified BattleMetrics player ID.
-  
+
   const { session, error } = await requireSession(request);
   if (error) return error;
 
@@ -18055,7 +18119,11 @@ async function handleGetServerBmBans(request, serverId, bmId) {
   // Filter out EAC-specific bans and return BM bans
   const bmBans = rows.filter((r) => {
     const text = `${r.reason ?? ""} ${r.note ?? ""}`.toLowerCase();
-    return !(text.includes("eac") || text.includes("easy anti-cheat") || text.includes("anticheat"));
+    return !(
+      text.includes("eac") ||
+      text.includes("easy anti-cheat") ||
+      text.includes("anticheat")
+    );
   });
 
   return json({

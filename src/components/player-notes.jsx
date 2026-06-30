@@ -119,7 +119,15 @@ function usePlayerNotesCombined(subjectId) {
   return { notes, loading, reload };
 }
 
-function NoteCard({ note, orgId, subjectId, canManage, canEdit, onChange, roles }) {
+function NoteCard({
+  note,
+  orgId,
+  subjectId,
+  canManage,
+  canEdit,
+  onChange,
+  roles,
+}) {
   const [busy, setBusy] = useState(false);
 
   const togglePin = async () => {
@@ -338,8 +346,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
             const isAuthor = n.authorId && n.authorId === sessionUser?.userId;
             // Shared-in notes are read-only; own notes follow the usual rule
             // (author, or rank 4 in that note's org).
-            const canManage =
-              !n.shared && (isAuthor || rankOf(n.orgId) >= 4);
+            const canManage = !n.shared && (isAuthor || rankOf(n.orgId) >= 4);
             return (
               <NoteCard
                 key={n.id}

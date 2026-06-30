@@ -6,14 +6,19 @@ import { useMemo, useState } from "react";
  * a subject player and a related account. Each server can be expanded to show
  * EAC and BM ban information for that specific connection point.
  */
-export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, relatedName }) {
+export function ServerOverlapSection({
+  serverOverlap,
+  relatedBmId,
+  subjectName,
+  relatedName,
+}) {
   const [expandedServers, setExpandedServers] = useState(new Set());
   const [serverBanCache, setServerBanCache] = useState({});
   const [loadingServers, setLoadingServers] = useState(new Set());
 
   const serverList = useMemo(() => {
     if (!Array.isArray(serverOverlap)) return [];
-    return serverOverlap.filter(s => s && typeof s === "string");
+    return serverOverlap.filter((s) => s && typeof s === "string");
   }, [serverOverlap]);
 
   if (!serverList.length) {
@@ -43,12 +48,12 @@ export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, 
     try {
       // Fetch EAC bans for this connection point
       const eacResponse = await fetch(
-        `/api/server/${encodeURIComponent(serverId)}/eac-bans?bmId=${encodeURIComponent(relatedBmId)}`
+        `/api/server/${encodeURIComponent(serverId)}/eac-bans?bmId=${encodeURIComponent(relatedBmId)}`,
       );
 
       // Fetch BM (BattleMetrics) bans for this connection point
       const bmResponse = await fetch(
-        `/api/server/${encodeURIComponent(serverId)}/bm-bans?bmId=${encodeURIComponent(relatedBmId)}`
+        `/api/server/${encodeURIComponent(serverId)}/bm-bans?bmId=${encodeURIComponent(relatedBmId)}`,
       );
 
       const eacData = eacResponse.ok ? await eacResponse.json() : null;
@@ -91,7 +96,9 @@ export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, 
       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
         <Wifi className="size-3" />
         Previous Connection Points
-        <span className="text-[9px] font-mono ml-auto">{serverList.length}</span>
+        <span className="text-[9px] font-mono ml-auto">
+          {serverList.length}
+        </span>
       </h4>
       <div className="space-y-1">
         {serverList.map((serverId) => {
@@ -102,7 +109,10 @@ export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, 
           const hasBmBans = banData?.bmBanCount > 0;
 
           return (
-            <div key={serverId} className="bg-surface/30 rounded border border-border/50">
+            <div
+              key={serverId}
+              className="bg-surface/30 rounded border border-border/50"
+            >
               <button
                 onClick={() => toggleExpanded(serverId)}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface/50 transition-colors"
@@ -117,7 +127,9 @@ export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, 
                   {serverId.length > 16 ? "..." : ""}
                 </span>
                 {isLoading ? (
-                  <span className="text-[9px] text-muted-foreground">Loading...</span>
+                  <span className="text-[9px] text-muted-foreground">
+                    Loading...
+                  </span>
                 ) : banData ? (
                   <div className="flex items-center gap-1 ml-auto">
                     {hasEacBans && (
@@ -133,7 +145,9 @@ export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, 
                       </span>
                     )}
                     {!hasEacBans && !hasBmBans && (
-                      <span className="text-[9px] text-muted-foreground">No bans</span>
+                      <span className="text-[9px] text-muted-foreground">
+                        No bans
+                      </span>
                     )}
                   </div>
                 ) : (
@@ -152,7 +166,9 @@ export function ServerOverlapSection({ serverOverlap, relatedBmId, subjectName, 
               {isExpanded && banData && (
                 <div className="px-3 py-2 bg-surface/50 border-t border-border/50 text-[9px] space-y-2">
                   {banData.error ? (
-                    <p className="text-muted-foreground">Failed to fetch ban data.</p>
+                    <p className="text-muted-foreground">
+                      Failed to fetch ban data.
+                    </p>
                   ) : (
                     <>
                       {(banData.eacBans ?? []).length > 0 && (

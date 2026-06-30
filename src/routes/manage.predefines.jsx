@@ -56,7 +56,12 @@ function PredefinesPage() {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keyword, extraKeywords, content, ticketTypeIds }),
+        body: JSON.stringify({
+          keyword,
+          extraKeywords,
+          content,
+          ticketTypeIds,
+        }),
       },
     );
     const body = await res.json().catch(() => null);
@@ -66,14 +71,22 @@ function PredefinesPage() {
     return { ok: true };
   };
 
-  const onUpdate = async (id, { keyword, extraKeywords, content, ticketTypeIds }) => {
+  const onUpdate = async (
+    id,
+    { keyword, extraKeywords, content, ticketTypeIds },
+  ) => {
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/predefines/${encodeURIComponent(id)}`,
       {
         method: "PATCH",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keyword, extraKeywords, content, ticketTypeIds }),
+        body: JSON.stringify({
+          keyword,
+          extraKeywords,
+          content,
+          ticketTypeIds,
+        }),
       },
     );
     const body = await res.json().catch(() => null);

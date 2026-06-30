@@ -200,7 +200,9 @@ export function canManageOrg(session, orgId) {
 }
 
 export function canViewOrgAsOwner(session, orgId) {
-  return (session.orgOwnerOrgIds ?? []).includes(orgId) || isGlobalAdmin(session);
+  return (
+    (session.orgOwnerOrgIds ?? []).includes(orgId) || isGlobalAdmin(session)
+  );
 }
 
 export function orgHasPermission(session, orgId, permissionId) {

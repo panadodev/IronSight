@@ -30,10 +30,13 @@ function TimeAxisLabels({ earliestSec, spanSec, tz }) {
     const rangeMs = ME - MS;
 
     let stepMs;
-    if (rangeMs < 2 * 86400e3) stepMs = 6 * 3600e3;        // <2 days: every 6h
-    else if (rangeMs < 14 * 86400e3) stepMs = 86400e3;     // <14 days: daily
-    else if (rangeMs < 90 * 86400e3) stepMs = 7 * 86400e3; // <90 days: weekly
-    else stepMs = 30 * 86400e3;                              // months
+    if (rangeMs < 2 * 86400e3)
+      stepMs = 6 * 3600e3; // <2 days: every 6h
+    else if (rangeMs < 14 * 86400e3)
+      stepMs = 86400e3; // <14 days: daily
+    else if (rangeMs < 90 * 86400e3)
+      stepMs = 7 * 86400e3; // <90 days: weekly
+    else stepMs = 30 * 86400e3; // months
 
     // Round start to nearest step boundary
     const startMs = Math.ceil(MS / stepMs) * stepMs;
@@ -73,7 +76,15 @@ function TimeAxisLabels({ earliestSec, spanSec, tz }) {
   );
 }
 
-function SessionBar({ w, earliestSec, spanSec, nowSec, rowIdx, onHover, onLeave }) {
+function SessionBar({
+  w,
+  earliestSec,
+  spanSec,
+  nowSec,
+  rowIdx,
+  onHover,
+  onLeave,
+}) {
   const end = w.stoppedAt ?? nowSec;
   const leftPct = ((w.startedAt - earliestSec) / spanSec) * 100;
   const widthPct = Math.max(0.8, ((end - w.startedAt) / spanSec) * 100);
@@ -109,7 +120,13 @@ function SessionTimeline({ sessionWindows }) {
       (w) => w.startedAt != null && Number.isFinite(w.startedAt),
     );
     if (raw.length === 0)
-      return { windows: [], earliestSec: 0, spanSec: 0, rows: [], totalHeight: 16 };
+      return {
+        windows: [],
+        earliestSec: 0,
+        spanSec: 0,
+        rows: [],
+        totalHeight: 16,
+      };
 
     const nowSec = Date.now() / 1000;
     const sorted = [...raw].sort((a, b) => a.startedAt - b.startedAt);
@@ -190,10 +207,7 @@ function SessionTimeline({ sessionWindows }) {
           ))}
 
           {/* Session bars */}
-          <div
-            className="relative w-full"
-            style={{ height: totalHeight }}
-          >
+          <div className="relative w-full" style={{ height: totalHeight }}>
             {windows.map((w, i) => (
               <SessionBar
                 key={`${w.bmServerId}-${w.startedAt}-${i}`}
@@ -216,7 +230,10 @@ function SessionTimeline({ sessionWindows }) {
             <div
               className="pointer-events-none absolute z-20 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[10px] font-mono max-w-48"
               style={{
-                left: Math.min(tooltip.x + 8, (containerRef.current?.offsetWidth ?? 400) - 200),
+                left: Math.min(
+                  tooltip.x + 8,
+                  (containerRef.current?.offsetWidth ?? 400) - 200,
+                ),
                 top: tooltip.y - 8,
                 transform: "translateY(-100%)",
               }}
@@ -225,13 +242,16 @@ function SessionTimeline({ sessionWindows }) {
                 {tooltip.w.serverName ?? `Server ${tooltip.w.bmServerId}`}
               </p>
               <p className="text-muted-foreground">
-                {new Date(tooltip.w.startedAt * 1000).toLocaleString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  ...(tz ? { timeZone: tz } : {}),
-                })}
+                {new Date(tooltip.w.startedAt * 1000).toLocaleString(
+                  undefined,
+                  {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    ...(tz ? { timeZone: tz } : {}),
+                  },
+                )}
               </p>
               <p className="text-muted-foreground">
                 {tooltip.w.stoppedAt

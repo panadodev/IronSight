@@ -17,38 +17,53 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
-import {
-  DOC_RANK_OPTIONS,
-  docRankLabel,
-  docsStore,
-  useDocs,
-} from "@/lib/docs-store";
+import { docsStore, useDocs } from "@/lib/docs-store";
+import Image from "@tiptap/extension-image";
+import TiptapLink from "@tiptap/extension-link";
+import Table from "@tiptap/extension-table";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
+import TableRow from "@tiptap/extension-table-row";
+import Youtube from "@tiptap/extension-youtube";
+import StarterKit from "@tiptap/starter-kit";
+import { EditorContent, useEditor } from "@tiptap/react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  Bold,
   ChevronDown,
   ChevronRight,
+  Code,
   FileText,
   Folder,
   FolderPlus,
   History,
+  Image as ImageIcon,
+  Italic,
+  Link,
+  List,
+  ListOrdered,
   Lock,
   Pencil,
   Plus,
+  Quote,
   RotateCcw,
   Save,
   Search,
+  Table2,
   Trash2,
+  Tv,
+  Undo2,
+  Redo2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useMemo, useState } from "react";
+
 const Route = createFileRoute("/docs")({
-  head: () => ({ meta: [{ title: "Docs \u2014 IronSight" }] }),
+  head: () => ({ meta: [{ title: "Docs — IronSight" }] }),
   component: DocsPage,
 });
+
 function timeAgo(unix) {
   const m = Math.floor((Date.now() / 1000 - unix) / 60);
   if (m < 1) return "just now";
@@ -60,16 +75,27 @@ function timeAgo(unix) {
   const mo = Math.floor(d / 30);
   return `${mo}mo ago`;
 }
+
+function stripHtml(html) {
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+}
+
+function minPositionLabel(minPosition, roles) {
+  if (!minPosition || minPosition <= 0) return "All staff with docs access";
+  const role = roles.find((r) => r.position === minPosition);
+  return role ? `${role.roleName} and above` : `Position ${minPosition}+`;
+}
+
 function DocsPage() {
   const {
     orgs,
     selectedOrgIds,
-    activeStaff,
-    rankOf,
     orgsLoaded,
     hasStaffAccount,
+    hasOrgPermission,
+    rankOf,
   } = useAuth();
-  const { articles, categories } = useDocs();
+  const { articles, categories, roles } = useDocs();
   const [orgId, setOrgId] = useState(
     () => selectedOrgIds[0] ?? orgs[0]?.id ?? "",
   );
@@ -81,18 +107,21 @@ function DocsPage() {
     if (effectiveOrgId) docsStore.load(effectiveOrgId);
   }, [effectiveOrgId]);
 
-  const myRank = rankOf(effectiveOrgId);
-  const canEdit = myRank >= 3;
-  const canDelete = myRank >= 4;
+  const canAccessDocs =
+    hasOrgPermission(effectiveOrgId, "docs_view") ||
+    hasOrgPermission(effectiveOrgId, "docs_edit");
+  const canEdit = hasOrgPermission(effectiveOrgId, "docs_edit");
+  const canDelete = rankOf(effectiveOrgId) >= 4;
+
   const orgCats = useMemo(
     () => categories.filter((c) => c.orgId === effectiveOrgId),
     [categories, effectiveOrgId],
   );
   const orgArticles = useMemo(
-    () =>
-      articles.filter((a) => a.orgId === effectiveOrgId && myRank >= a.minRank),
-    [articles, effectiveOrgId, myRank],
+    () => articles.filter((a) => a.orgId === effectiveOrgId),
+    [articles, effectiveOrgId],
   );
+
   const [selectedId, setSelectedId] = useState(null);
   const selected = orgArticles.find((a) => a.id === selectedId) ?? null;
   const [search, setSearch] = useState("");
@@ -101,20 +130,23 @@ function DocsPage() {
     if (!q) return [];
     return orgArticles.filter(
       (a) =>
-        a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q),
+        a.title.toLowerCase().includes(q) ||
+        stripHtml(a.body).toLowerCase().includes(q),
     );
   }, [search, orgArticles]);
+
   const [editing, setEditing] = useState(null);
   const [creatingCatParent, setCreatingCatParent] = useState(void 0);
   const [historyFor, setHistoryFor] = useState(null);
+
   const startNewArticle = async (categoryId) => {
-    if (!canEdit || !activeStaff) return;
+    if (!canEdit) return;
     try {
       const a = await docsStore.addArticle(effectiveOrgId, {
         categoryId,
         title: "Untitled",
-        body: "# Untitled\n\nStart writing\u2026",
-        minRank: 1,
+        body: "<h1>Untitled</h1><p>Start writing…</p>",
+        minPosition: 0,
       });
       setSelectedId(a.id);
       setEditing(a);
@@ -122,6 +154,7 @@ function DocsPage() {
       console.error("Failed to create article:", err);
     }
   };
+
   if (orgsLoaded && !hasStaffAccount) {
     return (
       <div className="h-screen w-full flex flex-col bg-background text-foreground">
@@ -129,6 +162,19 @@ function DocsPage() {
         <main className="flex-1 flex items-center justify-center">
           <p className="text-sm text-muted-foreground">
             You must belong to an organization to view documentation.
+          </p>
+        </main>
+      </div>
+    );
+  }
+
+  if (orgsLoaded && !canAccessDocs) {
+    return (
+      <div className="h-screen w-full flex flex-col bg-background text-foreground">
+        <SiteNav />
+        <main className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            You don&apos;t have permission to access documentation.
           </p>
         </main>
       </div>
@@ -229,6 +275,7 @@ function DocsPage() {
               <Editor
                 article={editing}
                 cats={orgCats}
+                roles={roles}
                 onCancel={() => setEditing(null)}
                 onSave={async (patch) => {
                   try {
@@ -242,12 +289,13 @@ function DocsPage() {
             ) : (
               <Viewer
                 article={selected}
+                roles={roles}
                 canEdit={canEdit}
                 canDelete={canDelete}
                 onEdit={() => setEditing(selected)}
                 onHistory={() => setHistoryFor(selected)}
                 onDelete={async () => {
-                  if (confirm("Permanently delete this article? Owner-only.")) {
+                  if (confirm("Permanently delete this article? Admin only.")) {
                     try {
                       await docsStore.deleteArticle(selected.id);
                       setSelectedId(null);
@@ -291,6 +339,7 @@ function DocsPage() {
       {historyFor && (
         <HistoryDialog
           article={historyFor}
+          roles={roles}
           canEdit={canEdit}
           canDelete={canDelete}
           onClose={() => setHistoryFor(null)}
@@ -315,6 +364,7 @@ function DocsPage() {
     </div>
   );
 }
+
 function Tree({
   cats,
   articles,
@@ -365,6 +415,7 @@ function Tree({
     </div>
   );
 }
+
 function CatNode({
   cat,
   cats,
@@ -484,6 +535,7 @@ function CatNode({
     </div>
   );
 }
+
 function ArticleRow({ article, depth, selected, onSelect }) {
   return (
     <button
@@ -498,12 +550,13 @@ function ArticleRow({ article, depth, selected, onSelect }) {
     >
       <FileText className="size-3 shrink-0" />
       <span className="truncate flex-1">{article.title}</span>
-      {article.minRank > 1 && (
+      {article.minPosition > 0 && (
         <Lock className="size-3 text-muted-foreground shrink-0" />
       )}
     </button>
   );
 }
+
 function SearchResults({ results, selectedId, onSelect }) {
   if (results.length === 0) {
     return (
@@ -526,13 +579,40 @@ function SearchResults({ results, selectedId, onSelect }) {
     </div>
   );
 }
-function Viewer({ article, canEdit, canDelete, onEdit, onHistory, onDelete }) {
+
+function HtmlView({ body }) {
+  const isHtml = body.trimStart().startsWith("<");
+  if (!isHtml) {
+    return (
+      <div className="prose prose-invert prose-sm max-w-none whitespace-pre-wrap font-mono text-xs text-muted-foreground">
+        {body}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="prose prose-invert prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-a:text-brand prose-code:text-brand prose-code:before:content-none prose-code:after:content-none prose-pre:bg-surface prose-pre:ring-1 prose-pre:ring-border prose-blockquote:border-l-brand prose-blockquote:text-muted-foreground prose-img:rounded-md prose-img:ring-1 prose-img:ring-border prose-table:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:bg-surface/50 [&_iframe]:w-full [&_iframe]:aspect-video [&_iframe]:rounded-md [&_iframe]:my-2"
+      dangerouslySetInnerHTML={{ __html: body }}
+    />
+  );
+}
+
+function Viewer({
+  article,
+  roles,
+  canEdit,
+  canDelete,
+  onEdit,
+  onHistory,
+  onDelete,
+}) {
   return (
     <article className="max-w-3xl mx-auto px-8 py-8">
       <header className="mb-6 pb-4 border-b border-border flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-2">
-            <Lock className="size-3" /> {docRankLabel(article.minRank)}
+            <Lock className="size-3" />{" "}
+            {minPositionLabel(article.minPosition, roles)}
           </div>
           <h1 className="text-2xl font-bold text-foreground truncate">
             {article.title}
@@ -564,25 +644,324 @@ function Viewer({ article, canEdit, canDelete, onEdit, onHistory, onDelete }) {
           )}
         </div>
       </header>
-      <MarkdownView body={article.body} />
+      <HtmlView body={article.body} />
     </article>
   );
 }
-function MarkdownView({ body }) {
+
+const TOOLBAR_BTN =
+  "h-7 w-7 grid place-items-center rounded text-muted-foreground hover:bg-surface hover:text-foreground transition-colors";
+const TOOLBAR_BTN_ACTIVE =
+  "h-7 w-7 grid place-items-center rounded bg-brand/20 text-brand";
+
+function ToolbarBtn({ active, onClick, title, children }) {
   return (
-    <div className="prose prose-invert prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-a:text-brand prose-code:text-brand prose-code:before:content-none prose-code:after:content-none prose-pre:bg-surface prose-pre:ring-1 prose-pre:ring-border prose-blockquote:border-l-brand prose-blockquote:text-muted-foreground prose-img:rounded-md prose-img:ring-1 prose-img:ring-border">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={active ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TiptapToolbar({ editor }) {
+  const [linkInput, setLinkInput] = useState("");
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [imageInput, setImageInput] = useState("");
+  const [imageOpen, setImageOpen] = useState(false);
+  const [ytInput, setYtInput] = useState("");
+  const [ytOpen, setYtOpen] = useState(false);
+
+  if (!editor) return null;
+
+  const applyLink = () => {
+    const url = linkInput.trim();
+    if (url) {
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange("link")
+        .setLink({ href: url })
+        .run();
+    } else {
+      editor.chain().focus().unsetLink().run();
+    }
+    setLinkInput("");
+    setLinkOpen(false);
+  };
+
+  const insertImage = () => {
+    const url = imageInput.trim();
+    if (url) editor.chain().focus().setImage({ src: url }).run();
+    setImageInput("");
+    setImageOpen(false);
+  };
+
+  const insertYt = () => {
+    const url = ytInput.trim();
+    if (url) editor.chain().focus().setYoutubeVideo({ src: url }).run();
+    setYtInput("");
+    setYtOpen(false);
+  };
+
+  return (
+    <div className="border border-border rounded-md bg-background">
+      <div className="flex flex-wrap items-center gap-0.5 p-1 border-b border-border">
+        <ToolbarBtn
+          active={editor.isActive("bold")}
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          title="Bold"
+        >
+          <Bold className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive("italic")}
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          title="Italic"
+        >
+          <Italic className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive("code")}
+          onClick={() => editor.chain().focus().toggleCode().run()}
+          title="Inline code"
+        >
+          <Code className="size-3.5" />
+        </ToolbarBtn>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        <ToolbarBtn
+          active={editor.isActive("heading", { level: 2 })}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 2 }).run()
+          }
+          title="Heading 2"
+        >
+          <span className="text-[11px] font-bold">H2</span>
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive("heading", { level: 3 })}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 3 }).run()
+          }
+          title="Heading 3"
+        >
+          <span className="text-[11px] font-bold">H3</span>
+        </ToolbarBtn>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        <ToolbarBtn
+          active={editor.isActive("bulletList")}
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          title="Bullet list"
+        >
+          <List className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive("orderedList")}
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          title="Ordered list"
+        >
+          <ListOrdered className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive("blockquote")}
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          title="Blockquote"
+        >
+          <Quote className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive("codeBlock")}
+          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+          title="Code block"
+        >
+          <span className="text-[10px] font-mono font-bold">{"{}"}</span>
+        </ToolbarBtn>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        <ToolbarBtn
+          active={linkOpen}
+          onClick={() => {
+            setLinkOpen((o) => !o);
+            setImageOpen(false);
+            setYtOpen(false);
+          }}
+          title="Link"
+        >
+          <Link className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={imageOpen}
+          onClick={() => {
+            setImageOpen((o) => !o);
+            setLinkOpen(false);
+            setYtOpen(false);
+          }}
+          title="Insert image URL"
+        >
+          <ImageIcon className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={ytOpen}
+          onClick={() => {
+            setYtOpen((o) => !o);
+            setLinkOpen(false);
+            setImageOpen(false);
+          }}
+          title="Embed YouTube"
+        >
+          <Tv className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={false}
+          onClick={() =>
+            editor
+              .chain()
+              .focus()
+              .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+              .run()
+          }
+          title="Insert table"
+        >
+          <Table2 className="size-3.5" />
+        </ToolbarBtn>
+
+        <div className="w-px h-5 bg-border mx-0.5" />
+
+        <ToolbarBtn
+          active={false}
+          onClick={() => editor.chain().focus().undo().run()}
+          title="Undo"
+        >
+          <Undo2 className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          active={false}
+          onClick={() => editor.chain().focus().redo().run()}
+          title="Redo"
+        >
+          <Redo2 className="size-3.5" />
+        </ToolbarBtn>
+      </div>
+
+      {linkOpen && (
+        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface/30">
+          <span className="text-[10px] text-muted-foreground shrink-0">
+            URL
+          </span>
+          <Input
+            autoFocus
+            value={linkInput}
+            onChange={(e) => setLinkInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyLink();
+              if (e.key === "Escape") setLinkOpen(false);
+            }}
+            placeholder="https://example.com"
+            className="h-6 text-xs flex-1"
+          />
+          <Button
+            size="sm"
+            className="h-6 text-[10px] px-2"
+            onClick={applyLink}
+          >
+            Apply
+          </Button>
+          {editor.isActive("link") && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] px-2 text-danger"
+              onClick={() => {
+                editor.chain().focus().unsetLink().run();
+                setLinkOpen(false);
+              }}
+            >
+              Remove
+            </Button>
+          )}
+        </div>
+      )}
+
+      {imageOpen && (
+        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface/30">
+          <span className="text-[10px] text-muted-foreground shrink-0">
+            Image URL
+          </span>
+          <Input
+            autoFocus
+            value={imageInput}
+            onChange={(e) => setImageInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") insertImage();
+              if (e.key === "Escape") setImageOpen(false);
+            }}
+            placeholder="https://example.com/image.png"
+            className="h-6 text-xs flex-1"
+          />
+          <Button
+            size="sm"
+            className="h-6 text-[10px] px-2"
+            onClick={insertImage}
+          >
+            Insert
+          </Button>
+        </div>
+      )}
+
+      {ytOpen && (
+        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface/30">
+          <span className="text-[10px] text-muted-foreground shrink-0">
+            YouTube URL
+          </span>
+          <Input
+            autoFocus
+            value={ytInput}
+            onChange={(e) => setYtInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") insertYt();
+              if (e.key === "Escape") setYtOpen(false);
+            }}
+            placeholder="https://youtube.com/watch?v=..."
+            className="h-6 text-xs flex-1"
+          />
+          <Button size="sm" className="h-6 text-[10px] px-2" onClick={insertYt}>
+            Embed
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
-function Editor({ article, cats, onCancel, onSave }) {
+
+function Editor({ article, cats, roles, onCancel, onSave }) {
   const [title, setTitle] = useState(article.title);
-  const [body, setBody] = useState(article.body);
-  const [minRank, setMinRank] = useState(article.minRank);
+  const [minPosition, setMinPosition] = useState(article.minPosition ?? 0);
   const [categoryId, setCategoryId] = useState(article.categoryId);
-  const [preview, setPreview] = useState(false);
-  const taRef = useRef(null);
-  const onPaste = (e) => {
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      Image,
+      Youtube.configure({ nocookie: true }),
+      TiptapLink.configure({ openOnClick: false }),
+    ],
+    content: article.body,
+  });
+
+  const handlePaste = (e) => {
+    if (!editor) return;
     const items = Array.from(e.clipboardData?.items ?? []);
     const img = items.find((i) => i.type.startsWith("image/"));
     if (!img) return;
@@ -591,29 +970,27 @@ function Editor({ article, cats, onCancel, onSave }) {
     e.preventDefault();
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = reader.result;
-      const insert = `
-
-![pasted image](${dataUrl})
-
-`;
-      const ta = taRef.current;
-      if (!ta) {
-        setBody((b) => b + insert);
-        return;
-      }
-      const start = ta.selectionStart ?? body.length;
-      const end = ta.selectionEnd ?? body.length;
-      setBody((b) => b.slice(0, start) + insert + b.slice(end));
+      editor.chain().focus().setImage({ src: reader.result }).run();
     };
     reader.readAsDataURL(file);
   };
-  const onKey = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-      e.preventDefault();
-      onSave({ title, body, minRank, categoryId });
-    }
+
+  const doSave = () => {
+    if (!editor) return;
+    onSave({ title, body: editor.getHTML(), minPosition, categoryId });
   };
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        doSave();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  });
+
   return (
     <div className="max-w-3xl mx-auto px-8 py-8 space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -623,16 +1000,10 @@ function Editor({ article, cats, onCancel, onSave }) {
           className="text-xl font-bold h-11 flex-1"
           placeholder="Article title"
         />
-        <Button size="sm" variant="ghost" onClick={() => setPreview((p) => !p)}>
-          {preview ? "Edit" : "Preview"}
-        </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
           <X className="size-3.5 mr-1" /> Cancel
         </Button>
-        <Button
-          size="sm"
-          onClick={() => onSave({ title, body, minRank, categoryId })}
-        >
+        <Button size="sm" onClick={doSave}>
           <Save className="size-3.5 mr-1" /> Save
         </Button>
       </div>
@@ -664,16 +1035,17 @@ function Editor({ article, cats, onCancel, onSave }) {
             Visibility
           </Label>
           <Select
-            value={String(minRank)}
-            onValueChange={(v) => setMinRank(Number(v))}
+            value={String(minPosition)}
+            onValueChange={(v) => setMinPosition(Number(v))}
           >
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {DOC_RANK_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={String(o.value)}>
-                  {o.label}
+              <SelectItem value="0">All staff with docs access</SelectItem>
+              {roles.map((r) => (
+                <SelectItem key={r.roleId} value={String(r.position)}>
+                  {r.roleName} and above
                 </SelectItem>
               ))}
             </SelectContent>
@@ -681,29 +1053,21 @@ function Editor({ article, cats, onCancel, onSave }) {
         </div>
       </div>
 
-      {preview ? (
-        <div className="ring-1 ring-border rounded-md p-4 bg-surface/30 min-h-[400px]">
-          <MarkdownView body={body} />
-        </div>
-      ) : (
-        <Textarea
-          ref={taRef}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onPaste={onPaste}
-          onKeyDown={onKey}
-          rows={20}
-          placeholder="Write markdown here… paste images directly with Ctrl+V."
-          className="font-mono text-xs leading-relaxed min-h-[400px]"
-        />
-      )}
+      <TiptapToolbar editor={editor} />
+
+      <div
+        className="ring-1 ring-border rounded-md bg-surface/10 min-h-[400px] [&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-[380px] [&_.ProseMirror]:p-4 [&_.ProseMirror]:prose [&_.ProseMirror]:prose-invert [&_.ProseMirror]:prose-sm [&_.ProseMirror]:max-w-none [&_.ProseMirror_table]:border-collapse [&_.ProseMirror_td]:border [&_.ProseMirror_td]:border-border [&_.ProseMirror_td]:p-2 [&_.ProseMirror_th]:border [&_.ProseMirror_th]:border-border [&_.ProseMirror_th]:p-2 [&_.ProseMirror_th]:bg-surface/50 [&_.ProseMirror_iframe]:w-full [&_.ProseMirror_iframe]:aspect-video [&_.ProseMirror_iframe]:rounded-md [&_.ProseMirror_.selectedCell]:bg-brand/10"
+        onPaste={handlePaste}
+      >
+        <EditorContent editor={editor} />
+      </div>
       <p className="text-[10px] text-muted-foreground">
-        Markdown supported (GFM). Paste images with Ctrl+V — they're embedded
-        automatically. Ctrl+S to save.
+        Ctrl+S to save · Paste images directly with Ctrl+V
       </p>
     </div>
   );
 }
+
 function catPath(c, all) {
   const parts = [c.name];
   let p = c.parentId;
@@ -715,6 +1079,7 @@ function catPath(c, all) {
   }
   return parts.join(" / ");
 }
+
 function NewCategoryDialog({ open, parentId, onClose, onCreate }) {
   const [name, setName] = useState("");
   return (
@@ -766,8 +1131,10 @@ function NewCategoryDialog({ open, parentId, onClose, onCreate }) {
     </Dialog>
   );
 }
+
 function HistoryDialog({
   article,
+  roles,
   canEdit,
   canDelete,
   onClose,
@@ -783,8 +1150,8 @@ function HistoryDialog({
           <DialogTitle>Version history — {article.title}</DialogTitle>
           <DialogDescription>
             Every save creates a snapshot.{" "}
-            {canEdit ? "Sr. Admins and Management can restore." : "Read-only."}
-            {canDelete && " Owner can permanently delete versions."}
+            {canEdit ? "Editors can restore." : "Read-only."}
+            {canDelete && " Admins can permanently delete versions."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-[260px_1fr] gap-4 max-h-[60vh]">
@@ -843,7 +1210,7 @@ function HistoryDialog({
           </div>
           <div className="overflow-y-auto">
             {v ? (
-              <MarkdownView body={v.body} />
+              <HtmlView body={v.body} />
             ) : (
               <p className="text-xs text-muted-foreground">
                 Pick a version to preview.
@@ -860,4 +1227,5 @@ function HistoryDialog({
     </Dialog>
   );
 }
+
 export { Route };

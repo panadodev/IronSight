@@ -1,14 +1,14 @@
 import { GateRank, SectionHeader } from "@/components/manage-section";
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,13 +17,13 @@ import { useAuth } from "@/lib/auth-context";
 import { useManageOrgId } from "@/lib/manage-org-store";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-    ArrowDown,
-    ArrowUp,
-    ChevronDown,
-    ChevronRight,
-    Lock,
-    Plus,
-    Trash2,
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -52,18 +52,13 @@ const PERMISSION_GROUPS = [
       },
       {
         id: "presets_manage",
-        label: "Manage Presets",
-        desc: "Manage server plugin presets",
+        label: "Manage Plugins",
+        desc: "Manage server plugin configurations",
       },
       {
         id: "status_view",
         label: "View Status",
         desc: "View server status and health",
-      },
-      {
-        id: "servers_manage",
-        label: "Manage Servers",
-        desc: "Add and configure game server connections",
       },
       {
         id: "media_upload",
@@ -254,6 +249,11 @@ const PERMISSION_GROUPS = [
         desc: "Create, edit, and reorder roles below their own in the hierarchy",
       },
       {
+        id: "servers_manage",
+        label: "Manage Servers",
+        desc: "Add and configure game server connections",
+      },
+      {
         id: "predefines_manage",
         label: "Manage Pre-defines",
         desc: "Configure ticket response templates",
@@ -272,6 +272,21 @@ const PERMISSION_GROUPS = [
         id: "todo_delete",
         label: "Delete Todos",
         desc: "Permanently delete todos",
+      },
+    ],
+  },
+  {
+    label: "Documentation",
+    perms: [
+      {
+        id: "docs_view",
+        label: "View Docs",
+        desc: "Read the documentation wiki (article visibility gated by minimum role setting)",
+      },
+      {
+        id: "docs_edit",
+        label: "Edit Docs",
+        desc: "Create, edit, and organize documentation articles and categories",
       },
     ],
   },
@@ -411,8 +426,7 @@ function RolesPage() {
     callerPosition == null ? Number.POSITIVE_INFINITY : callerPosition;
 
   const canManageRoles =
-    isTop ||
-    (sessionOrgPermissions[orgId ?? ""] ?? []).includes("role_create");
+    isTop || (sessionOrgPermissions[orgId ?? ""] ?? []).includes("role_create");
   const rank = canManageRoles ? 4 : 0;
 
   const canGrant = isTop
@@ -731,394 +745,401 @@ function RolesPage() {
           [...roles]
             .sort((a, b) => (b.position ?? 0) - (a.position ?? 0))
             .map((role, idx, arr) => {
-            const editable = canEditRole(role);
-            const atTop = idx === 0;
-            const atBottom = idx === arr.length - 1;
-            const isExpanded = editable && expandedId === role.roleId;
-            const draft = draftPerms[role.roleId] ?? role.permissions;
-            const draftTT =
-              draftTicketTypes[role.roleId] ?? role.ticketTypeIds ?? [];
-            const draftDR =
-              draftDiscordRoleIds[role.roleId] ?? role.discordRoleIds ?? [];
-            const draftSAAll =
-              draftServerAdminAll[role.roleId] ?? role.serverAdminAll ?? false;
-            const draftSAServers =
-              draftServerAdminServers[role.roleId] ??
-              role.serverAdminServerIds ??
-              [];
-            const isDirty =
-              isExpanded &&
-              (JSON.stringify([...draft].sort()) !==
-                JSON.stringify([...role.permissions].sort()) ||
-                JSON.stringify([...draftTT].sort((a, b) => a - b)) !==
-                  JSON.stringify(
-                    [...(role.ticketTypeIds ?? [])].sort((a, b) => a - b),
-                  ) ||
-                JSON.stringify([...draftDR].sort()) !==
-                  JSON.stringify([...(role.discordRoleIds ?? [])].sort()) ||
-                draftSAAll !== (role.serverAdminAll ?? false) ||
-                JSON.stringify([...draftSAServers].sort()) !==
-                  JSON.stringify(
-                    [...(role.serverAdminServerIds ?? [])].sort(),
-                  ));
+              const editable = canEditRole(role);
+              const atTop = idx === 0;
+              const atBottom = idx === arr.length - 1;
+              const isExpanded = editable && expandedId === role.roleId;
+              const draft = draftPerms[role.roleId] ?? role.permissions;
+              const draftTT =
+                draftTicketTypes[role.roleId] ?? role.ticketTypeIds ?? [];
+              const draftDR =
+                draftDiscordRoleIds[role.roleId] ?? role.discordRoleIds ?? [];
+              const draftSAAll =
+                draftServerAdminAll[role.roleId] ??
+                role.serverAdminAll ??
+                false;
+              const draftSAServers =
+                draftServerAdminServers[role.roleId] ??
+                role.serverAdminServerIds ??
+                [];
+              const isDirty =
+                isExpanded &&
+                (JSON.stringify([...draft].sort()) !==
+                  JSON.stringify([...role.permissions].sort()) ||
+                  JSON.stringify([...draftTT].sort((a, b) => a - b)) !==
+                    JSON.stringify(
+                      [...(role.ticketTypeIds ?? [])].sort((a, b) => a - b),
+                    ) ||
+                  JSON.stringify([...draftDR].sort()) !==
+                    JSON.stringify([...(role.discordRoleIds ?? [])].sort()) ||
+                  draftSAAll !== (role.serverAdminAll ?? false) ||
+                  JSON.stringify([...draftSAServers].sort()) !==
+                    JSON.stringify(
+                      [...(role.serverAdminServerIds ?? [])].sort(),
+                    ));
 
-            return (
-              <div
-                key={role.roleId}
-                className="rounded-md ring-1 ring-border bg-background overflow-hidden"
-              >
-                <div className="flex items-center justify-between gap-2 p-2.5">
-                  <button
-                    className={
-                      "flex items-center gap-2 flex-1 min-w-0 text-left " +
-                      (editable ? "" : "cursor-default")
-                    }
-                    onClick={() => editable && toggleExpand(role)}
-                    title={
-                      editable
-                        ? undefined
-                        : "This role sits at or above yours in the hierarchy — you can't edit it."
-                    }
-                  >
-                    {!editable ? (
-                      <Lock className="size-3.5 text-muted-foreground/60 shrink-0" />
-                    ) : isExpanded ? (
-                      <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-                    ) : (
-                      <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
-                    )}
-                    <span className="text-sm font-medium truncate">
-                      {role.roleName}
-                    </span>
-                    <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                      {role.permissions.length}{" "}
-                      {role.permissions.length === 1 ? "perm" : "perms"}
-                    </span>
-                    {(role.discordRoleIds ?? []).length > 0 && (
-                      <span className="text-[10px] font-mono text-[#5865F2] shrink-0">
-                        {role.discordRoleIds.length} Discord{" "}
-                        {role.discordRoleIds.length === 1 ? "role" : "roles"}
+              return (
+                <div
+                  key={role.roleId}
+                  className="rounded-md ring-1 ring-border bg-background overflow-hidden"
+                >
+                  <div className="flex items-center justify-between gap-2 p-2.5">
+                    <button
+                      className={
+                        "flex items-center gap-2 flex-1 min-w-0 text-left " +
+                        (editable ? "" : "cursor-default")
+                      }
+                      onClick={() => editable && toggleExpand(role)}
+                      title={
+                        editable
+                          ? undefined
+                          : "This role sits at or above yours in the hierarchy — you can't edit it."
+                      }
+                    >
+                      {!editable ? (
+                        <Lock className="size-3.5 text-muted-foreground/60 shrink-0" />
+                      ) : isExpanded ? (
+                        <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+                      ) : (
+                        <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+                      )}
+                      <span className="text-sm font-medium truncate">
+                        {role.roleName}
                       </span>
-                    )}
-                  </button>
+                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                        {role.permissions.length}{" "}
+                        {role.permissions.length === 1 ? "perm" : "perms"}
+                      </span>
+                      {(role.discordRoleIds ?? []).length > 0 && (
+                        <span className="text-[10px] font-mono text-[#5865F2] shrink-0">
+                          {role.discordRoleIds.length} Discord{" "}
+                          {role.discordRoleIds.length === 1 ? "role" : "roles"}
+                        </span>
+                      )}
+                    </button>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {isExpanded && isDirty && (
-                      <Button
-                        size="sm"
-                        className="h-7 text-[10px] font-mono uppercase tracking-widest"
-                        onClick={() => handleSave(role.roleId)}
-                        disabled={savingId === role.roleId}
-                      >
-                        {savingId === role.roleId ? "Saving…" : "Save"}
-                      </Button>
-                    )}
-                    {deleteErr && expandedId === role.roleId && (
-                      <p className="text-[11px] text-danger">{deleteErr}</p>
-                    )}
-                    {editable && (
-                      <div className="flex flex-col">
-                        <button
-                          className="text-muted-foreground/50 hover:text-foreground disabled:opacity-25 disabled:hover:text-muted-foreground/50"
-                          disabled={atTop || reorderingId === role.roleId}
-                          onClick={() => handleReorder(role.roleId, "up")}
-                          title="Move up (higher authority)"
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isExpanded && isDirty && (
+                        <Button
+                          size="sm"
+                          className="h-7 text-[10px] font-mono uppercase tracking-widest"
+                          onClick={() => handleSave(role.roleId)}
+                          disabled={savingId === role.roleId}
                         >
-                          <ArrowUp className="size-3" />
-                        </button>
-                        <button
-                          className="text-muted-foreground/50 hover:text-foreground disabled:opacity-25 disabled:hover:text-muted-foreground/50"
-                          disabled={atBottom || reorderingId === role.roleId}
-                          onClick={() => handleReorder(role.roleId, "down")}
-                          title="Move down (lower authority)"
-                        >
-                          <ArrowDown className="size-3" />
-                        </button>
-                      </div>
-                    )}
-                    {editable && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-7 text-danger/60 hover:text-danger hover:bg-danger/10"
-                            disabled={deletingId === role.roleId}
-                            title="Delete role"
+                          {savingId === role.roleId ? "Saving…" : "Save"}
+                        </Button>
+                      )}
+                      {deleteErr && expandedId === role.roleId && (
+                        <p className="text-[11px] text-danger">{deleteErr}</p>
+                      )}
+                      {editable && (
+                        <div className="flex flex-col">
+                          <button
+                            className="text-muted-foreground/50 hover:text-foreground disabled:opacity-25 disabled:hover:text-muted-foreground/50"
+                            disabled={atTop || reorderingId === role.roleId}
+                            onClick={() => handleReorder(role.roleId, "up")}
+                            title="Move up (higher authority)"
                           >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Delete “{role.roleName}”?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This permanently deletes the role. Any staff
-                              currently assigned to it will be reset to Member
-                              and lose its permissions. This cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-danger text-danger-foreground hover:bg-danger/90"
-                              onClick={() => handleDelete(role.roleId)}
+                            <ArrowUp className="size-3" />
+                          </button>
+                          <button
+                            className="text-muted-foreground/50 hover:text-foreground disabled:opacity-25 disabled:hover:text-muted-foreground/50"
+                            disabled={atBottom || reorderingId === role.roleId}
+                            onClick={() => handleReorder(role.roleId, "down")}
+                            title="Move down (lower authority)"
+                          >
+                            <ArrowDown className="size-3" />
+                          </button>
+                        </div>
+                      )}
+                      {editable && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 text-danger/60 hover:text-danger hover:bg-danger/10"
+                              disabled={deletingId === role.roleId}
+                              title="Delete role"
                             >
-                              Delete role
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Delete “{role.roleName}”?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This permanently deletes the role. Any staff
+                                currently assigned to it will be reset to Member
+                                and lose its permissions. This cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-danger text-danger-foreground hover:bg-danger/90"
+                                onClick={() => handleDelete(role.roleId)}
+                              >
+                                Delete role
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {isExpanded && (
-                  <div className="border-t border-border p-3 space-y-4">
-                    {PERMISSION_GROUPS.map((group) => (
-                      <div key={group.label}>
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
-                          {group.label}
-                        </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                          {group.perms.map((perm) => {
-                            if (perm.isParent) {
-                              const childIds = perm.children.map((c) => c.id);
-                              const grantableChildIds = childIds.filter((id) =>
-                                canGrant(id),
-                              );
-                              const checkedCount = childIds.filter((id) =>
-                                draft.includes(id),
-                              ).length;
-                              const allChecked =
-                                checkedCount === childIds.length &&
-                                childIds.length > 0;
-                              const someChecked =
-                                checkedCount > 0 && !allChecked;
-                              const grantableCheckedCount =
-                                grantableChildIds.filter((id) =>
+                  {isExpanded && (
+                    <div className="border-t border-border p-3 space-y-4">
+                      {PERMISSION_GROUPS.map((group) => (
+                        <div key={group.label}>
+                          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                            {group.label}
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                            {group.perms.map((perm) => {
+                              if (perm.isParent) {
+                                const childIds = perm.children.map((c) => c.id);
+                                const grantableChildIds = childIds.filter(
+                                  (id) => canGrant(id),
+                                );
+                                const checkedCount = childIds.filter((id) =>
                                   draft.includes(id),
                                 ).length;
-                              const allGrantableChecked =
-                                grantableChildIds.length > 0 &&
-                                grantableCheckedCount ===
-                                  grantableChildIds.length;
-                              const parentDisabled =
-                                grantableChildIds.length === 0;
-                              const ticketsActive =
-                                perm.showTicketTypes &&
-                                childIds.some((id) => draft.includes(id));
+                                const allChecked =
+                                  checkedCount === childIds.length &&
+                                  childIds.length > 0;
+                                const someChecked =
+                                  checkedCount > 0 && !allChecked;
+                                const grantableCheckedCount =
+                                  grantableChildIds.filter((id) =>
+                                    draft.includes(id),
+                                  ).length;
+                                const allGrantableChecked =
+                                  grantableChildIds.length > 0 &&
+                                  grantableCheckedCount ===
+                                    grantableChildIds.length;
+                                const parentDisabled =
+                                  grantableChildIds.length === 0;
+                                const ticketsActive =
+                                  perm.showTicketTypes &&
+                                  childIds.some((id) => draft.includes(id));
+
+                                return (
+                                  <div key={perm.id} className="col-span-full">
+                                    <ParentPermCheckbox
+                                      allChecked={allChecked}
+                                      someChecked={someChecked}
+                                      label={perm.label}
+                                      desc={perm.desc}
+                                      disabled={parentDisabled}
+                                      onClick={() =>
+                                        toggleParentPerm(
+                                          role.roleId,
+                                          grantableChildIds,
+                                          allGrantableChecked,
+                                        )
+                                      }
+                                    />
+                                    <div className="ml-6 border-l border-border/40 pl-2 mt-0.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                      {perm.children.map((child) => (
+                                        <PermCheckbox
+                                          key={child.id}
+                                          checked={draft.includes(child.id)}
+                                          disabled={!canGrant(child.id)}
+                                          onClick={() =>
+                                            togglePerm(role.roleId, child.id)
+                                          }
+                                          label={child.label}
+                                          desc={child.desc}
+                                        />
+                                      ))}
+                                    </div>
+                                    {ticketsActive &&
+                                      ticketTypes.length > 0 && (
+                                        <div className="ml-6 border-l border-border/40 pl-2 mt-2">
+                                          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5 px-2">
+                                            Ticket type access
+                                          </p>
+                                          <p className="text-[10px] text-muted-foreground mb-1 px-2">
+                                            Restrict to specific types, or keep
+                                            "All types" for no restriction.
+                                          </p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                                            <PermCheckbox
+                                              checked={draftTT.length === 0}
+                                              onClick={() =>
+                                                setDraftTicketTypes((prev) => ({
+                                                  ...prev,
+                                                  [role.roleId]: [],
+                                                }))
+                                              }
+                                              label="All types"
+                                              desc="No restriction — can see every ticket type"
+                                            />
+                                            {ticketTypes.map((tt) => (
+                                              <PermCheckbox
+                                                key={tt.ticketTypeId}
+                                                checked={draftTT.includes(
+                                                  tt.ticketTypeId,
+                                                )}
+                                                onClick={() =>
+                                                  toggleTicketType(
+                                                    role.roleId,
+                                                    tt.ticketTypeId,
+                                                  )
+                                                }
+                                                label={tt.name}
+                                                desc={tt.description}
+                                              />
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                  </div>
+                                );
+                              }
 
                               return (
-                                <div key={perm.id} className="col-span-full">
-                                  <ParentPermCheckbox
-                                    allChecked={allChecked}
-                                    someChecked={someChecked}
-                                    label={perm.label}
-                                    desc={perm.desc}
-                                    disabled={parentDisabled}
-                                    onClick={() =>
-                                      toggleParentPerm(
-                                        role.roleId,
-                                        grantableChildIds,
-                                        allGrantableChecked,
-                                      )
-                                    }
-                                  />
-                                  <div className="ml-6 border-l border-border/40 pl-2 mt-0.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                                    {perm.children.map((child) => (
-                                      <PermCheckbox
-                                        key={child.id}
-                                        checked={draft.includes(child.id)}
-                                        disabled={!canGrant(child.id)}
-                                        onClick={() =>
-                                          togglePerm(role.roleId, child.id)
-                                        }
-                                        label={child.label}
-                                        desc={child.desc}
-                                      />
-                                    ))}
-                                  </div>
-                                  {ticketsActive && ticketTypes.length > 0 && (
-                                    <div className="ml-6 border-l border-border/40 pl-2 mt-2">
-                                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5 px-2">
-                                        Ticket type access
-                                      </p>
-                                      <p className="text-[10px] text-muted-foreground mb-1 px-2">
-                                        Restrict to specific types, or keep "All
-                                        types" for no restriction.
-                                      </p>
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                                        <PermCheckbox
-                                          checked={draftTT.length === 0}
-                                          onClick={() =>
-                                            setDraftTicketTypes((prev) => ({
-                                              ...prev,
-                                              [role.roleId]: [],
-                                            }))
-                                          }
-                                          label="All types"
-                                          desc="No restriction — can see every ticket type"
-                                        />
-                                        {ticketTypes.map((tt) => (
-                                          <PermCheckbox
-                                            key={tt.ticketTypeId}
-                                            checked={draftTT.includes(
-                                              tt.ticketTypeId,
-                                            )}
-                                            onClick={() =>
-                                              toggleTicketType(
-                                                role.roleId,
-                                                tt.ticketTypeId,
-                                              )
-                                            }
-                                            label={tt.name}
-                                            desc={tt.description}
-                                          />
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
+                                <PermCheckbox
+                                  key={perm.id}
+                                  checked={draft.includes(perm.id)}
+                                  disabled={!canGrant(perm.id)}
+                                  onClick={() =>
+                                    togglePerm(role.roleId, perm.id)
+                                  }
+                                  label={perm.label}
+                                  desc={perm.desc}
+                                />
                               );
-                            }
-
-                            return (
-                              <PermCheckbox
-                                key={perm.id}
-                                checked={draft.includes(perm.id)}
-                                disabled={!canGrant(perm.id)}
-                                onClick={() => togglePerm(role.roleId, perm.id)}
-                                label={perm.label}
-                                desc={perm.desc}
-                              />
-                            );
-                          })}
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
 
-                    <div>
-                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
-                        Server Admin (in-game)
-                      </p>
-                      <PermCheckbox
-                        checked={draft.includes("server_admin")}
-                        disabled={!canGrant("server_admin")}
-                        onClick={() => togglePerm(role.roleId, "server_admin")}
-                        label="Admin on Server"
-                        desc="Grant in-game admin via RCON on assignment (moderatorid + usergroup admin); revoked on removal."
-                      />
-                      {draft.includes("server_admin") && (
-                        <div className="ml-6 border-l border-border/40 pl-2 mt-0.5">
-                          <PermCheckbox
-                            checked={draftSAAll}
-                            disabled={!canGrant("server_admin")}
-                            onClick={() =>
-                              setDraftServerAdminAll((prev) => ({
-                                ...prev,
-                                [role.roleId]: !draftSAAll,
-                              }))
-                            }
-                            label="All servers"
-                            desc="Apply to every imported server, including ones added later."
-                          />
-                          {!draftSAAll &&
-                            (servers.length === 0 ? (
-                              <p className="text-[11px] text-muted-foreground italic px-2 py-1">
-                                No servers imported yet.
-                              </p>
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5 mt-0.5">
-                                {servers.map((s) => (
-                                  <PermCheckbox
-                                    key={s.serverId}
-                                    checked={draftSAServers.includes(
-                                      s.serverId,
-                                    )}
-                                    disabled={!canGrant("server_admin")}
-                                    onClick={() =>
-                                      toggleServerAdminServer(
-                                        role.roleId,
-                                        s.serverId,
-                                      )
-                                    }
-                                    label={s.serverName}
-                                    desc={
-                                      s.rconConfigured
-                                        ? "RCON configured"
-                                        : "RCON not configured — grants skipped"
-                                    }
-                                  />
-                                ))}
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
-                        Discord Roles
-                      </p>
-                      {guildRoles.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground italic px-2">
-                          No Discord roles found. Make sure the bot is in your
-                          server and the guild ID is set.
+                      <div>
+                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                          Server Admin (in-game)
                         </p>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
-                          {guildRoles
-                            .filter(
-                              (gr) =>
-                                callerDiscordPos === null ||
-                                (gr.position ?? 0) < callerDiscordPos,
-                            )
-                            .map((gr) => (
-                              <DiscordRoleCheckbox
-                                key={gr.id}
-                                checked={draftDR.includes(gr.id)}
-                                onClick={() =>
-                                  toggleDiscordRole(role.roleId, gr.id)
-                                }
-                                name={gr.name}
-                                color={gr.color}
-                              />
-                            ))}
+                        <PermCheckbox
+                          checked={draft.includes("server_admin")}
+                          disabled={!canGrant("server_admin")}
+                          onClick={() =>
+                            togglePerm(role.roleId, "server_admin")
+                          }
+                          label="Admin on Server"
+                          desc="Grant in-game admin via RCON on assignment (moderatorid + usergroup admin); revoked on removal."
+                        />
+                        {draft.includes("server_admin") && (
+                          <div className="ml-6 border-l border-border/40 pl-2 mt-0.5">
+                            <PermCheckbox
+                              checked={draftSAAll}
+                              disabled={!canGrant("server_admin")}
+                              onClick={() =>
+                                setDraftServerAdminAll((prev) => ({
+                                  ...prev,
+                                  [role.roleId]: !draftSAAll,
+                                }))
+                              }
+                              label="All servers"
+                              desc="Apply to every imported server, including ones added later."
+                            />
+                            {!draftSAAll &&
+                              (servers.length === 0 ? (
+                                <p className="text-[11px] text-muted-foreground italic px-2 py-1">
+                                  No servers imported yet.
+                                </p>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5 mt-0.5">
+                                  {servers.map((s) => (
+                                    <PermCheckbox
+                                      key={s.serverId}
+                                      checked={draftSAServers.includes(
+                                        s.serverId,
+                                      )}
+                                      disabled={!canGrant("server_admin")}
+                                      onClick={() =>
+                                        toggleServerAdminServer(
+                                          role.roleId,
+                                          s.serverId,
+                                        )
+                                      }
+                                      label={s.serverName}
+                                      desc={
+                                        s.rconConfigured
+                                          ? "RCON configured"
+                                          : "RCON not configured — grants skipped"
+                                      }
+                                    />
+                                  ))}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                          Discord Roles
+                        </p>
+                        {guildRoles.length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground italic px-2">
+                            No Discord roles found. Make sure the bot is in your
+                            server and the guild ID is set.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                            {guildRoles
+                              .filter(
+                                (gr) =>
+                                  callerDiscordPos === null ||
+                                  (gr.position ?? 0) < callerDiscordPos,
+                              )
+                              .map((gr) => (
+                                <DiscordRoleCheckbox
+                                  key={gr.id}
+                                  checked={draftDR.includes(gr.id)}
+                                  onClick={() =>
+                                    toggleDiscordRole(role.roleId, gr.id)
+                                  }
+                                  name={gr.name}
+                                  color={gr.color}
+                                />
+                              ))}
+                          </div>
+                        )}
+                        <p className="text-[10px] text-muted-foreground mt-1.5 px-2">
+                          Members assigned this role will receive these Discord
+                          roles. They are removed automatically when staff is
+                          removed or reassigned.
+                        </p>
+                      </div>
+
+                      {isDirty && (
+                        <div className="flex flex-col gap-1 pt-1 border-t border-border">
+                          {saveErr && expandedId === role.roleId && (
+                            <p className="text-[11px] text-danger">{saveErr}</p>
+                          )}
+                          <div className="flex justify-end">
+                            <Button
+                              size="sm"
+                              onClick={() => handleSave(role.roleId)}
+                              disabled={savingId === role.roleId}
+                            >
+                              {savingId === role.roleId
+                                ? "Saving…"
+                                : "Save changes"}
+                            </Button>
+                          </div>
                         </div>
                       )}
-                      <p className="text-[10px] text-muted-foreground mt-1.5 px-2">
-                        Members assigned this role will receive these Discord
-                        roles. They are removed automatically when staff is
-                        removed or reassigned.
-                      </p>
                     </div>
-
-                    {isDirty && (
-                      <div className="flex flex-col gap-1 pt-1 border-t border-border">
-                        {saveErr && expandedId === role.roleId && (
-                          <p className="text-[11px] text-danger">{saveErr}</p>
-                        )}
-                        <div className="flex justify-end">
-                          <Button
-                            size="sm"
-                            onClick={() => handleSave(role.roleId)}
-                            disabled={savingId === role.roleId}
-                          >
-                            {savingId === role.roleId
-                              ? "Saving…"
-                              : "Save changes"}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
+                  )}
+                </div>
+              );
+            })
         )}
       </div>
     </GateRank>

@@ -56,7 +56,6 @@ function fmtAgo(unix) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-
 // A staffer can reach the Bans/Mutes view if they hold any ban permission in
 // the org (create, modify, delete, the IP-ban perm, or the legacy umbrella).
 function canAccessBansInOrg(hasOrgPermission, id) {
@@ -179,7 +178,10 @@ function BansMutesPage() {
     if (res.ok) {
       const body = await res.json().catch(() => null);
       if (body?.bmDeleteError) {
-        setActionResult({ type: "warn", message: `Ban revoked, but BM delete failed: ${body.bmDeleteError}` });
+        setActionResult({
+          type: "warn",
+          message: `Ban revoked, but BM delete failed: ${body.bmDeleteError}`,
+        });
         setTimeout(() => setActionResult(null), 6000);
       }
       loadBans();
@@ -187,7 +189,12 @@ function BansMutesPage() {
   };
 
   const purge = async (record) => {
-    if (!confirm(`Permanently delete this ${record.actionType} record? This cannot be undone.`)) return;
+    if (
+      !confirm(
+        `Permanently delete this ${record.actionType} record? This cannot be undone.`,
+      )
+    )
+      return;
     const res = await fetch(
       `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}/purge`,
       { method: "DELETE", credentials: "include" },
@@ -195,7 +202,10 @@ function BansMutesPage() {
     if (res.ok) {
       const body = await res.json().catch(() => null);
       if (body?.bmDeleteError) {
-        setActionResult({ type: "warn", message: `Record purged, but BM delete failed: ${body.bmDeleteError}` });
+        setActionResult({
+          type: "warn",
+          message: `Record purged, but BM delete failed: ${body.bmDeleteError}`,
+        });
         setTimeout(() => setActionResult(null), 6000);
       }
       loadBans();
@@ -338,18 +348,24 @@ function BansMutesPage() {
                             {r.playerSteamId}
                           </div>
                         )}
-                        {r.identifierType === "ip" && r.linkedBans?.length > 0 && (
-                          <div className="mt-1 space-y-0.5">
-                            {r.linkedBans.map((lb) => (
-                              <div key={lb.steamId} className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1">
-                                <span className="px-1 rounded text-[9px] font-bold ring-1 bg-danger/10 text-danger ring-danger/30">
-                                  auto-banned
-                                </span>
-                                <span className="truncate">{lb.name ?? lb.steamId}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {r.identifierType === "ip" &&
+                          r.linkedBans?.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              {r.linkedBans.map((lb) => (
+                                <div
+                                  key={lb.steamId}
+                                  className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1"
+                                >
+                                  <span className="px-1 rounded text-[9px] font-bold ring-1 bg-danger/10 text-danger ring-danger/30">
+                                    auto-banned
+                                  </span>
+                                  <span className="truncate">
+                                    {lb.name ?? lb.steamId}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                       </div>
                       <div>
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 ring-border bg-surface capitalize">

@@ -24,10 +24,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
-import { playerSearchHistory, usePlayerSearchHistory } from "@/lib/player-search-history";
+import {
+  playerSearchHistory,
+  usePlayerSearchHistory,
+} from "@/lib/player-search-history";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, Ban, Clock, MessageSquare, MicOff, RefreshCw, Search, UserX } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  Clock,
+  MessageSquare,
+  MicOff,
+  RefreshCw,
+  Search,
+  UserX,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const LENGTH_MINUTES = {
@@ -124,10 +136,11 @@ const BAN_STATUS_TONE = {
 const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^(?=.*:)[\da-fA-F:]+$/;
 
 function normalizeSteamLookupQuery(value) {
-  const raw = String(value ?? "").trim().replace(/^['\"]+|['\"]+$/g, "");
+  const raw = String(value ?? "")
+    .trim()
+    .replace(/^['\"]+|['\"]+$/g, "");
   return /^\d{17}$/.test(raw) ? raw : "";
 }
-
 
 const Route = createFileRoute("/player-lookup")({
   head: () => ({
@@ -140,7 +153,8 @@ const Route = createFileRoute("/player-lookup")({
         : void 0,
     ipHash:
       typeof s.ipHash === "string" &&
-      (IP_ADDRESS_RE.test(s.ipHash.trim()) || /^[a-fA-F0-9]{6,64}$/.test(s.ipHash))
+      (IP_ADDRESS_RE.test(s.ipHash.trim()) ||
+        /^[a-fA-F0-9]{6,64}$/.test(s.ipHash))
         ? normalizePlayerLookupIpQuery(s.ipHash)
         : void 0,
   }),
@@ -350,7 +364,8 @@ function PlayerLookupPage() {
   const lookupOrgs = orgs.filter((o) => hasOrgPermission(o.id, "players_view"));
   const fetchOrgId = lookupOrgs[0]?.id ?? null;
   const nameSearchOrgIds =
-    selectedOrgIds.filter((id) => hasOrgPermission(id, "players_view")).length > 0
+    selectedOrgIds.filter((id) => hasOrgPermission(id, "players_view")).length >
+    0
       ? selectedOrgIds.filter((id) => hasOrgPermission(id, "players_view"))
       : lookupOrgs.map((o) => o.id);
 
@@ -480,7 +495,9 @@ function PlayerLookupPage() {
       if (nameSearchOrgIds.length === 0) {
         setNameQuery(q);
         setNameMatches([]);
-        setNameSearchError("No organization with player lookup access is available.");
+        setNameSearchError(
+          "No organization with player lookup access is available.",
+        );
         return;
       }
 
@@ -514,7 +531,9 @@ function PlayerLookupPage() {
         };
         const merged = new Map();
         for (const { body } of successful) {
-          for (const player of Array.isArray(body?.players) ? body.players : []) {
+          for (const player of Array.isArray(body?.players)
+            ? body.players
+            : []) {
             const steam = String(player?.steamId ?? "");
             if (!steam) continue;
             const existing = merged.get(steam);
@@ -522,11 +541,16 @@ function PlayerLookupPage() {
               merged.set(steam, player);
               continue;
             }
-            const currentRank = priority[String(player?.matchType ?? "steam_id")] ?? 3;
-            const existingRank = priority[String(existing?.matchType ?? "steam_id")] ?? 3;
+            const currentRank =
+              priority[String(player?.matchType ?? "steam_id")] ?? 3;
+            const existingRank =
+              priority[String(existing?.matchType ?? "steam_id")] ?? 3;
             const currentSeen = Number(player?.lastSeenAt ?? 0);
             const existingSeen = Number(existing?.lastSeenAt ?? 0);
-            if (currentRank < existingRank || (currentRank === existingRank && currentSeen > existingSeen)) {
+            if (
+              currentRank < existingRank ||
+              (currentRank === existingRank && currentSeen > existingSeen)
+            ) {
               merged.set(steam, player);
             }
           }
@@ -736,9 +760,7 @@ function PlayerLookupPage() {
     const isSteam = /^\d{17}$/.test(trimmed);
 
     // BattleMetrics: bare numeric ID (non-Steam) or a battlemetrics.com/players URL.
-    const bmUrlMatch = trimmed.match(
-      /battlemetrics\.com\/players\/([0-9]+)/i,
-    );
+    const bmUrlMatch = trimmed.match(/battlemetrics\.com\/players\/([0-9]+)/i);
     const isBmNumeric = !isSteam && /^[0-9]{1,15}$/.test(trimmed);
     const bmId = bmUrlMatch ? bmUrlMatch[1] : isBmNumeric ? trimmed : null;
 
@@ -774,7 +796,12 @@ function PlayerLookupPage() {
     if (isSteam && trimmed === search.steam && !search.ipHash) {
       // Same ID re-submitted (URL won't change → effect won't fire): refetch.
       fetchPlayer(false);
-    } else if (!isSteam && normalizedLookup && normalizedLookup === search.ipHash && !search.steam) {
+    } else if (
+      !isSteam &&
+      normalizedLookup &&
+      normalizedLookup === search.ipHash &&
+      !search.steam
+    ) {
       setIpSearchTick((n) => n + 1);
     } else if (!isSteam && !normalizedLookup) {
       navigate({ search: { steam: undefined, ipHash: undefined } });
@@ -794,7 +821,10 @@ function PlayerLookupPage() {
     await fetchPlayer(true);
     setRefreshCooldown(true);
     if (refreshCooldownRef.current) clearTimeout(refreshCooldownRef.current);
-    refreshCooldownRef.current = setTimeout(() => setRefreshCooldown(false), 15000);
+    refreshCooldownRef.current = setTimeout(
+      () => setRefreshCooldown(false),
+      15000,
+    );
   };
 
   const openKickDialog = async () => {
@@ -813,8 +843,10 @@ function PlayerLookupPage() {
       else {
         const sessionServer =
           liveServerName ?? playerData?.bmSessions?.[0]?.serverName;
-        const match = rconServers.find(
-          (s) => s.serverName.toLowerCase().includes((sessionServer ?? "").toLowerCase().slice(0, 8)),
+        const match = rconServers.find((s) =>
+          s.serverName
+            .toLowerCase()
+            .includes((sessionServer ?? "").toLowerCase().slice(0, 8)),
         );
         if (match) setKickServerId(match.serverId);
       }
@@ -844,7 +876,6 @@ function PlayerLookupPage() {
       setKickLoading(false);
     }
   };
-
 
   const displayName = playerData?.displayName ?? steamId ?? "";
 
@@ -992,7 +1023,11 @@ function PlayerLookupPage() {
     if (isProxy)
       out.push({ key: "vpn", label: "VPN / Proxy", tone: "warning" });
     if (s?.profileVisibility && s.profileVisibility !== "Public")
-      out.push({ key: "steam_private", label: "Private Steam", tone: "warning" });
+      out.push({
+        key: "steam_private",
+        label: "Private Steam",
+        tone: "warning",
+      });
     if (bm?.private)
       out.push({ key: "bm_private", label: "Private BM", tone: "warning" });
     if (s?.profileCreatedAt && nowSec - s.profileCreatedAt < 30 * 86400)
@@ -1031,6 +1066,31 @@ function PlayerLookupPage() {
 
   const loaded = !playerLoading && playerData;
 
+  const _nowSec = Math.floor(Date.now() / 1000);
+  const activeBan = visibleOffenses.find(
+    (o) =>
+      o.actionType === "ban" &&
+      !o.revoked &&
+      (!o.expiresAt || o.expiresAt > _nowSec),
+  );
+  const activeMute = visibleOffenses.find(
+    (o) =>
+      o.actionType === "mute" &&
+      !o.revoked &&
+      (!o.expiresAt || o.expiresAt > _nowSec),
+  );
+  function formatRemaining(expiresAt) {
+    if (!expiresAt) return "permanent";
+    const secs = expiresAt - _nowSec;
+    if (secs <= 0) return "expires soon";
+    const d = Math.floor(secs / 86400);
+    const h = Math.floor((secs % 86400) / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h remaining`;
+    if (h > 0) return `${h}h ${m}m remaining`;
+    return `${m}m remaining`;
+  }
+
   return (
     <SteamRequiredGate>
       <div className="h-screen bg-background flex flex-col overflow-hidden">
@@ -1065,7 +1125,12 @@ function PlayerLookupPage() {
                                 className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-bright text-left transition-colors"
                                 onClick={() => {
                                   setRecentOpen(false);
-                                  navigate({ search: { steam: entry.steamId, ipHash: undefined } });
+                                  navigate({
+                                    search: {
+                                      steam: entry.steamId,
+                                      ipHash: undefined,
+                                    },
+                                  });
                                 }}
                               >
                                 {entry.avatarUrl ? (
@@ -1077,7 +1142,9 @@ function PlayerLookupPage() {
                                 ) : (
                                   <div
                                     className="size-7 rounded ring-1 ring-black/30 grid place-items-center font-mono font-bold text-background shrink-0 text-[10px]"
-                                    style={{ background: steamIdColor(entry.steamId) }}
+                                    style={{
+                                      background: steamIdColor(entry.steamId),
+                                    }}
                                   >
                                     {(entry.displayName ?? entry.steamId)
                                       .replace(/[\[\]]/g, "")
@@ -1122,16 +1189,19 @@ function PlayerLookupPage() {
                 </button>
               </form>
               {bmResolveError && (
-                <p className="mt-2 text-[11px] text-destructive">{bmResolveError}</p>
+                <p className="mt-2 text-[11px] text-destructive">
+                  {bmResolveError}
+                </p>
               )}
               {input.trim().length > 0 &&
                 !/^\d{17}$/.test(input.trim()) &&
                 !normalizePlayerLookupIpQuery(input.trim()) &&
                 input.trim().length < 2 && (
-                <p className="mt-2 text-[11px] text-warning">
-                  Enter at least 2 characters for name search, or use a Steam ID / IP / IP hash.
-                </p>
-              )}
+                  <p className="mt-2 text-[11px] text-warning">
+                    Enter at least 2 characters for name search, or use a Steam
+                    ID / IP / IP hash.
+                  </p>
+                )}
             </div>
           </div>
 
@@ -1214,7 +1284,9 @@ function PlayerLookupPage() {
 
                     {/* Session Timeline */}
                     {!isSupportOnly && (
-                      <SessionTimeline sessionWindows={playerData.sessionWindows} />
+                      <SessionTimeline
+                        sessionWindows={playerData.sessionWindows}
+                      />
                     )}
 
                     {/* Chat History */}
@@ -1254,7 +1326,9 @@ function PlayerLookupPage() {
                                 </div>
                                 <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground">
                                   <span>
-                                    {new Date(line.ts * 1000).toLocaleDateString(undefined, {
+                                    {new Date(
+                                      line.ts * 1000,
+                                    ).toLocaleDateString(undefined, {
                                       month: "short",
                                       day: "numeric",
                                       year: "numeric",
@@ -1263,7 +1337,9 @@ function PlayerLookupPage() {
                                   {line.serverName && (
                                     <>
                                       <span>·</span>
-                                      <span className="truncate">{line.serverName}</span>
+                                      <span className="truncate">
+                                        {line.serverName}
+                                      </span>
                                     </>
                                   )}
                                 </div>
@@ -1279,301 +1355,369 @@ function PlayerLookupPage() {
                   <div className="space-y-8 xl:col-span-6">
                     {/* Profile header */}
                     <section>
-                  <div className="bg-surface/60 ring-1 ring-border rounded-lg p-5">
-                    <div className="flex items-center justify-between gap-4 mb-5">
-                      <div className="flex items-center gap-4 min-w-0">
-                        <Avatar
-                          steamId={playerData.steamId}
-                          displayName={playerData.displayName}
-                          avatarUrl={playerData.avatarUrl}
-                          size={64}
-                        />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={
-                                "inline-block size-2 rounded-full ring-1 ring-black/20 shrink-0 " +
-                                (isLiveOnServer
-                                  ? "bg-success"
-                                  : "bg-muted-foreground/40")
-                              }
-                              title={
-                                isLiveOnServer
-                                  ? `Online${liveServerName ? ` on ${liveServerName}` : " on a server"}`
-                                  : "Offline"
-                              }
-                              aria-label={
-                                isLiveOnServer
-                                  ? `Online${liveServerName ? ` on ${liveServerName}` : " on a server"}`
-                                  : "Offline"
-                              }
-                            />
-                            <h2 className="text-lg font-semibold truncate">
-                              {playerData.displayName ?? playerData.steamId}
-                            </h2>
-                            {playerData.bm?.rustBansBanned && (
-                              <span className="text-[9px] font-mono uppercase tracking-widest text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0">
-                                BM Banned
-                              </span>
-                            )}
-                            {(playerData.bm?.rustBansCount ?? 0) > 0 &&
-                              !playerData.bm?.rustBansBanned && (
-                                <span className="text-[9px] font-mono uppercase tracking-widest text-warning bg-warning/10 ring-1 ring-warning/30 px-1.5 py-0.5 rounded shrink-0">
-                                  {playerData.bm.rustBansCount} prior BM ban
-                                  {playerData.bm.rustBansCount !== 1 ? "s" : ""}
-                                </span>
-                              )}
-                          </div>
-                          <p className="text-[11px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1.5">
-                            {playerData.steamId}
-                            <PlayerLinks
+                      <div className="bg-surface/60 ring-1 ring-border rounded-lg p-5">
+                        <div className="flex items-center justify-between gap-4 mb-5">
+                          <div className="flex items-center gap-4 min-w-0">
+                            <Avatar
                               steamId={playerData.steamId}
-                              size="sm"
+                              displayName={playerData.displayName}
+                              avatarUrl={playerData.avatarUrl}
+                              size={64}
                             />
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <CacheStamp
-                          playerData={playerData}
-                          refreshing={refreshing}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleRefresh}
-                          disabled={refreshing || refreshCooldown}
-                          className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-md ring-1 disabled:opacity-50 ${bmRateLimitWarning ? "bg-warning/10 text-warning ring-warning/40 hover:bg-warning/20" : "bg-surface text-muted-foreground ring-border hover:bg-surface-bright"}`}
-                          title={
-                            refreshCooldown
-                              ? "Wait a moment before refreshing again"
-                              : bmRateLimitWarning
-                                ? "BattleMetrics token is >90% rate-limited — data may not refresh"
-                                : "Refresh data from BattleMetrics / Steam"
-                          }
-                        >
-                          {bmRateLimitWarning && (
-                            <AlertTriangle className="size-3.5 shrink-0" />
-                          )}
-                          <RefreshCw
-                            className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
-                          />
-                        </button>
-
-                        {!isSupportOnly && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => setManageBansOpen(true)}
-                              className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
-                            >
-                              <Ban className="size-3.5" aria-hidden />
-                              Manage Bans
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setManageMutesOpen(true)}
-                              className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
-                            >
-                              <MicOff className="size-3.5" aria-hidden />
-                              Manage Mutes
-                            </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => { setIssueBanActionType("mute"); setIssueBanOpen(true); }}
-                          className="flex items-center gap-2 px-3 py-2 bg-warning/15 text-warning ring-1 ring-warning/40 rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-warning/25"
-                        >
-                          <MicOff className="size-3.5" />
-                          Mute
-                        </button>
-                        {!isSupportOnly && (
-                          <button
-                            onClick={() => { setIssueBanActionType("ban"); setIssueBanOpen(true); }}
-                            className="flex items-center gap-2 px-3 py-2 bg-danger text-danger-foreground rounded-md text-xs font-semibold uppercase tracking-widest hover:opacity-90"
-                          >
-                            <Ban className="size-3.5" />
-                            Ban
-                          </button>
-                        )}
-                        {canKick && isLiveOnServer && (
-                          <button
-                            onClick={openKickDialog}
-                            className="flex items-center gap-2 px-3 py-2 bg-surface text-foreground ring-1 ring-border rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-surface-bright"
-                          >
-                            <UserX className="size-3.5" />
-                            Logout
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {playerData.flaggedGroups?.length > 0 && (
-                      <div className="rounded-md ring-1 ring-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning flex items-start gap-2">
-                        <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
-                        <span>
-                          <strong>Possible botted account</strong> — member of flagged Steam group{playerData.flaggedGroups.length !== 1 ? "s" : ""}:{" "}
-                          {playerData.flaggedGroups.map((g) => g.label).join(", ")}
-                        </span>
-                      </div>
-                    )}
-
-                    {!isSupportOnly && (
-                      <div className="space-y-4">
-                        {/* Steam */}
-                        <div>
-                          <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">Steam</p>
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
-                            <Field
-                              label="Rust Hours"
-                              hint={HINTS.steamHours}
-                              value={
-                                playerData.steam.dataPublic
-                                  ? fmtNum(playerData.steam.rustHours)
-                                  : "Private"
-                              }
-                              tone={!playerData.steam.dataPublic ? "warning" : undefined}
-                            />
-                            <Field
-                              label="Acct Age"
-                              value={accountAge(playerData.steam.profileCreatedAt)}
-                              tone={
-                                playerData.steam.profileCreatedAt &&
-                                Date.now() / 1000 - playerData.steam.profileCreatedAt < 30 * 86400
-                                  ? "warning"
-                                  : undefined
-                              }
-                            />
-                            <Field
-                              label="Visibility"
-                              hint={HINTS.steamVisibility}
-                              value={playerData.steam.profileVisibility ?? "—"}
-                              tone={
-                                playerData.steam.profileVisibility === "Public"
-                                  ? "success"
-                                  : playerData.steam.profileVisibility === "Friends Only"
-                                    ? "warning"
-                                    : playerData.steam.profileVisibility === "Private"
-                                      ? "danger"
-                                      : playerData.steam.profileVisibility === "Not Configured"
-                                        ? "warning"
-                                        : undefined
-                              }
-                            />
-                            <Field
-                              label="VAC / Game"
-                              value={vacSummary.value}
-                              tone={vacSummary.tone}
-                            />
-                            <Field
-                              label="Last Ban"
-                              value={lastBanDisplay(playerData.steam)}
-                              tone={
-                                (playerData.steam.vacCount ?? 0) + (playerData.steam.gameBanCount ?? 0) > 0
-                                  ? "danger"
-                                  : undefined
-                              }
-                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={
+                                    "inline-block size-2 rounded-full ring-1 ring-black/20 shrink-0 " +
+                                    (isLiveOnServer
+                                      ? "bg-success"
+                                      : "bg-muted-foreground/40")
+                                  }
+                                  title={
+                                    isLiveOnServer
+                                      ? `Online${liveServerName ? ` on ${liveServerName}` : " on a server"}`
+                                      : "Offline"
+                                  }
+                                  aria-label={
+                                    isLiveOnServer
+                                      ? `Online${liveServerName ? ` on ${liveServerName}` : " on a server"}`
+                                      : "Offline"
+                                  }
+                                />
+                                <h2 className="text-lg font-semibold truncate">
+                                  {playerData.displayName ?? playerData.steamId}
+                                </h2>
+                                {playerData.bm?.rustBansBanned && (
+                                  <span className="text-[9px] font-mono uppercase tracking-widest text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0">
+                                    BM Banned
+                                  </span>
+                                )}
+                                {(playerData.bm?.rustBansCount ?? 0) > 0 &&
+                                  !playerData.bm?.rustBansBanned && (
+                                    <span className="text-[9px] font-mono uppercase tracking-widest text-warning bg-warning/10 ring-1 ring-warning/30 px-1.5 py-0.5 rounded shrink-0">
+                                      {playerData.bm.rustBansCount} prior BM ban
+                                      {playerData.bm.rustBansCount !== 1
+                                        ? "s"
+                                        : ""}
+                                    </span>
+                                  )}
+                              </div>
+                              <p className="text-[11px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1.5">
+                                {playerData.steamId}
+                                <PlayerLinks
+                                  steamId={playerData.steamId}
+                                  size="sm"
+                                />
+                              </p>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* BattleMetrics */}
-                        {playerData.bm && (
-                          <div>
-                            <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">BattleMetrics</p>
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
-                              <Field
-                                label="BM Hours"
-                                hint={HINTS.bmHours}
-                                value={fmtNum(playerData.bm.rustHours)}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <CacheStamp
+                              playerData={playerData}
+                              refreshing={refreshing}
+                            />
+                            <button
+                              type="button"
+                              onClick={handleRefresh}
+                              disabled={refreshing || refreshCooldown}
+                              className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-md ring-1 disabled:opacity-50 ${bmRateLimitWarning ? "bg-warning/10 text-warning ring-warning/40 hover:bg-warning/20" : "bg-surface text-muted-foreground ring-border hover:bg-surface-bright"}`}
+                              title={
+                                refreshCooldown
+                                  ? "Wait a moment before refreshing again"
+                                  : bmRateLimitWarning
+                                    ? "BattleMetrics token is >90% rate-limited — data may not refresh"
+                                    : "Refresh data from BattleMetrics / Steam"
+                              }
+                            >
+                              {bmRateLimitWarning && (
+                                <AlertTriangle className="size-3.5 shrink-0" />
+                              )}
+                              <RefreshCw
+                                className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
                               />
-                              <Field
-                                label="BM Acct Age"
-                                value={accountAge(playerData.bm.profileCreatedAt)}
-                              />
-                              <Field
-                                label="BM Profile"
-                                hint={HINTS.bmVisibility}
-                                value={playerData.bm.private ? "Private" : "Public"}
-                                tone={playerData.bm.private ? "danger" : "success"}
-                              />
-                              <Field
-                                label="Aim Train"
-                                hint={HINTS.atHours}
-                                value={fmtNum(playerData.bm.aimtrainHours)}
-                              />
-                              <Field
-                                label="Servers"
-                                value={fmtNum(playerData.bm.serverCount)}
-                              />
-                              <Field
-                                label="K/D"
-                                hint={HINTS.kd}
-                                value={kd ?? "—"}
-                                tone={
-                                  kd != null && Number(kd) >= 3
-                                    ? "warning"
+                            </button>
+
+                            {!isSupportOnly && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setManageBansOpen(true)}
+                                  className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
+                                >
+                                  <Ban className="size-3.5" aria-hidden />
+                                  Manage Bans
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setManageMutesOpen(true)}
+                                  className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
+                                >
+                                  <MicOff className="size-3.5" aria-hidden />
+                                  Manage Mutes
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (!activeMute) {
+                                  setIssueBanActionType("mute");
+                                  setIssueBanOpen(true);
+                                }
+                              }}
+                              disabled={!!activeMute}
+                              title={
+                                activeMute
+                                  ? `Already muted — ${formatRemaining(activeMute.expiresAt)}`
+                                  : undefined
+                              }
+                              className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-widest ${activeMute ? "bg-surface text-muted-foreground ring-1 ring-border cursor-not-allowed opacity-60" : "bg-warning/15 text-warning ring-1 ring-warning/40 hover:bg-warning/25"}`}
+                            >
+                              <MicOff className="size-3.5" />
+                              Mute
+                            </button>
+                            {!isSupportOnly && (
+                              <button
+                                onClick={() => {
+                                  if (!activeBan) {
+                                    setIssueBanActionType("ban");
+                                    setIssueBanOpen(true);
+                                  }
+                                }}
+                                disabled={!!activeBan}
+                                title={
+                                  activeBan
+                                    ? `Already banned — ${formatRemaining(activeBan.expiresAt)}`
                                     : undefined
                                 }
-                              />
-                              <Field
-                                label="Kills"
-                                value={fmtNum(playerData.bm.kills)}
-                              />
-                              <Field
-                                label="Deaths"
-                                value={fmtNum(playerData.bm.deaths)}
-                              />
-                              <Field
-                                label="Cheat Reports"
-                                value={fmtNum(playerData.bm.cheatingReports)}
-                                tone={
-                                  (playerData.bm.cheatingReports ?? 0) > 5
-                                    ? "danger"
-                                    : (playerData.bm.cheatingReports ?? 0) > 0
+                                className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-widest ${activeBan ? "bg-surface text-muted-foreground ring-1 ring-border cursor-not-allowed opacity-60" : "bg-danger text-danger-foreground hover:opacity-90"}`}
+                              >
+                                <Ban className="size-3.5" />
+                                Ban
+                              </button>
+                            )}
+                            {canKick && isLiveOnServer && (
+                              <button
+                                onClick={openKickDialog}
+                                className="flex items-center gap-2 px-3 py-2 bg-surface text-foreground ring-1 ring-border rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-surface-bright"
+                              >
+                                <UserX className="size-3.5" />
+                                Logout
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {playerData.flaggedGroups?.length > 0 && (
+                          <div className="rounded-md ring-1 ring-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning flex items-start gap-2">
+                            <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>Possible botted account</strong> — member
+                              of flagged Steam group
+                              {playerData.flaggedGroups.length !== 1 ? "s" : ""}
+                              :{" "}
+                              {playerData.flaggedGroups
+                                .map((g) => g.label)
+                                .join(", ")}
+                            </span>
+                          </div>
+                        )}
+
+                        {!isSupportOnly && (
+                          <div className="space-y-4">
+                            {/* Steam */}
+                            <div>
+                              <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">
+                                Steam
+                              </p>
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
+                                <Field
+                                  label="Rust Hours"
+                                  hint={HINTS.steamHours}
+                                  value={
+                                    playerData.steam.dataPublic
+                                      ? fmtNum(playerData.steam.rustHours)
+                                      : "Private"
+                                  }
+                                  tone={
+                                    !playerData.steam.dataPublic
                                       ? "warning"
                                       : undefined
-                                }
-                              />
-                              <Field
-                                label="Total Reports"
-                                value={fmtNum(
-                                  (playerData.bm.cheatingReports ?? 0) +
-                                    (playerData.bm.teamingReports ?? 0) +
-                                    (playerData.bm.otherReports ?? 0),
-                                )}
-                                tone={
-                                  (playerData.bm.cheatingReports ?? 0) +
-                                    (playerData.bm.teamingReports ?? 0) +
-                                    (playerData.bm.otherReports ?? 0) >
-                                  10
-                                    ? "danger"
-                                    : (playerData.bm.cheatingReports ?? 0) +
-                                          (playerData.bm.teamingReports ?? 0) +
-                                          (playerData.bm.otherReports ?? 0) >
-                                        0
+                                  }
+                                />
+                                <Field
+                                  label="Acct Age"
+                                  value={accountAge(
+                                    playerData.steam.profileCreatedAt,
+                                  )}
+                                  tone={
+                                    playerData.steam.profileCreatedAt &&
+                                    Date.now() / 1000 -
+                                      playerData.steam.profileCreatedAt <
+                                      30 * 86400
                                       ? "warning"
                                       : undefined
-                                }
+                                  }
+                                />
+                                <Field
+                                  label="Visibility"
+                                  hint={HINTS.steamVisibility}
+                                  value={
+                                    playerData.steam.profileVisibility ?? "—"
+                                  }
+                                  tone={
+                                    playerData.steam.profileVisibility ===
+                                    "Public"
+                                      ? "success"
+                                      : playerData.steam.profileVisibility ===
+                                          "Friends Only"
+                                        ? "warning"
+                                        : playerData.steam.profileVisibility ===
+                                            "Private"
+                                          ? "danger"
+                                          : playerData.steam
+                                                .profileVisibility ===
+                                              "Not Configured"
+                                            ? "warning"
+                                            : undefined
+                                  }
+                                />
+                                <Field
+                                  label="VAC / Game"
+                                  value={vacSummary.value}
+                                  tone={vacSummary.tone}
+                                />
+                                <Field
+                                  label="Last Ban"
+                                  value={lastBanDisplay(playerData.steam)}
+                                  tone={
+                                    (playerData.steam.vacCount ?? 0) +
+                                      (playerData.steam.gameBanCount ?? 0) >
+                                    0
+                                      ? "danger"
+                                      : undefined
+                                  }
+                                />
+                              </div>
+                            </div>
+
+                            {/* BattleMetrics */}
+                            {playerData.bm && (
+                              <div>
+                                <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">
+                                  BattleMetrics
+                                </p>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
+                                  <Field
+                                    label="BM Hours"
+                                    hint={HINTS.bmHours}
+                                    value={fmtNum(playerData.bm.rustHours)}
+                                  />
+                                  <Field
+                                    label="BM Acct Age"
+                                    value={accountAge(
+                                      playerData.bm.profileCreatedAt,
+                                    )}
+                                  />
+                                  <Field
+                                    label="BM Profile"
+                                    hint={HINTS.bmVisibility}
+                                    value={
+                                      playerData.bm.private
+                                        ? "Private"
+                                        : "Public"
+                                    }
+                                    tone={
+                                      playerData.bm.private
+                                        ? "danger"
+                                        : "success"
+                                    }
+                                  />
+                                  <Field
+                                    label="Aim Train"
+                                    hint={HINTS.atHours}
+                                    value={fmtNum(playerData.bm.aimtrainHours)}
+                                  />
+                                  <Field
+                                    label="Servers"
+                                    value={fmtNum(playerData.bm.serverCount)}
+                                  />
+                                  <Field
+                                    label="K/D"
+                                    hint={HINTS.kd}
+                                    value={kd ?? "—"}
+                                    tone={
+                                      kd != null && Number(kd) >= 3
+                                        ? "warning"
+                                        : undefined
+                                    }
+                                  />
+                                  <Field
+                                    label="Kills"
+                                    value={fmtNum(playerData.bm.kills)}
+                                  />
+                                  <Field
+                                    label="Deaths"
+                                    value={fmtNum(playerData.bm.deaths)}
+                                  />
+                                  <Field
+                                    label="Cheat Reports"
+                                    value={fmtNum(
+                                      playerData.bm.cheatingReports,
+                                    )}
+                                    tone={
+                                      (playerData.bm.cheatingReports ?? 0) > 5
+                                        ? "danger"
+                                        : (playerData.bm.cheatingReports ?? 0) >
+                                            0
+                                          ? "warning"
+                                          : undefined
+                                    }
+                                  />
+                                  <Field
+                                    label="Total Reports"
+                                    value={fmtNum(
+                                      (playerData.bm.cheatingReports ?? 0) +
+                                        (playerData.bm.teamingReports ?? 0) +
+                                        (playerData.bm.otherReports ?? 0),
+                                    )}
+                                    tone={
+                                      (playerData.bm.cheatingReports ?? 0) +
+                                        (playerData.bm.teamingReports ?? 0) +
+                                        (playerData.bm.otherReports ?? 0) >
+                                      10
+                                        ? "danger"
+                                        : (playerData.bm.cheatingReports ?? 0) +
+                                              (playerData.bm.teamingReports ??
+                                                0) +
+                                              (playerData.bm.otherReports ??
+                                                0) >
+                                            0
+                                          ? "warning"
+                                          : undefined
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* General */}
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
+                              <Field
+                                label="Proxy"
+                                value={isProxy ? "True" : "False"}
+                                tone={isProxy ? "danger" : "success"}
+                              />
+                              <Field label="Location" value={country ?? "—"} />
+                              <Field
+                                label="Last Seen"
+                                value={lastSeen ?? "Never"}
                               />
                             </div>
                           </div>
                         )}
-
-                        {/* General */}
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
-                          <Field
-                            label="Proxy"
-                            value={isProxy ? "True" : "False"}
-                            tone={isProxy ? "danger" : "success"}
-                          />
-                          <Field label="Location" value={country ?? "—"} />
-                          <Field label="Last Seen" value={lastSeen ?? "Never"} />
-                        </div>
                       </div>
-                    )}
-                  </div>
-                </section>
+                    </section>
 
                     {/* Risk alerts */}
                     {!isSupportOnly && <PlayerAlertsBanner alerts={alerts} />}
@@ -1631,7 +1775,9 @@ function PlayerLookupPage() {
                     {/* Linked Accounts */}
                     {!isSupportOnly && (
                       <LinkedAccountsSection
-                        subjectName={playerData.displayName ?? playerData.steamId}
+                        subjectName={
+                          playerData.displayName ?? playerData.steamId
+                        }
                         relatedAccounts={playerData.relatedAccounts}
                       />
                     )}
@@ -1644,7 +1790,9 @@ function PlayerLookupPage() {
                         currentSteamId={playerData.steamId}
                         tz={tz}
                         onSearchHash={(hash) =>
-                          navigate({ search: { steam: undefined, ipHash: hash } })
+                          navigate({
+                            search: { steam: undefined, ipHash: hash },
+                          })
                         }
                       />
                     )}
@@ -1664,7 +1812,7 @@ function PlayerLookupPage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 py-2">
-                {(!orgServers || orgServers.length === 0) ? (
+                {!orgServers || orgServers.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     No RCON-configured servers found for this org.
                   </p>
@@ -1674,7 +1822,9 @@ function PlayerLookupPage() {
                   </p>
                 ) : (
                   <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Select server:</p>
+                    <p className="text-xs text-muted-foreground">
+                      Select server:
+                    </p>
                     <select
                       value={kickServerId}
                       onChange={(e) => setKickServerId(e.target.value)}
@@ -1697,7 +1847,11 @@ function PlayerLookupPage() {
                 )}
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setKickOpen(false)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setKickOpen(false)}
+                >
                   Cancel
                 </Button>
                 <Button
@@ -1721,7 +1875,13 @@ function PlayerLookupPage() {
               defaultActionType={issueBanActionType}
               defaultIdentifier={steamId}
               playerSteamId={steamId}
-              manageableOrgIds={offenseOrgIds.length ? offenseOrgIds : (banOrgId ? [banOrgId] : [])}
+              manageableOrgIds={
+                offenseOrgIds.length
+                  ? offenseOrgIds
+                  : banOrgId
+                    ? [banOrgId]
+                    : []
+              }
               orgs={orgs}
               hasOrgPermission={hasOrgPermission}
             />
@@ -1745,7 +1905,6 @@ function PlayerLookupPage() {
             />
           )}
         </main>
-
       </div>
     </SteamRequiredGate>
   );
@@ -2117,7 +2276,9 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
           <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
             {isRawIpSearch ? "Raw IP Search" : "Hashed IP Search"}
           </h2>
-          <p className="text-xs text-muted-foreground font-mono">Query: {hash}</p>
+          <p className="text-xs text-muted-foreground font-mono">
+            Query: {hash}
+          </p>
         </section>
 
         {loading ? (
@@ -2169,7 +2330,9 @@ function NameSearchResults({ query, loading, error, matches, onOpenPlayer }) {
           <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
             Name Search
           </h2>
-          <p className="text-xs text-muted-foreground font-mono">Query: {query}</p>
+          <p className="text-xs text-muted-foreground font-mono">
+            Query: {query}
+          </p>
         </section>
 
         {loading ? (
@@ -2232,11 +2395,20 @@ function flagEmoji(isoCode) {
 }
 
 const CONN_TYPE_META = {
-  residential: { label: "Residential", cls: "text-success bg-success/10 ring-success/30" },
-  business:    { label: "Business",    cls: "text-brand bg-brand/10 ring-brand/30" },
-  mobile:      { label: "Mobile",      cls: "text-foreground bg-surface ring-border" },
-  proxy_vpn:   { label: "VPN / Proxy", cls: "text-danger bg-danger/10 ring-danger/30" },
-  hosting:     { label: "Hosting",     cls: "text-warning bg-warning/10 ring-warning/30" },
+  residential: {
+    label: "Residential",
+    cls: "text-success bg-success/10 ring-success/30",
+  },
+  business: { label: "Business", cls: "text-brand bg-brand/10 ring-brand/30" },
+  mobile: { label: "Mobile", cls: "text-foreground bg-surface ring-border" },
+  proxy_vpn: {
+    label: "VPN / Proxy",
+    cls: "text-danger bg-danger/10 ring-danger/30",
+  },
+  hosting: {
+    label: "Hosting",
+    cls: "text-warning bg-warning/10 ring-warning/30",
+  },
 };
 
 function ConnectionPointsSection({
@@ -2260,7 +2432,9 @@ function ConnectionPointsSection({
       );
       if (!accountId) continue;
       if (
-        (subjectSteamId && relatedSteamId && relatedSteamId === subjectSteamId) ||
+        (subjectSteamId &&
+          relatedSteamId &&
+          relatedSteamId === subjectSteamId) ||
         (subjectSteamId && accountId === subjectSteamId)
       ) {
         continue;
@@ -2319,14 +2493,17 @@ function ConnectionPointsSection({
     <section>
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Previous Connection Points</span>
-        <span className="font-mono normal-case tracking-normal">{entries.length}</span>
+        <span className="font-mono normal-case tracking-normal">
+          {entries.length}
+        </span>
       </h3>
       <div className="rounded-md ring-1 ring-border overflow-hidden divide-y divide-border">
         {entries.map((entry) => {
           const flag = flagEmoji(entry.isoCode);
           const connMeta = CONN_TYPE_META[entry.connType] ?? null;
           const isOpen = expanded === entry.ipHash;
-          const sharedPlayerCount = sharedPlayerCountByIp.get(entry.ipHash) ?? 0;
+          const sharedPlayerCount =
+            sharedPlayerCountByIp.get(entry.ipHash) ?? 0;
           const isSharedWithOthers = sharedPlayerCount > 0;
           const summary =
             connMeta?.label ??
@@ -2355,10 +2532,16 @@ function ConnectionPointsSection({
             (entry.isProxy || entry.isVpn || entry.connType === "proxy_vpn") &&
             operatorName.length > 0;
           const detectionFirstSeen = det?.firstSeen
-            ? new Date(det.firstSeen).toLocaleString(undefined, tz ? { timeZone: tz } : {})
+            ? new Date(det.firstSeen).toLocaleString(
+                undefined,
+                tz ? { timeZone: tz } : {},
+              )
             : null;
           const detectionLastSeen = det?.lastSeen
-            ? new Date(det.lastSeen).toLocaleString(undefined, tz ? { timeZone: tz } : {})
+            ? new Date(det.lastSeen).toLocaleString(
+                undefined,
+                tz ? { timeZone: tz } : {},
+              )
             : null;
           const delistAt = delist?.delistDatetime
             ? new Date(delist.delistDatetime).toLocaleString(
@@ -2374,14 +2557,18 @@ function ConnectionPointsSection({
               })
             : null;
           const connectionHistory = (
-            Array.isArray(entry.connectionHistory) ? entry.connectionHistory : []
+            Array.isArray(entry.connectionHistory)
+              ? entry.connectionHistory
+              : []
           )
             .map((event) => ({
               seenAt: Number(event?.seenAt ?? 0),
               serverName:
                 typeof event?.serverName === "string" ? event.serverName : null,
             }))
-            .filter((event) => Number.isFinite(event.seenAt) && event.seenAt > 0)
+            .filter(
+              (event) => Number.isFinite(event.seenAt) && event.seenAt > 0,
+            )
             .sort((a, b) => b.seenAt - a.seenAt);
 
           if (connectionHistory.length === 0) {
@@ -2391,7 +2578,10 @@ function ConnectionPointsSection({
                 serverName: entry.serverName ?? null,
               });
             }
-            if (entry.firstSeen && Number(entry.firstSeen) !== Number(entry.lastSeen)) {
+            if (
+              entry.firstSeen &&
+              Number(entry.firstSeen) !== Number(entry.lastSeen)
+            ) {
               connectionHistory.push({
                 seenAt: Number(entry.firstSeen),
                 serverName: entry.serverName ?? null,
@@ -2430,7 +2620,9 @@ function ConnectionPointsSection({
                     </span>
                   )}
                   {connMeta && (
-                    <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${connMeta.cls}`}>
+                    <span
+                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${connMeta.cls}`}
+                    >
                       {connMeta.label}
                     </span>
                   )}
@@ -2457,7 +2649,11 @@ function ConnectionPointsSection({
                     stroke="currentColor"
                     strokeWidth="1.5"
                   >
-                    <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                      d="M4 6l4 4 4-4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 </div>
               </button>
@@ -2497,7 +2693,9 @@ function ConnectionPointsSection({
                           {hasHiddenHistory && (
                             <button
                               type="button"
-                              onClick={() => toggleConnectionHistory(entry.ipHash)}
+                              onClick={() =>
+                                toggleConnectionHistory(entry.ipHash)
+                              }
                               className="mt-1.5 text-[10px] font-mono uppercase tracking-wider text-brand hover:underline"
                             >
                               {historyExpanded
@@ -2510,7 +2708,9 @@ function ConnectionPointsSection({
                     )}
                     {det && (
                       <div className="col-span-2 sm:col-span-3 md:col-span-4">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Specific Detections</dt>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                          Specific Detections
+                        </dt>
                         <dd className="flex flex-wrap gap-1.5">
                           {[
                             ["Anonymous", det.anonymous],
@@ -2537,125 +2737,219 @@ function ConnectionPointsSection({
                     )}
                     {entry.riskScore != null && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Risk Score</dt>
-                        <dd className="font-mono text-foreground">{entry.riskScore}%</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Risk Score
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.riskScore}%
+                        </dd>
                       </div>
                     )}
                     {entry.riskConfidence && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Confidence</dt>
-                        <dd className="font-mono text-foreground">{entry.riskConfidence}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Confidence
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.riskConfidence}
+                        </dd>
                       </div>
                     )}
                     {entry.estimate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Device Estimate</dt>
-                        <dd className="font-mono text-foreground">{entry.estimate}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Device Estimate
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.estimate}
+                        </dd>
                       </div>
                     )}
                     {deviceEstimate?.subnet != null && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Subnet Estimate</dt>
-                        <dd className="font-mono text-foreground">{deviceEstimate.subnet}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Subnet Estimate
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {deviceEstimate.subnet}
+                        </dd>
                       </div>
                     )}
                     {detectionFirstSeen && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Detection First Seen</dt>
-                        <dd className="font-mono text-foreground">{detectionFirstSeen}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Detection First Seen
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {detectionFirstSeen}
+                        </dd>
                       </div>
                     )}
                     {detectionLastSeen && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Detection Last Seen</dt>
-                        <dd className="font-mono text-foreground">{detectionLastSeen}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Detection Last Seen
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {detectionLastSeen}
+                        </dd>
                       </div>
                     )}
                     {delistAt && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">To Be Delisted</dt>
-                        <dd className="font-mono text-foreground">{delistAt}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          To Be Delisted
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {delistAt}
+                        </dd>
                       </div>
                     )}
                     {entry.lastUpdate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Last Update</dt>
-                        <dd className="font-mono text-foreground">{entry.lastUpdate}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Last Update
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.lastUpdate}
+                        </dd>
                       </div>
                     )}
                     {entry.asn && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">ASN</dt>
-                        <dd className="font-mono text-foreground">{entry.asn}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          ASN
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.asn}
+                        </dd>
                       </div>
                     )}
                     {entry.hostname && (
                       <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Hostname</dt>
-                        <dd className="font-mono text-foreground truncate" title={entry.hostname}>{entry.hostname}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Hostname
+                        </dt>
+                        <dd
+                          className="font-mono text-foreground truncate"
+                          title={entry.hostname}
+                        >
+                          {entry.hostname}
+                        </dd>
                       </div>
                     )}
                     {entry.isp && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">ISP / Provider</dt>
-                        <dd className="font-mono text-foreground truncate" title={entry.isp}>{entry.isp}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          ISP / Provider
+                        </dt>
+                        <dd
+                          className="font-mono text-foreground truncate"
+                          title={entry.isp}
+                        >
+                          {entry.isp}
+                        </dd>
                       </div>
                     )}
                     {entry.company && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Company</dt>
-                        <dd className="font-mono text-foreground truncate" title={entry.company}>{entry.company}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Company
+                        </dt>
+                        <dd
+                          className="font-mono text-foreground truncate"
+                          title={entry.company}
+                        >
+                          {entry.company}
+                        </dd>
                       </div>
                     )}
                     {entry.organization && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Organisation</dt>
-                        <dd className="font-mono text-foreground truncate" title={entry.organization}>{entry.organization}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Organisation
+                        </dt>
+                        <dd
+                          className="font-mono text-foreground truncate"
+                          title={entry.organization}
+                        >
+                          {entry.organization}
+                        </dd>
                       </div>
                     )}
                     {entry.addressRange && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Address Range</dt>
-                        <dd className="font-mono text-foreground">{entry.addressRange}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Address Range
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.addressRange}
+                        </dd>
                       </div>
                     )}
                     <div>
-                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Type</dt>
-                      <dd className="font-mono text-foreground">{rawType ?? summary}</dd>
+                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        Type
+                      </dt>
+                      <dd className="font-mono text-foreground">
+                        {rawType ?? summary}
+                      </dd>
                     </div>
                     {entry.city && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">City</dt>
-                        <dd className="font-mono text-foreground">{entry.city}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          City
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.city}
+                        </dd>
                       </div>
                     )}
                     {entry.region && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Region</dt>
-                        <dd className="font-mono text-foreground">{entry.region}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Region
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.region}
+                        </dd>
                       </div>
                     )}
                     {entry.continent && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Continent</dt>
-                        <dd className="font-mono text-foreground">{entry.continent}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Continent
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.continent}
+                        </dd>
                       </div>
                     )}
                     {entry.timezone && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Timezone</dt>
-                        <dd className="font-mono text-foreground">{entry.timezone}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Timezone
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.timezone}
+                        </dd>
                       </div>
                     )}
                     {localTime && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Local Time</dt>
-                        <dd className="font-mono text-foreground">{localTime}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Local Time
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {localTime}
+                        </dd>
                       </div>
                     )}
                     {operator?.name && (
                       <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator</dt>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Operator
+                        </dt>
                         <dd className="font-mono text-foreground">
                           {operator.url ? (
                             <a
@@ -2674,45 +2968,80 @@ function ConnectionPointsSection({
                     )}
                     {operator?.anonymity && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator Anonymity</dt>
-                        <dd className="font-mono text-foreground">{operator.anonymity}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Operator Anonymity
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {operator.anonymity}
+                        </dd>
                       </div>
                     )}
                     {operator?.popularity && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Operator Popularity</dt>
-                        <dd className="font-mono text-foreground">{operator.popularity}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Operator Popularity
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {operator.popularity}
+                        </dd>
                       </div>
                     )}
                     {firstSeenDate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">First Seen</dt>
-                        <dd className="font-mono text-foreground">{firstSeenDate}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          First Seen
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {firstSeenDate}
+                        </dd>
                       </div>
                     )}
                     {lastSeenDate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Last Seen</dt>
-                        <dd className="font-mono text-foreground">{lastSeenDate}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Last Seen
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {lastSeenDate}
+                        </dd>
                       </div>
                     )}
                     {entry.serverName && (
                       <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Server</dt>
-                        <dd className="font-mono text-foreground truncate" title={entry.serverName}>{entry.serverName}</dd>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          Server
+                        </dt>
+                        <dd
+                          className="font-mono text-foreground truncate"
+                          title={entry.serverName}
+                        >
+                          {entry.serverName}
+                        </dd>
                       </div>
                     )}
                     <div>
-                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Flagged</dt>
-                      <dd className={`font-mono ${(entry.isProxy || entry.isVpn) ? "text-danger" : "text-success"}`}>
-                        {entry.isVpn ? "VPN" : entry.isProxy ? "Proxy" : "Clean"}
+                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        Flagged
+                      </dt>
+                      <dd
+                        className={`font-mono ${entry.isProxy || entry.isVpn ? "text-danger" : "text-success"}`}
+                      >
+                        {entry.isVpn
+                          ? "VPN"
+                          : entry.isProxy
+                            ? "Proxy"
+                            : "Clean"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Shared</dt>
+                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        Shared
+                      </dt>
                       <dd
                         className={`font-mono ${
-                          isSharedWithOthers ? "text-warning" : "text-muted-foreground"
+                          isSharedWithOthers
+                            ? "text-warning"
+                            : "text-muted-foreground"
                         }`}
                       >
                         {isSharedWithOthers
@@ -2748,4 +3077,3 @@ function ConnectionPointsSection({
 }
 
 export { Route };
-

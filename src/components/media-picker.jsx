@@ -16,7 +16,13 @@ function FileTypeIcon({ fileType, className = "size-4" }) {
   return <FileIcon className={className} />;
 }
 
-export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm }) {
+export function MediaPicker({
+  open,
+  onClose,
+  orgId,
+  selectedIds = [],
+  onConfirm,
+}) {
   const [media, setMedia] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -33,7 +39,9 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
     setError("");
     const params = new URLSearchParams({ limit: "48", offset: "0" });
     if (typeFilter !== "all") params.set("type", typeFilter);
-    fetch(`/api/orgs/${encodeURIComponent(orgId)}/media?${params}`, { credentials: "include" })
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/media?${params}`, {
+      credentials: "include",
+    })
       .then((r) => r.json())
       .then((body) => setMedia(body.media ?? []))
       .catch(() => setError("Failed to load media."))
@@ -80,7 +88,9 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
             </button>
           ))}
           {selected.size > 0 && (
-            <span className="ml-auto text-xs text-muted-foreground">{selected.size} selected</span>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {selected.size} selected
+            </span>
           )}
         </div>
 
@@ -93,13 +103,18 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
           {loading ? (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 p-1">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="rounded-md ring-1 ring-border bg-surface/20 aspect-video animate-pulse" />
+                <div
+                  key={i}
+                  className="rounded-md ring-1 ring-border bg-surface/20 aspect-video animate-pulse"
+                />
               ))}
             </div>
           ) : media.length === 0 ? (
             <div className="py-12 text-center">
               <FileIcon className="size-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No media in gallery yet.</p>
+              <p className="text-sm text-muted-foreground">
+                No media in gallery yet.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 p-1">
@@ -111,7 +126,9 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
                     type="button"
                     onClick={() => toggle(item.mediaId)}
                     className={`relative rounded-md ring-2 overflow-hidden aspect-video text-left transition-all focus:outline-none ${
-                      isSelected ? "ring-brand" : "ring-transparent hover:ring-border"
+                      isSelected
+                        ? "ring-brand"
+                        : "ring-transparent hover:ring-border"
                     }`}
                   >
                     <div className="w-full h-full bg-black/20 flex items-center justify-center">
@@ -139,7 +156,9 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
                       </div>
                     )}
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
-                      <p className="text-[9px] text-white truncate leading-tight">{item.title || item.filename}</p>
+                      <p className="text-[9px] text-white truncate leading-tight">
+                        {item.title || item.filename}
+                      </p>
                     </div>
                   </button>
                 );
@@ -153,7 +172,9 @@ export function MediaPicker({ open, onClose, orgId, selectedIds = [], onConfirm 
             Cancel
           </Button>
           <Button onClick={handleConfirm}>
-            {selected.size > 0 ? `Attach ${selected.size} item${selected.size !== 1 ? "s" : ""}` : "Attach none"}
+            {selected.size > 0
+              ? `Attach ${selected.size} item${selected.size !== 1 ? "s" : ""}`
+              : "Attach none"}
           </Button>
         </DialogFooter>
       </DialogContent>

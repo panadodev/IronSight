@@ -4,24 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
 import { useTimezone } from "@/lib/timezone-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-    ArrowRight,
-    BadgeCheck,
-    Check,
-    CheckCircle2,
-    ChevronDown,
-    Crown,
-    MessageSquare,
-    ShieldAlert,
-    Users,
+  ArrowRight,
+  BadgeCheck,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Crown,
+  MessageSquare,
+  ShieldAlert,
+  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -39,7 +39,13 @@ const CATEGORY_LABELS = {
   "violence/graphic": "Graphic Violence",
 };
 
-function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, onFilterToPlayer }) {
+function FlaggedMessagesPanel({
+  orgId,
+  canConfirm,
+  canClear,
+  onJumpToMessage,
+  onFilterToPlayer,
+}) {
   const [flags, setFlags] = useState([]);
   const [totalReviewed, setTotalReviewed] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -49,28 +55,31 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
   const refreshTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
 
-  const fetchFlags = useCallback(async ({ silent = false } = {}) => {
-    if (!orgId) return;
-    if (!silent) setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        resolved: String(showResolved),
-        limit: "50",
-      });
-      const res = await fetch(
-        `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged?${params}`,
-        { credentials: "include" },
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setFlags(data.flags ?? []);
-      setTotalReviewed(data.totalReviewed ?? 0);
-    } catch {
-      // panel is supplementary; ignore errors
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [orgId, showResolved]);
+  const fetchFlags = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!orgId) return;
+      if (!silent) setLoading(true);
+      try {
+        const params = new URLSearchParams({
+          resolved: String(showResolved),
+          limit: "50",
+        });
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/ai-moderation/flagged?${params}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setFlags(data.flags ?? []);
+        setTotalReviewed(data.totalReviewed ?? 0);
+      } catch {
+        // panel is supplementary; ignore errors
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [orgId, showResolved],
+  );
 
   useEffect(() => {
     fetchFlags();
@@ -208,11 +217,13 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
       </div>
 
       {actionNotice && (
-        <div className={`px-3 py-1.5 border-b border-border text-[10px] ${
-          actionNotice.tone === "danger"
-            ? "text-danger bg-danger/10"
-            : "text-muted-foreground bg-surface/50"
-        }`}>
+        <div
+          className={`px-3 py-1.5 border-b border-border text-[10px] ${
+            actionNotice.tone === "danger"
+              ? "text-danger bg-danger/10"
+              : "text-muted-foreground bg-surface/50"
+          }`}
+        >
           {actionNotice.text}
         </div>
       )}
@@ -243,7 +254,11 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
                 onJump={
                   flag.chatLogId
                     ? () =>
-                        onJumpToMessage(flag.serverId, flag.chatLogId, flag.createdAt)
+                        onJumpToMessage(
+                          flag.serverId,
+                          flag.chatLogId,
+                          flag.createdAt,
+                        )
                     : null
                 }
                 onViewPlayer={() =>
@@ -258,16 +273,26 @@ function FlaggedMessagesPanel({ orgId, canConfirm, canClear, onJumpToMessage, on
   );
 }
 
-function FlagCard({ flag, canConfirm, canClear, acting, onConfirm, onClear, onJump, onViewPlayer }) {
+function FlagCard({
+  flag,
+  canConfirm,
+  canClear,
+  acting,
+  onConfirm,
+  onClear,
+  onJump,
+  onViewPlayer,
+}) {
   const scorePercent = Math.round(flag.score * 100);
-  const signals = Array.isArray(flag.signals) && flag.signals.length
-    ? flag.signals
-    : [
-        {
-          category: flag.triggeredCategory,
-          score: Number(flag.score ?? 0),
-        },
-      ];
+  const signals =
+    Array.isArray(flag.signals) && flag.signals.length
+      ? flag.signals
+      : [
+          {
+            category: flag.triggeredCategory,
+            score: Number(flag.score ?? 0),
+          },
+        ];
   const isAutomute = flag.action === "automute";
   const age = fmtRelative(flag.createdAt * 1000);
 
@@ -340,11 +365,13 @@ function FlagCard({ flag, canConfirm, canClear, acting, onConfirm, onClear, onJu
           </span>
         )}
         {flag.resolutionType && (
-          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ring-1 ${
-            flag.resolutionType === "confirmed"
-              ? "bg-danger/10 text-danger ring-danger/20"
-              : "bg-muted/30 text-muted-foreground ring-border"
-          }`}>
+          <span
+            className={`text-[9px] font-mono px-1.5 py-0.5 rounded ring-1 ${
+              flag.resolutionType === "confirmed"
+                ? "bg-danger/10 text-danger ring-danger/20"
+                : "bg-muted/30 text-muted-foreground ring-border"
+            }`}
+          >
             {flag.resolutionType === "confirmed" ? "confirmed" : "cleared"}
           </span>
         )}
@@ -585,7 +612,8 @@ function ChatPage() {
     () =>
       servers.filter(
         (s) =>
-          (selectedOrgIds.length === 0 || selectedOrgIds.includes(s.ownerOrgId)) &&
+          (selectedOrgIds.length === 0 ||
+            selectedOrgIds.includes(s.ownerOrgId)) &&
           hasOrgPermission(s.ownerOrgId, "chat_view"),
       ),
     [servers, selectedOrgIds, hasOrgPermission],
@@ -781,36 +809,30 @@ function ChatPage() {
     });
   }, [linesLoading]);
 
-  const onJumpToMessage = useCallback(
-    (targetServerId, chatLogId, ts) => {
-      const tsMs = ts * 1000;
-      const halfWindow = 15 * 60 * 1000; // ±15 min around the message
-      pendingScrollId.current = chatLogId;
-      setHighlightedId(chatLogId);
-      setServerId(targetServerId);
-      setSelectedPlayers(new Set());
-      setQuery("");
-      setRelativeTs(false);
-      setStart(fmtLocalInput(tsMs - halfWindow));
-      setEnd(fmtLocalInput(tsMs + halfWindow));
-    },
-    [],
-  );
+  const onJumpToMessage = useCallback((targetServerId, chatLogId, ts) => {
+    const tsMs = ts * 1000;
+    const halfWindow = 15 * 60 * 1000; // ±15 min around the message
+    pendingScrollId.current = chatLogId;
+    setHighlightedId(chatLogId);
+    setServerId(targetServerId);
+    setSelectedPlayers(new Set());
+    setQuery("");
+    setRelativeTs(false);
+    setStart(fmtLocalInput(tsMs - halfWindow));
+    setEnd(fmtLocalInput(tsMs + halfWindow));
+  }, []);
 
-  const onFilterToPlayer = useCallback(
-    (targetServerId, steamId, ts) => {
-      const tsMs = ts * 1000;
-      const halfWindow = 60 * 60 * 1000; // ±1 hour around the flagged message
-      setServerId(targetServerId);
-      setSelectedPlayers(new Set([steamId]));
-      setQuery("");
-      setRelativeTs(false);
-      setStart(fmtLocalInput(tsMs - halfWindow));
-      setEnd(fmtLocalInput(tsMs + halfWindow));
-      setHighlightedId(null);
-    },
-    [],
-  );
+  const onFilterToPlayer = useCallback((targetServerId, steamId, ts) => {
+    const tsMs = ts * 1000;
+    const halfWindow = 60 * 60 * 1000; // ±1 hour around the flagged message
+    setServerId(targetServerId);
+    setSelectedPlayers(new Set([steamId]));
+    setQuery("");
+    setRelativeTs(false);
+    setStart(fmtLocalInput(tsMs - halfWindow));
+    setEnd(fmtLocalInput(tsMs + halfWindow));
+    setHighlightedId(null);
+  }, []);
 
   const startMs = parseLocal(start);
   const endMs = parseLocal(end);
@@ -1225,11 +1247,24 @@ function ChatPage() {
             </div>
             {(() => {
               const panelOrgId = activeServer?.ownerOrgId ?? selectedOrgIds[0];
-              const hasToxicity = hasOrgPermission(panelOrgId, "toxicity_manage");
-              const hasResolve = hasOrgPermission(panelOrgId, "flagged_messages_resolve");
-              const hasConfirm = hasOrgPermission(panelOrgId, "flagged_messages_confirm");
-              const hasClear = hasOrgPermission(panelOrgId, "flagged_messages_clear");
-              if (!hasToxicity && !hasResolve && !hasConfirm && !hasClear) return null;
+              const hasToxicity = hasOrgPermission(
+                panelOrgId,
+                "toxicity_manage",
+              );
+              const hasResolve = hasOrgPermission(
+                panelOrgId,
+                "flagged_messages_resolve",
+              );
+              const hasConfirm = hasOrgPermission(
+                panelOrgId,
+                "flagged_messages_confirm",
+              );
+              const hasClear = hasOrgPermission(
+                panelOrgId,
+                "flagged_messages_clear",
+              );
+              if (!hasToxicity && !hasResolve && !hasConfirm && !hasClear)
+                return null;
               return (
                 <FlaggedMessagesPanel
                   orgId={panelOrgId}
@@ -1247,4 +1282,3 @@ function ChatPage() {
   );
 }
 export { Route };
-

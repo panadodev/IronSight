@@ -6,7 +6,16 @@ import { SectionHeader, GateRank } from "@/components/manage-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, X, Bot, Key, Trash2, Pencil, Activity } from "lucide-react";
+import {
+  Plus,
+  Upload,
+  X,
+  Bot,
+  Key,
+  Trash2,
+  Pencil,
+  Activity,
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -232,9 +241,7 @@ function AIModerationSection({ orgId }) {
         )}
       </div>
 
-      {hasKey && rateInfo && (
-        <RateLimitBar rateInfo={rateInfo} />
-      )}
+      {hasKey && rateInfo && <RateLimitBar rateInfo={rateInfo} />}
 
       {adding && (
         <div className="border-b border-border">
@@ -302,7 +309,8 @@ function RateLimitBar({ rateInfo }) {
   const openaiReqPct =
     openai?.limitRequests && openai.limitRequests > 0
       ? Math.round(
-          ((openai.limitRequests - (openai.remainingRequests ?? openai.limitRequests)) /
+          ((openai.limitRequests -
+            (openai.remainingRequests ?? openai.limitRequests)) /
             openai.limitRequests) *
             100,
         )
@@ -365,7 +373,10 @@ function RateLimitBar({ rateInfo }) {
           )}
           {openaiAge != null && (
             <span className="text-muted-foreground">
-              · {openaiAge < 60 ? `${openaiAge}s ago` : `${Math.floor(openaiAge / 60)}m ago`}
+              ·{" "}
+              {openaiAge < 60
+                ? `${openaiAge}s ago`
+                : `${Math.floor(openaiAge / 60)}m ago`}
             </span>
           )}
         </div>

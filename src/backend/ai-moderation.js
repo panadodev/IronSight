@@ -349,9 +349,14 @@ export async function getOrgModerationRateInfo(orgId) {
     if (cached) {
       const p = JSON.parse(cached);
       result.openai = {
-        remainingRequests: p.remainingRequests != null ? parseInt(p.remainingRequests, 10) : null,
-        limitRequests: p.limitRequests != null ? parseInt(p.limitRequests, 10) : null,
-        remainingTokens: p.remainingTokens != null ? parseInt(p.remainingTokens, 10) : null,
+        remainingRequests:
+          p.remainingRequests != null
+            ? parseInt(p.remainingRequests, 10)
+            : null,
+        limitRequests:
+          p.limitRequests != null ? parseInt(p.limitRequests, 10) : null,
+        remainingTokens:
+          p.remainingTokens != null ? parseInt(p.remainingTokens, 10) : null,
         limitTokens: p.limitTokens != null ? parseInt(p.limitTokens, 10) : null,
         fetchedAt: p.fetchedAt ?? null,
       };
@@ -412,7 +417,9 @@ async function _runChatModeration(
     scores = result.scores;
 
     if (result.ratelimitHeaders) {
-      cacheOpenAIRateLimitHeaders(orgId, result.ratelimitHeaders).catch(() => {});
+      cacheOpenAIRateLimitHeaders(orgId, result.ratelimitHeaders).catch(
+        () => {},
+      );
     }
 
     await pool.query(`UPDATE text_chat_log SET ai_flags = $1 WHERE id = $2`, [
@@ -422,9 +429,14 @@ async function _runChatModeration(
   } catch (err) {
     const is429 = err.message?.includes("429");
     if (is429) {
-      console.warn(`[ai-mod] rate limited by OpenAI for chat ${chatRowId}, skipping`);
+      console.warn(
+        `[ai-mod] rate limited by OpenAI for chat ${chatRowId}, skipping`,
+      );
     } else {
-      console.error(`[ai-mod] moderation API failed for chat ${chatRowId}:`, err);
+      console.error(
+        `[ai-mod] moderation API failed for chat ${chatRowId}:`,
+        err,
+      );
     }
     return;
   }

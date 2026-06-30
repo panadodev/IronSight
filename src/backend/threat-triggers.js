@@ -62,14 +62,24 @@ export const TRIGGER_FACTS = [
     type: "number",
     unit: "reports",
   },
-  { id: "bmKills", label: "BattleMetrics kills", type: "number", unit: "kills" },
+  {
+    id: "bmKills",
+    label: "BattleMetrics kills",
+    type: "number",
+    unit: "kills",
+  },
   {
     id: "bmDeaths",
     label: "BattleMetrics deaths",
     type: "number",
     unit: "deaths",
   },
-  { id: "bmKdr", label: "BattleMetrics K/D ratio", type: "number", unit: "KDR" },
+  {
+    id: "bmKdr",
+    label: "BattleMetrics K/D ratio",
+    type: "number",
+    unit: "KDR",
+  },
   {
     id: "bmTeamingReports",
     label: "BattleMetrics teaming reports",

@@ -719,11 +719,7 @@ function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
             onClick={() => onChange({ enabled: !bought.enabled })}
             label={bought.enabled ? "Enabled" : "Disabled"}
           />
-          <Button
-            size="sm"
-            disabled={!dirty || saving}
-            onClick={onSave}
-          >
+          <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
             <Save className="size-3.5" />
             {saving ? "Saving…" : "Save"}
           </Button>
@@ -869,4 +865,3 @@ function NumField({ label, value, onChange, suffix }) {
 }
 
 export { Route };
-
