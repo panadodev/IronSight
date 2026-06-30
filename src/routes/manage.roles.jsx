@@ -84,7 +84,7 @@ const PERMISSION_GROUPS = [
           },
           {
             id: "tickets_manage",
-            label: "Manage Tickets",
+            label: "Interact with Tickets",
             desc: "Respond to and close support tickets",
           },
           {
@@ -169,21 +169,6 @@ const PERMISSION_GROUPS = [
             desc: "Ban by IP and auto-ban evaders who rejoin (off by default)",
           },
         ],
-      },
-      {
-        id: "ban_configs_manage",
-        label: "Manage Ban Configs",
-        desc: "Configure ban and mute reason categories",
-      },
-      {
-        id: "toxicity_manage",
-        label: "Manage Toxicity",
-        desc: "Configure toxicity word filters",
-      },
-      {
-        id: "triggers_manage",
-        label: "Manage Threat Triggers",
-        desc: "Configure automated threat trigger rules",
       },
       {
         isParent: true,
@@ -285,6 +270,21 @@ const PERMISSION_GROUPS = [
         id: "predefines_manage",
         label: "Manage Pre-defines",
         desc: "Configure ticket response templates",
+      },
+      {
+        id: "ban_configs_manage",
+        label: "Manage Ban Configs",
+        desc: "Configure ban and mute reason categories",
+      },
+      {
+        id: "toxicity_manage",
+        label: "Manage Toxicity",
+        desc: "Configure toxicity word filters",
+      },
+      {
+        id: "triggers_manage",
+        label: "Manage Threat Triggers",
+        desc: "Configure automated threat trigger rules",
       },
       {
         id: "todo_read",

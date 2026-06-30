@@ -310,6 +310,10 @@ function BansMutesPage() {
               <div className="divide-y divide-border/60">
                 {rows.map((r) => {
                   const org = orgs.find((o) => o.id === r.orgId);
+                  const canEdit =
+                    hasOrgPermission(r.orgId, "bans_modify") ||
+                    hasOrgPermission(r.orgId, "bans_manage");
+                  const canRevoke = hasOrgPermission(r.orgId, "bans_delete");
                   return (
                     <div
                       key={r.banId}
@@ -402,21 +406,34 @@ function BansMutesPage() {
                       </div>
                       <div className="flex items-center justify-end gap-1">
                         <button
-                          onClick={() => setEditing(r)}
-                          className="size-7 inline-flex items-center justify-center rounded ring-1 ring-border hover:bg-surface"
-                          title="Edit"
+                          onClick={() => canEdit && setEditing(r)}
+                          disabled={!canEdit}
+                          className={
+                            "size-7 inline-flex items-center justify-center rounded ring-1 transition-colors " +
+                            (canEdit
+                              ? "ring-border hover:bg-surface"
+                              : "ring-border/30 text-muted-foreground/30 cursor-not-allowed")
+                          }
+                          title={canEdit ? "Edit" : "Requires ban modify permission"}
                         >
                           <Edit3 className="size-3" />
                         </button>
                         {!r.revoked && (
                           <button
                             onClick={() =>
-                              r.actionType === "mute"
+                              canRevoke &&
+                              (r.actionType === "mute"
                                 ? setPendingRevoke(r)
-                                : revoke(r)
+                                : revoke(r))
                             }
-                            className="size-7 inline-flex items-center justify-center rounded ring-1 ring-danger/40 text-danger hover:bg-danger/10"
-                            title="Revoke"
+                            disabled={!canRevoke}
+                            className={
+                              "size-7 inline-flex items-center justify-center rounded ring-1 transition-colors " +
+                              (canRevoke
+                                ? "ring-danger/40 text-danger hover:bg-danger/10"
+                                : "ring-border/30 text-muted-foreground/30 cursor-not-allowed")
+                            }
+                            title={canRevoke ? "Revoke" : "Requires ban delete permission"}
                           >
                             <X className="size-3" />
                           </button>
