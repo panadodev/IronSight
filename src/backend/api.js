@@ -4944,7 +4944,10 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!canManageOrg(session, orgId)) {
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "ticket_types_manage")
+  ) {
     return json({ error: "Not authorized to manage this org" }, 403);
   }
 

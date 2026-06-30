@@ -262,6 +262,11 @@ const PERMISSION_GROUPS = [
         desc: "Add and configure game server connections",
       },
       {
+        id: "ticket_types_manage",
+        label: "Manage Ticket Types",
+        desc: "Enable and disable ticket types for this org",
+      },
+      {
         id: "predefines_manage",
         label: "Manage Pre-defines",
         desc: "Configure ticket response templates",

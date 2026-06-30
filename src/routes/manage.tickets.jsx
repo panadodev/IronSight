@@ -10,7 +10,7 @@ const Route = createFileRoute("/manage/tickets")({
 });
 
 function TicketsPage() {
-  const { sessionUser, sessionOrgOwnerIds } = useAuth();
+  const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
   const [ticketTypes, setTicketTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,8 +32,9 @@ function TicketsPage() {
 
   if (!orgId) return null;
 
-  const isOwner =
-    Boolean(sessionUser?.isSysAdmin) || sessionOrgOwnerIds.includes(orgId);
+  const canManage =
+    Boolean(sessionUser?.isSysAdmin) ||
+    hasOrgPermission(orgId, "ticket_types_manage");
 
   const handleToggle = async (ticketTypeId, value) => {
     // Optimistic update
@@ -77,7 +78,7 @@ function TicketsPage() {
   };
 
   return (
-    <GateRank rank={isOwner ? 4 : 0} required={4}>
+    <GateRank rank={canManage ? 4 : 0} required={4}>
       <SectionHeader
         title="Tickets"
         blurb="Enable or disable each ticket type for this org."
