@@ -120,6 +120,14 @@ function SiteNav() {
         adminableOrgIds.includes(o.id) || sessionOrgOwnerIds.includes(o.id),
     );
   const canStaffOnline = anyOrgHas("staff_online_view");
+  const canTodo =
+    anyOrgHas("todo_read") ||
+    anyOrgHas("todo_write") ||
+    anyOrgHas("todo_delete");
+  const canChat =
+    anyOrgHas("chat_view") || anyOrgHas("players_view") || canOrgManage;
+  const canDocs =
+    anyOrgHas("tickets_view") || anyOrgHas("docs_edit") || canOrgManage;
   const canManageSection =
     canOrgManage ||
     canRoleManage ||
@@ -393,7 +401,7 @@ function SiteNav() {
     {
       label: "Panel",
       links: [
-        { to: "/todo", label: "Todo", show: orgs.length > 0 },
+        { to: "/todo", label: "Todo", show: canTodo },
         {
           to: "/panel",
           label: "RCON",
@@ -435,14 +443,14 @@ function SiteNav() {
         },
         { to: "/player-lookup", label: "Player Lookup", show: canPlayersView },
         { to: "/player-list", label: "Player List", show: canPlayersView },
-        { to: "/chat", label: "Chat", show: orgs.length > 0 },
+        { to: "/chat", label: "Chat", show: canChat },
         { to: "/bans-mutes", label: "Bans / Mutes", show: canBansManage },
         {
           to: "/discord-mod",
           label: "Discord Mod",
           show: canDiscordMod,
         },
-        { to: "/docs", label: "Docs", show: orgs.length > 0 },
+        { to: "/docs", label: "Docs", show: canDocs },
       ],
     },
     {
