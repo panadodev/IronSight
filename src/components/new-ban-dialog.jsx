@@ -20,7 +20,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { FileIcon, Film, ImagePlus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export const DURATION_PRESETS = [
   { label: "1 Hour", value: "60" },
@@ -126,8 +126,20 @@ export function NewBanDialog({
     if (orgBanConfigs[orgId] === undefined) loadOrgBanConfigs(orgId);
   }, [open, orgId, orgBanConfigs, loadOrgBanConfigs]);
 
+  // Track whether we've already initialized for the current open session.
+  // Prevents props arriving with a new array reference (e.g. from a parent
+  // re-render triggered by the 15-second online-status poll) from resetting
+  // form fields the staff member is actively editing.
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedRef.current = false;
+      setError("");
+      setRconResults(null);
+      return;
+    }
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     setOrgId(manageableOrgIds[0] ?? "");
     setActionType(defaultActionType);
     setIdentifierType("steam_id");
@@ -151,6 +163,7 @@ export function NewBanDialog({
       connectionType: "",
       isProxyVpn: false,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, manageableOrgIds, defaultActionType, defaultIdentifier]);
 
   useEffect(() => {

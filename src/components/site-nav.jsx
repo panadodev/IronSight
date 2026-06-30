@@ -393,7 +393,7 @@ function SiteNav() {
     {
       label: "Panel",
       links: [
-        { to: "/todo", label: "Todo", show: true },
+        { to: "/todo", label: "Todo", show: orgs.length > 0 },
         {
           to: "/panel",
           label: "RCON",
@@ -435,14 +435,14 @@ function SiteNav() {
         },
         { to: "/player-lookup", label: "Player Lookup", show: canPlayersView },
         { to: "/player-list", label: "Player List", show: canPlayersView },
-        { to: "/chat", label: "Chat", show: true },
+        { to: "/chat", label: "Chat", show: orgs.length > 0 },
         { to: "/bans-mutes", label: "Bans / Mutes", show: canBansManage },
         {
           to: "/discord-mod",
           label: "Discord Mod",
           show: canDiscordMod,
         },
-        { to: "/docs", label: "Docs", show: true },
+        { to: "/docs", label: "Docs", show: orgs.length > 0 },
       ],
     },
     {
@@ -520,7 +520,7 @@ function SiteNav() {
   ]
     .map((g) => ({ ...g, links: g.links.filter((l) => l.show !== false) }))
     .filter((g) => g.links.length > 0);
-  const effectiveView = sessionUser ? view : "public";
+  const effectiveView = (sessionUser && (isSysAdminSession || orgs.length > 0)) ? view : "public";
   const groups = effectiveView === "public" ? publicGroups : staffGroups;
   const hasNewTodo = false;
   useEffect(() => {
@@ -1031,7 +1031,7 @@ function SiteNav() {
                 {["public", "staff"].map((v) => (
                   <button
                     key={v}
-                    disabled={!sessionUser && v === "staff"}
+                    disabled={(!sessionUser || (!isSysAdminSession && orgs.length === 0)) && v === "staff"}
                     onClick={() => switchView(v)}
                     className={
                       "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
@@ -1096,7 +1096,7 @@ function SiteNav() {
               </div>
             </div>
 
-            {sessionUser && (
+            {sessionUser && (isSysAdminSession || orgs.length > 0) && (
               <div className="space-y-1.5">
                 <Label htmlFor="display-name">Display name</Label>
                 <Input
@@ -1184,7 +1184,7 @@ function SiteNav() {
               </p>
             </div>
 
-            <div className="space-y-1.5">
+            {(isSysAdminSession || orgs.length > 0) && <div className="space-y-1.5">
               <Label>Hints</Label>
               <button
                 type="button"
@@ -1216,9 +1216,9 @@ function SiteNav() {
                   />
                 </span>
               </button>
-            </div>
+            </div>}
 
-            <div className="space-y-1.5">
+            {(isSysAdminSession || orgs.length > 0) && <div className="space-y-1.5">
               <Label>Privacy</Label>
               <button
                 type="button"
@@ -1250,7 +1250,7 @@ function SiteNav() {
                   />
                 </span>
               </button>
-            </div>
+            </div>}
 
             {profileError ? (
               <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

@@ -1,6 +1,6 @@
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
     Activity,
     ChevronDown,
@@ -1123,13 +1123,14 @@ function CopyButton({ text, className = "" }) {
 function ExternalLinks({ steamId, size = 13 }) {
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0">
-      <a
-        href={`/player-lookup?steam=${encodeURIComponent(steamId)}`}
+      <Link
+        to="/player-lookup"
+        search={{ steam: steamId }}
         title="Open in Player Lookup"
         className="inline-flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground p-1"
       >
         <UserSearch size={size} aria-hidden />
-      </a>
+      </Link>
       <a
         href={`https://steamcommunity.com/profiles/${steamId}`}
         target="_blank"
@@ -1382,12 +1383,13 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
           <Wifi className="size-3" aria-hidden />
           IP-Linked Accounts
         </span>
-        <a
-          href={`/player-lookup?steam=${encodeURIComponent(steamId)}`}
+        <Link
+          to="/player-lookup"
+          search={{ steam: steamId }}
           className="text-[9px] font-mono uppercase tracking-wider text-brand hover:underline inline-flex items-center gap-1"
         >
           Lookup <ExternalLink className="size-2.5" aria-hidden />
-        </a>
+        </Link>
       </h2>
       {linked === 0 ? (
         <p className="text-xs text-muted-foreground italic">

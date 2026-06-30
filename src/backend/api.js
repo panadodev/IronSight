@@ -4280,6 +4280,95 @@ async function syncBanRecordToBattlemetrics(orgId, banId) {
   }
 }
 
+async function createBmNoteForMute(orgId, banId) {
+  const orgRes = await pool.query(
+    "SELECT bm_org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  const org = orgRes.rows[0];
+  if (!org?.bm_org_id) return;
+
+  const muteRes = await pool.query(
+    `SELECT ban_id, player_steam_id, reason, note, expires_at, issued_at,
+            issued_by_name
+     FROM player_bans WHERE ban_id = $1 LIMIT 1`,
+    [banId],
+  );
+  const mute = muteRes.rows[0];
+  if (!mute) return;
+
+  const steamId = mute.player_steam_id ?? mute.identifier;
+  if (!steamId) return;
+
+  const pcRes = await pool.query(
+    `SELECT bm_id FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+    [steamId],
+  );
+  const bmPlayerId = pcRes.rows[0]?.bm_id;
+  if (!bmPlayerId) return;
+
+  const expiresAt = mute.expires_at ? Number(mute.expires_at) : null;
+  let durationStr;
+  if (!expiresAt) {
+    durationStr = "Permanent";
+  } else {
+    const secs = expiresAt - Math.floor(Date.now() / 1000);
+    if (secs <= 0) {
+      durationStr = "Expired";
+    } else {
+      const mins = Math.round(secs / 60);
+      if (mins < 60) durationStr = `${mins}m`;
+      else if (mins < 1440) durationStr = `${Math.round(mins / 60)}h`;
+      else durationStr = `${Math.round(mins / 1440)}d`;
+    }
+  }
+
+  const noteLines = [
+    `[MUTE] ${mute.reason || "No reason"}`,
+    `Duration: ${durationStr}`,
+  ];
+  if (mute.note?.trim()) noteLines.push(`Note: ${mute.note.trim()}`);
+  if (mute.issued_by_name) noteLines.push(`Staff: ${mute.issued_by_name}`);
+
+  const payload = {
+    data: {
+      type: "playerNote",
+      attributes: {
+        note: noteLines.join("\n"),
+        shared: false,
+      },
+      relationships: {
+        organization: {
+          data: { type: "organization", id: String(org.bm_org_id) },
+        },
+        player: {
+          data: { type: "player", id: String(bmPlayerId) },
+        },
+      },
+    },
+  };
+
+  try {
+    const res = await bmFetch(
+      orgId,
+      `https://api.battlemetrics.com/players/${encodeURIComponent(bmPlayerId)}/relationships/notes`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(
+        `[bm-mute-note] POST failed ${res.status}: ${text.slice(0, 200)}`,
+      );
+    }
+  } catch (err) {
+    console.error("[bm-mute-note] Failed to create BM note:", err.message);
+  }
+}
+
 async function handleGetOnlineStaff(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -10319,12 +10408,16 @@ async function handleCreateBan(request, orgId) {
     );
   }
 
-  if (actionType !== "mute") {
-    const syncCheck = await pool.query(
-      "SELECT bm_auto_sync FROM organizations WHERE org_id = $1 LIMIT 1",
-      [orgId],
-    );
-    if (syncCheck.rows[0]?.bm_auto_sync === true) {
+  const bmSyncCheck = await pool.query(
+    "SELECT bm_auto_sync FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (bmSyncCheck.rows[0]?.bm_auto_sync === true) {
+    if (actionType === "mute") {
+      createBmNoteForMute(orgId, banId).catch((e) =>
+        console.error("[bm-mute-note] fire-and-forget failed:", e.message),
+      );
+    } else {
       syncBanRecordToBattlemetrics(orgId, banId).catch((e) =>
         console.error("[bm-sync] fire-and-forget failed:", e.message),
       );
@@ -14074,6 +14167,23 @@ async function handleUpdatePlayerNote(request, orgId, steamId, noteId) {
                min_rank, required_role_id, pinned, created_at, updated_at`,
     params,
   );
+
+  auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "player_note",
+    resourceId: steamId,
+    actionType: "PLAYER_NOTE_UPDATED",
+    actionCategory: "player_management",
+    severity: 1,
+    metadata: {
+      noteId: String(noteId),
+      fields: Object.keys(body).filter((k) =>
+        ["body", "pinned", "requiredRoleId"].includes(k),
+      ),
+    },
+    ipAddress: getClientIp(request),
+  });
 
   return json({ note: serializePlayerNote(rows[0]) });
 }
