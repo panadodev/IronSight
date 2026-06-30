@@ -12,9 +12,23 @@ import {
 } from "./external-fetch.js";
 import { pool, redis } from "./runtime.js";
 
+// Convert an external (ISO 8601) date string to Unix seconds, or null when the
+// value is missing or unparseable. Guards against `NaN` from a malformed
+// timestamp flowing into BIGINT columns (which would error the whole upsert).
+export function toUnixOrNull(value) {
+  if (value == null || value === "") return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+}
+
 // ── Player data fetchers ──────────────────────────────────────────────────────
 
 const RUST_APP_ID = 252490;
+// Safety cap on BattleMetrics activity pagination. A high-activity player can
+// otherwise loop indefinitely on links.next, burning the org's rotating API
+// quota and memory. 15 pages × 1000 events is far more than any moderation use
+// of the report/PVP counts needs.
+const BM_ACTIVITY_MAX_PAGES = 15;
 const AIM_SERVER_KEYWORDS = ["ukn", "aim"];
 const RELATED_PROFILE_WARM_LIMIT = (() => {
   const parsed = Number.parseInt(
@@ -236,9 +250,7 @@ async function fetchBMPlayerData(bmId, orgId) {
       bmServerId: String(entry.id),
       serverName: entry.attributes?.name ?? null,
       hoursPlayed: Math.round(hours * 10) / 10,
-      lastSeen: entry.meta?.lastSeen
-        ? Math.floor(new Date(entry.meta.lastSeen).getTime() / 1000)
-        : null,
+      lastSeen: toUnixOrNull(entry.meta?.lastSeen),
     });
   }
 
@@ -254,17 +266,13 @@ async function fetchBMPlayerData(bmId, orgId) {
     .filter(Boolean);
 
   return {
-    bmProfileCreatedAt: json.data?.attributes?.createdAt
-      ? Math.floor(new Date(json.data.attributes.createdAt).getTime() / 1000)
-      : null,
+    bmProfileCreatedAt: toUnixOrNull(json.data?.attributes?.createdAt),
     bmPrivate: json.data?.attributes?.private ?? false,
     bmRustHours: Math.round(bmRustHours * 10) / 10,
     bmAimtrainHours: Math.round(bmAimtrainHours * 10) / 10,
     bmServerCount: serverCount,
     bmRustBansCount: rustBans?.count ?? 0,
-    bmRustBansLastBan: rustBans?.lastBan
-      ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000)
-      : null,
+    bmRustBansLastBan: toUnixOrNull(rustBans?.lastBan),
     bmRustBansBanned: rustBans?.banned ?? false,
     nameAliases,
     sessions,
@@ -363,12 +371,8 @@ async function fetchBMPlayerBans(bmId, orgId) {
       bmOrgName: orgRef ? (orgs[orgRef] ?? null) : null,
       reason: ban.attributes?.reason ?? null,
       note: ban.attributes?.note ?? null,
-      expiresAt: ban.attributes?.expires
-        ? Math.floor(new Date(ban.attributes.expires).getTime() / 1000)
-        : null,
-      bannedAt: ban.attributes?.timestamp
-        ? Math.floor(new Date(ban.attributes.timestamp).getTime() / 1000)
-        : null,
+      expiresAt: toUnixOrNull(ban.attributes?.expires),
+      bannedAt: toUnixOrNull(ban.attributes?.timestamp),
       permanent: ban.attributes?.permanent ?? !ban.attributes?.expires,
     };
   });
@@ -410,8 +414,9 @@ async function fetchBMActivity(bmId, orgId) {
   ];
 
   let nextUrl = url;
+  let pages = 0;
   const activities = [];
-  while (nextUrl) {
+  while (nextUrl && pages < BM_ACTIVITY_MAX_PAGES) {
     const resp = await bmFetch(orgId, nextUrl);
     if (!resp?.ok) break;
     let json;
@@ -425,6 +430,7 @@ async function fetchBMActivity(bmId, orgId) {
     }
     activities.push(...(json.data ?? []));
     nextUrl = json.links?.next ?? null;
+    pages++;
   }
 
   const reporters = {
@@ -535,12 +541,8 @@ async function fetchBMSessions(
     const json = await resp.json().catch(() => null);
     if (!json) break;
     for (const s of json.data ?? []) {
-      const start = s.attributes?.start
-        ? Math.floor(new Date(s.attributes.start).getTime() / 1000)
-        : null;
-      const stop = s.attributes?.stop
-        ? Math.floor(new Date(s.attributes.stop).getTime() / 1000)
-        : null;
+      const start = toUnixOrNull(s.attributes?.start);
+      const stop = toUnixOrNull(s.attributes?.stop);
       const serverId = s.relationships?.server?.data?.id
         ? String(s.relationships.server.data.id)
         : null;
@@ -621,9 +623,7 @@ async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
         hasBmBans: bmBanCount > 0,
         bmBanCount,
         hasEacBans: (rustBans?.count ?? 0) > 0,
-        eacLastBan: rustBans?.lastBan
-          ? Math.floor(new Date(rustBans.lastBan).getTime() / 1000)
-          : null,
+        eacLastBan: toUnixOrNull(rustBans?.lastBan),
       };
     }),
   );
@@ -2018,6 +2018,21 @@ export async function refreshPlayerData(
         `[player:refresh] ${steamId} — background task error: ${err.message}`,
       );
     }
+
+    // BM data missing this run (player not in BattleMetrics yet, or a transient
+    // BM/key outage). The Steam write above pushed cache_expires_at out 30 days,
+    // which would suppress any BM re-attempt for a month even though `is_stale`
+    // is what gates the background refresh. Shorten the window so the next view
+    // re-refreshes within a few days and can pick up BM data once it appears.
+    if (!bmData) {
+      await pool.query(
+        `UPDATE player_cache
+           SET cache_expires_at = LEAST(cache_expires_at, unix_now() + 3 * 86400)
+         WHERE steam_id = $1`,
+        [steamId],
+      );
+    }
+
     await writePlayerDataToRedis(steamId);
     console.log(
       `[player:refresh] ${steamId} — background tasks done, Redis updated`,

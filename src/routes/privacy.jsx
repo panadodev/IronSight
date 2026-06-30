@@ -146,12 +146,49 @@ function PrivacyPage() {
             </p>
 
             <p className="font-medium text-foreground text-[13px] pt-2">
+              Network &amp; device intelligence
+            </p>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li>
+                Player IP addresses — when a player connects to a server
+                operated by an organization using IronSight (reported by the
+                server), or is matched through a connected third-party data
+                provider, their IP address is recorded as part of that player's
+                history to support ban-evasion and alternate-account detection.
+                IP addresses are stored{" "}
+                <span className="font-medium text-foreground">
+                  encrypted at rest
+                </span>{" "}
+                and indexed only by a one-way cryptographic hash. The raw
+                address is never shown in the panel — staff with the appropriate
+                permission see only a short, non-reversible token and the
+                derived metadata below.
+              </li>
+              <li>
+                IP-derived metadata — from each observed IP we derive and store
+                approximate geolocation (country, region, city), the network
+                operator (ISP / ASN / organization), and a VPN / proxy / hosting
+                classification, obtained from a third-party IP-intelligence
+                provider. This is used to assess ban-evasion risk and whether an
+                IP ban is appropriate.
+              </li>
+              <li>
+                Account associations — to identify shared or alternate accounts,
+                we compute and store relationships between players based on
+                shared IP addresses, Steam friends and groups, name aliases, and
+                overlapping play sessions.
+              </li>
+            </ul>
+
+            <p className="font-medium text-foreground text-[13px] pt-2">
               Technical &amp; session data
             </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
-                IP address — collected at login and on certain API requests for
-                rate limiting and abuse prevention. Not stored long-term.
+                IP address — your IP is recorded at login and on certain API
+                requests for rate limiting and abuse prevention, and is retained
+                as part of your session record and in security audit logs (see
+                Data retention).
               </li>
               <li>
                 Session token — an encrypted cookie that identifies your active
@@ -159,7 +196,8 @@ function PrivacyPage() {
               </li>
               <li>
                 Audit log entries — staff actions (ticket assignments, status
-                changes, bans) are logged with a timestamp and staff identity.
+                changes, bans, player lookups) are logged with a timestamp, the
+                staff member's identity, and their IP address.
               </li>
             </ul>
           </Section>
@@ -221,17 +259,33 @@ function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>
                 <span className="font-medium text-foreground">Steam</span> —
-                Player display names and profile data are fetched from the Steam
-                Web API using a player's Steam ID.
+                Player display names, profile data, game playtime, VAC/game ban
+                status, and (where the player has made them public) friends and
+                group memberships are fetched from the Steam Web API using a
+                player's Steam ID. Friends and groups are used for
+                alternate-account analysis.
               </li>
               <li>
                 <span className="font-medium text-foreground">
-                  Player data providers
+                  BattleMetrics
                 </span>{" "}
-                — Organizations may enable integrations with third-party game
-                server data services (configured per-organization) to enrich
-                player lookups with game history and prior ban data. API keys
-                are stored encrypted and are never shared between organizations.
+                — A player's Steam ID is sent to look up cross-server play
+                history, name aliases, session activity, and prior ban records,
+                using the organization's own API credentials.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">
+                  IP intelligence provider
+                </span>{" "}
+                — Observed IP addresses are sent to a third-party service
+                (Proxycheck) to classify VPN / proxy / hosting use and to obtain
+                geolocation and network-operator information.
+              </li>
+              <li>
+                These integrations are configured per organization. API keys are
+                stored encrypted and are never shared between organizations, and
+                data returned by one organization's keys is not pooled into
+                another's.
               </li>
               <li>
                 <span className="font-medium text-foreground">Discord</span> —
@@ -274,9 +328,18 @@ function PrivacyPage() {
               within an organization.
             </p>
             <p>
-              Session data is cleared on logout and automatically expires after
-              a period of inactivity. IP addresses captured for rate limiting
-              are not stored beyond the request cycle.
+              Player IP history and the metadata derived from it (geolocation,
+              network operator, VPN/proxy classification, and account
+              associations) are retained as part of the moderation record for as
+              long as the organization's account is active, because ban-evasion
+              and alternate-account detection depend on historical associations.
+              Cached third-party intelligence is refreshed periodically.
+            </p>
+            <p>
+              Session records — including the login IP — are cleared on logout
+              and expire after a fixed period of inactivity. Security audit log
+              entries, including the acting staff member's IP address, are
+              retained indefinitely as part of the accountability trail.
             </p>
           </Section>
 
@@ -312,7 +375,9 @@ function PrivacyPage() {
             </p>
             <p>
               Sensitive credentials (such as third-party API keys configured by
-              organizations) are stored encrypted.
+              organizations) are stored encrypted. Player IP addresses are also
+              encrypted at rest and are only ever surfaced to authorized staff
+              as short, non-reversible hashes — never as the raw address.
             </p>
             <p>
               Staff authentication requires both a Discord account and a Steam

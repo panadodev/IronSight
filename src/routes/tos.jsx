@@ -75,6 +75,18 @@ function TosPage() {
               responsible for the decisions of individual organizations or their
               staff.
             </p>
+            <p>
+              To provide moderation and player-intelligence features, IronSight
+              records player network information (including IP addresses) and
+              integrates with third-party data providers (such as Steam,
+              BattleMetrics, and an IP-intelligence service) on behalf of
+              organizations. How this data is collected, used, and protected is
+              described in our{" "}
+              <a href="/privacy" className="text-brand hover:underline">
+                Privacy Policy
+              </a>
+              .
+            </p>
           </Section>
 
           <Section title="Staff accounts and responsibilities">

@@ -94,6 +94,7 @@ import {
   STAFF_ALLOWED_MIME,
   testR2BucketWriteDelete,
 } from "./r2.js";
+import { sanitizeDocHtml } from "./sanitize.js";
 import {
   pool,
   queue,
@@ -224,6 +225,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "tickets_view",
   "tickets_manage",
   "tickets_player_intel",
+  "ticket_types_manage",
   "ban_configs_manage",
   "toxicity_manage",
   "predefines_manage",
@@ -3085,10 +3087,25 @@ async function handleCreateOrgRole(request, orgId) {
     return json({ error: "A role with this name already exists" }, 409);
   }
 
+  // Resolve and authorize the requested permissions BEFORE creating the role so a
+  // rejected request never leaves an orphan empty role behind. Keep only
+  // assignable permissions, and prevent privilege escalation: a non-admin/owner
+  // creator cannot grant a permission they do not personally hold.
+  const filteredPermissions = permissions.filter((p) =>
+    ASSIGNABLE_PERMISSIONS.includes(String(p).trim()),
+  );
+  if (!isGlobalAdmin(session) && !canManageOrg(session, orgId)) {
+    const userPerms = new Set(session.orgPermissions?.[orgId] ?? []);
+    const escalated = filteredPermissions.filter((p) => !userPerms.has(p));
+    if (escalated.length > 0) {
+      return json({ error: "Cannot grant permissions you do not hold" }, 403);
+    }
+  }
+
   // Create the role at the BOTTOM of the hierarchy (Discord convention): bump
   // every existing custom role up one and insert the new one at position 1.
   // A role created at the bottom is always below its creator, so no position
-  // ceiling check is needed here — the permission ceiling below is what matters.
+  // ceiling check is needed here — the permission ceiling above is what matters.
   const client = await pool.connect();
   try {
     await client.query(`BEGIN`);
@@ -3114,31 +3131,15 @@ async function handleCreateOrgRole(request, orgId) {
   }
   client.release();
 
-  // Add permissions to the role
-  if (permissions.length > 0) {
-    const filteredPermissions = permissions.filter((p) =>
-      ASSIGNABLE_PERMISSIONS.includes(String(p).trim()),
-    );
-
-    // Prevent privilege escalation: custom role_create users cannot grant
-    // permissions they don't hold themselves.
-    if (!isGlobalAdmin(session) && !canManageOrg(session, orgId)) {
-      const userPerms = new Set(session.orgPermissions?.[orgId] ?? []);
-      const escalated = filteredPermissions.filter((p) => !userPerms.has(p));
-      if (escalated.length > 0) {
-        return json({ error: "Cannot grant permissions you do not hold" }, 403);
-      }
-    }
-
-    if (filteredPermissions.length > 0) {
-      for (const permission of filteredPermissions) {
-        await pool.query(
-          `INSERT INTO role_permissions (role_id, permission_id)
-           VALUES ($1, $2)
-           ON CONFLICT (role_id, permission_id) DO NOTHING`,
-          [roleId, permission],
-        );
-      }
+  // Add the (already-authorized) permissions to the role.
+  if (filteredPermissions.length > 0) {
+    for (const permission of filteredPermissions) {
+      await pool.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         VALUES ($1, $2)
+         ON CONFLICT (role_id, permission_id) DO NOTHING`,
+        [roleId, permission],
+      );
     }
   }
 
@@ -18593,12 +18594,14 @@ async function handleGetDiscordModLog(request, orgId) {
 // ── Documentation / wiki ─────────────────────────────────────────────────────
 
 function docArticleRow(a, versions) {
+  // Sanitize on the way out so every read path (and any pre-existing row stored
+  // before sanitization was added) is safe to render with dangerouslySetInnerHTML.
   return {
     id: String(a.article_id),
     orgId: String(a.org_id),
     categoryId: a.category_id ? String(a.category_id) : null,
     title: String(a.title),
-    body: String(a.body),
+    body: sanitizeDocHtml(String(a.body)),
     minRank: Number(a.min_rank),
     minPosition: a.min_position != null ? Number(a.min_position) : 0,
     updatedAt: Number(a.updated_at),
@@ -18606,7 +18609,7 @@ function docArticleRow(a, versions) {
     versions: (versions ?? []).map((v) => ({
       id: String(v.version_id),
       title: String(v.title),
-      body: String(v.body),
+      body: sanitizeDocHtml(String(v.body)),
       savedAt: Number(v.saved_at),
       savedByName: v.saved_by_name ?? null,
     })),
@@ -18819,9 +18822,10 @@ async function handleCreateDocArticle(request, orgId) {
     return json({ error: "Invalid JSON" }, 400);
   }
   const title = String(body?.title ?? "").trim() || "Untitled";
-  const articleBody = String(body?.body ?? "");
-  if (articleBody.length > 512 * 1024)
+  const rawBody = String(body?.body ?? "");
+  if (rawBody.length > 512 * 1024)
     return json({ error: "Article body too large (max 512 KB)" }, 413);
+  const articleBody = sanitizeDocHtml(rawBody);
   const minPosition = Math.max(0, Number(body?.minPosition ?? 0) || 0);
   const categoryId = body?.categoryId ? String(body.categoryId) : null;
 
@@ -18893,9 +18897,10 @@ async function handleUpdateDocArticle(request, orgId, articleId) {
 
   const title =
     body?.title != null ? String(body.title).trim() || prev.title : prev.title;
-  const articleBody = body?.body != null ? String(body.body) : prev.body;
-  if (articleBody.length > 512 * 1024)
+  const rawBody = body?.body != null ? String(body.body) : prev.body;
+  if (rawBody.length > 512 * 1024)
     return json({ error: "Article body too large (max 512 KB)" }, 413);
+  const articleBody = sanitizeDocHtml(rawBody);
   const minPosition =
     body?.minPosition != null
       ? Math.max(0, Number(body.minPosition) || 0)
@@ -19006,6 +19011,7 @@ async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
   if (!existing.rows[0])
     return json({ error: "Article or version not found" }, 404);
   const row = existing.rows[0];
+  const restoredBody = sanitizeDocHtml(String(row.v_body));
 
   const now = Math.floor(Date.now() / 1000);
   const newVersionId = crypto.randomUUID();
@@ -19028,7 +19034,7 @@ async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
      WHERE article_id = $6 AND org_id = $7`,
     [
       row.v_title,
-      row.v_body,
+      restoredBody,
       now,
       session.userId,
       session.username ?? null,
@@ -19049,7 +19055,7 @@ async function handleRestoreDocVersion(request, orgId, articleId, versionId) {
         org_id: orgId,
         category_id: row.category_id,
         title: row.v_title,
-        body: row.v_body,
+        body: restoredBody,
         min_rank: row.min_rank,
         updated_at: now,
         updated_by_name: session.username ?? null,

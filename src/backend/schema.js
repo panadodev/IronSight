@@ -1851,6 +1851,15 @@ export async function ensureRolePermissionSeed(pool) {
      ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name`,
   );
 
+  // role_name was historically declared globally UNIQUE, which breaks
+  // multi-tenancy: two different orgs could not both create a custom role with
+  // the same display name (e.g. "Moderator") because the second hit a 23505.
+  // role_id (org-prefixed, the PK) already guarantees per-org uniqueness, so the
+  // global name constraint is unnecessary — drop it idempotently.
+  await pool.query(
+    `ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_role_name_key`,
+  );
+
   await pool.query(
     `INSERT INTO permissions (permission_id, permission_name)
      VALUES

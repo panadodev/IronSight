@@ -110,10 +110,17 @@ export function buildObjectKey(orgId, subfolder, filename) {
 
 // ── Presigned single-part PUT (files < 300 MB) ────────────────────────────────
 
-export async function generatePresignedPut(key, _mimeType, _fileSizeBytes) {
+export async function generatePresignedPut(key, mimeType, _fileSizeBytes) {
+  // Bind ContentType into the signature so the client's PUT must send exactly
+  // this Content-Type header — otherwise the upload is rejected by R2. This is
+  // what enforces the server-side MIME allow-list at upload time; without it a
+  // caller could PUT any content type (e.g. text/html) to the presigned key.
+  // (Size can't be bound on a simple presigned PUT; a presigned POST policy with
+  // content-length-range would be required for hard size enforcement.)
   const cmd = new PutObjectCommand({
     Bucket: env.r2BucketName,
     Key: key,
+    ...(mimeType ? { ContentType: String(mimeType) } : {}),
   });
   return getSignedUrl(getR2Client(), cmd, {
     expiresIn: PRESIGN_EXPIRY_SECONDS,

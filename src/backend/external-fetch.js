@@ -266,9 +266,6 @@ export async function steamApiFetch(orgId, path, params = {}, opts = {}) {
         u.searchParams.set("key", key);
         for (const [k, v] of Object.entries(params))
           u.searchParams.set(k, String(v));
-        console.log(
-          `[steam] org=${orgId} path=${path} key_len=${key.length} key_prefix=${key.slice(0, 4)}`,
-        );
         return { url: u.toString(), options: {} };
       },
       { privacyAware: opts.privacyAware === true },
