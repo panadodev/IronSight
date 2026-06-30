@@ -527,12 +527,50 @@ function BansMutesPage() {
   );
 }
 
+const LOG_META = {
+  BAN_CREATED:  { label: "Issued",   dot: "bg-brand" },
+  MUTE_CREATED: { label: "Issued",   dot: "bg-brand" },
+  BAN_UPDATED:  { label: "Modified", dot: "bg-muted-foreground" },
+  MUTE_UPDATED: { label: "Modified", dot: "bg-muted-foreground" },
+  BAN_REVOKED:  { label: "Revoked",  dot: "bg-danger" },
+  MUTE_REVOKED: { label: "Revoked",  dot: "bg-danger" },
+  BAN_PURGED:   { label: "Purged",   dot: "bg-danger" },
+  MUTE_PURGED:  { label: "Purged",   dot: "bg-danger" },
+};
+
+function fmtLogDate(unix) {
+  if (!unix) return "—";
+  return new Date(unix * 1000).toLocaleString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function LogChangeSummary({ actionType, metadata }) {
+  if (actionType.endsWith("_UPDATED")) {
+    const changes = metadata?.changes ?? {};
+    const parts = [];
+    if ("reason" in changes) parts.push("reason");
+    if ("note" in changes) parts.push("note");
+    if ("expiresAt" in changes) parts.push("duration");
+    if (parts.length === 0) return null;
+    return (
+      <span className="text-muted-foreground">
+        {" — "}changed {parts.join(", ")}
+      </span>
+    );
+  }
+  return null;
+}
+
 function EditDialog({ record, onClose, onSaved }) {
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
   const [duration, setDuration] = useState("keep");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   useEffect(() => {
     if (record) {
@@ -540,6 +578,16 @@ function EditDialog({ record, onClose, onSaved }) {
       setNote(record.note);
       setDuration("keep");
       setError("");
+      setLogs([]);
+      setLogsLoading(true);
+      fetch(
+        `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}/audit`,
+        { credentials: "include" },
+      )
+        .then((r) => r.json())
+        .then((b) => setLogs(b.logs ?? []))
+        .catch(() => {})
+        .finally(() => setLogsLoading(false));
     }
   }, [record]);
 
@@ -577,7 +625,7 @@ function EditDialog({ record, onClose, onSaved }) {
 
   return (
     <Dialog open={!!record} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             Edit {record.actionType === "mute" ? "mute" : "ban"} —{" "}
@@ -636,6 +684,44 @@ function EditDialog({ record, onClose, onSaved }) {
             </div>
           )}
         </div>
+
+        {/* History */}
+        <div className="border-t border-border pt-4">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
+            History
+          </p>
+          {logsLoading ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : logs.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No log entries.</p>
+          ) : (
+            <div className="relative pl-4">
+              <div className="absolute left-[5px] top-0 bottom-0 w-px bg-border" />
+              <div className="space-y-3">
+                {logs.map((entry) => {
+                  const meta = LOG_META[entry.actionType] ?? { label: entry.actionType, dot: "bg-muted-foreground" };
+                  return (
+                    <div key={entry.id} className="relative flex gap-3 items-start">
+                      <div className={`absolute left-[-11px] mt-[5px] size-2.5 rounded-full border-2 border-background ${meta.dot}`} />
+                      <div className="min-w-0">
+                        <div className="text-xs">
+                          <span className="font-medium">{meta.label}</span>
+                          {" "}
+                          <span className="text-muted-foreground">by {entry.actorName}</span>
+                          <LogChangeSummary actionType={entry.actionType} metadata={entry.metadata} />
+                        </div>
+                        <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                          {fmtLogDate(entry.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancel

@@ -133,9 +133,32 @@ const PERMISSION_GROUPS = [
         desc: "See actual IP addresses, connection history, and IP-linked accounts",
       },
       {
-        id: "chat_view",
+        isParent: true,
+        id: "_chat",
         label: "View Chat Logs",
         desc: "Access the in-game chat log viewer",
+        children: [
+          {
+            id: "chat_view",
+            label: "View Chat Logs",
+            desc: "Access the in-game chat log viewer",
+          },
+          {
+            id: "flagged_messages_resolve",
+            label: "Flag Resolution — Full",
+            desc: "Can both confirm and dismiss any AI-flagged chat message",
+          },
+          {
+            id: "flagged_messages_confirm",
+            label: "Flag Resolution — Confirm Only",
+            desc: "Mark flagged messages as confirmed violations",
+          },
+          {
+            id: "flagged_messages_clear",
+            label: "Flag Resolution — Clear Only",
+            desc: "Dismiss flagged messages as non-violations",
+          },
+        ],
       },
       {
         isParent: true,
@@ -167,29 +190,6 @@ const PERMISSION_GROUPS = [
             id: "bans_ip",
             label: "Issue IP Bans",
             desc: "Ban by IP and auto-ban evaders who rejoin (off by default)",
-          },
-        ],
-      },
-      {
-        isParent: true,
-        id: "_flagged",
-        label: "Flag Resolution",
-        desc: "Review and act on AI-flagged chat messages",
-        children: [
-          {
-            id: "flagged_messages_resolve",
-            label: "Full Resolution",
-            desc: "Can both confirm and dismiss any flagged message",
-          },
-          {
-            id: "flagged_messages_confirm",
-            label: "Confirm Only",
-            desc: "Mark flagged messages as confirmed violations",
-          },
-          {
-            id: "flagged_messages_clear",
-            label: "Clear Only",
-            desc: "Dismiss flagged messages as non-violations",
           },
         ],
       },
@@ -233,11 +233,6 @@ const PERMISSION_GROUPS = [
             id: "discord_modlog_view",
             label: "View Mod Log",
             desc: "View moderation actions recorded by the panel",
-          },
-          {
-            id: "discord_mod",
-            label: "Legacy Full Discord Mod",
-            desc: "Legacy umbrella permission that grants all Discord moderation capabilities",
           },
         ],
       },

@@ -10693,6 +10693,40 @@ async function handlePurgeBan(request, orgId, banId) {
   return json({ ok: true, ...(bmDeleteError ? { bmDeleteError } : {}) });
 }
 
+async function handleGetBanAuditLog(request, orgId, banId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canAccessBans(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const banCheck = await pool.query(
+    `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
+    [banId, orgId],
+  );
+  if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT al.id, al.action_type, al.metadata, al.created_at,
+            u.username AS actor_name
+     FROM audit_logs al
+     LEFT JOIN users u ON u.user_id = al.actor_user_id
+     WHERE al.org_id = $1 AND al.resource_id = $2
+     ORDER BY al.created_at ASC
+     LIMIT 200`,
+    [orgId, banId],
+  );
+
+  return json({
+    logs: rows.map((r) => ({
+      id: String(r.id),
+      actionType: r.action_type,
+      actorName: r.actor_name ?? "Unknown",
+      metadata: r.metadata ?? {},
+      createdAt: r.created_at ? Number(r.created_at) : null,
+    })),
+  });
+}
+
 // Schedules (or cancels) a BullMQ delayed job to auto-revoke a ban/mute when
 // its expires_at elapses. Uses a deterministic jobId so re-scheduling on update
 // cleanly replaces the old job. Passing null for expiresAtUnix cancels any
@@ -15371,6 +15405,16 @@ async function _handleApiRequest(request) {
     );
     if (orgBanPurgeMatch && request.method === "DELETE")
       return handlePurgeBan(request, orgBanPurgeMatch[1], orgBanPurgeMatch[2]);
+
+    const orgBanAuditMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans\/([a-f0-9-]+)\/audit$/,
+    );
+    if (orgBanAuditMatch && request.method === "GET")
+      return handleGetBanAuditLog(
+        request,
+        orgBanAuditMatch[1],
+        orgBanAuditMatch[2],
+      );
 
     // Scripts CRUD
     const orgScriptsMatch = pathname.match(
