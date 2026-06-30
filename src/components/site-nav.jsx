@@ -104,6 +104,8 @@ function SiteNav() {
   const canBanConfigs = anyOrgHas("ban_configs_manage");
   const canTicketsManage = anyOrgHas("tickets_manage");
   const canPlayersView = anyOrgHas("players_view");
+  const canPlayerList =
+    anyOrgHas("player_list") || anyOrgHas("players_view");
   const canBansManage =
     anyOrgHas("bans_manage") ||
     anyOrgHas("bans_create") ||
@@ -442,7 +444,7 @@ function SiteNav() {
           show: canTicketsView,
         },
         { to: "/player-lookup", label: "Player Lookup", show: canPlayersView },
-        { to: "/player-list", label: "Player List", show: canPlayersView },
+        { to: "/player-list", label: "Player List", show: canPlayerList },
         { to: "/chat", label: "Chat", show: canChat },
         { to: "/bans-mutes", label: "Bans / Mutes", show: canBansManage },
         {
@@ -450,7 +452,6 @@ function SiteNav() {
           label: "Discord Mod",
           show: canDiscordMod,
         },
-        { to: "/docs", label: "Docs", show: canDocs },
       ],
     },
     {
@@ -508,6 +509,7 @@ function SiteNav() {
           matchSearch: (s) => s.tab === "servers",
           show: canServers,
         },
+        { to: "/docs", label: "Docs", show: canDocs },
       ],
     },
     {

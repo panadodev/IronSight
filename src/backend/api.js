@@ -253,6 +253,10 @@ const ASSIGNABLE_PERMISSIONS = [
   "docs_view",
   "docs_edit",
   "player_kick",
+  "player_list",
+  "player_session_history",
+  "player_steam_friends",
+  "player_notes",
 ];
 
 // Ban permissions were split from the legacy umbrella `bans_manage` into granular
@@ -13896,8 +13900,11 @@ async function handleListPlayerNotes(request, orgId, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "player_notes") &&
+    !orgHasPermission(session, orgId, "players_view")
+  )
+    return json({ error: "Forbidden: player_notes permission required" }, 403);
 
   const rank = sessionRankForOrg(session, orgId);
   const { rows } = await pool.query(
@@ -13938,7 +13945,12 @@ async function handleListPlayerNotesCombined(request, steamId) {
     return json({ notes: [], protected: true });
   }
 
-  const memberOrgs = [...orgsWithPermission(session, "players_view")];
+  const memberOrgs = [
+    ...new Set([
+      ...orgsWithPermission(session, "players_view"),
+      ...orgsWithPermission(session, "player_notes"),
+    ]),
+  ];
   if (!memberOrgs.length) return json({ notes: [] });
 
   const byId = new Map();
@@ -14029,8 +14041,11 @@ async function handleCreatePlayerNote(request, orgId, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "player_notes") &&
+    !orgHasPermission(session, orgId, "players_view")
+  )
+    return json({ error: "Forbidden: player_notes permission required" }, 403);
 
   const rl = await checkRateLimit(
     `rl:player-note:${session.userId}`,
@@ -14112,8 +14127,11 @@ async function handleUpdatePlayerNote(request, orgId, steamId, noteId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "player_notes") &&
+    !orgHasPermission(session, orgId, "players_view")
+  )
+    return json({ error: "Forbidden: player_notes permission required" }, 403);
 
   const existing = await pool.query(
     `SELECT author_user_id FROM player_notes
@@ -14205,8 +14223,11 @@ async function handleDeletePlayerNote(request, orgId, steamId, noteId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "player_notes") &&
+    !orgHasPermission(session, orgId, "players_view")
+  )
+    return json({ error: "Forbidden: player_notes permission required" }, 403);
 
   const existing = await pool.query(
     `SELECT author_user_id FROM player_notes
@@ -14473,8 +14494,11 @@ async function handleGetOrgPlayerList(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  if (
+    !orgHasPermission(session, orgId, "player_list") &&
+    !orgHasPermission(session, orgId, "players_view")
+  )
+    return json({ error: "Forbidden: player_list permission required" }, 403);
 
   const url = new URL(request.url);
   const includeBannedParam = String(

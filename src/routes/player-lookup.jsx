@@ -400,6 +400,16 @@ function PlayerLookupPage() {
     hasOrgPermission(o.id, "ip_read"),
   );
 
+  const canViewSessionHistory = orgs.some((o) =>
+    hasOrgPermission(o.id, "player_session_history"),
+  );
+  const canViewSteamFriends = orgs.some((o) =>
+    hasOrgPermission(o.id, "player_steam_friends"),
+  );
+  const canViewNotes = orgs.some((o) =>
+    hasOrgPermission(o.id, "player_notes"),
+  );
+
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
       if (pollRef.current) {
@@ -1263,12 +1273,12 @@ function PlayerLookupPage() {
                   {/* Left Panel */}
                   <div className="space-y-6 xl:col-span-3">
                     {/* Steam Friends */}
-                    {!isSupportOnly && (
+                    {canViewSteamFriends && (
                       <PlayerFriendsSection friends={playerData.friends} />
                     )}
 
                     {/* Server History */}
-                    {!isSupportOnly && (
+                    {canViewSessionHistory && (
                       <ServerHistorySection
                         subjectId={playerData.steamId}
                         isOnline={
@@ -1283,7 +1293,7 @@ function PlayerLookupPage() {
                     )}
 
                     {/* Session Timeline */}
-                    {!isSupportOnly && (
+                    {canViewSessionHistory && (
                       <SessionTimeline
                         sessionWindows={playerData.sessionWindows}
                       />
@@ -1523,7 +1533,7 @@ function PlayerLookupPage() {
                           </div>
                         )}
 
-                        {!isSupportOnly && (
+                        {fetchOrgId && (
                           <div className="space-y-4">
                             {/* Steam */}
                             <div>
@@ -1720,16 +1730,18 @@ function PlayerLookupPage() {
                     </section>
 
                     {/* Risk alerts */}
-                    {!isSupportOnly && <PlayerAlertsBanner alerts={alerts} />}
+                    {fetchOrgId && <PlayerAlertsBanner alerts={alerts} />}
 
                     {/* EAC Ban Status */}
                     <EacBanStatus bmData={playerData.bm} />
 
                     {/* Notes */}
-                    <PlayerNotesSection
-                      subjectId={playerData.steamId}
-                      orgId={fetchOrgId}
-                    />
+                    {canViewNotes && (
+                      <PlayerNotesSection
+                        subjectId={playerData.steamId}
+                        orgId={fetchOrgId}
+                      />
+                    )}
 
                     {/* Previous Offenses (real bans / mutes from our orgs) */}
                     <section>
@@ -1773,7 +1785,7 @@ function PlayerLookupPage() {
                   {/* Right Panel */}
                   <div className="space-y-6 xl:col-span-3">
                     {/* Linked Accounts */}
-                    {!isSupportOnly && (
+                    {canViewIpConnections && (
                       <LinkedAccountsSection
                         subjectName={
                           playerData.displayName ?? playerData.steamId

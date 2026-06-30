@@ -56,8 +56,9 @@ function steamIdAvatarColor(steamId) {
 
 function PlayerListPage() {
   const { orgs, selectedOrgIds, hasOrgPermission, sessionUser } = useAuth();
-  const canAccess = selectedOrgIds.some((id) =>
-    hasOrgPermission(id, "players_view"),
+  const canAccess = selectedOrgIds.some(
+    (id) =>
+      hasOrgPermission(id, "player_list") || hasOrgPermission(id, "players_view"),
   );
 
   const [realServers, setRealServers] = useState([]);
@@ -334,12 +335,11 @@ function PlayerListPage() {
         <div className="flex-1 grid place-items-center px-6">
           <div className="max-w-md text-center space-y-3">
             <ShieldAlert className="size-10 text-warning mx-auto" />
-            <h1 className="text-lg font-semibold">Admin access required</h1>
+            <h1 className="text-lg font-semibold">Access required</h1>
             <p className="text-sm text-muted-foreground">
-              The player list is restricted to{" "}
-              <span className="font-mono text-foreground">Admin</span> and
-              above. You don&apos;t have that rank in any of the currently
-              selected orgs (
+              The player list requires the{" "}
+              <span className="font-mono text-foreground">Player List</span>{" "}
+              permission in at least one of the currently selected orgs (
               {selectedOrgIds
                 .map((id) => orgs.find((o) => o.id === id)?.short)
                 .filter(Boolean)

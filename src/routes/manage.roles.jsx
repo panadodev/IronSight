@@ -95,14 +95,42 @@ const PERMISSION_GROUPS = [
         ],
       },
       {
-        id: "players_view",
-        label: "View Players",
-        desc: "Use player lookup and the player list",
+        isParent: true,
+        id: "_players",
+        label: "Player Lookup",
+        desc: "Player search and profile access",
+        children: [
+          {
+            id: "players_view",
+            label: "Search & Overview",
+            desc: "Search for players and view the overview section (Steam stats, BM stats, risk flags)",
+          },
+          {
+            id: "player_list",
+            label: "Player List",
+            desc: "Access the live player list page showing all players seen on servers",
+          },
+          {
+            id: "player_session_history",
+            label: "Session History",
+            desc: "View BattleMetrics session history and session timeline on player profiles",
+          },
+          {
+            id: "player_steam_friends",
+            label: "Steam Friends",
+            desc: "View a player's Steam friends list on their profile",
+          },
+          {
+            id: "player_notes",
+            label: "Player Notes",
+            desc: "View and add staff notes on player profiles",
+          },
+        ],
       },
       {
         id: "ip_read",
-        label: "View IPs / Location",
-        desc: "See actual IP addresses and player country",
+        label: "View IPs / Connection Points",
+        desc: "See actual IP addresses, connection history, and IP-linked accounts",
       },
       {
         id: "chat_view",
