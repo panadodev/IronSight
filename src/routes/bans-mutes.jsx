@@ -175,17 +175,23 @@ function BansMutesPage() {
       `/api/orgs/${encodeURIComponent(record.orgId)}/bans/${record.banId}`,
       { method: "DELETE", credentials: "include" },
     );
-    if (res.ok) {
-      const body = await res.json().catch(() => null);
-      if (body?.bmDeleteError) {
-        setActionResult({
-          type: "warn",
-          message: `Ban revoked, but BM delete failed: ${body.bmDeleteError}`,
-        });
-        setTimeout(() => setActionResult(null), 6000);
-      }
-      loadBans();
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      setActionResult({
+        type: "error",
+        message: body?.error ?? "Failed to revoke record.",
+      });
+      setTimeout(() => setActionResult(null), 6000);
+      return;
     }
+    if (body?.bmDeleteError) {
+      setActionResult({
+        type: "warn",
+        message: `Revoked, but BM delete failed: ${body.bmDeleteError}`,
+      });
+      setTimeout(() => setActionResult(null), 6000);
+    }
+    loadBans();
   };
 
   const purge = async (record) => {
@@ -236,7 +242,14 @@ function BansMutesPage() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
             {actionResult && (
-              <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+              <div
+                className={
+                  "rounded-md border px-4 py-2.5 text-sm " +
+                  (actionResult.type === "error"
+                    ? "border-danger/40 bg-danger/10 text-danger"
+                    : "border-warning/40 bg-warning/10 text-warning")
+                }
+              >
                 {actionResult.message}
               </div>
             )}
@@ -420,12 +433,7 @@ function BansMutesPage() {
                         </button>
                         {!r.revoked && (
                           <button
-                            onClick={() =>
-                              canRevoke &&
-                              (r.actionType === "mute"
-                                ? setPendingRevoke(r)
-                                : revoke(r))
-                            }
+                            onClick={() => canRevoke && setPendingRevoke(r)}
                             disabled={!canRevoke}
                             className={
                               "size-7 inline-flex items-center justify-center rounded ring-1 transition-colors " +
@@ -490,9 +498,12 @@ function BansMutesPage() {
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Revoke mute?</AlertDialogTitle>
+              <AlertDialogTitle>
+                Revoke {pendingRevoke?.actionType === "mute" ? "mute" : "ban"}?
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                This will immediately un-mute{" "}
+                This will revoke the{" "}
+                {pendingRevoke?.actionType === "mute" ? "mute" : "ban"} on{" "}
                 <span className="font-mono">{pendingRevoke?.identifier}</span>.
                 This action cannot be undone.
               </AlertDialogDescription>
