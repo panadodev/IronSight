@@ -101,7 +101,8 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
     setNewOption("");
   };
 
-  const removeOption = (i) => setOptions((prev) => prev.filter((_, j) => j !== i));
+  const removeOption = (i) =>
+    setOptions((prev) => prev.filter((_, j) => j !== i));
 
   const handleSave = async () => {
     setSaving(true);
@@ -167,10 +168,7 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
         <div className="space-y-1.5">
           <Label>Required</Label>
           <div className="flex items-center h-9">
-            <Switch
-              checked={isRequired}
-              onCheckedChange={setIsRequired}
-            />
+            <Switch checked={isRequired} onCheckedChange={setIsRequired} />
             <span className="ml-2 text-sm text-muted-foreground">
               {isRequired ? "Yes" : "No"}
             </span>
@@ -181,7 +179,10 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
       {questionType === "text" && (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Min length <span className="text-muted-foreground">(optional)</span></Label>
+            <Label>
+              Min length{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               type="number"
               min={0}
@@ -191,7 +192,10 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Max length <span className="text-muted-foreground">(optional)</span></Label>
+            <Label>
+              Max length{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               type="number"
               min={1}
@@ -206,7 +210,10 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
       {questionType === "number" && (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Min value <span className="text-muted-foreground">(optional)</span></Label>
+            <Label>
+              Min value{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               type="number"
               value={minNum}
@@ -215,7 +222,10 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Max value <span className="text-muted-foreground">(optional)</span></Label>
+            <Label>
+              Max value{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               type="number"
               value={maxNum}
@@ -253,14 +263,23 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
               value={newOption}
               onChange={(e) => setNewOption(e.target.value)}
               placeholder="Add an option…"
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addOption())}
+              onKeyDown={(e) =>
+                e.key === "Enter" && (e.preventDefault(), addOption())
+              }
             />
-            <Button variant="outline" size="sm" onClick={addOption} disabled={!newOption.trim()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addOption}
+              disabled={!newOption.trim()}
+            >
               Add
             </Button>
           </div>
           {options.length === 0 && (
-            <p className="text-xs text-muted-foreground">Add at least one option.</p>
+            <p className="text-xs text-muted-foreground">
+              Add at least one option.
+            </p>
           )}
         </div>
       )}
@@ -353,7 +372,9 @@ function ApplicationQuestions({ orgId, ticketTypeId }) {
   };
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground px-1">Loading questions…</p>;
+    return (
+      <p className="text-sm text-muted-foreground px-1">Loading questions…</p>
+    );
   }
 
   return (
@@ -386,8 +407,7 @@ function ApplicationQuestions({ orgId, ticketTypeId }) {
                   <button
                     className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                     disabled={
-                      i === questions.length - 1 ||
-                      reordering === q.questionId
+                      i === questions.length - 1 || reordering === q.questionId
                     }
                     onClick={() => handleReorder(q.questionId, "down")}
                   >
@@ -583,6 +603,46 @@ function TicketsPage() {
     setUpdating(null);
   };
 
+  const handleToggleMedia = async (ticketTypeId, value) => {
+    setTicketTypes((prev) =>
+      prev.map((tt) =>
+        tt.ticketTypeId === ticketTypeId ? { ...tt, allowMedia: value } : tt,
+      ),
+    );
+
+    setUpdating(ticketTypeId);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketTypeId}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ allowMedia: value }),
+        },
+      );
+
+      if (!res.ok) {
+        setTicketTypes((prev) =>
+          prev.map((tt) =>
+            tt.ticketTypeId === ticketTypeId
+              ? { ...tt, allowMedia: !value }
+              : tt,
+          ),
+        );
+      }
+    } catch {
+      setTicketTypes((prev) =>
+        prev.map((tt) =>
+          tt.ticketTypeId === ticketTypeId
+            ? { ...tt, allowMedia: !value }
+            : tt,
+        ),
+      );
+    }
+    setUpdating(null);
+  };
+
   const regularTypes = ticketTypes.filter(
     (tt) => tt.category !== "staff_application",
   );
@@ -611,13 +671,27 @@ function TicketsPage() {
                     className="flex items-center justify-between py-2"
                   >
                     <span className="text-sm">{tt.name}</span>
-                    <Switch
-                      checked={tt.isEnabled}
-                      disabled={updating === tt.ticketTypeId}
-                      onCheckedChange={(v) =>
-                        handleToggle(tt.ticketTypeId, v)
-                      }
-                    />
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          Media
+                        </span>
+                        <Switch
+                          checked={tt.allowMedia !== false}
+                          disabled={updating === tt.ticketTypeId}
+                          onCheckedChange={(v) =>
+                            handleToggleMedia(tt.ticketTypeId, v)
+                          }
+                        />
+                      </div>
+                      <Switch
+                        checked={tt.isEnabled}
+                        disabled={updating === tt.ticketTypeId}
+                        onCheckedChange={(v) =>
+                          handleToggle(tt.ticketTypeId, v)
+                        }
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -655,13 +729,27 @@ function TicketsPage() {
                           Configure Questions
                         </span>
                       </div>
-                      <Switch
-                        checked={tt.isEnabled}
-                        disabled={updating === tt.ticketTypeId}
-                        onCheckedChange={(v) =>
-                          handleToggle(tt.ticketTypeId, v)
-                        }
-                      />
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            Media
+                          </span>
+                          <Switch
+                            checked={tt.allowMedia !== false}
+                            disabled={updating === tt.ticketTypeId}
+                            onCheckedChange={(v) =>
+                              handleToggleMedia(tt.ticketTypeId, v)
+                            }
+                          />
+                        </div>
+                        <Switch
+                          checked={tt.isEnabled}
+                          disabled={updating === tt.ticketTypeId}
+                          onCheckedChange={(v) =>
+                            handleToggle(tt.ticketTypeId, v)
+                          }
+                        />
+                      </div>
                     </div>
 
                     {expandedId === tt.ticketTypeId && (

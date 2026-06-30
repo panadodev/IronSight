@@ -427,7 +427,9 @@ function BansMutesPage() {
                               ? "ring-border hover:bg-surface"
                               : "ring-border/30 text-muted-foreground/30 cursor-not-allowed")
                           }
-                          title={canEdit ? "Edit" : "Requires ban modify permission"}
+                          title={
+                            canEdit ? "Edit" : "Requires ban modify permission"
+                          }
                         >
                           <Edit3 className="size-3" />
                         </button>
@@ -441,7 +443,11 @@ function BansMutesPage() {
                                 ? "ring-danger/40 text-danger hover:bg-danger/10"
                                 : "ring-border/30 text-muted-foreground/30 cursor-not-allowed")
                             }
-                            title={canRevoke ? "Revoke" : "Requires ban delete permission"}
+                            title={
+                              canRevoke
+                                ? "Revoke"
+                                : "Requires ban delete permission"
+                            }
                           >
                             <X className="size-3" />
                           </button>
@@ -528,21 +534,24 @@ function BansMutesPage() {
 }
 
 const LOG_META = {
-  BAN_CREATED:  { label: "Issued",   dot: "bg-brand" },
-  MUTE_CREATED: { label: "Issued",   dot: "bg-brand" },
-  BAN_UPDATED:  { label: "Modified", dot: "bg-muted-foreground" },
+  BAN_CREATED: { label: "Issued", dot: "bg-brand" },
+  MUTE_CREATED: { label: "Issued", dot: "bg-brand" },
+  BAN_UPDATED: { label: "Modified", dot: "bg-muted-foreground" },
   MUTE_UPDATED: { label: "Modified", dot: "bg-muted-foreground" },
-  BAN_REVOKED:  { label: "Revoked",  dot: "bg-danger" },
-  MUTE_REVOKED: { label: "Revoked",  dot: "bg-danger" },
-  BAN_PURGED:   { label: "Purged",   dot: "bg-danger" },
-  MUTE_PURGED:  { label: "Purged",   dot: "bg-danger" },
+  BAN_REVOKED: { label: "Revoked", dot: "bg-danger" },
+  MUTE_REVOKED: { label: "Revoked", dot: "bg-danger" },
+  BAN_PURGED: { label: "Purged", dot: "bg-danger" },
+  MUTE_PURGED: { label: "Purged", dot: "bg-danger" },
 };
 
 function fmtLogDate(unix) {
   if (!unix) return "—";
   return new Date(unix * 1000).toLocaleString(undefined, {
-    month: "short", day: "numeric", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -699,16 +708,28 @@ function EditDialog({ record, onClose, onSaved }) {
               <div className="absolute left-[5px] top-0 bottom-0 w-px bg-border" />
               <div className="space-y-3">
                 {logs.map((entry) => {
-                  const meta = LOG_META[entry.actionType] ?? { label: entry.actionType, dot: "bg-muted-foreground" };
+                  const meta = LOG_META[entry.actionType] ?? {
+                    label: entry.actionType,
+                    dot: "bg-muted-foreground",
+                  };
                   return (
-                    <div key={entry.id} className="relative flex gap-3 items-start">
-                      <div className={`absolute left-[-11px] mt-[5px] size-2.5 rounded-full border-2 border-background ${meta.dot}`} />
+                    <div
+                      key={entry.id}
+                      className="relative flex gap-3 items-start"
+                    >
+                      <div
+                        className={`absolute left-[-11px] mt-[5px] size-2.5 rounded-full border-2 border-background ${meta.dot}`}
+                      />
                       <div className="min-w-0">
                         <div className="text-xs">
-                          <span className="font-medium">{meta.label}</span>
-                          {" "}
-                          <span className="text-muted-foreground">by {entry.actorName}</span>
-                          <LogChangeSummary actionType={entry.actionType} metadata={entry.metadata} />
+                          <span className="font-medium">{meta.label}</span>{" "}
+                          <span className="text-muted-foreground">
+                            by {entry.actorName}
+                          </span>
+                          <LogChangeSummary
+                            actionType={entry.actionType}
+                            metadata={entry.metadata}
+                          />
                         </div>
                         <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
                           {fmtLogDate(entry.createdAt)}

@@ -58,7 +58,8 @@ function PlayerListPage() {
   const { orgs, selectedOrgIds, hasOrgPermission, sessionUser } = useAuth();
   const canAccess = selectedOrgIds.some(
     (id) =>
-      hasOrgPermission(id, "player_list") || hasOrgPermission(id, "players_view"),
+      hasOrgPermission(id, "player_list") ||
+      hasOrgPermission(id, "players_view"),
   );
 
   const [realServers, setRealServers] = useState([]);

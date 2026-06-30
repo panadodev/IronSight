@@ -2037,6 +2037,17 @@ export async function ensureRolePermissionSeed(pool) {
     `CREATE INDEX IF NOT EXISTS idx_ticket_type_questions_type_id ON ticket_type_questions(ticket_type_id)`,
   );
 
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'ticket_types' AND column_name = 'allow_media'
+      ) THEN
+        ALTER TABLE ticket_types ADD COLUMN allow_media BOOLEAN NOT NULL DEFAULT true;
+      END IF;
+    END $$
+  `);
+
   // Seed Staff Application ticket type for all existing orgs that don't have one yet.
   await pool.query(`
     INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled)

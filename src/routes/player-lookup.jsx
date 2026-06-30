@@ -406,9 +406,7 @@ function PlayerLookupPage() {
   const canViewSteamFriends = orgs.some((o) =>
     hasOrgPermission(o.id, "player_steam_friends"),
   );
-  const canViewNotes = orgs.some((o) =>
-    hasOrgPermission(o.id, "player_notes"),
-  );
+  const canViewNotes = orgs.some((o) => hasOrgPermission(o.id, "player_notes"));
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {

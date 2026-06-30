@@ -117,8 +117,7 @@ function SiteNav() {
   const canBanConfigs = anyOrgHas("ban_configs_manage");
   const canTicketsManage = anyOrgHas("tickets_manage");
   const canPlayersView = anyOrgHas("players_view");
-  const canPlayerList =
-    anyOrgHas("player_list") || anyOrgHas("players_view");
+  const canPlayerList = anyOrgHas("player_list") || anyOrgHas("players_view");
   const canBansManage =
     anyOrgHas("bans_manage") ||
     anyOrgHas("bans_create") ||
@@ -1410,9 +1409,7 @@ function SiteNav() {
                         <div className="flex gap-1 shrink-0 ml-2">
                           {!acct.isPrimary && (
                             <button
-                              onClick={() =>
-                                handleSetPrimarySteam(acct.linkId)
-                              }
+                              onClick={() => handleSetPrimarySteam(acct.linkId)}
                               className="text-[10px] font-mono text-brand hover:underline px-1"
                             >
                               Set primary

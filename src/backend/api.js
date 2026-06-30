@@ -1905,8 +1905,7 @@ async function handleDeleteProfileSteamAccount(request, linkId) {
   if (link.is_primary && total > 1) {
     return json(
       {
-        error:
-          "Set a different primary Steam account before removing this one",
+        error: "Set a different primary Steam account before removing this one",
       },
       400,
     );
@@ -2123,7 +2122,12 @@ async function handleSysListLinkedAccounts(request) {
     steamAccounts: accountsByUser[String(r.user_id)] ?? [],
   }));
 
-  return json({ users, total: Number(countRes.rows[0]?.total ?? 0), page, limit });
+  return json({
+    users,
+    total: Number(countRes.rows[0]?.total ?? 0),
+    page,
+    limit,
+  });
 }
 
 async function handleSysDeleteLinkedAccount(request, linkId) {
@@ -2601,7 +2605,10 @@ async function handleCreateTodo(request) {
       [visibilityRoleId, orgId],
     );
     if (!roleCheck.rows[0]) {
-      return json({ error: "Invalid visibility role for this organization" }, 400);
+      return json(
+        { error: "Invalid visibility role for this organization" },
+        400,
+      );
     }
   }
 
@@ -2731,7 +2738,10 @@ async function handleUpdateTodo(request, todoId) {
       [visibilityRoleId, orgId],
     );
     if (!roleCheck.rows[0]) {
-      return json({ error: "Invalid visibility role for this organization" }, 400);
+      return json(
+        { error: "Invalid visibility role for this organization" },
+        400,
+      );
     }
   }
 
@@ -5329,8 +5339,10 @@ async function handleListOrgs() {
 
 function sanitizeQuestionConfig(questionType, config) {
   if (questionType === "text") {
-    const minLength = config.minLength != null ? Number(config.minLength) : null;
-    const maxLength = config.maxLength != null ? Number(config.maxLength) : null;
+    const minLength =
+      config.minLength != null ? Number(config.minLength) : null;
+    const maxLength =
+      config.maxLength != null ? Number(config.maxLength) : null;
     if (minLength !== null && (!Number.isInteger(minLength) || minLength < 0))
       return null;
     if (maxLength !== null && (!Number.isInteger(maxLength) || maxLength < 1))
@@ -5396,6 +5408,39 @@ async function handleListTicketTypeQuestions(request, orgId, ticketTypeId) {
       questionType: String(r.question_type),
       isRequired: Boolean(r.is_required),
       position: Number(r.position),
+      config: r.config ?? {},
+    })),
+  });
+}
+
+async function handleListPublicTicketTypeQuestions(request, orgId, ticketTypeId) {
+  const rl = await checkRateLimit(
+    `rl:public-questions:${getClientIp(request)}`,
+    PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
+    60,
+  );
+  if (rl) return rl;
+
+  const ttRes = await pool.query(
+    `SELECT ticket_type_id FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 AND is_enabled = true LIMIT 1`,
+    [ticketTypeId, orgId],
+  );
+  if (!ttRes.rows[0]) return json({ error: "Ticket type not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT question_id, question_text, question_type, is_required, position, config
+     FROM ticket_type_questions
+     WHERE ticket_type_id = $1
+     ORDER BY position ASC, question_id ASC`,
+    [ticketTypeId],
+  );
+
+  return json({
+    questions: rows.map((r) => ({
+      questionId: Number(r.question_id),
+      questionText: String(r.question_text),
+      questionType: String(r.question_type),
+      isRequired: Boolean(r.is_required),
       config: r.config ?? {},
     })),
   });
@@ -5517,9 +5562,10 @@ async function handleUpdateTicketTypeQuestion(
   );
   if (!qRes.rows[0]) return json({ error: "Question not found" }, 404);
 
-  const effectiveType = typeof body?.questionType === "string"
-    ? body.questionType
-    : String(qRes.rows[0].question_type);
+  const effectiveType =
+    typeof body?.questionType === "string"
+      ? body.questionType
+      : String(qRes.rows[0].question_type);
 
   if (!["text", "number", "multiple_choice"].includes(effectiveType))
     return json({ error: "Invalid question type" }, 400);
@@ -5531,7 +5577,10 @@ async function handleUpdateTicketTypeQuestion(
     const t = body.questionText.trim();
     if (!t) return json({ error: "questionText cannot be empty" }, 400);
     if (t.length > 500)
-      return json({ error: "questionText must be 500 characters or fewer" }, 400);
+      return json(
+        { error: "questionText must be 500 characters or fewer" },
+        400,
+      );
     params.push(t);
     sets.push(`question_text = $${params.length}`);
   }
@@ -5682,7 +5731,7 @@ async function handleListOrgTicketTypes(request, orgId) {
     await ensureDefaultTicketTypes(orgId);
   }
 
-  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled
+  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled, allow_media
      FROM ticket_types WHERE org_id = $1`;
 
   // Public users only see enabled ticket types
@@ -5700,6 +5749,7 @@ async function handleListOrgTicketTypes(request, orgId) {
       description: String(row.ticket_type_description),
       category: String(row.ticket_type_category),
       isEnabled: Boolean(row.is_enabled),
+      allowMedia: row.allow_media !== false,
     })),
   });
 }
@@ -5722,14 +5772,32 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { isEnabled } = body;
-  if (typeof isEnabled !== "boolean") {
+  const { isEnabled, allowMedia } = body;
+  if (isEnabled !== undefined && typeof isEnabled !== "boolean") {
     return json({ error: "isEnabled must be a boolean" }, 400);
   }
+  if (allowMedia !== undefined && typeof allowMedia !== "boolean") {
+    return json({ error: "allowMedia must be a boolean" }, 400);
+  }
+  if (isEnabled === undefined && allowMedia === undefined) {
+    return json({ error: "No fields to update" }, 400);
+  }
+
+  const setClauses = [];
+  const params = [];
+  if (isEnabled !== undefined) {
+    params.push(isEnabled);
+    setClauses.push(`is_enabled = $${params.length}`);
+  }
+  if (allowMedia !== undefined) {
+    params.push(allowMedia);
+    setClauses.push(`allow_media = $${params.length}`);
+  }
+  params.push(ticketTypeId, orgId);
 
   const res = await pool.query(
-    `UPDATE ticket_types SET is_enabled = $1 WHERE ticket_type_id = $2 AND org_id = $3`,
-    [isEnabled, ticketTypeId, orgId],
+    `UPDATE ticket_types SET ${setClauses.join(", ")} WHERE ticket_type_id = $${params.length - 1} AND org_id = $${params.length}`,
+    params,
   );
 
   if (res.rowCount === 0) {
@@ -6042,15 +6110,17 @@ async function handleGetTicket(request, ticketIdStr) {
   // Include all linked steam accounts for the submitter so staff can see them
   let submitterSteamAccounts = [];
   if (ticket.created_by && isViewerStaff) {
-    const acctRes = await pool.query(
-      `SELECT usa.steam_id, usa.steam_name, usa.is_primary,
+    const acctRes = await pool
+      .query(
+        `SELECT usa.steam_id, usa.steam_name, usa.is_primary,
               pc.display_name AS cached_name, pc.avatar_url AS cached_avatar
        FROM user_steam_accounts usa
        LEFT JOIN player_cache pc ON pc.steam_id = usa.steam_id
        WHERE usa.user_id = $1
        ORDER BY usa.is_primary DESC, usa.created_at ASC`,
-      [ticket.created_by],
-    ).catch(() => ({ rows: [] }));
+        [ticket.created_by],
+      )
+      .catch(() => ({ rows: [] }));
     submitterSteamAccounts = acctRes.rows.map((r) => ({
       steamId: r.steam_id,
       steamName: r.cached_name ?? r.steam_name ?? null,
@@ -6059,7 +6129,12 @@ async function handleGetTicket(request, ticketIdStr) {
     }));
   }
 
-  return json({ ticket, messages: returnedMessages, media, submitterSteamAccounts });
+  return json({
+    ticket,
+    messages: returnedMessages,
+    media,
+    submitterSteamAccounts,
+  });
 }
 
 // Redact/shape IP history entries depending on caller entitlement. Panel APIs
@@ -11554,8 +11629,7 @@ async function handlePurgeBan(request, orgId, banId) {
 async function handleGetBanAuditLog(request, orgId, banId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
-  if (!canAccessBans(session, orgId))
-    return json({ error: "Forbidden" }, 403);
+  if (!canAccessBans(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const banCheck = await pool.query(
     `SELECT ban_id FROM player_bans WHERE ban_id = $1 AND org_id = $2`,
@@ -15974,6 +16048,18 @@ async function _handleApiRequest(request) {
       );
     }
 
+    const orgTicketTypePublicQuestionsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)\/public-questions$/,
+    );
+    if (orgTicketTypePublicQuestionsMatch && request.method === "GET") {
+      const [, pqOrgId, pqTypeId] = orgTicketTypePublicQuestionsMatch;
+      return handleListPublicTicketTypeQuestions(
+        request,
+        pqOrgId,
+        parseInt(pqTypeId),
+      );
+    }
+
     const orgTicketTypeQuestionsMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)\/questions$/,
     );
@@ -15996,10 +16082,7 @@ async function _handleApiRequest(request) {
     const orgTicketTypeQuestionReorderMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)\/questions\/(\d+)\/reorder$/,
     );
-    if (
-      orgTicketTypeQuestionReorderMatch &&
-      request.method === "POST"
-    ) {
+    if (orgTicketTypeQuestionReorderMatch && request.method === "POST") {
       const [, qOrgId, qTypeId, qId] = orgTicketTypeQuestionReorderMatch;
       return handleReorderTicketTypeQuestion(
         request,
@@ -16946,16 +17029,10 @@ async function _handleApiRequest(request) {
     if (pathname === "/api/auth/steam/add-start" && request.method === "GET")
       return handleSteamAddStart(request);
 
-    if (
-      pathname === "/api/auth/steam/add-callback" &&
-      request.method === "GET"
-    )
+    if (pathname === "/api/auth/steam/add-callback" && request.method === "GET")
       return handleSteamAddCallback(request);
 
-    if (
-      pathname === "/api/profile/steam-accounts" &&
-      request.method === "GET"
-    )
+    if (pathname === "/api/profile/steam-accounts" && request.method === "GET")
       return handleGetProfileSteamAccounts(request);
 
     if (pathname === "/api/profile/primary-steam" && request.method === "PATCH")
@@ -16970,10 +17047,7 @@ async function _handleApiRequest(request) {
         profileSteamAccountMatch[1],
       );
 
-    if (
-      pathname === "/api/sys/linked-accounts" &&
-      request.method === "GET"
-    )
+    if (pathname === "/api/sys/linked-accounts" && request.method === "GET")
       return handleSysListLinkedAccounts(request);
 
     const sysLinkedAccountMatch = pathname.match(

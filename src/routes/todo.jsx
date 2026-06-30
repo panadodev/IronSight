@@ -515,7 +515,8 @@ function TodoPage() {
           isPublic: createTaskVisibility === "public",
           isPersonal: createTaskIsPersonal,
           visibilityRoleId:
-            createTaskVisibility !== "staff" && createTaskVisibility !== "public"
+            createTaskVisibility !== "staff" &&
+            createTaskVisibility !== "public"
               ? createTaskVisibility
               : null,
         }),
