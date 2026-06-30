@@ -27,12 +27,14 @@ const TYPE_META = {
   ban_appeal: { label: "Appeal", color: "text-yellow-400" },
   vip_issue: { label: "VIP", color: "text-cyan-400" },
   general_support: { label: "Support", color: "text-green-400" },
+  staff_application: { label: "Apply", color: "text-purple-400" },
 };
 
 function typeFromTicket(ticket) {
   // Use the authoritative DB category first
   const cat = ticket.ticket_type_category;
   if (cat === "player_single" || cat === "player_multi") return "player_report";
+  if (cat === "staff_application") return "staff_application";
 
   // Fall back to name-based inference for generic category (appeal, vip, etc.)
   const n = (ticket.ticket_type_name ?? "").toLowerCase();
@@ -149,12 +151,26 @@ function TicketsPage() {
     const ids = new Set(adminableOrgIds);
     for (const org of orgs) {
       const perms = sessionOrgPermissions[org.id] ?? [];
-      if (perms.includes("tickets_view") || perms.includes("tickets_manage"))
+      if (
+        perms.includes("tickets_view") ||
+        perms.includes("tickets_manage") ||
+        perms.includes("applications_view")
+      )
         ids.add(org.id);
     }
     return Array.from(ids);
   }, [adminableOrgIds, orgs, sessionOrgPermissions]);
 
+  const applicationOrgIds = useMemo(() => {
+    const ids = new Set(adminableOrgIds);
+    for (const org of orgs) {
+      const perms = sessionOrgPermissions[org.id] ?? [];
+      if (perms.includes("applications_view")) ids.add(org.id);
+    }
+    return Array.from(ids);
+  }, [adminableOrgIds, orgs, sessionOrgPermissions]);
+
+  const [applicationsOpen, setApplicationsOpen] = useState(false);
   const [tab, setTab] = useState("active");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -282,8 +298,30 @@ function TicketsPage() {
   }, [selectedOrgId]);
 
   const totalNonClosed = useMemo(
-    () => tickets.filter((t) => NON_CLOSED.has(t.status)).length,
+    () =>
+      tickets.filter(
+        (t) =>
+          NON_CLOSED.has(t.status) &&
+          t.ticket_type_category !== "staff_application",
+      ).length,
     [tickets],
+  );
+
+  const applicationTickets = useMemo(
+    () =>
+      tickets
+        .filter(
+          (t) =>
+            t.ticket_type_category === "staff_application" &&
+            applicationOrgIds.includes(t.org_id),
+        )
+        .sort((a, b) => b.created_at - a.created_at),
+    [tickets, applicationOrgIds],
+  );
+
+  const pendingApplicationCount = useMemo(
+    () => applicationTickets.filter((t) => NON_CLOSED.has(t.status)).length,
+    [applicationTickets],
   );
 
   const filtered = useMemo(() => {
@@ -291,6 +329,7 @@ function TicketsPage() {
     const typeVal = TYPE_FILTER_MAP[typeFilter];
     const q = search.trim().toLowerCase();
     return tickets.filter((t) => {
+      if (t.ticket_type_category === "staff_application") return false;
       if (!statuses.has(t.status)) return false;
       if (typeVal && t.type !== typeVal) return false;
       if (q) {
@@ -546,6 +585,49 @@ function TicketsPage() {
               ))
             )}
           </div>
+
+          {applicationOrgIds.length > 0 && (
+            <div className="border-t border-border shrink-0">
+              <button
+                onClick={() => setApplicationsOpen((v) => !v)}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-surface/40 transition-colors"
+              >
+                <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
+                  Applications
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {pendingApplicationCount > 0 && (
+                    <span className="text-[10px] font-mono text-purple-400">
+                      {pendingApplicationCount}
+                    </span>
+                  )}
+                  <ChevronDown
+                    size={10}
+                    className={`text-muted-foreground transition-transform ${applicationsOpen ? "rotate-180" : ""}`}
+                  />
+                </div>
+              </button>
+              {applicationsOpen && (
+                <div className="max-h-52 overflow-y-auto border-t border-border">
+                  {applicationTickets.length === 0 ? (
+                    <div className="text-[10px] text-muted-foreground text-center py-4">
+                      No applications
+                    </div>
+                  ) : (
+                    applicationTickets.map((ticket) => (
+                      <ApplicationListItem
+                        key={ticket.ticket_id}
+                        ticket={ticket}
+                        orgs={orgs}
+                        selected={ticket.ticket_id === selectedId}
+                        onClick={() => setSelectedId(ticket.ticket_id)}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </aside>
 
         {/* Center: detail */}
@@ -635,6 +717,47 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
         <div className="flex items-center gap-1 mt-0.5">
           <span className="text-[9px] font-mono text-muted-foreground capitalize">
             {ticket.priority}
+          </span>
+          <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
+            {formatRelativeTime(ticket.created_at)}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ApplicationListItem({ ticket, orgs, selected, onClick }) {
+  const prefix = getOrgPrefix(ticket.org_id, orgs);
+  const statusColor =
+    ticket.status === "open"
+      ? "text-brand"
+      : ticket.status === "waiting_response"
+        ? "text-yellow-400"
+        : "text-muted-foreground";
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-2 py-1.5 border-b border-border transition-colors flex items-start gap-1.5 min-w-0 ${
+        selected ? "bg-brand/10" : "hover:bg-surface/60"
+      }`}
+    >
+      <span className="text-[9px] font-mono font-bold text-muted-foreground shrink-0 mt-0.5 w-4 text-center">
+        {prefix}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="text-[10px] font-mono font-bold shrink-0 text-purple-400">
+            Apply
+          </span>
+          <span className="text-[9px] text-muted-foreground shrink-0">·</span>
+          <span className="text-[10px] font-medium truncate min-w-0">
+            {ticket.created_by_username ?? "Unknown"}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className={`text-[9px] font-mono capitalize ${statusColor}`}>
+            {ticket.status === "waiting_response" ? "waiting" : ticket.status}
           </span>
           <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
             {formatRelativeTime(ticket.created_at)}
