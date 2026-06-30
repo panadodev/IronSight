@@ -126,8 +126,7 @@ function SiteNav() {
     anyOrgHas("todo_read") ||
     anyOrgHas("todo_write") ||
     anyOrgHas("todo_delete");
-  const canChat =
-    anyOrgHas("chat_view") || anyOrgHas("players_view") || canOrgManage;
+  const canChat = anyOrgHas("chat_view");
   const canDocs =
     anyOrgHas("docs_view") || anyOrgHas("docs_edit") || canOrgManage;
   const canManageSection =
