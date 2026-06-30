@@ -129,8 +129,8 @@ const PERMISSION_GROUPS = [
       },
       {
         id: "ip_read",
-        label: "View IPs / Connection Points",
-        desc: "See actual IP addresses, connection history, and IP-linked accounts",
+        label: "View Connection Points",
+        desc: "See connection history",
       },
       {
         isParent: true,

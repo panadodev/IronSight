@@ -1622,6 +1622,12 @@ export async function ensureSchema(pool) {
     `ALTER TABLE todos ADD COLUMN IF NOT EXISTS is_personal BOOLEAN NOT NULL DEFAULT FALSE`,
   );
 
+  // Role-scoped visibility: when set, only members with this role_id (plus
+  // admins/owners and the assignee/creator) can see the todo.
+  await pool.query(
+    `ALTER TABLE todos ADD COLUMN IF NOT EXISTS visibility_role_id TEXT REFERENCES roles(role_id) ON DELETE SET NULL`,
+  );
+
   // ── Documentation / wiki ─────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS doc_categories (

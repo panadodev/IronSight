@@ -146,6 +146,7 @@ function TodoPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [orgs, setOrgs] = useState([]);
   const [members, setMembers] = useState([]);
+  const [orgRoles, setOrgRoles] = useState({});
   const [todos, setTodos] = useState([]);
   const boardOrgPrefKey = `todo.boardOrgs.${sessionUser?.userId ?? "anon"}`;
   const [boardOrgIds, setBoardOrgIds] = usePersistentState(
@@ -200,6 +201,7 @@ function TodoPage() {
       setCanWrite(data.canWrite ?? false);
       setOrgs(data.orgs ?? []);
       setMembers(data.members ?? []);
+      setOrgRoles(data.orgRoles ?? {});
       setTodos(data.todos ?? []);
       setBoardOrgIds((cur) =>
         Array.isArray(cur) ? cur : (data.orgs ?? []).map((o) => o.orgId),
@@ -298,6 +300,11 @@ function TodoPage() {
       (m) => !m.orgIds || m.orgIds.includes(createTaskOrgId),
     );
   }, [members, createTaskOrgId]);
+
+  const createTaskOrgRoles = useMemo(
+    () => orgRoles[createTaskOrgId] ?? [],
+    [orgRoles, createTaskOrgId],
+  );
 
   function toggleBoardOrg(orgId) {
     setBoardOrgIds((cur) => {
@@ -507,6 +514,10 @@ function TodoPage() {
           priority: createTaskPriority,
           isPublic: createTaskVisibility === "public",
           isPersonal: createTaskIsPersonal,
+          visibilityRoleId:
+            createTaskVisibility !== "staff" && createTaskVisibility !== "public"
+              ? createTaskVisibility
+              : null,
         }),
       });
       if (!res.ok) {
@@ -699,7 +710,10 @@ function TodoPage() {
                 </label>
                 <Select
                   value={createTaskOrgId}
-                  onValueChange={setCreateTaskOrgId}
+                  onValueChange={(v) => {
+                    setCreateTaskOrgId(v);
+                    setCreateTaskVisibility("staff");
+                  }}
                   disabled={isCreatingTask}
                 >
                   <SelectTrigger>
@@ -781,8 +795,13 @@ function TodoPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="staff">Support+</SelectItem>
+                    <SelectItem value="staff">All Staff</SelectItem>
                     <SelectItem value="public">Everyone</SelectItem>
+                    {createTaskOrgRoles.map((role) => (
+                      <SelectItem key={role.roleId} value={role.roleId}>
+                        {role.roleName}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

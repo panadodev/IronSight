@@ -1209,6 +1209,7 @@ async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
             t.priority,
             t.is_public,
             t.is_personal,
+            t.visibility_role_id,
             assignee.discord_id AS assignee_discord_id,
             t.org_id,
             t.created_at AS created_unix,
@@ -1226,6 +1227,15 @@ async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
              t.is_public = true
              OR t.created_by = $2
              OR t.org_id = ANY($3::text[])
+             OR (
+               t.visibility_role_id IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM organization_members vis_om
+                 WHERE vis_om.user_id = $2
+                   AND vis_om.org_id = t.org_id
+                   AND vis_om.role_id = t.visibility_role_id
+               )
+             )
            )
          )
        )
@@ -1241,6 +1251,8 @@ async function getTodoRowsForOrgs(orgIds, userId, adminOrgIds = []) {
     priority: row.priority == null ? "medium" : String(row.priority),
     isPublic: Boolean(row.is_public),
     isPersonal: Boolean(row.is_personal),
+    visibilityRoleId:
+      row.visibility_role_id == null ? null : String(row.visibility_role_id),
     assigneeDiscordId:
       row.assignee_discord_id == null ? null : String(row.assignee_discord_id),
     orgId: row.org_id == null ? "" : String(row.org_id),
@@ -2067,6 +2079,27 @@ async function handleTodoBootstrap(request) {
     // Non-fatal: user can re-login to pick up the change if this fails.
   }
 
+  const orgRoles = {};
+  if (orgIds.length) {
+    const rolesRes = await pool.query(
+      `SELECT r.role_id, r.role_name, r.position, orgs.org_id
+       FROM unnest($1::text[]) AS orgs(org_id)
+       JOIN roles r ON r.role_id LIKE (orgs.org_id || '_%')
+       WHERE r.role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
+       ORDER BY orgs.org_id, r.position DESC, r.role_name ASC`,
+      [orgIds],
+    );
+    for (const row of rolesRes.rows) {
+      const oid = String(row.org_id);
+      if (!orgRoles[oid]) orgRoles[oid] = [];
+      orgRoles[oid].push({
+        roleId: String(row.role_id),
+        roleName: String(row.role_name),
+        position: Number(row.position),
+      });
+    }
+  }
+
   return json({
     user: {
       userId: session.userId,
@@ -2085,6 +2118,7 @@ async function handleTodoBootstrap(request) {
     members,
     todos,
     canWrite,
+    orgRoles,
   });
 }
 
@@ -2114,6 +2148,10 @@ async function handleCreateTodo(request) {
   const status = VALID_STATUSES.includes(body?.status) ? body.status : "todo";
   const isPublic = Boolean(body?.isPublic);
   const isPersonal = Boolean(body?.isPersonal);
+  const visibilityRoleId =
+    body?.visibilityRoleId == null
+      ? null
+      : String(body.visibilityRoleId).trim() || null;
 
   if (!title || !orgId || !assigneeDiscordId) {
     return json(
@@ -2148,11 +2186,21 @@ async function handleCreateTodo(request) {
     );
   }
 
+  if (visibilityRoleId) {
+    const roleCheck = await pool.query(
+      `SELECT 1 FROM roles WHERE role_id = $1 AND role_id LIKE ($2 || '_%') LIMIT 1`,
+      [visibilityRoleId, orgId],
+    );
+    if (!roleCheck.rows[0]) {
+      return json({ error: "Invalid visibility role for this organization" }, 400);
+    }
+  }
+
   const todoId = crypto.randomUUID();
   const createdUnix = nowUnix();
   await pool.query(
-    `INSERT INTO todos (todo_id, title, description, status, priority, is_public, is_personal, assigned_to, org_id, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO todos (todo_id, title, description, status, priority, is_public, is_personal, visibility_role_id, assigned_to, org_id, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       todoId,
       title,
@@ -2161,6 +2209,7 @@ async function handleCreateTodo(request) {
       priority,
       isPublic,
       isPersonal,
+      visibilityRoleId,
       assignee.userId,
       orgId,
       session.userId,
@@ -2185,6 +2234,7 @@ async function handleCreateTodo(request) {
         priority,
         isPublic,
         isPersonal,
+        visibilityRoleId,
         assigneeDiscordId,
         orgId,
         createdUnix,
@@ -2221,6 +2271,12 @@ async function handleUpdateTodo(request, todoId) {
       : null;
   const isPublic = body?.isPublic == null ? null : Boolean(body.isPublic);
   const isPersonal = body?.isPersonal == null ? null : Boolean(body.isPersonal);
+  const visibilityRoleId =
+    body?.visibilityRoleId === undefined
+      ? undefined
+      : body.visibilityRoleId === null
+        ? null
+        : String(body.visibilityRoleId).trim() || null;
 
   const existingRes = await pool.query(
     "SELECT todo_id, org_id, status, completed_at FROM todos WHERE todo_id = $1 LIMIT 1",
@@ -2258,6 +2314,18 @@ async function handleUpdateTodo(request, todoId) {
     }
   }
 
+  const updateVisibilityRole = visibilityRoleId !== undefined;
+  if (updateVisibilityRole && visibilityRoleId !== null) {
+    const orgId = String(existing.org_id);
+    const roleCheck = await pool.query(
+      `SELECT 1 FROM roles WHERE role_id = $1 AND role_id LIKE ($2 || '_%') LIMIT 1`,
+      [visibilityRoleId, orgId],
+    );
+    if (!roleCheck.rows[0]) {
+      return json({ error: "Invalid visibility role for this organization" }, 400);
+    }
+  }
+
   await pool.query(
     `UPDATE todos
      SET title = COALESCE($2, title),
@@ -2266,6 +2334,7 @@ async function handleUpdateTodo(request, todoId) {
          priority = COALESCE($6, priority),
          is_public = COALESCE($7, is_public),
          is_personal = COALESCE($8, is_personal),
+         visibility_role_id = CASE WHEN $9::boolean THEN $10::text ELSE visibility_role_id END,
          assigned_to = COALESCE($5, assigned_to),
          completed_at = CASE
            WHEN $4 = 'completed' AND completed_at IS NULL THEN unix_now()
@@ -2283,6 +2352,8 @@ async function handleUpdateTodo(request, todoId) {
       priority,
       isPublic,
       isPersonal,
+      updateVisibilityRole,
+      visibilityRoleId ?? null,
     ],
   );
 
