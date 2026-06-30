@@ -1761,6 +1761,413 @@ async function handleSteamCallback(request) {
   }
 }
 
+// ── Add another Steam account to an existing session ─────────────────────────
+
+async function handleSteamAddStart(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const url = new URL(request.url);
+  const next = sanitizeNext(url.searchParams.get("next") ?? "/");
+
+  const nonce = crypto.randomUUID();
+  await redis.set(
+    `openid:steam:add:${nonce}`,
+    JSON.stringify({ userId: session.userId, next }),
+    "EX",
+    60 * 10,
+  );
+
+  const returnUrl = `${getBaseUrl(request)}/api/auth/steam/add-callback`;
+  const params = new URLSearchParams({
+    "openid.ns": "http://specs.openid.net/auth/2.0",
+    "openid.mode": "checkid_setup",
+    "openid.return_to": `${returnUrl}?nonce=${encodeURIComponent(nonce)}`,
+    "openid.realm": getSteamRealm(request),
+    "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
+    "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
+  });
+
+  return redirect(`${STEAM_OPENID_URL}?${params.toString()}`);
+}
+
+async function handleSteamAddCallback(request) {
+  const url = new URL(request.url);
+  const nonce = String(url.searchParams.get("nonce") ?? "").trim();
+  if (!nonce) return redirect("/?steam_add_error=invalid_state");
+
+  const nonceKey = `openid:steam:add:${nonce}`;
+  const nonceDataJson = await redis.getdel(nonceKey).catch(() => null);
+  if (!nonceDataJson) return redirect("/?steam_add_error=state_expired");
+
+  let nonceData;
+  try {
+    nonceData = JSON.parse(nonceDataJson);
+  } catch {
+    return redirect("/?steam_add_error=invalid_state");
+  }
+
+  const { userId, next } = nonceData;
+  const safeNext = sanitizeNext(next ?? "/");
+
+  try {
+    await verifySteamResponse(url.searchParams);
+    const claimedId = url.searchParams.get("openid.claimed_id") ?? "";
+    const match = claimedId.match(/\/id\/(\d+)$/);
+    if (!match) throw new Error("Steam claimed ID missing.");
+
+    const steamId = match[1];
+
+    // Check if this steam ID is already linked to a different user
+    const conflict = await pool.query(
+      `SELECT user_id FROM user_steam_accounts WHERE steam_id = $1 LIMIT 1`,
+      [steamId],
+    );
+    if (conflict.rows[0] && String(conflict.rows[0].user_id) !== userId) {
+      return redirect(`${safeNext}?steam_add_error=already_linked`);
+    }
+
+    // Already linked to this user — no-op, treat as success
+    if (conflict.rows[0]) {
+      return redirect(`${safeNext}?steam_linked=1`);
+    }
+
+    // Try to get steam name from player_cache
+    const cachedPlayer = await pool
+      .query(
+        `SELECT display_name FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+        [steamId],
+      )
+      .catch(() => ({ rows: [] }));
+    const steamName = cachedPlayer.rows[0]?.display_name ?? null;
+
+    await pool.query(
+      `INSERT INTO user_steam_accounts (user_id, steam_id, steam_name, is_primary)
+       VALUES ($1, $2, $3, false)
+       ON CONFLICT (steam_id) DO NOTHING`,
+      [userId, steamId, steamName],
+    );
+
+    return redirect(`${safeNext}?steam_linked=1`);
+  } catch {
+    return redirect(`${safeNext}?steam_add_error=verification_failed`);
+  }
+}
+
+// ── Profile: list / delete / set-primary steam accounts ──────────────────────
+
+async function handleGetProfileSteamAccounts(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const res = await pool.query(
+    `SELECT usa.link_id, usa.steam_id, usa.steam_name, usa.is_primary, usa.created_at,
+            pc.display_name AS cached_name, pc.avatar_url AS cached_avatar
+     FROM user_steam_accounts usa
+     LEFT JOIN player_cache pc ON pc.steam_id = usa.steam_id
+     WHERE usa.user_id = $1
+     ORDER BY usa.is_primary DESC, usa.created_at ASC`,
+    [session.userId],
+  );
+
+  const accounts = res.rows.map((r) => ({
+    linkId: String(r.link_id),
+    steamId: r.steam_id,
+    steamName: r.cached_name ?? r.steam_name ?? null,
+    avatarUrl: r.cached_avatar ?? null,
+    isPrimary: Boolean(r.is_primary),
+    createdAt: Number(r.created_at),
+  }));
+
+  return json({ accounts });
+}
+
+async function handleDeleteProfileSteamAccount(request, linkId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const linkRes = await pool.query(
+    `SELECT link_id, steam_id, is_primary FROM user_steam_accounts
+     WHERE link_id = $1 AND user_id = $2 LIMIT 1`,
+    [linkId, session.userId],
+  );
+  const link = linkRes.rows[0];
+  if (!link) return json({ error: "Steam account link not found" }, 404);
+
+  const countRes = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM user_steam_accounts WHERE user_id = $1`,
+    [session.userId],
+  );
+  const total = Number(countRes.rows[0]?.cnt ?? 0);
+
+  if (link.is_primary && total > 1) {
+    return json(
+      {
+        error:
+          "Set a different primary Steam account before removing this one",
+      },
+      400,
+    );
+  }
+
+  await pool.query(
+    `DELETE FROM user_steam_accounts WHERE link_id = $1 AND user_id = $2`,
+    [linkId, session.userId],
+  );
+
+  // If we deleted the primary, promote the next oldest account
+  if (link.is_primary) {
+    const nextRes = await pool.query(
+      `SELECT link_id, steam_id FROM user_steam_accounts
+       WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`,
+      [session.userId],
+    );
+    if (nextRes.rows[0]) {
+      await pool.query(
+        `UPDATE user_steam_accounts SET is_primary = true WHERE link_id = $1`,
+        [nextRes.rows[0].link_id],
+      );
+      await pool.query(
+        `UPDATE users SET steam_id = $1, updated_at = unix_now() WHERE user_id = $2`,
+        [nextRes.rows[0].steam_id, session.userId],
+      );
+    } else {
+      await pool.query(
+        `UPDATE users SET steam_id = NULL, updated_at = unix_now() WHERE user_id = $1`,
+        [session.userId],
+      );
+    }
+  }
+
+  return json({ ok: true });
+}
+
+async function handleSetProfilePrimarySteam(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const linkId = String(body?.linkId ?? "").trim();
+  if (!linkId) return json({ error: "linkId is required" }, 400);
+
+  const linkRes = await pool.query(
+    `SELECT link_id, steam_id FROM user_steam_accounts
+     WHERE link_id = $1 AND user_id = $2 LIMIT 1`,
+    [linkId, session.userId],
+  );
+  const link = linkRes.rows[0];
+  if (!link) return json({ error: "Steam account link not found" }, 404);
+
+  await pool.query(
+    `UPDATE user_steam_accounts SET is_primary = false WHERE user_id = $1`,
+    [session.userId],
+  );
+  await pool.query(
+    `UPDATE user_steam_accounts SET is_primary = true WHERE link_id = $1`,
+    [linkId],
+  );
+  await pool.query(
+    `UPDATE users SET steam_id = $1, updated_at = unix_now() WHERE user_id = $2`,
+    [link.steam_id, session.userId],
+  );
+
+  return json({ ok: true, steamId: link.steam_id });
+}
+
+// ── Org admin: force-select primary steam for a member ───────────────────────
+
+async function handleSetOrgMemberPrimarySteam(request, orgId, userId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "org_manage")) {
+    return json({ error: "Forbidden: org_manage permission required" }, 403);
+  }
+
+  const memberRes = await pool.query(
+    `SELECT user_id FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+    [orgId, userId],
+  );
+  if (!memberRes.rows[0])
+    return json({ error: "User is not a member of this org" }, 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const steamId = String(body?.steamId ?? "").trim();
+  if (!steamId) return json({ error: "steamId is required" }, 400);
+
+  const linkRes = await pool.query(
+    `SELECT link_id FROM user_steam_accounts
+     WHERE steam_id = $1 AND user_id = $2 LIMIT 1`,
+    [steamId, userId],
+  );
+  if (!linkRes.rows[0])
+    return json({ error: "Steam account not linked to this user" }, 404);
+
+  await pool.query(
+    `UPDATE user_steam_accounts SET is_primary = false WHERE user_id = $1`,
+    [userId],
+  );
+  await pool.query(
+    `UPDATE user_steam_accounts SET is_primary = true WHERE link_id = $1`,
+    [linkRes.rows[0].link_id],
+  );
+  await pool.query(
+    `UPDATE users SET steam_id = $1, updated_at = unix_now() WHERE user_id = $2`,
+    [steamId, userId],
+  );
+
+  await scanDel("cache:members:*");
+
+  return json({ ok: true, steamId });
+}
+
+// ── Sysadmin: list all linked steam accounts ──────────────────────────────────
+
+async function handleSysListLinkedAccounts(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+  const limit = 50;
+  const offset = (page - 1) * limit;
+  const q = (url.searchParams.get("q") ?? "").trim();
+
+  let usersRes, countRes;
+  if (q) {
+    usersRes = await pool.query(
+      `SELECT u.user_id, u.username, u.discord_id, u.steam_id,
+              COUNT(usa.link_id) AS account_count
+       FROM users u
+       JOIN user_steam_accounts usa ON usa.user_id = u.user_id
+       WHERE u.username ILIKE $1 OR u.discord_id LIKE $2 OR u.steam_id LIKE $2
+       GROUP BY u.user_id
+       ORDER BY account_count DESC, u.username ASC
+       LIMIT $3 OFFSET $4`,
+      [`%${q}%`, `%${q}%`, limit, offset],
+    );
+    countRes = await pool.query(
+      `SELECT COUNT(DISTINCT u.user_id) AS total
+       FROM users u
+       JOIN user_steam_accounts usa ON usa.user_id = u.user_id
+       WHERE u.username ILIKE $1 OR u.discord_id LIKE $2 OR u.steam_id LIKE $2`,
+      [`%${q}%`, `%${q}%`],
+    );
+  } else {
+    usersRes = await pool.query(
+      `SELECT u.user_id, u.username, u.discord_id, u.steam_id,
+              COUNT(usa.link_id) AS account_count
+       FROM users u
+       JOIN user_steam_accounts usa ON usa.user_id = u.user_id
+       GROUP BY u.user_id
+       ORDER BY account_count DESC, u.username ASC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    );
+    countRes = await pool.query(
+      `SELECT COUNT(DISTINCT u.user_id) AS total
+       FROM users u JOIN user_steam_accounts usa ON usa.user_id = u.user_id`,
+    );
+  }
+
+  const userIds = usersRes.rows.map((r) => r.user_id);
+  let accountRows = { rows: [] };
+  if (userIds.length > 0) {
+    accountRows = await pool.query(
+      `SELECT usa.link_id, usa.user_id, usa.steam_id, usa.steam_name,
+              usa.is_primary, usa.created_at,
+              pc.display_name AS cached_name, pc.avatar_url AS cached_avatar
+       FROM user_steam_accounts usa
+       LEFT JOIN player_cache pc ON pc.steam_id = usa.steam_id
+       WHERE usa.user_id = ANY($1)
+       ORDER BY usa.user_id, usa.is_primary DESC, usa.created_at ASC`,
+      [userIds],
+    );
+  }
+
+  const accountsByUser = {};
+  for (const row of accountRows.rows) {
+    const uid = String(row.user_id);
+    if (!accountsByUser[uid]) accountsByUser[uid] = [];
+    accountsByUser[uid].push({
+      linkId: String(row.link_id),
+      steamId: row.steam_id,
+      steamName: row.cached_name ?? row.steam_name ?? null,
+      avatarUrl: row.cached_avatar ?? null,
+      isPrimary: Boolean(row.is_primary),
+      createdAt: Number(row.created_at),
+    });
+  }
+
+  const users = usersRes.rows.map((r) => ({
+    userId: String(r.user_id),
+    username: r.username,
+    discordId: r.discord_id ?? null,
+    steamId: r.steam_id ?? null,
+    accountCount: Number(r.account_count),
+    steamAccounts: accountsByUser[String(r.user_id)] ?? [],
+  }));
+
+  return json({ users, total: Number(countRes.rows[0]?.total ?? 0), page, limit });
+}
+
+async function handleSysDeleteLinkedAccount(request, linkId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  const linkRes = await pool.query(
+    `SELECT link_id, user_id, steam_id, is_primary FROM user_steam_accounts
+     WHERE link_id = $1 LIMIT 1`,
+    [linkId],
+  );
+  const link = linkRes.rows[0];
+  if (!link) return json({ error: "Link not found" }, 404);
+
+  await pool.query(`DELETE FROM user_steam_accounts WHERE link_id = $1`, [
+    linkId,
+  ]);
+
+  if (link.is_primary) {
+    const nextRes = await pool.query(
+      `SELECT link_id, steam_id FROM user_steam_accounts
+       WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`,
+      [link.user_id],
+    );
+    if (nextRes.rows[0]) {
+      await pool.query(
+        `UPDATE user_steam_accounts SET is_primary = true WHERE link_id = $1`,
+        [nextRes.rows[0].link_id],
+      );
+      await pool.query(
+        `UPDATE users SET steam_id = $1, updated_at = unix_now() WHERE user_id = $2`,
+        [nextRes.rows[0].steam_id, link.user_id],
+      );
+    } else {
+      await pool.query(
+        `UPDATE users SET steam_id = NULL, updated_at = unix_now() WHERE user_id = $1`,
+        [link.user_id],
+      );
+    }
+  }
+
+  return json({ ok: true });
+}
+
 async function handleLogout(request) {
   const cookies = parseCookie(request.headers.get("cookie") ?? "");
   const token = cookies[SESSION_COOKIE];
@@ -2476,7 +2883,34 @@ async function handleAddOrgMember(request, orgId) {
     });
   }
 
-  return json({ ok: true, orgId, discordId });
+  // Warn if the member has multiple steam accounts (staff must use one for RCON syncing)
+  const steamAcctRes = await pool.query(
+    `SELECT link_id, steam_id, steam_name, is_primary
+     FROM user_steam_accounts WHERE user_id = $1
+     ORDER BY is_primary DESC, created_at ASC`,
+    [member.userId],
+  );
+  const steamWarning =
+    steamAcctRes.rows.length > 1
+      ? {
+          count: steamAcctRes.rows.length,
+          accounts: steamAcctRes.rows.map((r) => ({
+            linkId: String(r.link_id),
+            steamId: r.steam_id,
+            steamName: r.steam_name ?? null,
+            isPrimary: Boolean(r.is_primary),
+          })),
+        }
+      : null;
+
+  return json({
+    ok: true,
+    orgId,
+    discordId,
+    userId: member.userId,
+    username: member.username,
+    steamWarning,
+  });
 }
 
 async function handleGrantOrgAdmin(request, orgId) {
@@ -5275,7 +5709,27 @@ async function handleGetTicket(request, ticketIdStr) {
             : m,
         );
 
-  return json({ ticket, messages: returnedMessages, media });
+  // Include all linked steam accounts for the submitter so staff can see them
+  let submitterSteamAccounts = [];
+  if (ticket.created_by && isViewerStaff) {
+    const acctRes = await pool.query(
+      `SELECT usa.steam_id, usa.steam_name, usa.is_primary,
+              pc.display_name AS cached_name, pc.avatar_url AS cached_avatar
+       FROM user_steam_accounts usa
+       LEFT JOIN player_cache pc ON pc.steam_id = usa.steam_id
+       WHERE usa.user_id = $1
+       ORDER BY usa.is_primary DESC, usa.created_at ASC`,
+      [ticket.created_by],
+    ).catch(() => ({ rows: [] }));
+    submitterSteamAccounts = acctRes.rows.map((r) => ({
+      steamId: r.steam_id,
+      steamName: r.cached_name ?? r.steam_name ?? null,
+      avatarUrl: r.cached_avatar ?? null,
+      isPrimary: Boolean(r.is_primary),
+    }));
+  }
+
+  return json({ ticket, messages: returnedMessages, media, submitterSteamAccounts });
 }
 
 // Redact/shape IP history entries depending on caller entitlement. Panel APIs
@@ -16099,6 +16553,57 @@ async function _handleApiRequest(request) {
         playerNoteDetailMatch[1],
         playerNoteDetailMatch[2],
         playerNoteDetailMatch[3],
+      );
+
+    // ── Multi-steam account linking ──────────────────────────────────────────
+
+    if (pathname === "/api/auth/steam/add-start" && request.method === "GET")
+      return handleSteamAddStart(request);
+
+    if (
+      pathname === "/api/auth/steam/add-callback" &&
+      request.method === "GET"
+    )
+      return handleSteamAddCallback(request);
+
+    if (
+      pathname === "/api/profile/steam-accounts" &&
+      request.method === "GET"
+    )
+      return handleGetProfileSteamAccounts(request);
+
+    if (pathname === "/api/profile/primary-steam" && request.method === "PATCH")
+      return handleSetProfilePrimarySteam(request);
+
+    const profileSteamAccountMatch = pathname.match(
+      /^\/api\/profile\/steam-accounts\/([a-f0-9-]+)$/,
+    );
+    if (profileSteamAccountMatch && request.method === "DELETE")
+      return handleDeleteProfileSteamAccount(
+        request,
+        profileSteamAccountMatch[1],
+      );
+
+    if (
+      pathname === "/api/sys/linked-accounts" &&
+      request.method === "GET"
+    )
+      return handleSysListLinkedAccounts(request);
+
+    const sysLinkedAccountMatch = pathname.match(
+      /^\/api\/sys\/linked-accounts\/([a-f0-9-]+)$/,
+    );
+    if (sysLinkedAccountMatch && request.method === "DELETE")
+      return handleSysDeleteLinkedAccount(request, sysLinkedAccountMatch[1]);
+
+    const orgMemberPrimarySteamMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/members\/([a-zA-Z0-9_-]+)\/primary-steam$/,
+    );
+    if (orgMemberPrimarySteamMatch && request.method === "PATCH")
+      return handleSetOrgMemberPrimarySteam(
+        request,
+        orgMemberPrimarySteamMatch[1],
+        orgMemberPrimarySteamMatch[2],
       );
 
     return json({ error: "Not found" }, 404);

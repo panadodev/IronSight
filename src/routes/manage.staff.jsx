@@ -11,6 +11,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,6 +38,7 @@ import { usePersistentState } from "@/lib/persistent-prefs";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowUpDown,
   Crown,
@@ -222,6 +231,8 @@ function StaffPage() {
   const [discordId, setDiscordId] = useState("");
   const [addErr, setAddErr] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [steamWarning, setSteamWarning] = useState(null);
+  const [settingPrimarySteam, setSettingPrimarySteam] = useState(false);
   const [removingId, setRemovingId] = useState(null);
   const [removeErr, setRemoveErr] = useState(null);
   const [changingRoleId, setChangingRoleId] = useState(null);
@@ -348,6 +359,13 @@ function StaffPage() {
       setDiscordId("");
       await loadMembers();
       await loadStaffStats();
+      if (body.steamWarning) {
+        setSteamWarning({
+          userId: body.userId,
+          username: body.username,
+          ...body.steamWarning,
+        });
+      }
     } catch {
       setAddErr("Network error.");
     } finally {
@@ -1120,6 +1138,77 @@ function StaffPage() {
           </div>
         </div>
       </div>
+
+      {/* Multi-steam warning dialog */}
+      <Dialog
+        open={!!steamWarning}
+        onOpenChange={(o) => !o && setSteamWarning(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-4 text-warning" />
+              Multiple Steam accounts linked
+            </DialogTitle>
+            <DialogDescription>
+              <strong>{steamWarning?.username}</strong> has{" "}
+              {steamWarning?.count} Steam accounts linked. Staff members must
+              have one primary account for in-game permission syncing. Select
+              which account to use as their primary.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {steamWarning?.accounts.map((acct) => (
+              <div
+                key={acct.steamId}
+                className="flex items-center justify-between px-3 py-2 rounded-md ring-1 ring-border bg-surface/40"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">
+                    {acct.steamName ?? acct.steamId}
+                  </div>
+                  <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    {acct.steamId}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant={acct.isPrimary ? "default" : "outline"}
+                  disabled={settingPrimarySteam}
+                  onClick={async () => {
+                    if (acct.isPrimary) return;
+                    setSettingPrimarySteam(true);
+                    try {
+                      const res = await fetch(
+                        `/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(steamWarning.userId)}/primary-steam`,
+                        {
+                          method: "PATCH",
+                          credentials: "include",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({ steamId: acct.steamId }),
+                        },
+                      );
+                      if (res.ok) {
+                        setSteamWarning(null);
+                        await loadMembers();
+                      }
+                    } finally {
+                      setSettingPrimarySteam(false);
+                    }
+                  }}
+                >
+                  {acct.isPrimary ? "Current primary" : "Set as primary"}
+                </Button>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSteamWarning(null)}>
+              Dismiss
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </GateRank>
   );
 }

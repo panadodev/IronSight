@@ -14,6 +14,7 @@ import { Route as TodoRouteImport } from './routes/todo'
 import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
 import { Route as SysMetricsRouteImport } from './routes/sys-metrics'
+import { Route as SysLinkedAccountsRouteImport } from './routes/sys-linked-accounts'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as SubmitRouteImport } from './routes/submit'
 import { Route as StaffAuditRouteImport } from './routes/staff-audit'
@@ -65,6 +66,11 @@ const ThreatTriggersRoute = ThreatTriggersRouteImport.update({
 const SysMetricsRoute = SysMetricsRouteImport.update({
   id: '/sys-metrics',
   path: '/sys-metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SysLinkedAccountsRoute = SysLinkedAccountsRouteImport.update({
+  id: '/sys-linked-accounts',
+  path: '/sys-linked-accounts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SupportRoute = SupportRouteImport.update({
@@ -222,6 +228,7 @@ export interface FileRoutesByFullPath {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-linked-accounts': typeof SysLinkedAccountsRoute
   '/sys-metrics': typeof SysMetricsRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
@@ -256,6 +263,7 @@ export interface FileRoutesByTo {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-linked-accounts': typeof SysLinkedAccountsRoute
   '/sys-metrics': typeof SysMetricsRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
@@ -291,6 +299,7 @@ export interface FileRoutesById {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-linked-accounts': typeof SysLinkedAccountsRoute
   '/sys-metrics': typeof SysMetricsRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
@@ -327,6 +336,7 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-linked-accounts'
     | '/sys-metrics'
     | '/threat-triggers'
     | '/tickets'
@@ -361,6 +371,7 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-linked-accounts'
     | '/sys-metrics'
     | '/threat-triggers'
     | '/tickets'
@@ -395,6 +406,7 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-linked-accounts'
     | '/sys-metrics'
     | '/threat-triggers'
     | '/tickets'
@@ -430,6 +442,7 @@ export interface RootRouteChildren {
   StaffAuditRoute: typeof StaffAuditRoute
   SubmitRoute: typeof SubmitRoute
   SupportRoute: typeof SupportRoute
+  SysLinkedAccountsRoute: typeof SysLinkedAccountsRoute
   SysMetricsRoute: typeof SysMetricsRoute
   ThreatTriggersRoute: typeof ThreatTriggersRoute
   TicketsRoute: typeof TicketsRoute
@@ -473,6 +486,13 @@ declare module '@tanstack/react-router' {
       path: '/sys-metrics'
       fullPath: '/sys-metrics'
       preLoaderRoute: typeof SysMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sys-linked-accounts': {
+      id: '/sys-linked-accounts'
+      path: '/sys-linked-accounts'
+      fullPath: '/sys-linked-accounts'
+      preLoaderRoute: typeof SysLinkedAccountsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/support': {
@@ -711,6 +731,7 @@ const rootRouteChildren: RootRouteChildren = {
   StaffAuditRoute: StaffAuditRoute,
   SubmitRoute: SubmitRoute,
   SupportRoute: SupportRoute,
+  SysLinkedAccountsRoute: SysLinkedAccountsRoute,
   SysMetricsRoute: SysMetricsRoute,
   ThreatTriggersRoute: ThreatTriggersRoute,
   TicketsRoute: TicketsRoute,

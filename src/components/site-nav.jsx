@@ -30,7 +30,16 @@ import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
 import { TEAM_META } from "@/lib/constants";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown, Lock, Menu, Users } from "lucide-react";
+import {
+  Building2,
+  Check,
+  ChevronDown,
+  Lock,
+  Menu,
+  Plus,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 function SiteNav() {
   const { location } = useRouterState();
@@ -78,6 +87,10 @@ function SiteNav() {
   const [onlineStaffOpen, setOnlineStaffOpen] = useState(false);
   const [onlineStaff, setOnlineStaff] = useState([]);
   const [onlineStaffLoading, setOnlineStaffLoading] = useState(false);
+  const [steamAccounts, setSteamAccounts] = useState([]);
+  const [steamAccountsLoading, setSteamAccountsLoading] = useState(false);
+  const [steamLinkSuccess, setSteamLinkSuccess] = useState(false);
+  const [steamLinkError, setSteamLinkError] = useState(null);
   const isSysAdminSession = Boolean(sessionUser?.isSysAdmin);
 
   // Per-org permission helpers. A link should appear if the user has the
@@ -185,6 +198,71 @@ function SiteNav() {
     };
   }, []);
 
+  // Detect post-Steam-link redirects and clean up the URL
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const linked = params.get("steam_linked");
+    const addErr = params.get("steam_add_error");
+    if (!linked && !addErr) return;
+    if (linked === "1") setSteamLinkSuccess(true);
+    if (addErr) {
+      setSteamLinkError(
+        addErr === "already_linked"
+          ? "That Steam account is already linked to another user."
+          : "Failed to link Steam account. Please try again.",
+      );
+    }
+    params.delete("steam_linked");
+    params.delete("steam_add_error");
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (qs ? `?${qs}` : ""),
+    );
+  }, []);
+
+  const loadSteamAccounts = async () => {
+    setSteamAccountsLoading(true);
+    try {
+      const res = await fetch("/api/profile/steam-accounts", {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSteamAccounts(data.accounts ?? []);
+      }
+    } catch {}
+    setSteamAccountsLoading(false);
+  };
+
+  const handleSetPrimarySteam = async (linkId) => {
+    const res = await fetch("/api/profile/primary-steam", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ linkId }),
+    });
+    if (res.ok) {
+      await loadSteamAccounts();
+      invalidateAuthMe();
+    }
+  };
+
+  const handleRemoveSteamAccount = async (linkId) => {
+    const res = await fetch(`/api/profile/steam-accounts/${linkId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (res.ok) {
+      await loadSteamAccounts();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setProfileError(body?.error ?? "Failed to remove Steam account.");
+    }
+  };
+
   const loadOnlineStaff = async () => {
     const orgId = selectedOrgIds[0];
     if (!orgId) return;
@@ -222,6 +300,7 @@ function SiteNav() {
       profilePrivate: Boolean(sessionUser?.profilePrivate),
     }));
     setProfileOpen(true);
+    loadSteamAccounts();
   };
   const saveProfile = async () => {
     const trimmedName = draft.displayName.trim();
@@ -522,6 +601,11 @@ function SiteNav() {
         {
           to: "/db-usage",
           label: "Database",
+          show: isSysAdminSession,
+        },
+        {
+          to: "/sys-linked-accounts",
+          label: "Linked Accounts",
           show: isSysAdminSession,
         },
       ],
@@ -1285,17 +1369,91 @@ function SiteNav() {
               </div>
             ) : null}
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label>Linked accounts</Label>
-              <LinkedAccountRow
-                provider="Steam"
-                linked={
-                  sessionUser?.steamId
-                    ? { id: sessionUser.steamId, name: sessionUser.username }
-                    : draft.steamLinked
-                }
-                readOnly
-              />
+
+              {/* Steam accounts — multi-account */}
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Steam
+                </div>
+                {steamAccountsLoading ? (
+                  <div className="text-xs text-muted-foreground px-1">
+                    Loading…
+                  </div>
+                ) : steamAccounts.length === 0 ? (
+                  <div className="px-3 py-2 rounded-md ring-1 ring-border bg-surface/40 text-xs text-muted-foreground">
+                    No Steam account linked
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {steamAccounts.map((acct) => (
+                      <div
+                        key={acct.linkId}
+                        className="flex items-center justify-between px-3 py-2 rounded-md ring-1 ring-border bg-surface/40"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {acct.isPrimary && (
+                            <span className="shrink-0 text-[9px] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
+                              PRIMARY
+                            </span>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">
+                              {acct.steamName ?? acct.steamId}
+                            </div>
+                            <div className="text-[10px] font-mono text-muted-foreground truncate">
+                              {acct.steamId}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-1 shrink-0 ml-2">
+                          {!acct.isPrimary && (
+                            <button
+                              onClick={() =>
+                                handleSetPrimarySteam(acct.linkId)
+                              }
+                              className="text-[10px] font-mono text-brand hover:underline px-1"
+                            >
+                              Set primary
+                            </button>
+                          )}
+                          {steamAccounts.length > 1 && (
+                            <button
+                              onClick={() =>
+                                handleRemoveSteamAccount(acct.linkId)
+                              }
+                              className="text-destructive hover:text-destructive/80 p-1"
+                              title="Remove Steam account"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sessionUser && (
+                  <a
+                    href={`/api/auth/steam/add-start?next=${encodeURIComponent(path || "/")}`}
+                    className="inline-flex items-center gap-1 text-xs text-brand hover:underline"
+                  >
+                    <Plus className="size-3" /> Link Another Steam Account
+                  </a>
+                )}
+                {steamLinkSuccess && (
+                  <div className="rounded-md ring-1 ring-success/40 bg-success/10 px-3 py-2 text-xs text-success">
+                    Steam account linked successfully.
+                  </div>
+                )}
+                {steamLinkError && (
+                  <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                    {steamLinkError}
+                  </div>
+                )}
+              </div>
+
               <LinkedAccountRow
                 provider="Discord"
                 linked={

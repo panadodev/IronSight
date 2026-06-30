@@ -1961,4 +1961,33 @@ export async function ensureRolePermissionSeed(pool) {
      UPDATE roles r SET position = ranked.rn
      FROM ranked WHERE r.role_id = ranked.role_id`,
   );
+
+  // ── Multi-Steam account linking ─────────────────────────────────────────────
+  // Tracks all Steam accounts linked to a user, supporting multiple per user.
+  // users.steam_id remains the canonical primary account used for RCON syncing.
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_steam_accounts (
+      link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      steam_id TEXT NOT NULL,
+      steam_name TEXT,
+      is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      UNIQUE(steam_id)
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_user_steam_accounts_user_id ON user_steam_accounts(user_id)`,
+  );
+
+  // Backfill: existing users.steam_id becomes their primary linked account.
+  await pool.query(`
+    INSERT INTO user_steam_accounts (user_id, steam_id, is_primary)
+    SELECT user_id, steam_id, true
+    FROM users
+    WHERE steam_id IS NOT NULL
+    ON CONFLICT (steam_id) DO NOTHING
+  `);
 }

@@ -162,6 +162,7 @@ function TicketsPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [selectedMedia, setSelectedMedia] = useState([]);
+  const [submitterSteamAccounts, setSubmitterSteamAccounts] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [replyText, setReplyText] = useState("");
   const [composerMode, setComposerMode] = useState("reply");
@@ -209,12 +210,14 @@ function TicketsPage() {
     setDetailLoading(true);
     setSelectedMessages([]);
     setSelectedMedia([]);
+    setSubmitterSteamAccounts([]);
     fetch(`/api/tickets/${selectedId}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { messages: [], media: [] }))
       .then((data) => {
         if (!cancelled) {
           setSelectedMessages(data.messages ?? []);
           setSelectedMedia(data.media ?? []);
+          setSubmitterSteamAccounts(data.submitterSteamAccounts ?? []);
           setDetailLoading(false);
         }
       })
@@ -588,6 +591,7 @@ function TicketsPage() {
               servers={orgServers}
               submitterUsername={selectedTicket.created_by_username}
               submitterSteamId={selectedTicket.created_by_steam_id}
+              submitterSteamAccounts={submitterSteamAccounts}
               ticketCreatedAt={selectedTicket.created_at}
             />
           ) : (
@@ -1685,6 +1689,7 @@ function PlayerIntelSidebar({
   servers,
   submitterUsername,
   submitterSteamId,
+  submitterSteamAccounts,
   ticketCreatedAt,
 }) {
   const [intelData, setIntelData] = useState(null);
@@ -1796,7 +1801,7 @@ function PlayerIntelSidebar({
                 {formatRelativeTime(ticketCreatedAt)}
               </span>
             </h2>
-            <div className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1.5">
+            <div className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1.5 mb-2">
               <div className="size-5 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background bg-muted-foreground/40 shrink-0 text-[8px]">
                 {initials(submitterUsername)}
               </div>
@@ -1809,6 +1814,31 @@ function PlayerIntelSidebar({
                 )}
               </div>
             </div>
+            {submitterSteamAccounts && submitterSteamAccounts.length > 1 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-mono text-warning uppercase tracking-widest">
+                  Multiple Steam accounts linked
+                </p>
+                {submitterSteamAccounts.map((acct) => (
+                  <div
+                    key={acct.steamId}
+                    className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1.5"
+                  >
+                    {acct.isPrimary && (
+                      <span className="shrink-0 text-[8px] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
+                        PRIMARY
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                      <p className="text-xs font-medium truncate">
+                        {acct.steamName ?? acct.steamId}
+                      </p>
+                      <ExternalLinks steamId={acct.steamId} size={10} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
       </div>
