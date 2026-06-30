@@ -5118,6 +5118,11 @@ const DEFAULT_TICKET_TYPES = [
     description: "Appeal a ban or mute on this server.",
     category: "generic",
   },
+  {
+    name: "Staff Application",
+    description: "Apply to join the staff team.",
+    category: "staff_application",
+  },
 ];
 
 async function ensureDefaultTicketTypes(orgId) {
@@ -5320,6 +5325,330 @@ async function handleListOrgs() {
 }
 
 // ── Ticket type endpoints ─────────────────────────────────────────────────────
+
+function sanitizeQuestionConfig(questionType, config) {
+  if (questionType === "text") {
+    const minLength = config.minLength != null ? Number(config.minLength) : null;
+    const maxLength = config.maxLength != null ? Number(config.maxLength) : null;
+    if (minLength !== null && (!Number.isInteger(minLength) || minLength < 0))
+      return null;
+    if (maxLength !== null && (!Number.isInteger(maxLength) || maxLength < 1))
+      return null;
+    if (minLength !== null && maxLength !== null && minLength > maxLength)
+      return null;
+    return {
+      ...(minLength !== null ? { minLength } : {}),
+      ...(maxLength !== null ? { maxLength } : {}),
+    };
+  }
+  if (questionType === "number") {
+    const min = config.min != null ? Number(config.min) : null;
+    const max = config.max != null ? Number(config.max) : null;
+    if (min !== null && !Number.isFinite(min)) return null;
+    if (max !== null && !Number.isFinite(max)) return null;
+    if (min !== null && max !== null && min > max) return null;
+    return {
+      ...(min !== null ? { min } : {}),
+      ...(max !== null ? { max } : {}),
+    };
+  }
+  if (questionType === "multiple_choice") {
+    const options = Array.isArray(config.options) ? config.options : [];
+    const cleanOptions = options
+      .map((o) => String(o).trim())
+      .filter((o) => o.length > 0)
+      .slice(0, 20);
+    return { options: cleanOptions };
+  }
+  return null;
+}
+
+async function handleListTicketTypeQuestions(request, orgId, ticketTypeId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "ticket_types_manage")
+  ) {
+    return json({ error: "Not authorized" }, 403);
+  }
+
+  const ttRes = await pool.query(
+    `SELECT ticket_type_id FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1`,
+    [ticketTypeId, orgId],
+  );
+  if (!ttRes.rows[0]) return json({ error: "Ticket type not found" }, 404);
+
+  const { rows } = await pool.query(
+    `SELECT question_id, question_text, question_type, is_required, position, config
+     FROM ticket_type_questions
+     WHERE ticket_type_id = $1
+     ORDER BY position ASC, question_id ASC`,
+    [ticketTypeId],
+  );
+
+  return json({
+    questions: rows.map((r) => ({
+      questionId: Number(r.question_id),
+      questionText: String(r.question_text),
+      questionType: String(r.question_type),
+      isRequired: Boolean(r.is_required),
+      position: Number(r.position),
+      config: r.config ?? {},
+    })),
+  });
+}
+
+async function handleCreateTicketTypeQuestion(request, orgId, ticketTypeId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "ticket_types_manage")
+  ) {
+    return json({ error: "Not authorized" }, 403);
+  }
+
+  const ttRes = await pool.query(
+    `SELECT ticket_type_id FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1`,
+    [ticketTypeId, orgId],
+  );
+  if (!ttRes.rows[0]) return json({ error: "Ticket type not found" }, 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const questionText = String(body?.questionText ?? "").trim();
+  const questionType = String(body?.questionType ?? "text");
+  const isRequired =
+    typeof body?.isRequired === "boolean" ? body.isRequired : true;
+  const rawConfig =
+    body?.config &&
+    typeof body.config === "object" &&
+    !Array.isArray(body.config)
+      ? body.config
+      : {};
+
+  if (!questionText) return json({ error: "questionText is required" }, 400);
+  if (questionText.length > 500)
+    return json({ error: "questionText must be 500 characters or fewer" }, 400);
+  if (!["text", "number", "multiple_choice"].includes(questionType))
+    return json({ error: "Invalid question type" }, 400);
+
+  const sanitizedConfig = sanitizeQuestionConfig(questionType, rawConfig);
+  if (sanitizedConfig === null)
+    return json({ error: "Invalid config for question type" }, 400);
+
+  const posRes = await pool.query(
+    `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM ticket_type_questions WHERE ticket_type_id = $1`,
+    [ticketTypeId],
+  );
+  const position = Number(posRes.rows[0].next_pos);
+
+  const { rows } = await pool.query(
+    `INSERT INTO ticket_type_questions
+       (ticket_type_id, org_id, question_text, question_type, is_required, position, config)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING question_id, question_text, question_type, is_required, position, config`,
+    [
+      ticketTypeId,
+      orgId,
+      questionText,
+      questionType,
+      isRequired,
+      position,
+      JSON.stringify(sanitizedConfig),
+    ],
+  );
+
+  const r = rows[0];
+  return json(
+    {
+      question: {
+        questionId: Number(r.question_id),
+        questionText: String(r.question_text),
+        questionType: String(r.question_type),
+        isRequired: Boolean(r.is_required),
+        position: Number(r.position),
+        config: r.config ?? {},
+      },
+    },
+    201,
+  );
+}
+
+async function handleUpdateTicketTypeQuestion(
+  request,
+  orgId,
+  ticketTypeId,
+  questionId,
+) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "ticket_types_manage")
+  ) {
+    return json({ error: "Not authorized" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const qRes = await pool.query(
+    `SELECT q.question_id, q.question_type
+     FROM ticket_type_questions q
+     JOIN ticket_types tt ON tt.ticket_type_id = q.ticket_type_id
+     WHERE q.question_id = $1 AND q.ticket_type_id = $2 AND tt.org_id = $3
+     LIMIT 1`,
+    [questionId, ticketTypeId, orgId],
+  );
+  if (!qRes.rows[0]) return json({ error: "Question not found" }, 404);
+
+  const effectiveType = typeof body?.questionType === "string"
+    ? body.questionType
+    : String(qRes.rows[0].question_type);
+
+  if (!["text", "number", "multiple_choice"].includes(effectiveType))
+    return json({ error: "Invalid question type" }, 400);
+
+  const sets = [];
+  const params = [];
+
+  if (typeof body?.questionText === "string") {
+    const t = body.questionText.trim();
+    if (!t) return json({ error: "questionText cannot be empty" }, 400);
+    if (t.length > 500)
+      return json({ error: "questionText must be 500 characters or fewer" }, 400);
+    params.push(t);
+    sets.push(`question_text = $${params.length}`);
+  }
+  if (typeof body?.questionType === "string") {
+    params.push(effectiveType);
+    sets.push(`question_type = $${params.length}`);
+  }
+  if (typeof body?.isRequired === "boolean") {
+    params.push(body.isRequired);
+    sets.push(`is_required = $${params.length}`);
+  }
+  if (body?.config !== undefined) {
+    const raw =
+      body.config &&
+      typeof body.config === "object" &&
+      !Array.isArray(body.config)
+        ? body.config
+        : {};
+    const sanitized = sanitizeQuestionConfig(effectiveType, raw);
+    if (sanitized === null) return json({ error: "Invalid config" }, 400);
+    params.push(JSON.stringify(sanitized));
+    sets.push(`config = $${params.length}`);
+  }
+
+  if (sets.length === 0) return json({ ok: true });
+
+  params.push(questionId);
+  await pool.query(
+    `UPDATE ticket_type_questions SET ${sets.join(", ")} WHERE question_id = $${params.length}`,
+    params,
+  );
+
+  return json({ ok: true });
+}
+
+async function handleDeleteTicketTypeQuestion(
+  request,
+  orgId,
+  ticketTypeId,
+  questionId,
+) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "ticket_types_manage")
+  ) {
+    return json({ error: "Not authorized" }, 403);
+  }
+
+  const res = await pool.query(
+    `DELETE FROM ticket_type_questions
+     WHERE question_id = $1 AND ticket_type_id = $2 AND org_id = $3`,
+    [questionId, ticketTypeId, orgId],
+  );
+
+  if (res.rowCount === 0) return json({ error: "Question not found" }, 404);
+  return json({ ok: true });
+}
+
+async function handleReorderTicketTypeQuestion(
+  request,
+  orgId,
+  ticketTypeId,
+  questionId,
+) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "ticket_types_manage")
+  ) {
+    return json({ error: "Not authorized" }, 403);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const direction = String(body?.direction ?? "");
+  if (!["up", "down"].includes(direction))
+    return json({ error: "direction must be 'up' or 'down'" }, 400);
+
+  const listRes = await pool.query(
+    `SELECT q.question_id, q.position
+     FROM ticket_type_questions q
+     JOIN ticket_types tt ON tt.ticket_type_id = q.ticket_type_id
+     WHERE q.ticket_type_id = $1 AND tt.org_id = $2
+     ORDER BY q.position ASC, q.question_id ASC`,
+    [ticketTypeId, orgId],
+  );
+
+  const qs = listRes.rows;
+  const idx = qs.findIndex((q) => Number(q.question_id) === questionId);
+  if (idx === -1) return json({ error: "Question not found" }, 404);
+
+  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= qs.length) return json({ ok: true });
+
+  const a = qs[idx];
+  const b = qs[swapIdx];
+
+  await pool.query(
+    `UPDATE ticket_type_questions SET position = $1 WHERE question_id = $2`,
+    [Number(b.position), Number(a.question_id)],
+  );
+  await pool.query(
+    `UPDATE ticket_type_questions SET position = $1 WHERE question_id = $2`,
+    [Number(a.position), Number(b.question_id)],
+  );
+
+  return json({ ok: true });
+}
 
 async function handleListOrgTicketTypes(request, orgId) {
   const { session } = await requireSession(request);
@@ -15642,6 +15971,62 @@ async function _handleApiRequest(request) {
         orgTicketTypeMatch[1],
         parseInt(orgTicketTypeMatch[2]),
       );
+    }
+
+    const orgTicketTypeQuestionsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)\/questions$/,
+    );
+    if (orgTicketTypeQuestionsMatch) {
+      const [, qOrgId, qTypeId] = orgTicketTypeQuestionsMatch;
+      if (request.method === "GET")
+        return handleListTicketTypeQuestions(
+          request,
+          qOrgId,
+          parseInt(qTypeId),
+        );
+      if (request.method === "POST")
+        return handleCreateTicketTypeQuestion(
+          request,
+          qOrgId,
+          parseInt(qTypeId),
+        );
+    }
+
+    const orgTicketTypeQuestionReorderMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)\/questions\/(\d+)\/reorder$/,
+    );
+    if (
+      orgTicketTypeQuestionReorderMatch &&
+      request.method === "POST"
+    ) {
+      const [, qOrgId, qTypeId, qId] = orgTicketTypeQuestionReorderMatch;
+      return handleReorderTicketTypeQuestion(
+        request,
+        qOrgId,
+        parseInt(qTypeId),
+        parseInt(qId),
+      );
+    }
+
+    const orgTicketTypeQuestionMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-types\/(\d+)\/questions\/(\d+)$/,
+    );
+    if (orgTicketTypeQuestionMatch) {
+      const [, qOrgId, qTypeId, qId] = orgTicketTypeQuestionMatch;
+      if (request.method === "PATCH")
+        return handleUpdateTicketTypeQuestion(
+          request,
+          qOrgId,
+          parseInt(qTypeId),
+          parseInt(qId),
+        );
+      if (request.method === "DELETE")
+        return handleDeleteTicketTypeQuestion(
+          request,
+          qOrgId,
+          parseInt(qTypeId),
+          parseInt(qId),
+        );
     }
 
     // ── Docs routes ───────────────────────────────────────────────────────────

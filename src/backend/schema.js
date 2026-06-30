@@ -1990,4 +1990,52 @@ export async function ensureRolePermissionSeed(pool) {
     WHERE steam_id IS NOT NULL
     ON CONFLICT (steam_id) DO NOTHING
   `);
+
+  // ── Staff applications ────────────────────────────────────────────────────────
+
+  // Expand ticket_type_category check to include 'staff_application'.
+  // The original unnamed constraint is dropped and replaced with a named one.
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'chk_ticket_types_category'
+          AND conrelid = 'ticket_types'::regclass
+      ) THEN
+        ALTER TABLE ticket_types DROP CONSTRAINT IF EXISTS ticket_types_ticket_type_category_check;
+        ALTER TABLE ticket_types ADD CONSTRAINT chk_ticket_types_category
+          CHECK (ticket_type_category IN ('generic', 'player_single', 'player_multi', 'staff_application'));
+      END IF;
+    END $$
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_type_questions (
+      question_id SERIAL PRIMARY KEY,
+      ticket_type_id INTEGER NOT NULL REFERENCES ticket_types(ticket_type_id) ON DELETE CASCADE,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      question_text TEXT NOT NULL,
+      question_type TEXT NOT NULL DEFAULT 'text'
+        CHECK (question_type IN ('text', 'number', 'multiple_choice')),
+      is_required BOOLEAN NOT NULL DEFAULT true,
+      position INTEGER NOT NULL DEFAULT 0,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at BIGINT NOT NULL DEFAULT unix_now()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_type_questions_type_id ON ticket_type_questions(ticket_type_id)`,
+  );
+
+  // Seed Staff Application ticket type for all existing orgs that don't have one yet.
+  await pool.query(`
+    INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled)
+    SELECT o.org_id, 'Staff Application', 'Apply to join the staff team.', 'staff_application', false
+    FROM organizations o
+    WHERE NOT EXISTS (
+      SELECT 1 FROM ticket_types tt
+      WHERE tt.org_id = o.org_id AND LOWER(tt.ticket_type_name) = 'staff application'
+    )
+  `);
 }
