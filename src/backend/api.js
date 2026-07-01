@@ -4591,7 +4591,7 @@ async function handleUpdateOrgDetails(request, orgId) {
   const mediaPublicMaxFiles = parseIntLimit(body?.mediaPublicMaxFiles);
 
   // Storage settings are sysadmin-only — org owners cannot alter quotas or expiry.
-  if (!session.globalAdmin) {
+  if (!isConfiguredSysAdmin(session)) {
     const storageFieldsPresent = [
       body?.mediaExpiryMonths,
       body?.mediaStorageLimitBytes,
@@ -5219,6 +5219,11 @@ const DEFAULT_TICKET_TYPES = [
   {
     name: "Support",
     description: "General questions and support requests.",
+    category: "generic",
+  },
+  {
+    name: "Bug Report",
+    description: "Report a bug or technical issue on the server.",
     category: "generic",
   },
   {
