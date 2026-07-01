@@ -1,3 +1,4 @@
+import { Hint } from "@/components/hint";
 import { PlayerLinks } from "@/components/player-links";
 import { ServerOverlapSection } from "@/components/server-overlap-section";
 import {
@@ -26,12 +27,42 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // connType values from the backend (proxycheck classification) map 1:1 to these
 // keys; `unknown` covers IPs proxycheck couldn't classify.
 const IP_TYPE_META = {
-  residential: { label: "Residential", tone: "text-success", short: "RES" },
-  business: { label: "Business", tone: "text-brand", short: "BIZ" },
-  mobile: { label: "Mobile", tone: "text-foreground", short: "MOB" },
-  proxy_vpn: { label: "Proxy / VPN", tone: "text-danger", short: "VPN" },
-  hosting: { label: "Hosting / DC", tone: "text-warning", short: "HOST" },
-  unknown: { label: "Unknown", tone: "text-muted-foreground", short: "?" },
+  residential: {
+    label: "Residential",
+    tone: "text-success",
+    short: "RES",
+    hint: "Home internet connection. A shared residential IP is the strongest link signal — it means both accounts connected from the same household.",
+  },
+  business: {
+    label: "Business",
+    tone: "text-brand",
+    short: "BIZ",
+    hint: "Corporate or office connection. Shared with another account = moderate evidence of proximity, though offices can have many occupants.",
+  },
+  mobile: {
+    label: "Mobile",
+    tone: "text-foreground",
+    short: "MOB",
+    hint: "Cellular data connection. Shared = moderate evidence; cell towers serve large areas, so less specific than a home IP.",
+  },
+  proxy_vpn: {
+    label: "Proxy / VPN",
+    tone: "text-danger",
+    short: "VPN",
+    hint: "Commercial VPN, proxy, or anonymizer. Unreliable for linking — thousands of unrelated players may share the same exit node.",
+  },
+  hosting: {
+    label: "Hosting / DC",
+    tone: "text-warning",
+    short: "HOST",
+    hint: "Datacenter or hosting provider IP (e.g. a rented VPS). Not useful for player linking — not a personal connection.",
+  },
+  unknown: {
+    label: "Unknown",
+    tone: "text-muted-foreground",
+    short: "?",
+    hint: "Connection type could not be classified by Proxycheck.",
+  },
 };
 
 // IP classes that meaningfully tie two accounts to the same person/household.
@@ -43,21 +74,25 @@ const CONFIDENCE_META = {
     label: "High",
     tone: "text-danger bg-danger/10 ring-danger/30",
     rank: 3,
+    hint: "High confidence: accounts share a residential, business, or mobile IP — the kind that isn't shared between strangers.",
   },
   likely: {
     label: "Likely",
     tone: "text-warning bg-warning/10 ring-warning/30",
     rank: 2,
+    hint: "Likely the same person: solid indirect evidence such as matching name patterns, mutual friends, or shared groups alongside some IP overlap.",
   },
   possible: {
     label: "Possible",
     tone: "text-brand bg-brand/10 ring-brand/30",
     rank: 1,
+    hint: "Possible link: only weak signals detected (minimal IP overlap or a few indirect connections). Could be a coincidence.",
   },
   unlikely: {
     label: "Unlikely",
     tone: "text-muted-foreground bg-surface ring-border",
     rank: 0,
+    hint: "Unlikely to be the same person. Connected by a single weak signal only — treat with caution.",
   },
 };
 
@@ -153,11 +188,13 @@ function IpChip({ ipHashShort, connType }) {
 function ConfidenceBadge({ tier }) {
   const meta = CONFIDENCE_META[tier] ?? CONFIDENCE_META.unlikely;
   return (
-    <span
-      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${meta.tone}`}
-    >
-      {meta.label}
-    </span>
+    <Hint text={meta.hint}>
+      <span
+        className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help ${meta.tone}`}
+      >
+        {meta.label}
+      </span>
+    </Hint>
   );
 }
 
@@ -542,12 +579,13 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
                       )}
                       <ConfidenceBadge tier={a.altConfidence} />
                       {a.nameSimilarity > 0 && (
-                        <span
-                          className={`text-[10px] font-mono ${a.nameSimilarity >= 60 ? "text-danger" : a.nameSimilarity >= 35 ? "text-warning" : "text-muted-foreground"}`}
-                          title="Best name match across alias history"
-                        >
-                          name {a.nameSimilarity}%
-                        </span>
+                        <Hint text="Best bigram character similarity between this account's alias history and the subject's. ≥60% is a strong naming signal; ≥35% is notable.">
+                          <span
+                            className={`text-[10px] font-mono cursor-help ${a.nameSimilarity >= 60 ? "text-danger" : a.nameSimilarity >= 35 ? "text-warning" : "text-muted-foreground"}`}
+                          >
+                            name {a.nameSimilarity}%
+                          </span>
+                        </Hint>
                       )}
                       {a.hasEacBans && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[10px] font-mono uppercase ring-1 ring-danger/40">
@@ -701,7 +739,11 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
               </span>
               <span className="text-[10px] font-mono text-muted-foreground">
                 {account.relatedSteamId ?? `BM ${account.relatedBmId}`}
-                {account.altScore != null && ` · score ${account.altScore}`}
+                {account.altScore != null && (
+                  <Hint text="Numerical confidence score combining all link signals: shared IPs (weighted by type), name similarity, mutual friends, shared groups, and session co-presence. Higher = more evidence of the same person.">
+                    <span className="cursor-help">{` · score ${account.altScore}`}</span>
+                  </Hint>
+                )}
               </span>
             </span>
             <button
@@ -723,24 +765,32 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
           {/* Ban status */}
           <div className="flex flex-wrap gap-2">
             {account.hasEacBans ? (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-danger/15 text-danger text-[10px] font-mono uppercase ring-1 ring-danger/40">
-                <AlertOctagon className="size-3" /> Game banned
-              </span>
+              <Hint text="This account has a Steam VAC or Game Developer ban (including EAC/Easy Anti-Cheat). Steam does not disclose which specific game issued the ban.">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-danger/15 text-danger text-[10px] font-mono uppercase ring-1 ring-danger/40 cursor-help">
+                  <AlertOctagon className="size-3" /> Game banned
+                </span>
+              </Hint>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-success/15 text-success text-[10px] font-mono uppercase ring-1 ring-success/40">
-                Game ban clean
-              </span>
+              <Hint text="No Steam VAC or Game Developer bans found on this account.">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-success/15 text-success text-[10px] font-mono uppercase ring-1 ring-success/40 cursor-help">
+                  Game ban clean
+                </span>
+              </Hint>
             )}
             {account.hasBmBans && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-warning/15 text-warning text-[10px] font-mono uppercase ring-1 ring-warning/40">
-                <Ban className="size-3" /> Server banned
-                {account.bmBanCount > 1 && ` (${account.bmBanCount})`}
-              </span>
+              <Hint text="This account has one or more ban records in BattleMetrics, typically issued by a server admin or community ban list.">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-warning/15 text-warning text-[10px] font-mono uppercase ring-1 ring-warning/40 cursor-help">
+                  <Ban className="size-3" /> Server banned
+                  {account.bmBanCount > 1 && ` (${account.bmBanCount})`}
+                </span>
+              </Hint>
             )}
             {lastBan && (
-              <span className="px-2 py-1 rounded bg-surface ring-1 ring-border text-[10px] font-mono text-muted-foreground">
-                last ban {lastBan}
-              </span>
+              <Hint text="How long ago the most recent EAC/game ban on this account was issued.">
+                <span className="px-2 py-1 rounded bg-surface ring-1 ring-border text-[10px] font-mono text-muted-foreground cursor-help">
+                  last ban {lastBan}
+                </span>
+              </Hint>
             )}
           </div>
 
@@ -762,11 +812,13 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                       key={t}
                       className="flex items-center justify-between px-2 py-1.5 rounded ring-1 ring-border bg-surface/40"
                     >
-                      <span
-                        className={`text-[10px] font-mono uppercase ${IP_TYPE_META[t].tone}`}
-                      >
-                        {IP_TYPE_META[t].label}
-                      </span>
+                      <Hint text={IP_TYPE_META[t].hint}>
+                        <span
+                          className={`text-[10px] font-mono uppercase cursor-help ${IP_TYPE_META[t].tone}`}
+                        >
+                          {IP_TYPE_META[t].label}
+                        </span>
+                      </Hint>
                       <span className="text-xs font-mono tabular-nums">
                         {typeCounts[t] ?? 0}
                       </span>
@@ -807,6 +859,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                     ? "text-warning"
                     : "text-muted-foreground"
               }
+              hint="Best bigram (character-pair) similarity between this account's alias history and the subject's. ≥60% is a strong naming signal; ≥35% is notable."
             />
             <SmallStat
               icon={<Users className="size-3" />}
@@ -817,6 +870,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                   ? "text-foreground"
                   : "text-muted-foreground"
               }
+              hint="Steam accounts that appear in both players' friends lists. A mutual friend who is also IP-linked to both is a particularly strong signal."
             />
             <SmallStat
               icon={<Building2 className="size-3" />}
@@ -827,7 +881,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                   ? "text-brand"
                   : "text-muted-foreground"
               }
-              hint="Steam groups in common (by group ID)"
+              hint="Steam groups both accounts are members of (matched by group ID). Alone it's a weak signal, but adds weight alongside other evidence."
             />
             <SmallStat
               icon={<Clock className="size-3" />}
@@ -838,6 +892,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                   ? "text-foreground"
                   : "text-muted-foreground"
               }
+              hint="BattleMetrics-tracked servers both players have played on. A weak signal on its own — busy servers are shared by thousands. Stronger when combined with IP or name evidence."
             />
           </div>
 
@@ -846,6 +901,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
             <Block
               icon={<Clock className="size-3" />}
               title="Session co-presence"
+              badge="timing"
             >
               <p className={`text-[11px] font-mono ${co.tone}`}>{co.label}</p>
               <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
@@ -940,6 +996,13 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
   );
 }
 
+const BLOCK_BADGE_HINTS = {
+  hashed:
+    "Full IP addresses are never stored — only a one-way hash. The short code (e.g. A3F2C1) identifies a specific IP without exposing the raw address.",
+  timing:
+    "Compares the timestamps when both accounts were seen online on the same servers. 'Never together' means their sessions never overlapped — consistent with one person alternating accounts.",
+};
+
 function Block({ icon, title, badge, children }) {
   return (
     <div>
@@ -947,9 +1010,11 @@ function Block({ icon, title, badge, children }) {
         {icon}
         {title}
         {badge && (
-          <span className="text-warning normal-case tracking-normal font-mono">
-            · {badge}
-          </span>
+          <Hint text={BLOCK_BADGE_HINTS[badge]}>
+            <span className="text-warning normal-case tracking-normal font-mono cursor-help">
+              · {badge}
+            </span>
+          </Hint>
         )}
       </h4>
       {children}
@@ -959,15 +1024,14 @@ function Block({ icon, title, badge, children }) {
 
 function SmallStat({ icon, label, value, tone, hint }) {
   return (
-    <div
-      className="px-3 py-2 rounded ring-1 ring-border bg-surface/40"
-      title={hint}
-    >
-      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-        {icon} {label}
-      </p>
-      <p className={`text-sm font-mono mt-0.5 ${tone}`}>{value}</p>
-    </div>
+    <Hint text={hint}>
+      <div className="px-3 py-2 rounded ring-1 ring-border bg-surface/40 cursor-help">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+          {icon} {label}
+        </p>
+        <p className={`text-sm font-mono mt-0.5 ${tone}`}>{value}</p>
+      </div>
+    </Hint>
   );
 }
 

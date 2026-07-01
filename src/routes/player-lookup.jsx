@@ -2278,7 +2278,16 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
                       : ""}
                   </p>
                 </div>
-                <Button size="sm" onClick={() => onOpenPlayer(m.steamId)}>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    window.open(
+                      `/player-lookup?steam=${encodeURIComponent(m.steamId)}`,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
+                >
                   Open
                 </Button>
               </li>
@@ -2339,7 +2348,16 @@ function NameSearchResults({ query, loading, error, matches, onOpenPlayer }) {
                       : ""}
                   </p>
                 </div>
-                <Button size="sm" onClick={() => onOpenPlayer(m.steamId)}>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    window.open(
+                      `/player-lookup?steam=${encodeURIComponent(m.steamId)}`,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
+                >
                   Open
                 </Button>
               </li>
