@@ -1513,6 +1513,7 @@ function ManageDetailsPage() {
             </div>
           )}
 
+          {isSysAdmin && (
           <div className="space-y-3 rounded-lg ring-1 ring-border bg-surface/20 p-4">
             <div>
               <p className="text-sm font-medium">Media Storage (R2 / S3)</p>
@@ -1623,6 +1624,7 @@ function ManageDetailsPage() {
               </div>
             </div>
           </div>
+          )}
 
           <Button type="submit" disabled={loading || saving}>
             {saving ? "Saving..." : "Save details"}

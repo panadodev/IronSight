@@ -4507,6 +4507,23 @@ async function handleUpdateOrgDetails(request, orgId) {
   );
   const mediaPublicMaxFiles = parseIntLimit(body?.mediaPublicMaxFiles);
 
+  // Storage settings are sysadmin-only — org owners cannot alter quotas or expiry.
+  if (!session.globalAdmin) {
+    const storageFieldsPresent = [
+      body?.mediaExpiryMonths,
+      body?.mediaStorageLimitBytes,
+      body?.mediaUserLimitBytes,
+      body?.mediaPublicFileLimitBytes,
+      body?.mediaPublicMaxFiles,
+    ].some((v) => v !== undefined);
+    if (storageFieldsPresent) {
+      return json(
+        { error: "Forbidden: only sysadmin can change storage settings" },
+        403,
+      );
+    }
+  }
+
   if (name !== null && !name) {
     return json({ error: "name cannot be empty" }, 400);
   }
