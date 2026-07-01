@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { UserSearch, Gamepad2, Activity } from "lucide-react";
 const SIZE_MAP = {
-  xs: { icon: 22, pad: "p-1" },
-  sm: { icon: 26, pad: "p-1" },
+  xs: { icon: 11, pad: "p-0.5" },
+  sm: { icon: 13, pad: "p-0.5" },
 };
 function PlayerLinks({ steamId, size = "xs" }) {
   const s = SIZE_MAP[size];

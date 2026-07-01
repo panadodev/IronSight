@@ -172,9 +172,7 @@ function SessionTimeline({ sessionWindows }) {
   const total = sessionWindows?.length ?? 0;
 
   const handleHover = (w, e) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setTooltip({ w, x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setTooltip({ w, x: e.clientX, y: e.clientY });
   };
   const handleLeave = () => setTooltip(null);
 
@@ -224,43 +222,37 @@ function SessionTimeline({ sessionWindows }) {
 
           {/* Time axis */}
           <TimeAxisLabels earliestSec={earliestSec} spanSec={spanSec} tz={tz} />
-
-          {/* Tooltip */}
-          {tooltip && (
-            <div
-              className="pointer-events-none absolute z-20 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[10px] font-mono max-w-48"
-              style={{
-                left: Math.min(
-                  tooltip.x + 8,
-                  (containerRef.current?.offsetWidth ?? 400) - 200,
-                ),
-                top: tooltip.y - 8,
-                transform: "translateY(-100%)",
-              }}
-            >
-              <p className="font-semibold text-foreground truncate">
-                {tooltip.w.serverName ?? `Server ${tooltip.w.bmServerId}`}
-              </p>
-              <p className="text-muted-foreground">
-                {new Date(tooltip.w.startedAt * 1000).toLocaleString(
-                  undefined,
-                  {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    ...(tz ? { timeZone: tz } : {}),
-                  },
-                )}
-              </p>
-              <p className="text-muted-foreground">
-                {tooltip.w.stoppedAt
-                  ? fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)
-                  : "Online now"}
-              </p>
-            </div>
-          )}
         </div>
+
+        {/* Tooltip — rendered outside overflow:hidden via fixed positioning */}
+        {tooltip && (
+          <div
+            className="pointer-events-none fixed z-50 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[10px] font-mono max-w-52"
+            style={{
+              left: tooltip.x + 12,
+              top: tooltip.y - 8,
+              transform: "translateY(-100%)",
+            }}
+          >
+            <p className="font-semibold text-foreground">
+              {tooltip.w.serverName ?? `Server ${tooltip.w.bmServerId}`}
+            </p>
+            <p className="text-muted-foreground">
+              {new Date(tooltip.w.startedAt * 1000).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                ...(tz ? { timeZone: tz } : {}),
+              })}
+            </p>
+            <p className="text-muted-foreground">
+              {tooltip.w.stoppedAt
+                ? fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)
+                : "Online now"}
+            </p>
+          </div>
+        )}
       )}
     </section>
   );
