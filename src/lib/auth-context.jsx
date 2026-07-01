@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { invalidateAuthMe } from "./auth-cache";
 import { manageOrgStore } from "./manage-org-store";
 import { TEAM_META } from "./constants";
 const BAN_CATEGORIES = ["cheating", "teaming", "toxicity"];
@@ -123,6 +124,24 @@ function AuthProvider({ children }) {
             return filtered.length > 0 ? filtered : nextOrgs.map((o) => o.id);
           });
         }
+
+        // Restore impersonation state across page reloads. When the
+        // impersonate_session cookie is active, getSession() returns the
+        // target's data — bootstrap signals this via impersonatingAs.
+        if (body.impersonatingAs && !cancelled) {
+          setViewingAs({
+            member: {
+              userId: String(body.impersonatingAs.userId ?? ""),
+              username: String(body.impersonatingAs.username ?? ""),
+            },
+            // access is null here: session data already reflects the target
+            // user, so effectiveOrg* helpers fall back to sessionOrg* which
+            // are already correct.
+            access: null,
+            orgId: String(body.impersonatingAs.orgId ?? ""),
+          });
+        }
+
         setOrgsLoaded(true);
       } catch {
         if (!cancelled) setOrgsLoaded(true);
@@ -423,24 +442,31 @@ function AuthProvider({ children }) {
   // owner/admin map to the management tier (full access); members holding any
   // org permission get a working staff rank; plain members of an org they
   // belong to get the support baseline. Server-side checks remain the real gate.
-  // ── View-only impersonation ────────────────────────────────────────────────
-  // When an org manager is "viewing as" another member, the UI permission
-  // surface is derived from that member's access (scoped to the impersonated
-  // org) instead of the real session. The server still authorizes every request
-  // by the real session, so this only changes what the UI reveals — it can
-  // never escalate privilege. The `real*` helpers below always reflect the true
-  // session (used to gate the impersonation entry point itself).
+  // ── Impersonation ─────────────────────────────────────────────────────────
+  // When an org manager activates "View as", the backend issues a short-lived
+  // impersonate_session cookie that makes getSession() return the target
+  // member's access for all API calls. The UI also derives its effective
+  // permissions from viewingAs so the two stay in sync. An admin cannot
+  // escalate via impersonation — the target's permissions are their ceiling.
+  // The `real*` helpers below reflect the authoritative session data (which,
+  // while impersonating, is the target user's bootstrap data).
   const isImpersonating = viewingAs != null;
   const impersonatedOrgId = viewingAs?.orgId ?? null;
-  const effectiveOrgOwnerIds = isImpersonating
-    ? (viewingAs.access?.orgOwnerOrgIds ?? [])
-    : sessionOrgOwnerIds;
-  const effectiveOrgAdminIds = isImpersonating
-    ? (viewingAs.access?.orgAdminOrgIds ?? [])
-    : sessionOrgAdminIds;
+  // When access is provided (fresh impersonate() call), use it to override
+  // the session data before the page reloads. When access is null (page
+  // reload with cookie), the session data from bootstrap already reflects
+  // the impersonated user — just use it directly.
+  const effectiveOrgOwnerIds =
+    isImpersonating && viewingAs.access
+      ? (viewingAs.access.orgOwnerOrgIds ?? [])
+      : sessionOrgOwnerIds;
+  const effectiveOrgAdminIds =
+    isImpersonating && viewingAs.access
+      ? (viewingAs.access.orgAdminOrgIds ?? [])
+      : sessionOrgAdminIds;
   const effectiveOrgPermissions =
-    isImpersonating && impersonatedOrgId
-      ? { [impersonatedOrgId]: viewingAs.access?.permissions ?? [] }
+    isImpersonating && impersonatedOrgId && viewingAs.access
+      ? { [impersonatedOrgId]: viewingAs.access.permissions ?? [] }
       : sessionOrgPermissions;
 
   const computeRank = (orgId, ownerIds, adminIds, perms) => {
@@ -528,6 +554,7 @@ function AuthProvider({ children }) {
       const data = await res.json();
       if (data.ok) {
         setViewingAs({ ...data, orgId });
+        invalidateAuthMe();
         return { ok: true };
       }
       return data;
@@ -537,7 +564,19 @@ function AuthProvider({ children }) {
     }
   };
 
-  const stopImpersonating = () => setViewingAs(null);
+  const stopImpersonating = async () => {
+    try {
+      await fetch("/api/auth/stop-impersonating", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Non-fatal — clear state and reload regardless.
+    }
+    setViewingAs(null);
+    invalidateAuthMe();
+    window.location.href = "/";
+  };
   const addOrgMember = (orgId, input) => {
     if (!isMgmtOf(orgId)) return { ok: false, error: "Not authorized" };
     if (!input.steamId && !input.discordId)

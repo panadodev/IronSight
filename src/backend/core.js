@@ -7,7 +7,7 @@ import jwt from "jsonwebtoken";
 import { parse as parseCookie } from "cookie";
 import { pool, redis } from "./runtime.js";
 import { json } from "./http.js";
-import { env, SESSION_COOKIE } from "./config.js";
+import { env, SESSION_COOKIE, IMPERSONATE_COOKIE } from "./config.js";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 
@@ -246,6 +246,23 @@ export function sessionRankForOrg(session, orgId) {
 
 export async function getSession(request) {
   const cookies = parseCookie(request.headers.get("cookie") ?? "");
+
+  // Active impersonation sessions take precedence over the real session so that
+  // API permission checks reflect the impersonated member's access level.
+  const impersonateToken = cookies[IMPERSONATE_COOKIE];
+  if (impersonateToken) {
+    try {
+      const decoded = jwt.verify(impersonateToken, env.jwtSecret);
+      const sid = decoded?.sid;
+      if (sid && typeof sid === "string") {
+        const raw = await redis.get(`impersonate_session:${sid}`);
+        if (raw) return JSON.parse(raw);
+      }
+    } catch {
+      // Invalid / expired impersonation token — fall through to the real session.
+    }
+  }
+
   const token = cookies[SESSION_COOKIE];
   if (!token) return null;
 

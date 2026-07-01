@@ -5,6 +5,8 @@ import "dotenv/config";
 
 export const SESSION_COOKIE = "panel_session";
 export const PENDING_LINK_COOKIE = "pending_identity";
+export const IMPERSONATE_COOKIE = "impersonate_session";
+export const IMPERSONATE_TTL = 4 * 60 * 60; // 4 hours
 
 export const SYSADMIN = {
   globalOrgId: "__global__",

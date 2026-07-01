@@ -12,6 +12,8 @@ import {
 } from "./ai-moderation.js";
 import {
   env,
+  IMPERSONATE_COOKIE,
+  IMPERSONATE_TTL,
   PENDING_LINK_COOKIE,
   SESSION_COOKIE,
   SYSADMIN,
@@ -523,6 +525,16 @@ function getSteamReturnUrl(request) {
 
 function sessionCookie(value, maxAgeSeconds) {
   return serializeCookie(SESSION_COOKIE, value, {
+    httpOnly: true,
+    secure: env.nodeEnv === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: maxAgeSeconds,
+  });
+}
+
+function impersonateCookie(value, maxAgeSeconds) {
+  return serializeCookie(IMPERSONATE_COOKIE, value, {
     httpOnly: true,
     secure: env.nodeEnv === "production",
     sameSite: "lax",
@@ -2470,28 +2482,36 @@ async function handleTodoBootstrap(request) {
   );
   const profilePrivate = Boolean(bootstrapUserRow.rows[0]?.profile_private);
 
-  try {
-    const cookies = parseCookie(request.headers.get("cookie") ?? "");
-    const token = cookies[SESSION_COOKIE];
-    if (token) {
-      const decoded = jwt.verify(token, env.jwtSecret);
-      const sid = decoded?.sid;
-      if (sid && typeof sid === "string") {
-        const raw = await redis.get(`session:${sid}`);
-        if (raw) {
-          const cached = JSON.parse(raw);
-          cached.canWrite = canWrite;
-          cached.canDeleteBans = freshAccess.canDeleteBans;
-          cached.orgAdminOrgIds = freshAccess.orgAdminOrgIds;
-          cached.orgOwnerOrgIds = freshAccess.orgOwnerOrgIds;
-          cached.orgPermissions = freshAccess.orgPermissions;
-          cached.groups = freshAccess.groups;
-          await redis.set(`session:${sid}`, JSON.stringify(cached), "KEEPTTL");
+  // Skip the session-refresh step when running under an impersonation cookie —
+  // that token is stored under a different Redis key and has a fixed short TTL.
+  if (!session.impersonating) {
+    try {
+      const cookies = parseCookie(request.headers.get("cookie") ?? "");
+      const token = cookies[SESSION_COOKIE];
+      if (token) {
+        const decoded = jwt.verify(token, env.jwtSecret);
+        const sid = decoded?.sid;
+        if (sid && typeof sid === "string") {
+          const raw = await redis.get(`session:${sid}`);
+          if (raw) {
+            const cached = JSON.parse(raw);
+            cached.canWrite = canWrite;
+            cached.canDeleteBans = freshAccess.canDeleteBans;
+            cached.orgAdminOrgIds = freshAccess.orgAdminOrgIds;
+            cached.orgOwnerOrgIds = freshAccess.orgOwnerOrgIds;
+            cached.orgPermissions = freshAccess.orgPermissions;
+            cached.groups = freshAccess.groups;
+            await redis.set(
+              `session:${sid}`,
+              JSON.stringify(cached),
+              "KEEPTTL",
+            );
+          }
         }
       }
+    } catch {
+      // Non-fatal: user can re-login to pick up the change if this fails.
     }
-  } catch {
-    // Non-fatal: user can re-login to pick up the change if this fails.
   }
 
   const orgRoles = {};
@@ -2534,6 +2554,13 @@ async function handleTodoBootstrap(request) {
     todos,
     canWrite,
     orgRoles,
+    impersonatingAs: session.impersonating
+      ? {
+          userId: session.userId,
+          username: session.username,
+          orgId: session.impersonatedOrgId,
+        }
+      : null,
   });
 }
 
@@ -4335,7 +4362,6 @@ async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
   const targetMember = memberRes.rows[0];
   const targetAccess = await loadUserAccess(targetMember.user_id);
 
-  // Log the view-only impersonation access
   await auditLog({
     orgId,
     actorUserId: session.userId,
@@ -4347,35 +4373,92 @@ async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
     severity: 2,
     metadata: {
       username: targetMember.username,
-      viewType: "read_only",
+      viewType: "impersonate",
     },
   });
 
-  return json({
+  // Build a temporary impersonation session scoped to this org only.
+  // getSession() checks this cookie first, so all subsequent API calls are
+  // authorized with the target member's real permissions — not the admin's.
+  const sid = crypto.randomUUID();
+  const impersonateToken = jwt.sign({ sid }, env.jwtSecret, {
+    expiresIn: IMPERSONATE_TTL,
+  });
+  const impersonateSession = {
+    impersonating: true,
+    userId: String(targetMember.user_id),
+    username: String(targetMember.username),
+    discordId:
+      targetMember.discord_id == null ? null : String(targetMember.discord_id),
+    steamId:
+      targetMember.steam_id == null ? null : String(targetMember.steam_id),
+    realUserId: String(session.userId),
+    impersonatedOrgId: orgId,
+    orgAdminOrgIds: targetAccess.orgAdminOrgIds.filter((id) => id === orgId),
+    orgOwnerOrgIds: targetAccess.orgOwnerOrgIds.filter((id) => id === orgId),
+    orgPermissions: {
+      [orgId]: targetAccess.orgPermissions[orgId] ?? [],
+    },
+    globalAdmin: false,
+    canWrite: targetAccess.canWrite,
+    canDeleteBans: targetAccess.canDeleteBans,
+    groups: targetAccess.groups,
+  };
+  await redis.set(
+    `impersonate_session:${sid}`,
+    JSON.stringify(impersonateSession),
+    "EX",
+    IMPERSONATE_TTL,
+  );
+
+  const member = {
+    userId: String(targetMember.user_id),
+    username: String(targetMember.username),
+    discordId:
+      targetMember.discord_id == null ? null : String(targetMember.discord_id),
+    steamId:
+      targetMember.steam_id == null ? null : String(targetMember.steam_id),
+    roleId: String(targetMember.role_id),
+  };
+  const access = {
+    orgAdminOrgIds: impersonateSession.orgAdminOrgIds,
+    orgOwnerOrgIds: impersonateSession.orgOwnerOrgIds,
+    canWrite: targetAccess.canWrite,
+    groups: targetAccess.groups,
+    permissions: targetAccess.orgPermissions[orgId] ?? [],
+  };
+
+  const response = json({
     ok: true,
-    member: {
-      userId: String(targetMember.user_id),
-      username: String(targetMember.username),
-      discordId:
-        targetMember.discord_id == null
-          ? null
-          : String(targetMember.discord_id),
-      steamId:
-        targetMember.steam_id == null ? null : String(targetMember.steam_id),
-      roleId: String(targetMember.role_id),
-    },
-    access: {
-      orgAdminOrgIds: targetAccess.orgAdminOrgIds.filter((id) => id === orgId),
-      orgOwnerOrgIds: targetAccess.orgOwnerOrgIds.filter((id) => id === orgId),
-      canWrite: targetAccess.canWrite,
-      groups: targetAccess.groups,
-      // The member's real granular permission set for this org — mirrors the
-      // shape the session uses so the UI reflects exactly what they can see.
-      permissions: targetAccess.orgPermissions[orgId] ?? [],
-    },
+    member,
+    access,
     viewOnly: true,
     viewedAt: Math.floor(Date.now() / 1000),
   });
+  response.headers.append(
+    "set-cookie",
+    impersonateCookie(impersonateToken, IMPERSONATE_TTL),
+  );
+  return response;
+}
+
+async function handleStopImpersonating(request) {
+  const cookies = parseCookie(request.headers.get("cookie") ?? "");
+  const impersonateToken = cookies[IMPERSONATE_COOKIE];
+  if (impersonateToken) {
+    try {
+      const decoded = jwt.verify(impersonateToken, env.jwtSecret);
+      const sid = decoded?.sid;
+      if (sid && typeof sid === "string") {
+        await redis.del(`impersonate_session:${sid}`);
+      }
+    } catch {
+      // Invalid token — just clear the cookie anyway.
+    }
+  }
+  const response = json({ ok: true });
+  response.headers.append("set-cookie", impersonateCookie("", 0));
+  return response;
 }
 
 async function handleGetOrgDetails(request, orgId) {
@@ -16047,6 +16130,13 @@ async function _handleApiRequest(request) {
 
     if (pathname === "/api/auth/logout" && request.method === "POST") {
       return handleLogout(request);
+    }
+
+    if (
+      pathname === "/api/auth/stop-impersonating" &&
+      request.method === "POST"
+    ) {
+      return handleStopImpersonating(request);
     }
 
     if (pathname === "/api/auth/me" && request.method === "GET") {
