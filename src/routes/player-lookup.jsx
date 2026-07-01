@@ -1395,7 +1395,7 @@ function PlayerLookupPage() {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <CacheStamp
                               playerData={playerData}
                               refreshing={refreshing}
@@ -1404,7 +1404,7 @@ function PlayerLookupPage() {
                               type="button"
                               onClick={handleRefresh}
                               disabled={refreshing || refreshCooldown}
-                              className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-md ring-1 disabled:opacity-50 ${bmRateLimitWarning ? "bg-warning/10 text-warning ring-warning/40 hover:bg-warning/20" : "bg-surface text-muted-foreground ring-border hover:bg-surface-bright"}`}
+                              className={`inline-flex items-center justify-center h-8 w-8 rounded-md ring-1 disabled:opacity-50 ${bmRateLimitWarning ? "bg-warning/10 text-warning ring-warning/40 hover:bg-warning/20" : "bg-surface text-muted-foreground ring-border hover:bg-surface-bright"}`}
                               title={
                                 refreshCooldown
                                   ? "Wait a moment before refreshing again"
@@ -1413,12 +1413,13 @@ function PlayerLookupPage() {
                                     : "Refresh data from BattleMetrics / Steam"
                               }
                             >
-                              {bmRateLimitWarning && (
+                              {bmRateLimitWarning ? (
                                 <AlertTriangle className="size-3.5 shrink-0" />
+                              ) : (
+                                <RefreshCw
+                                  className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+                                />
                               )}
-                              <RefreshCw
-                                className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
-                              />
                             </button>
 
                             {canCreateCase && (
@@ -1433,14 +1434,14 @@ function PlayerLookupPage() {
                                       ? "An open ticket already exists for this player"
                                       : "Create an internal staff case for this player"
                                 }
-                                className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md ring-1 transition-colors ${
+                                className={`inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold rounded-md ring-1 transition-colors ${
                                   activeBan || hasOpenTicketInCaseOrg
                                     ? "bg-surface text-muted-foreground ring-border opacity-50 cursor-not-allowed"
                                     : "bg-sky-500/15 text-sky-400 ring-sky-500/30 hover:bg-sky-500/25"
                                 }`}
                               >
                                 <FolderOpen className="size-3.5" aria-hidden />
-                                Create Case
+                                Case
                               </button>
                             )}
                             {!isSupportOnly && (
@@ -1448,18 +1449,18 @@ function PlayerLookupPage() {
                                 <button
                                   type="button"
                                   onClick={() => setManageBansOpen(true)}
-                                  className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
+                                  title="Manage ban history"
+                                  className="inline-flex items-center justify-center h-8 w-8 bg-surface text-muted-foreground rounded-md ring-1 ring-border hover:bg-surface-bright hover:text-foreground"
                                 >
-                                  <Ban className="size-3.5" aria-hidden />
-                                  Manage Bans
+                                  <Ban className="size-3.5" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setManageMutesOpen(true)}
-                                  className="inline-flex items-center gap-1.5 h-8 px-3 bg-surface text-foreground text-xs font-semibold rounded-md ring-1 ring-border hover:bg-surface-bright"
+                                  title="Manage mute history"
+                                  className="inline-flex items-center justify-center h-8 w-8 bg-surface text-muted-foreground rounded-md ring-1 ring-border hover:bg-surface-bright hover:text-foreground"
                                 >
-                                  <MicOff className="size-3.5" aria-hidden />
-                                  Manage Mutes
+                                  <MicOff className="size-3.5" />
                                 </button>
                               </>
                             )}
@@ -1474,9 +1475,9 @@ function PlayerLookupPage() {
                               title={
                                 activeMute
                                   ? `Already muted — ${formatRemaining(activeMute.expiresAt)}`
-                                  : undefined
+                                  : "Issue a mute"
                               }
-                              className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-widest ${activeMute ? "bg-surface text-muted-foreground ring-1 ring-border cursor-not-allowed opacity-60" : "bg-warning/15 text-warning ring-1 ring-warning/40 hover:bg-warning/25"}`}
+                              className={`flex items-center gap-1.5 px-2.5 py-2 rounded-md text-xs font-semibold uppercase tracking-widest ${activeMute ? "bg-surface text-muted-foreground ring-1 ring-border cursor-not-allowed opacity-60" : "bg-warning/15 text-warning ring-1 ring-warning/40 hover:bg-warning/25"}`}
                             >
                               <MicOff className="size-3.5" />
                               Mute
@@ -1493,9 +1494,9 @@ function PlayerLookupPage() {
                                 title={
                                   activeBan
                                     ? `Already banned — ${formatRemaining(activeBan.expiresAt)}`
-                                    : undefined
+                                    : "Issue a ban"
                                 }
-                                className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-widest ${activeBan ? "bg-surface text-muted-foreground ring-1 ring-border cursor-not-allowed opacity-60" : "bg-danger text-danger-foreground hover:opacity-90"}`}
+                                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-md text-xs font-semibold uppercase tracking-widest ${activeBan ? "bg-surface text-muted-foreground ring-1 ring-border cursor-not-allowed opacity-60" : "bg-danger text-danger-foreground hover:opacity-90"}`}
                               >
                                 <Ban className="size-3.5" />
                                 Ban
