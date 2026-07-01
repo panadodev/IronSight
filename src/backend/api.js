@@ -87,8 +87,10 @@ import {
   generatePresignedMultipart,
   generatePresignedPut,
   getPublicUrl,
+  headObject,
   MAX_FILE_SIZE,
   MULTIPART_THRESHOLD,
+  normalizeObjectContentType,
   PUBLIC_ALLOWED_MIME,
   r2Configured,
   STAFF_ALLOWED_MIME,
@@ -12832,7 +12834,7 @@ async function handleConfirmMedia(request, orgId) {
   if (!mediaId) return json({ error: "mediaId is required" }, 400);
 
   const { rows } = await pool.query(
-    `SELECT media_id, uploaded_by, r2_key, storage_backend, multipart_upload_id, file_size
+    `SELECT media_id, uploaded_by, r2_key, storage_backend, multipart_upload_id, mime_type
      FROM org_media
      WHERE media_id = $1 AND org_id = $2 AND confirmed = FALSE AND deleted = FALSE`,
     [mediaId, orgId],
@@ -12846,17 +12848,41 @@ async function handleConfirmMedia(request, orgId) {
   )
     return json({ error: "Forbidden" }, 403);
 
+  // Abort the upload + soft-delete the row when a post-upload check fails.
+  const discard = async () => {
+    if (row.r2_key) {
+      if (row.multipart_upload_id)
+        await abortMultipartUpload(
+          String(row.r2_key),
+          String(row.multipart_upload_id),
+        );
+      await deleteMediaObject(String(row.r2_key));
+    }
+    await pool.query(
+      `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
+      [mediaId],
+    );
+  };
+
   // For R2 multipart, the frontend sends the ETags from each part so we can complete.
-  if (row.multipart_upload_id && Array.isArray(body?.parts)) {
-    const parts = body.parts.map((p) => ({
-      partNumber: Number(p.partNumber),
-      etag: String(p.etag),
+  if (row.multipart_upload_id) {
+    const rawParts = Array.isArray(body?.parts) ? body.parts : [];
+    const parts = rawParts.map((p) => ({
+      partNumber: Number(p?.partNumber),
+      etag: String(p?.etag ?? ""),
     }));
-    if (parts.length === 0 || parts.some((p) => !p.partNumber || !p.etag))
+    if (
+      parts.length === 0 ||
+      parts.some(
+        (p) => !Number.isInteger(p.partNumber) || p.partNumber < 1 || !p.etag,
+      )
+    ) {
+      await discard();
       return json(
         { error: "Invalid parts array for multipart completion" },
         400,
       );
+    }
     try {
       await completeMultipartUpload(
         String(row.r2_key),
@@ -12872,15 +12898,87 @@ async function handleConfirmMedia(request, orgId) {
     }
   }
 
-  const actualSize = body?.fileSize ? Number(body.fileSize) : null;
+  // Never trust the client-declared size: a presigned PUT can't bind
+  // content-length, so read the true size from R2 and enforce limits/quota
+  // against it — closes the "declare 1 byte, upload 5 GB" quota/cost bypass.
+  let head;
+  try {
+    head = await headObject(String(row.r2_key));
+  } catch (err) {
+    console.error(`[r2] head failed mediaId=${mediaId}:`, err?.message);
+    return json({ error: "Failed to verify upload" }, 502);
+  }
+  if (!head) {
+    await discard();
+    return json({ error: "Uploaded object not found in storage" }, 404);
+  }
+
+  const realSize = head.contentLength;
+  if (realSize < 1) {
+    await discard();
+    return json({ error: "Uploaded file is empty" }, 400);
+  }
+  if (realSize > MAX_FILE_SIZE) {
+    await discard();
+    return json(
+      {
+        error: `File too large (max ${Math.round(MAX_FILE_SIZE / 1024 / 1024 / 1024)} GB)`,
+      },
+      413,
+    );
+  }
+
+  const quotaRes = await pool.query(
+    `SELECT media_storage_limit_bytes, media_user_limit_bytes FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  const quota = quotaRes.rows[0];
+  if (quota?.media_storage_limit_bytes) {
+    const used = await getOrgStorageUsed(orgId);
+    if (used + realSize > Number(quota.media_storage_limit_bytes)) {
+      await discard();
+      return json({ error: "Organization storage quota exceeded." }, 413);
+    }
+  }
+  if (quota?.media_user_limit_bytes) {
+    const used = await getUserStorageUsed(orgId, String(row.uploaded_by));
+    if (used + realSize > Number(quota.media_user_limit_bytes)) {
+      await discard();
+      return json(
+        { error: "Personal storage quota for this organization is full." },
+        413,
+      );
+    }
+  }
+
+  // Pin a vetted Content-Type on the stored object. Multipart bound it
+  // server-side at CreateMultipartUpload already; the single presigned PUT did
+  // not (only `host` is signed), so rewrite it here — this is what stops an
+  // attacker-supplied text/html / image/svg+xml body from being served as
+  // active content from the public bucket domain.
+  if (!row.multipart_upload_id) {
+    try {
+      await normalizeObjectContentType(
+        String(row.r2_key),
+        String(row.mime_type || "application/octet-stream"),
+      );
+    } catch (err) {
+      console.error(
+        `[r2] content-type normalize failed mediaId=${mediaId}:`,
+        err?.message,
+      );
+      await discard();
+      return json({ error: "Failed to finalize upload" }, 502);
+    }
+  }
+
   const { rows: updated } = await pool.query(
     `UPDATE org_media
-     SET confirmed = TRUE, pending_since = NULL,
-         file_size = COALESCE($2, file_size)
+     SET confirmed = TRUE, pending_since = NULL, file_size = $2
      WHERE media_id = $1
      RETURNING media_id, org_id, uploaded_by, r2_key, storage_backend, zipline_url,
                filename, file_type, mime_type, file_size, title, uploaded_at, last_accessed_at`,
-    [mediaId, actualSize],
+    [mediaId, realSize],
   );
 
   console.log(
@@ -13119,17 +13217,76 @@ async function handlePublicMediaConfirm(request) {
   if (!mediaId) return json({ error: "mediaId is required" }, 400);
 
   const { rows } = await pool.query(
-    `SELECT media_id, uploaded_by FROM org_media
+    `SELECT media_id, uploaded_by, org_id, r2_key, mime_type FROM org_media
      WHERE media_id = $1 AND source = 'pending' AND confirmed = FALSE AND deleted = FALSE`,
     [mediaId],
   );
   if (!rows[0]) return json({ error: "Pending media not found" }, 404);
-  if (String(rows[0].uploaded_by) !== String(session.userId))
+  const row = rows[0];
+  if (String(row.uploaded_by) !== String(session.userId))
     return json({ error: "Forbidden" }, 403);
 
+  const discard = async () => {
+    if (row.r2_key) await deleteMediaObject(String(row.r2_key));
+    await pool.query(
+      `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
+      [mediaId],
+    );
+  };
+
+  // Verify the real uploaded size against the org's public per-file limit — the
+  // presigned PUT can't bind content-length, so the declared size is moot.
+  let head;
+  try {
+    head = await headObject(String(row.r2_key));
+  } catch (err) {
+    console.error(`[r2] public head failed mediaId=${mediaId}:`, err?.message);
+    return json({ error: "Failed to verify upload" }, 502);
+  }
+  if (!head) {
+    await discard();
+    return json({ error: "Uploaded object not found in storage" }, 404);
+  }
+  if (head.contentLength < 1) {
+    await discard();
+    return json({ error: "Uploaded file is empty" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT media_public_file_limit_bytes FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [row.org_id],
+  );
+  const fileLimitBytes = Number(
+    orgRes.rows[0]?.media_public_file_limit_bytes ?? DEFAULT_PUBLIC_FILE_LIMIT,
+  );
+  if (head.contentLength > fileLimitBytes) {
+    await discard();
+    return json(
+      {
+        error: `File too large (max ${Math.round(fileLimitBytes / 1024 / 1024)} MB for this organization)`,
+      },
+      413,
+    );
+  }
+
+  // Pin the vetted Content-Type (public uploads are always single presigned PUT).
+  try {
+    await normalizeObjectContentType(
+      String(row.r2_key),
+      String(row.mime_type || "application/octet-stream"),
+    );
+  } catch (err) {
+    console.error(
+      `[r2] public content-type normalize failed mediaId=${mediaId}:`,
+      err?.message,
+    );
+    await discard();
+    return json({ error: "Failed to finalize upload" }, 502);
+  }
+
   await pool.query(
-    `UPDATE org_media SET confirmed = TRUE WHERE media_id = $1`,
-    [mediaId],
+    `UPDATE org_media SET confirmed = TRUE, file_size = $2 WHERE media_id = $1`,
+    [mediaId, head.contentLength],
   );
   return json({ ok: true, mediaId });
 }
@@ -13158,6 +13315,30 @@ async function purgeExpiredMedia() {
   }
   if (stale.length)
     console.log(`[media-expiry] removed ${stale.length} abandoned upload(s)`);
+
+  // Soft-delete confirmed *public* uploads that were never attached to a ticket.
+  // handleCreateTicket promotes attached media from source='pending' to 'ticket',
+  // so anything still 'pending' after a generous window is an orphan (the public
+  // submitter confirmed the upload but abandoned the ticket). Without this they
+  // would leak forever in orgs that don't set a media_expiry_months window.
+  const orphanThreshold = Math.floor(Date.now() / 1000) - 24 * 3600;
+  const { rows: orphans } = await pool.query(
+    `SELECT media_id, r2_key FROM org_media
+     WHERE source = 'pending' AND confirmed = TRUE AND deleted = FALSE
+       AND COALESCE(pending_since, uploaded_at) < $1`,
+    [orphanThreshold],
+  );
+  for (const row of orphans) {
+    if (row.r2_key) await deleteMediaObject(String(row.r2_key));
+    await pool.query(
+      `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
+      [row.media_id],
+    );
+  }
+  if (orphans.length)
+    console.log(
+      `[media-expiry] removed ${orphans.length} orphaned public upload(s)`,
+    );
 
   // Soft-delete confirmed media older than the org's configured expiry window.
   // R2 does not support bucket lifecycle rules, so this BullMQ job is the sole expiry mechanism.

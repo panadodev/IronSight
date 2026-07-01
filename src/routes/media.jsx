@@ -66,9 +66,10 @@ function FileTypeIcon({ fileType, className = "size-4" }) {
 }
 
 // Upload a single chunk via XHR so we get progress events.
-function uploadChunkXhr(url, blob, onProgress) {
+function uploadChunkXhr(url, blob, onProgress, xhrRef) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    if (xhrRef) xhrRef.current = xhr;
     xhr.open("PUT", url);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
@@ -81,6 +82,7 @@ function uploadChunkXhr(url, blob, onProgress) {
       }
     };
     xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.onabort = () => reject(new Error("cancelled"));
     // Keep presigned PUT requests header-minimal: avoid implicit Content-Type.
     const body =
       blob instanceof Blob && blob.type ? blob.slice(0, blob.size, "") : blob;
@@ -97,6 +99,8 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
   const [progress, setProgress] = useState(null);
   const [statusText, setStatusText] = useState("");
   const fileRef = useRef(null);
+  const xhrRef = useRef(null);
+  const abortCtrlRef = useRef(null);
 
   function reset() {
     setFile(null);
@@ -104,6 +108,13 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
     setError("");
     setProgress(null);
     setStatusText("");
+    xhrRef.current = null;
+    abortCtrlRef.current = null;
+  }
+
+  function handleCancel() {
+    abortCtrlRef.current?.abort();
+    xhrRef.current?.abort();
   }
 
   useEffect(() => {
@@ -119,6 +130,9 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
     setProgress(0);
 
     try {
+      const ac = new AbortController();
+      abortCtrlRef.current = ac;
+
       setStatusText("Preparing upload…");
       const prepareRes = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/media/prepare`,
@@ -126,6 +140,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
+          signal: ac.signal,
           body: JSON.stringify({
             filename: file.name,
             mimeType: file.type || "application/octet-stream",
@@ -152,14 +167,14 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
           const chunk = file.slice(start, start + partSize);
           const etag = await uploadChunkXhr(partUrls[i], chunk, (frac) => {
             setProgress(Math.round(((i + frac) / partUrls.length) * 95));
-          });
+          }, xhrRef);
           parts.push({ partNumber: i + 1, etag });
         }
       } else {
         setStatusText("Uploading…");
         await uploadChunkXhr(uploadUrl, file, (frac) => {
           setProgress(Math.round(frac * 95));
-        });
+        }, xhrRef);
       }
 
       setStatusText("Finalizing…");
@@ -170,6 +185,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
+          signal: ac.signal,
           body: JSON.stringify({ mediaId, parts, fileSize: file.size }),
         },
       );
@@ -184,6 +200,10 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
       onUploaded({ ...confirmBody.media, orgName: org?.name ?? orgId });
       onClose();
     } catch (err) {
+      if (err.name === "AbortError" || err.message === "cancelled") {
+        reset();
+        return;
+      }
       setError(err.message ?? "Upload failed.");
     } finally {
       setUploading(false);
@@ -256,7 +276,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
                 <Upload className="size-6" />
                 <span className="text-sm">Click to select a file</span>
                 <span className="text-[11px]">
-                  Images, videos &amp; PDFs · up to 5 GB
+                  Images &amp; videos · up to 5 GB
                 </span>
               </button>
             )}
@@ -264,7 +284,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
               ref={fileRef}
               type="file"
               className="hidden"
-              accept="image/*,video/*,application/pdf"
+              accept="image/*,video/*"
               onChange={(e) =>
                 e.target.files?.[0] && setFile(e.target.files[0])
               }
@@ -294,7 +314,17 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{statusText}</span>
-                <span>{progress}%</span>
+                <div className="flex items-center gap-2">
+                  <span>{progress}%</span>
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Cancel upload"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
               </div>
               <Progress value={progress} className="h-1.5" />
             </div>

@@ -1,8 +1,10 @@
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
+  CopyObjectCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -40,7 +42,6 @@ export const STAFF_ALLOWED_MIME = new Set([
   "video/ogg",
   "video/3gpp",
   "video/3gpp2",
-  "application/pdf",
 ]);
 
 export const PUBLIC_ALLOWED_MIME = new Set([
@@ -111,12 +112,16 @@ export function buildObjectKey(orgId, subfolder, filename) {
 // ── Presigned single-part PUT (files < 300 MB) ────────────────────────────────
 
 export async function generatePresignedPut(key, mimeType, _fileSizeBytes) {
-  // Bind ContentType into the signature so the client's PUT must send exactly
-  // this Content-Type header — otherwise the upload is rejected by R2. This is
-  // what enforces the server-side MIME allow-list at upload time; without it a
-  // caller could PUT any content type (e.g. text/html) to the presigned key.
-  // (Size can't be bound on a simple presigned PUT; a presigned POST policy with
-  // content-length-range would be required for hard size enforcement.)
+  // IMPORTANT: a SigV4 *presigned* PUT signs only the `host` header — neither
+  // Content-Type nor Content-Length end up in X-Amz-SignedHeaders. That means
+  // the browser can PUT arbitrary bytes with an arbitrary Content-Type to this
+  // key regardless of what we pass here. So this URL enforces NOTHING about the
+  // uploaded content — the real controls are:
+  //   1. The MIME allow-list check at prepare time (declared type only).
+  //   2. handleConfirmMedia, which HeadObjects the real size (quota/limit
+  //      enforcement) and CopyObjects the object to pin a vetted Content-Type
+  //      (neutralising text/html / image/svg+xml stored-XSS).
+  // We still set ContentType as a best-effort hint for the (honest) client.
   const cmd = new PutObjectCommand({
     Bucket: env.r2BucketName,
     Key: key,
@@ -134,11 +139,15 @@ export async function generatePresignedPut(key, mimeType, _fileSizeBytes) {
 export async function generatePresignedMultipart(key, mimeType, fileSizeBytes) {
   const client = getR2Client();
 
+  // For multipart, ContentType is bound server-side here (not client-controlled),
+  // so unlike the single presigned PUT it cannot be spoofed. `inline` disposition
+  // keeps images/videos viewable while the vetted MIME keeps active types inert.
   const { UploadId } = await client.send(
     new CreateMultipartUploadCommand({
       Bucket: env.r2BucketName,
       Key: key,
       ContentType: mimeType,
+      ContentDisposition: "inline",
       CacheControl: "public, max-age=31536000, immutable",
     }),
   );
@@ -187,6 +196,51 @@ export async function abortMultipartUpload(key, uploadId) {
   } catch {
     // best-effort
   }
+}
+
+// ── Post-upload verification / finalization ───────────────────────────────────
+
+// Read an object's true size + stored Content-Type straight from R2. Used at
+// confirm time because a presigned PUT cannot bind content-length, so the size
+// the client declared at prepare time is untrusted. Returns null on 404.
+export async function headObject(key) {
+  try {
+    const res = await getR2Client().send(
+      new HeadObjectCommand({ Bucket: env.r2BucketName, Key: key }),
+    );
+    return {
+      contentLength: Number(res.ContentLength ?? 0),
+      contentType: res.ContentType ?? null,
+    };
+  } catch (err) {
+    if (
+      err?.$metadata?.httpStatusCode === 404 ||
+      err?.name === "NotFound" ||
+      err?.name === "NoSuchKey"
+    )
+      return null;
+    throw err;
+  }
+}
+
+// Rewrite the stored object's metadata in place (self-copy with REPLACE) to pin
+// a known-safe, allow-listed Content-Type and mark it inline + long-cache. This
+// is the security control that guarantees the bytes are served as the vetted
+// MIME (never attacker-supplied text/html or image/svg+xml), since the presigned
+// PUT itself cannot enforce Content-Type. `key` segments are already sanitized to
+// a URL-safe charset by buildObjectKey, so encodeURI leaves them intact.
+export async function normalizeObjectContentType(key, contentType) {
+  await getR2Client().send(
+    new CopyObjectCommand({
+      Bucket: env.r2BucketName,
+      Key: key,
+      CopySource: encodeURI(`${env.r2BucketName}/${key}`),
+      MetadataDirective: "REPLACE",
+      ContentType: contentType || "application/octet-stream",
+      ContentDisposition: "inline",
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+  );
 }
 
 // ── Bucket diagnostics ────────────────────────────────────────────────────────

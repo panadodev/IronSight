@@ -314,6 +314,15 @@ export async function ensureSchema(pool) {
     END $$
   `);
 
+  // Allow NULL actor_user_id in audit_logs for system-generated events (ban expiry, auto-bans)
+  await pool.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_logs') THEN
+        ALTER TABLE audit_logs ALTER COLUMN actor_user_id DROP NOT NULL;
+      END IF;
+    END $$
+  `);
+
   // ── Public identity links (Discord + Steam for portal ticket submitters) ──
 
   await pool.query(`
@@ -343,7 +352,7 @@ export async function ensureSchema(pool) {
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGSERIAL PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
-      actor_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
+      actor_user_id UUID NULL REFERENCES users(user_id) ON DELETE SET NULL,
       target_user_id UUID NULL REFERENCES users(user_id) ON DELETE SET NULL,
       resource_type TEXT NULL,
       resource_id TEXT NULL,
