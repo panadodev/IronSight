@@ -1176,58 +1176,78 @@ function ChatPage() {
                   No chat lines match these filters.
                 </p>
               ) : (
-                <div className="space-y-0.5 font-mono text-[12px] max-w-4xl mx-auto">
-                  {filtered.map((l) => (
-                    <div
-                      key={l.id}
-                      data-msg-id={l.id}
-                      className={`flex gap-3 px-2 py-1 hover:bg-surface/50 rounded items-baseline transition-colors ${
-                        l.teamMessage
-                          ? "border-l-2 border-yellow-500/40 pl-1.5"
-                          : ""
-                      } ${String(l.id) === String(highlightedId) ? "bg-warning/10 ring-1 ring-warning/30" : ""}`}
-                    >
-                      <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
-                        {relativeTs
-                          ? fmtRelative(l.ts * 1000)
-                          : fmtTime(l.ts * 1000, tz)}
-                      </span>
-                      {l.teamMessage && (
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
-                          team
-                        </span>
-                      )}
-                      <span className="flex items-center gap-0.5 shrink-0 w-[140px]">
-                        <Link
-                          to="/player-lookup"
-                          search={{ steam: l.steamId }}
-                          className="font-semibold truncate hover:text-brand hover:underline"
-                          title={l.steamId}
-                        >
-                          {l.playerName ?? l.steamId}
-                        </Link>
-                        {l.panelLinked && (
-                          <BadgeCheck
-                            className="size-3 text-brand shrink-0"
-                            title="Linked panel account"
-                          />
+                <div className="font-mono text-[12px] max-w-4xl mx-auto">
+                  {filtered.map((l, idx) => {
+                    const prev = filtered[idx - 1];
+                    const isContinuation =
+                      prev &&
+                      prev.steamId === l.steamId &&
+                      l.ts - prev.ts < 5 * 60 &&
+                      prev.teamMessage === l.teamMessage;
+                    return (
+                      <div
+                        key={l.id}
+                        data-msg-id={l.id}
+                        className={`group flex gap-3 px-2 hover:bg-surface/50 rounded items-baseline transition-colors ${
+                          isContinuation ? "py-0.5" : "pt-2.5 pb-0.5"
+                        } ${
+                          l.teamMessage
+                            ? "border-l-2 border-yellow-500/40 pl-1.5"
+                            : ""
+                        } ${String(l.id) === String(highlightedId) ? "bg-warning/10 ring-1 ring-warning/30" : ""}`}
+                      >
+                        {isContinuation ? (
+                          <span className="text-transparent group-hover:text-muted-foreground/40 shrink-0 w-[100px] text-[10px] text-right transition-colors select-none">
+                            {fmtRelative(l.ts * 1000)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
+                            {relativeTs
+                              ? fmtRelative(l.ts * 1000)
+                              : fmtTime(l.ts * 1000, tz)}
+                          </span>
                         )}
-                      </span>
-                      <div className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
-                        <span
-                          className={`break-words min-w-0 ${l.teamMessage ? "text-yellow-400/80" : "text-foreground/90"}`}
-                        >
-                          {l.message}
-                        </span>
                         {l.teamMessage && (
-                          <TeamRecipients
-                            info={teamInfoById.get(l.id)}
-                            nameFor={nameFor}
-                          />
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
+                            team
+                          </span>
                         )}
+                        {isContinuation ? (
+                          <span className="shrink-0 w-[140px]" />
+                        ) : (
+                          <span className="flex items-center gap-0.5 shrink-0 w-[140px]">
+                            <Link
+                              to="/player-lookup"
+                              search={{ steam: l.steamId }}
+                              className="font-semibold truncate hover:text-brand hover:underline"
+                              title={l.steamId}
+                            >
+                              {l.playerName ?? l.steamId}
+                            </Link>
+                            {l.panelLinked && (
+                              <BadgeCheck
+                                className="size-3 text-brand shrink-0"
+                                title="Linked panel account"
+                              />
+                            )}
+                          </span>
+                        )}
+                        <div className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
+                          <span
+                            className={`break-words min-w-0 ${l.teamMessage ? "text-yellow-400/80" : "text-foreground/90"}`}
+                          >
+                            {l.message}
+                          </span>
+                          {l.teamMessage && (
+                            <TeamRecipients
+                              info={teamInfoById.get(l.id)}
+                              nameFor={nameFor}
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <div
                     ref={sentinelRef}
                     className="py-3 flex items-center justify-center"
