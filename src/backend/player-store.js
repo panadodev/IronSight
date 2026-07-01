@@ -2373,6 +2373,7 @@ export async function getPlayerCacheData(steamId) {
       startedAt: Number(r.started_at),
       stoppedAt: r.stopped_at != null ? Number(r.stopped_at) : null,
     })),
+    nameAliases: Array.isArray(p.bm_name_aliases) ? p.bm_name_aliases : [],
     isStale: Boolean(p.is_stale),
     cacheExpiresAt: p.cache_expires_at,
     steamGroups: Array.isArray(p.steam_groups)

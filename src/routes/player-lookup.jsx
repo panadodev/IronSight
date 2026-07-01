@@ -35,11 +35,11 @@ import {
   Ban,
   Clock,
   FolderOpen,
+  History,
   MessageSquare,
   MicOff,
   RefreshCw,
   Search,
-  UserX,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -322,12 +322,6 @@ function PlayerLookupPage() {
   const refreshCooldownRef = useRef(null);
   const [bmRateLimitWarning, setBmRateLimitWarning] = useState(false);
 
-  const [kickOpen, setKickOpen] = useState(false);
-  const [kickServerId, setKickServerId] = useState("");
-  const [kickLoading, setKickLoading] = useState(false);
-  const [kickError, setKickError] = useState("");
-  const [kickResult, setKickResult] = useState("");
-  const [orgServers, setOrgServers] = useState(null);
 
   const [chatLines, setChatLines] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -383,9 +377,6 @@ function PlayerLookupPage() {
   // No ban permission anywhere → view-only (hide ban/mute actions).
   const isSupportOnly = !banOrgId;
 
-  const canKick = fetchOrgId
-    ? hasOrgPermission(fetchOrgId, "player_kick")
-    : false;
   const isLiveOnServer = liveServerStatus.isOnline === true;
   const liveServerName = liveServerStatus.serverName ?? null;
 
@@ -865,56 +856,6 @@ function PlayerLookupPage() {
       () => setRefreshCooldown(false),
       15000,
     );
-  };
-
-  const openKickDialog = async () => {
-    setKickError("");
-    setKickResult("");
-    setKickServerId("");
-    setKickOpen(true);
-    if (!orgServers && fetchOrgId) {
-      const res = await fetch("/api/servers", { credentials: "include" });
-      const data = await res.json().catch(() => ({}));
-      const rconServers = (data.servers ?? []).filter(
-        (s) => s.rconConfigured && s.ownerOrgId === fetchOrgId,
-      );
-      setOrgServers(rconServers);
-      if (rconServers.length === 1) setKickServerId(rconServers[0].serverId);
-      else {
-        const sessionServer =
-          liveServerName ?? playerData?.bmSessions?.[0]?.serverName;
-        const match = rconServers.find((s) =>
-          s.serverName
-            .toLowerCase()
-            .includes((sessionServer ?? "").toLowerCase().slice(0, 8)),
-        );
-        if (match) setKickServerId(match.serverId);
-      }
-    }
-  };
-
-  const handleKick = async () => {
-    if (!steamId || !kickServerId || !fetchOrgId) return;
-    setKickLoading(true);
-    setKickError("");
-    setKickResult("");
-    try {
-      const res = await fetch(
-        `/api/players/${encodeURIComponent(steamId)}/kick?orgId=${encodeURIComponent(fetchOrgId)}&serverId=${encodeURIComponent(kickServerId)}`,
-        { method: "POST", credentials: "include" },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setKickResult("Player kicked successfully.");
-        setTimeout(() => setKickOpen(false), 1500);
-      } else {
-        setKickError(data.error ?? "Kick failed.");
-      }
-    } catch {
-      setKickError("Network error.");
-    } finally {
-      setKickLoading(false);
-    }
   };
 
   const displayName = playerData?.displayName ?? steamId ?? "";
@@ -1558,15 +1499,6 @@ function PlayerLookupPage() {
                                 Ban
                               </button>
                             )}
-                            {canKick && isLiveOnServer && (
-                              <button
-                                onClick={openKickDialog}
-                                className="flex items-center gap-2 px-3 py-2 bg-surface text-foreground ring-1 ring-border rounded-md text-xs font-semibold uppercase tracking-widest hover:bg-surface-bright"
-                              >
-                                <UserX className="size-3.5" />
-                                Logout
-                              </button>
-                            )}
                           </div>
                         </div>
 
@@ -1846,6 +1778,26 @@ function PlayerLookupPage() {
                       />
                     )}
 
+                    {/* Previous Names */}
+                    {playerData.nameAliases?.length > 0 && (
+                      <section className="rounded-lg ring-1 ring-border bg-surface p-4 space-y-3">
+                        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          <History className="size-3.5" />
+                          Previous Names
+                        </h3>
+                        <ul className="space-y-1">
+                          {playerData.nameAliases.map((name, i) => (
+                            <li
+                              key={i}
+                              className="text-xs text-foreground font-mono truncate"
+                            >
+                              {name}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+
                     {/* Previous Connection Points */}
                     {canViewIpConnections && (
                       <ConnectionPointsSection
@@ -1865,70 +1817,6 @@ function PlayerLookupPage() {
               </div>
             </div>
           )}
-
-          {/* Logout Dialog */}
-          <Dialog open={kickOpen} onOpenChange={setKickOpen}>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Logout Player</DialogTitle>
-                <DialogDescription>
-                  Select the server and confirm the logout.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                {!orgServers || orgServers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No RCON-configured servers found for this org.
-                  </p>
-                ) : orgServers.length === 1 ? (
-                  <p className="text-xs text-foreground">
-                    Server: <strong>{orgServers[0].serverName}</strong>
-                  </p>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">
-                      Select server:
-                    </p>
-                    <select
-                      value={kickServerId}
-                      onChange={(e) => setKickServerId(e.target.value)}
-                      className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs"
-                    >
-                      <option value="">— pick a server —</option>
-                      {orgServers.map((s) => (
-                        <option key={s.serverId} value={s.serverId}>
-                          {s.serverName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {kickResult && (
-                  <p className="text-xs text-success">{kickResult}</p>
-                )}
-                {kickError && (
-                  <p className="text-xs text-danger">{kickError}</p>
-                )}
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setKickOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={kickLoading || !kickServerId}
-                  onClick={handleKick}
-                >
-                  {kickLoading ? "Logging out…" : "Logout"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
 
           {/* Dialogs */}
           {steamId && (

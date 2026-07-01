@@ -315,8 +315,16 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
   const filtered = useMemo(() => {
     return accounts
       .filter((a) => {
-        // Default-on: hide accounts whose only shared IPs are VPN/proxy/hosting.
-        if (ignoreProxyOnly && a.nonProxyLinked === false) return false;
+        // Default-on: hide accounts whose ONLY link is through VPN/proxy/hosting IPs.
+        // Accounts with no shared IPs (linked via mutual friends / name alone) are
+        // always shown — nonProxyLinked=false doesn't mean "only proxy IPs" when
+        // there are no IPs at all.
+        if (
+          ignoreProxyOnly &&
+          a.nonProxyLinked === false &&
+          (a.sharedIps ?? []).length > 0
+        )
+          return false;
         if (activeIpTypes.size === 0) return false;
         if ((a.sharedIps ?? []).length > 0) {
           const ipOk = a.sharedIps.some((ip) =>
