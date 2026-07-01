@@ -477,10 +477,12 @@ function ServerLogsPage() {
                           <tbody>
                             {visibleLogs.map((log) => {
                               const m = eventMeta(log.eventType);
+                              const isKill = log.details?.action === "kill";
                               return (
                                 <tr
                                   key={log.id}
                                   className="border-t border-border"
+                                  style={isKill ? { outline: "1px solid hsl(0 80% 55%)", outlineOffset: "-1px" } : undefined}
                                 >
                                   <td className="px-2 py-1 text-muted-foreground whitespace-nowrap">
                                     {formatWhen(log.createdAt, tz)}

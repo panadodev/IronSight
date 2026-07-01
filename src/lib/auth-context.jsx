@@ -92,6 +92,7 @@ function AuthProvider({ children }) {
             globalAdmin: body.user.globalAdmin === true,
           });
           if (userId) manageOrgStore.init(userId);
+          if (body.user.steamId) setPublicSignedIn(true);
         }
 
         const nextOrgs = (body?.orgs ?? []).map((org) => {
