@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   Ban,
   Clock,
+  FolderOpen,
   MessageSquare,
   MicOff,
   RefreshCw,
@@ -331,6 +332,9 @@ function PlayerLookupPage() {
   const [chatLines, setChatLines] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
 
+  const [caseDialogOpen, setCaseDialogOpen] = useState(false);
+  const [hasOpenTicketInCaseOrg, setHasOpenTicketInCaseOrg] = useState(false);
+
   // URL search params are the source of truth. We support either `steam` or
   // `ipHash` mode; this effect mirrors the active mode into local state.
   useEffect(() => {
@@ -407,6 +411,12 @@ function PlayerLookupPage() {
     hasOrgPermission(o.id, "player_steam_friends"),
   );
   const canViewNotes = orgs.some((o) => hasOrgPermission(o.id, "player_notes"));
+
+  const caseOrgIds = orgs
+    .filter((o) => hasOrgPermission(o.id, "cases_create"))
+    .map((o) => o.id);
+  const caseOrgId = caseOrgIds[0] ?? null;
+  const canCreateCase = caseOrgIds.length > 0;
 
   const fetchPlayer = useCallback(
     async (forceRefresh = false) => {
@@ -760,6 +770,28 @@ function PlayerLookupPage() {
       cancelled = true;
     };
   }, [steamId, chatOrgId]);
+
+  useEffect(() => {
+    if (!steamId || !caseOrgId) {
+      setHasOpenTicketInCaseOrg(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/orgs/${encodeURIComponent(caseOrgId)}/players/${encodeURIComponent(steamId)}/open-ticket`,
+      { credentials: "include" },
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setHasOpenTicketInCaseOrg(data.hasOpenTicket === true);
+      })
+      .catch(() => {
+        if (!cancelled) setHasOpenTicketInCaseOrg(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [steamId, caseOrgId]);
 
   const submit = (e) => {
     e.preventDefault();
@@ -1446,6 +1478,28 @@ function PlayerLookupPage() {
                               />
                             </button>
 
+                            {canCreateCase && (
+                              <button
+                                type="button"
+                                onClick={() => setCaseDialogOpen(true)}
+                                disabled={!!activeBan || hasOpenTicketInCaseOrg}
+                                title={
+                                  activeBan
+                                    ? "Player is already banned"
+                                    : hasOpenTicketInCaseOrg
+                                      ? "An open ticket already exists for this player"
+                                      : "Create an internal staff case for this player"
+                                }
+                                className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md ring-1 transition-colors ${
+                                  activeBan || hasOpenTicketInCaseOrg
+                                    ? "bg-surface text-muted-foreground ring-border opacity-50 cursor-not-allowed"
+                                    : "bg-sky-500/15 text-sky-400 ring-sky-500/30 hover:bg-sky-500/25"
+                                }`}
+                              >
+                                <FolderOpen className="size-3.5" aria-hidden />
+                                Create Case
+                              </button>
+                            )}
                             {!isSupportOnly && (
                               <>
                                 <button
@@ -1912,6 +1966,20 @@ function PlayerLookupPage() {
               orgIds={offenseOrgIds}
               open={manageMutesOpen}
               onOpenChange={setManageMutesOpen}
+            />
+          )}
+          {steamId && caseOrgId && (
+            <CreateCaseDialog
+              open={caseDialogOpen}
+              onClose={() => setCaseDialogOpen(false)}
+              steamId={steamId}
+              displayName={displayName}
+              caseOrgIds={caseOrgIds}
+              orgs={orgs}
+              onCreated={(ticketId) => {
+                setHasOpenTicketInCaseOrg(true);
+                setCaseDialogOpen(false);
+              }}
             />
           )}
         </main>
@@ -3083,6 +3151,140 @@ function ConnectionPointsSection({
         })}
       </div>
     </section>
+  );
+}
+
+function CreateCaseDialog({
+  open,
+  onClose,
+  steamId,
+  displayName,
+  caseOrgIds,
+  orgs,
+  onCreated,
+}) {
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [selectedOrgId, setSelectedOrgId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setTitle(
+        displayName
+          ? `Staff Case: ${displayName}`
+          : `Staff Case: ${steamId ?? ""}`,
+      );
+      setNote("");
+      setSelectedOrgId(caseOrgIds[0] ?? "");
+      setError("");
+      setSubmitting(false);
+    }
+  }, [open, displayName, steamId, caseOrgIds]);
+
+  const handleSubmit = async () => {
+    if (!selectedOrgId || !title.trim() || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(selectedOrgId)}/cases`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            steamId,
+            title: title.trim(),
+            note: note.trim(),
+          }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error ?? "Failed to create case.");
+        return;
+      }
+      onCreated?.(data.ticketId);
+    } catch {
+      setError("Network error.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create Staff Case</DialogTitle>
+          <DialogDescription>
+            Opens an internal staff case for{" "}
+            <strong>{displayName ?? steamId}</strong>. No public submission
+            needed — staff manage it through the Ticket Queue.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {caseOrgIds.length > 1 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Organization</p>
+              <select
+                value={selectedOrgId}
+                onChange={(e) => setSelectedOrgId(e.target.value)}
+                className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs"
+              >
+                {caseOrgIds.map((orgId) => {
+                  const org = orgs.find((o) => o.id === orgId);
+                  return (
+                    <option key={orgId} value={orgId}>
+                      {org?.name ?? orgId}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Title</p>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={255}
+              className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-brand"
+            />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">
+              Initial note{" "}
+              <span className="text-muted-foreground/60">
+                (optional · internal only)
+              </span>
+            </p>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="Context, suspicion reason, evidence notes..."
+              className="w-full bg-background ring-1 ring-border rounded px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-brand"
+            />
+          </div>
+          {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={!title.trim() || !selectedOrgId || submitting}
+            onClick={handleSubmit}
+          >
+            {submitting ? "Creating…" : "Create Case"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

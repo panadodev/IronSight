@@ -92,6 +92,11 @@ const PERMISSION_GROUPS = [
             label: "Player Intel Panel",
             desc: "View the player intelligence sidebar in tickets",
           },
+          {
+            id: "cases_create",
+            label: "Create Cases",
+            desc: "Create internal staff cases from the Player Lookup page (owners and admins always have this)",
+          },
         ],
       },
       {

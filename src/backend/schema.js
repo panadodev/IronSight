@@ -1912,7 +1912,8 @@ export async function ensureRolePermissionSeed(pool) {
       ('player_steam_friends',     'View Steam friends list on player profiles'),
       ('player_notes',             'View and add staff notes on player profiles'),
       ('ticket_types_manage',      'Manage ticket types (enable/disable)'),
-      ('applications_view',        'View and review staff applications')
+      ('applications_view',        'View and review staff applications'),
+      ('cases_create',             'Create staff cases from player lookup')
      ON CONFLICT (permission_id) DO UPDATE SET permission_name = EXCLUDED.permission_name`,
   );
 

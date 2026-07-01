@@ -41,7 +41,7 @@ export async function invalidateTicketCache(ticketId) {
 export async function loadTicketFromDb(ticketId) {
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
-            t.status, t.priority, t.title,
+            t.status, t.priority, t.category, t.title,
             t.created_at,
             t.updated_at,
             t.closed_at,
@@ -64,6 +64,7 @@ export async function loadTicketFromDb(ticketId) {
     org_id: String(row.org_id),
     ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
     ticket_type_name: row.ticket_type_name ?? null,
+    category: row.category ?? null,
     created_by: row.created_by ? String(row.created_by) : null,
     created_by_username: row.created_by_username ?? null,
     created_by_steam_id: row.created_by_steam_id ?? null,

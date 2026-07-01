@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth-context";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Activity,
+  AlertTriangle,
   ChevronDown,
   Copy,
   ExternalLink,
@@ -28,10 +29,18 @@ const TYPE_META = {
   vip_issue: { label: "VIP", color: "text-cyan-400" },
   general_support: { label: "Support", color: "text-green-400" },
   staff_application: { label: "Apply", color: "text-purple-400" },
+  threat_auto: { label: "Auto", color: "text-orange-400" },
+  staff_case: { label: "Case", color: "text-sky-400" },
 };
 
+const IP_IN_TEXT_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+
 function typeFromTicket(ticket) {
-  // Use the authoritative DB category first
+  // Direct category overrides (auto-opened or staff-initiated cases)
+  if (ticket.category === "threat_auto") return "threat_auto";
+  if (ticket.category === "staff_case") return "staff_case";
+
+  // Use the authoritative ticket type category next
   const cat = ticket.ticket_type_category;
   if (cat === "player_single" || cat === "player_multi") return "player_report";
   if (cat === "staff_application") return "staff_application";
@@ -129,13 +138,15 @@ const TAB_STATUSES = {
   waiting: new Set(["waiting_response"]),
   closed: new Set(["closed"]),
 };
-const TYPE_FILTERS = ["ALL", "REPORT", "APPEAL", "VIP", "SUPPORT"];
+const TYPE_FILTERS = ["ALL", "REPORT", "APPEAL", "VIP", "SUPPORT", "AUTO", "CASE"];
 const TYPE_FILTER_MAP = {
   ALL: null,
   REPORT: "player_report",
   APPEAL: "ban_appeal",
   VIP: "vip_issue",
   SUPPORT: "general_support",
+  AUTO: "threat_auto",
+  CASE: "staff_case",
 };
 
 function TicketsPage() {
@@ -170,7 +181,7 @@ function TicketsPage() {
     return Array.from(ids);
   }, [adminableOrgIds, orgs, sessionOrgPermissions]);
 
-  const [applicationsOpen, setApplicationsOpen] = useState(false);
+  const [applicationsOpen, setApplicationsOpen] = useState(true);
   const [tab, setTab] = useState("active");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -389,6 +400,10 @@ function TicketsPage() {
 
   const handlePostNote = useCallback(async () => {
     if (!noteText.trim() || !selectedId || submitting) return;
+    if (IP_IN_TEXT_RE.test(noteText.trim())) {
+      setSubmitError("Raw IP addresses are not permitted in ticket messages.");
+      return;
+    }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -412,6 +427,10 @@ function TicketsPage() {
 
   const handlePostReply = useCallback(async () => {
     if (!replyText.trim() || !selectedId || submitting) return;
+    if (IP_IN_TEXT_RE.test(replyText.trim())) {
+      setSubmitError("Raw IP addresses are not permitted in ticket messages.");
+      return;
+    }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -692,6 +711,8 @@ function getOrgPrefix(orgId, orgs) {
 function TicketListItem({ ticket, orgs, selected, onClick }) {
   const meta = ticketMeta(ticket);
   const prefix = getOrgPrefix(ticket.org_id, orgs);
+  const isAuto = ticket.category === "threat_auto";
+  const isCase = ticket.category === "staff_case";
   return (
     <button
       onClick={onClick}
@@ -709,9 +730,21 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
           >
             {meta.label}
           </span>
+          {isAuto && (
+            <span className="text-[8px] font-mono uppercase tracking-widest text-orange-400/70 bg-orange-400/10 px-1 rounded shrink-0">
+              auto
+            </span>
+          )}
+          {isCase && (
+            <span className="text-[8px] font-mono uppercase tracking-widest text-sky-400/70 bg-sky-400/10 px-1 rounded shrink-0">
+              staff
+            </span>
+          )}
           <span className="text-[9px] text-muted-foreground shrink-0">·</span>
           <span className="text-[10px] font-medium truncate min-w-0">
-            {ticket.created_by_username ?? "Unknown"}
+            {isAuto || isCase
+              ? (ticket.title ?? "—")
+              : (ticket.created_by_username ?? "Unknown")}
           </span>
         </div>
         <div className="flex items-center gap-1 mt-0.5">
@@ -952,8 +985,14 @@ function TicketDetail({
 }) {
   const isClaimed = ticket.assigned_to === sessionUser?.userId;
   const isClosed = ticket.status === "closed";
+  const isAuto = ticket.category === "threat_auto";
+  const isCase = ticket.category === "staff_case";
+  const isInternalOnly = isAuto || isCase;
   const internalMessages = messages.filter((m) => m.isInternal);
   const publicMessages = messages.filter((m) => !m.isInternal);
+
+  const noteHasIp = IP_IN_TEXT_RE.test(noteText);
+  const replyHasIp = IP_IN_TEXT_RE.test(replyText);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -963,6 +1002,16 @@ function TicketDetail({
             #{ticket.ticket_id}
           </span>
           <h2 className="text-sm font-bold truncate">{ticket.title}</h2>
+          {isAuto && (
+            <span className="text-[8px] font-mono uppercase tracking-widest text-orange-400 bg-orange-400/10 ring-1 ring-orange-400/30 px-1.5 py-0.5 rounded shrink-0">
+              Auto-opened
+            </span>
+          )}
+          {isCase && (
+            <span className="text-[8px] font-mono uppercase tracking-widest text-sky-400 bg-sky-400/10 ring-1 ring-sky-400/30 px-1.5 py-0.5 rounded shrink-0">
+              Staff Case
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5">
@@ -1113,29 +1162,33 @@ function TicketDetail({
 
       <div className="border-t border-border px-4 py-3 shrink-0">
         <div className="flex items-center gap-1 mb-2">
-          <button
-            onClick={() => onComposerModeChange("reply")}
-            className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
-              composerMode === "reply"
-                ? "bg-brand text-brand-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Reply
-          </button>
+          {!isInternalOnly && (
+            <button
+              onClick={() => onComposerModeChange("reply")}
+              className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+                composerMode === "reply"
+                  ? "bg-brand text-brand-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Reply
+            </button>
+          )}
           <button
             onClick={() => onComposerModeChange("note")}
             className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
-              composerMode === "note"
+              composerMode === "note" || isInternalOnly
                 ? "bg-brand text-brand-foreground"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Internal Note
           </button>
-          {composerMode === "note" && (
+          {(composerMode === "note" || isInternalOnly) && (
             <span className="text-[9px] font-mono text-muted-foreground/50 ml-1">
-              · Staff-only. Reporters never see these.
+              {isInternalOnly
+                ? "· No external recipient — internal notes only."
+                : "· Staff-only. Reporters never see these."}
             </span>
           )}
           <div className="ml-auto">
@@ -1143,7 +1196,7 @@ function TicketDetail({
               predefines={predefines}
               ticketTypeId={ticket.ticket_type_id ?? null}
               onSelect={(content) => {
-                if (composerMode === "reply") {
+                if (composerMode === "reply" && !isInternalOnly) {
                   onReplyChange(
                     replyText ? `${replyText}\n\n${content}` : content,
                   );
@@ -1161,8 +1214,14 @@ function TicketDetail({
             {submitError}
           </p>
         )}
-        {composerMode === "reply" ? (
+        {composerMode === "reply" && !isInternalOnly ? (
           <>
+            {replyHasIp && (
+              <p className="text-[10px] font-mono text-warning mb-2 flex items-center gap-1">
+                <AlertTriangle size={10} className="shrink-0" />
+                Raw IP addresses are not permitted in ticket messages.
+              </p>
+            )}
             <textarea
               value={replyText}
               onChange={(e) => onReplyChange(e.target.value)}
@@ -1173,7 +1232,7 @@ function TicketDetail({
             <div className="flex items-center justify-end mt-1.5">
               <button
                 onClick={onPostReply}
-                disabled={!replyText.trim() || submitting || isClosed}
+                disabled={!replyText.trim() || submitting || isClosed || replyHasIp}
                 className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? "Sending..." : "Send Reply"}
@@ -1182,6 +1241,12 @@ function TicketDetail({
           </>
         ) : (
           <>
+            {noteHasIp && (
+              <p className="text-[10px] font-mono text-warning mb-2 flex items-center gap-1">
+                <AlertTriangle size={10} className="shrink-0" />
+                Raw IP addresses are not permitted in ticket messages.
+              </p>
+            )}
             <textarea
               value={noteText}
               onChange={(e) => onNoteChange(e.target.value)}
@@ -1192,7 +1257,7 @@ function TicketDetail({
             <div className="flex items-center justify-end mt-1.5">
               <button
                 onClick={onPostNote}
-                disabled={!noteText.trim() || submitting || isClosed}
+                disabled={!noteText.trim() || submitting || isClosed || noteHasIp}
                 className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? "Posting..." : "Post Note"}

@@ -6386,6 +6386,12 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   if (message.length > 10000)
     return json({ error: "message is too long" }, 400);
 
+  if (/\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(message))
+    return json(
+      { error: "Messages cannot contain raw IP addresses." },
+      400,
+    );
+
   const isInternal = Boolean(body?.isInternal);
 
   const ticket = await loadTicketFromDb(id);
@@ -6626,7 +6632,7 @@ async function handleListOrgTickets(request, orgId) {
 
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
-            t.status, t.priority, t.title,
+            t.status, t.priority, t.category, t.title,
             t.created_at,
             t.updated_at,
             t.closed_at,
@@ -6651,6 +6657,7 @@ async function handleListOrgTickets(request, orgId) {
       ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
       ticket_type_name: row.ticket_type_name ?? null,
       ticket_type_category: row.ticket_type_category ?? null,
+      category: row.category ?? null,
       created_by: row.created_by ? String(row.created_by) : null,
       created_by_username: row.created_by_username ?? null,
       created_by_steam_id: row.created_by_steam_id ?? null,
@@ -6664,6 +6671,134 @@ async function handleListOrgTickets(request, orgId) {
       closed_at: row.closed_at ? Number(row.closed_at) : null,
     })),
   });
+}
+
+async function handleCreateCase(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !isGlobalAdmin(session) &&
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "cases_create")
+  )
+    return json({ error: "Forbidden" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const steamId = String(body?.steamId ?? "").trim();
+  const title = String(body?.title ?? "").trim();
+  const note = String(body?.note ?? "").trim();
+
+  if (!steamId || !title)
+    return json({ error: "steamId and title are required" }, 400);
+  if (!/^\d{17}$/.test(steamId))
+    return json({ error: "Invalid Steam ID" }, 400);
+  if (title.length > 255)
+    return json({ error: "title must be 255 characters or fewer" }, 400);
+  if (note.length > 10000)
+    return json({ error: "note is too long" }, 400);
+
+  const orgRes = await pool.query(
+    "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  // Check for an existing open ticket with this player in this org
+  const openRes = await pool.query(
+    `SELECT ticket_id FROM tickets WHERE org_id = $1 AND $2 = ANY(reported_players) AND status != 'closed' LIMIT 1`,
+    [orgId, steamId],
+  );
+  if (openRes.rows[0])
+    return json(
+      { error: "An open ticket already exists for this player in this org." },
+      409,
+    );
+
+  // Pick the best player-report ticket type for this org
+  const typeRes = await pool.query(
+    `SELECT ticket_type_id FROM ticket_types
+     WHERE org_id = $1 AND is_enabled IS NOT FALSE
+     ORDER BY
+       (LOWER(ticket_type_name) LIKE '%report%') DESC,
+       (LOWER(ticket_type_name) = 'cheating') DESC,
+       (ticket_type_category = 'player_single') DESC,
+       (ticket_type_category = 'player_multi') DESC,
+       ticket_type_id ASC
+     LIMIT 1`,
+    [orgId],
+  );
+  const ticketTypeId = typeRes.rows[0]?.ticket_type_id ?? null;
+
+  const txClient = await pool.connect();
+  let ticketId;
+  try {
+    await txClient.query("BEGIN");
+    const ins = await txClient.query(
+      `INSERT INTO tickets (org_id, ticket_type_id, created_by, status, priority, category, title, reported_players)
+       VALUES ($1, $2, $3, 'open', 'normal', 'staff_case', $4, $5) RETURNING ticket_id`,
+      [orgId, ticketTypeId, session.userId, title, [steamId]],
+    );
+    ticketId = Number(ins.rows[0].ticket_id);
+
+    if (note) {
+      await txClient.query(
+        `INSERT INTO ticket_messages (ticket_id, user_id, message, is_internal) VALUES ($1, $2, $3, TRUE)`,
+        [ticketId, session.userId, note],
+      );
+    }
+
+    await txClient.query(
+      `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, 'created', $3)`,
+      [
+        ticketId,
+        session.userId,
+        JSON.stringify({ category: "staff_case", steamId, orgId }),
+      ],
+    );
+    await txClient.query("COMMIT");
+  } catch (err) {
+    await txClient.query("ROLLBACK");
+    throw err;
+  } finally {
+    txClient.release();
+  }
+
+  const ticket = await loadTicketFromDb(ticketId);
+  if (ticket) await cacheTicket(ticket);
+
+  return json({ ok: true, ticketId }, 201);
+}
+
+async function handleCheckPlayerOpenTicket(request, orgId, steamIdParam) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (
+    !isGlobalAdmin(session) &&
+    !canManageOrg(session, orgId) &&
+    !orgHasPermission(session, orgId, "cases_create") &&
+    !orgHasPermission(session, orgId, "tickets_view") &&
+    !orgHasPermission(session, orgId, "tickets_manage")
+  )
+    return json({ error: "Forbidden" }, 403);
+
+  const steamId = decodeURIComponent(String(steamIdParam ?? "")).trim();
+  if (!/^\d{17}$/.test(steamId))
+    return json({ error: "Invalid Steam ID" }, 400);
+
+  const { rows } = await pool.query(
+    `SELECT ticket_id FROM tickets WHERE org_id = $1 AND $2 = ANY(reported_players) AND status != 'closed' LIMIT 1`,
+    [orgId, steamId],
+  );
+
+  return json({ hasOpenTicket: rows.length > 0 });
 }
 
 async function handleGetOrgTicketAssignees(request, orgId) {
@@ -16205,6 +16340,13 @@ async function _handleApiRequest(request) {
       return handleListOrgTickets(request, orgTicketsMatch[1]);
     }
 
+    const orgCasesMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/cases$/,
+    );
+    if (orgCasesMatch && request.method === "POST") {
+      return handleCreateCase(request, orgCasesMatch[1]);
+    }
+
     const orgOnlineStaffMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/online-staff$/,
     );
@@ -16870,6 +17012,16 @@ async function _handleApiRequest(request) {
         request,
         orgPlayerOnlineStatusMatch[1],
         orgPlayerOnlineStatusMatch[2],
+      );
+
+    const orgPlayerOpenTicketMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/([^/]+)\/open-ticket$/,
+    );
+    if (orgPlayerOpenTicketMatch && request.method === "GET")
+      return handleCheckPlayerOpenTicket(
+        request,
+        orgPlayerOpenTicketMatch[1],
+        orgPlayerOpenTicketMatch[2],
       );
 
     // Org player list
