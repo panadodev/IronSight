@@ -191,68 +191,69 @@ function SessionTimeline({ sessionWindows }) {
           No recent sessions on record.
         </p>
       ) : (
-        <div
-          ref={containerRef}
-          className="relative bg-surface/30 ring-1 ring-border rounded-md px-2 pt-2 pb-1 overflow-hidden"
-        >
-          {/* Grid lines */}
-          {[0, 25, 50, 75, 100].map((pct) => (
-            <div
-              key={pct}
-              className="absolute top-0 bottom-0 border-l border-border/30"
-              style={{ left: `${pct}%` }}
-            />
-          ))}
-
-          {/* Session bars */}
-          <div className="relative w-full" style={{ height: totalHeight }}>
-            {windows.map((w, i) => (
-              <SessionBar
-                key={`${w.bmServerId}-${w.startedAt}-${i}`}
-                w={w}
-                earliestSec={earliestSec}
-                spanSec={spanSec}
-                nowSec={nowSec}
-                rowIdx={rows[i]}
-                onHover={handleHover}
-                onLeave={handleLeave}
+        <>
+          <div
+            ref={containerRef}
+            className="relative bg-surface/30 ring-1 ring-border rounded-md px-2 pt-2 pb-1 overflow-hidden"
+          >
+            {/* Grid lines */}
+            {[0, 25, 50, 75, 100].map((pct) => (
+              <div
+                key={pct}
+                className="absolute top-0 bottom-0 border-l border-border/30"
+                style={{ left: `${pct}%` }}
               />
             ))}
+
+            {/* Session bars */}
+            <div className="relative w-full" style={{ height: totalHeight }}>
+              {windows.map((w, i) => (
+                <SessionBar
+                  key={`${w.bmServerId}-${w.startedAt}-${i}`}
+                  w={w}
+                  earliestSec={earliestSec}
+                  spanSec={spanSec}
+                  nowSec={nowSec}
+                  rowIdx={rows[i]}
+                  onHover={handleHover}
+                  onLeave={handleLeave}
+                />
+              ))}
+            </div>
+
+            {/* Time axis */}
+            <TimeAxisLabels earliestSec={earliestSec} spanSec={spanSec} tz={tz} />
           </div>
 
-          {/* Time axis */}
-          <TimeAxisLabels earliestSec={earliestSec} spanSec={spanSec} tz={tz} />
-        </div>
-
-        {/* Tooltip — rendered outside overflow:hidden via fixed positioning */}
-        {tooltip && (
-          <div
-            className="pointer-events-none fixed z-50 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[10px] font-mono max-w-52"
-            style={{
-              left: tooltip.x + 12,
-              top: tooltip.y - 8,
-              transform: "translateY(-100%)",
-            }}
-          >
-            <p className="font-semibold text-foreground">
-              {tooltip.w.serverName ?? `Server ${tooltip.w.bmServerId}`}
-            </p>
-            <p className="text-muted-foreground">
-              {new Date(tooltip.w.startedAt * 1000).toLocaleString(undefined, {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                ...(tz ? { timeZone: tz } : {}),
-              })}
-            </p>
-            <p className="text-muted-foreground">
-              {tooltip.w.stoppedAt
-                ? fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)
-                : "Online now"}
-            </p>
-          </div>
-        )}
+          {tooltip && (
+            <div
+              className="pointer-events-none fixed z-50 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[10px] font-mono max-w-52"
+              style={{
+                left: tooltip.x + 12,
+                top: tooltip.y - 8,
+                transform: "translateY(-100%)",
+              }}
+            >
+              <p className="font-semibold text-foreground">
+                {tooltip.w.serverName ?? `Server ${tooltip.w.bmServerId}`}
+              </p>
+              <p className="text-muted-foreground">
+                {new Date(tooltip.w.startedAt * 1000).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  ...(tz ? { timeZone: tz } : {}),
+                })}
+              </p>
+              <p className="text-muted-foreground">
+                {tooltip.w.stoppedAt
+                  ? fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)
+                  : "Online now"}
+              </p>
+            </div>
+          )}
+        </>
       )}
     </section>
   );
