@@ -156,6 +156,7 @@ function TicketsPage() {
     sessionUser,
     orgsLoaded,
     sessionOrgPermissions,
+    selectedOrgIds,
   } = useAuth();
 
   const ticketOrgIds = useMemo(() => {
@@ -169,8 +170,8 @@ function TicketsPage() {
       )
         ids.add(org.id);
     }
-    return Array.from(ids);
-  }, [adminableOrgIds, orgs, sessionOrgPermissions]);
+    return Array.from(ids).filter((id) => selectedOrgIds.includes(id));
+  }, [adminableOrgIds, orgs, sessionOrgPermissions, selectedOrgIds]);
 
   const applicationOrgIds = useMemo(() => {
     const ids = new Set(adminableOrgIds);
@@ -178,8 +179,8 @@ function TicketsPage() {
       const perms = sessionOrgPermissions[org.id] ?? [];
       if (perms.includes("applications_view")) ids.add(org.id);
     }
-    return Array.from(ids);
-  }, [adminableOrgIds, orgs, sessionOrgPermissions]);
+    return Array.from(ids).filter((id) => selectedOrgIds.includes(id));
+  }, [adminableOrgIds, orgs, sessionOrgPermissions, selectedOrgIds]);
 
   const [applicationsOpen, setApplicationsOpen] = useState(true);
   const [tab, setTab] = useState("active");

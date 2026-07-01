@@ -2249,6 +2249,24 @@ export async function getPlayerCacheData(steamId) {
     });
   }
 
+  // Count how many OTHER players in our DB share each IP. Queried live from
+  // player_ip_history so the count is symmetric regardless of when each player's
+  // alt-detection cache was built.
+  const ipSharedCounts = new Map();
+  const ipHashes = ips.rows.map((r) => r.ip_hash).filter(Boolean);
+  if (ipHashes.length > 0) {
+    const { rows: sharedRows } = await pool.query(
+      `SELECT ip_hash, COUNT(DISTINCT steam_id) AS other_count
+         FROM player_ip_history
+        WHERE ip_hash = ANY($1) AND steam_id != $2
+        GROUP BY ip_hash`,
+      [ipHashes, steamId],
+    );
+    for (const row of sharedRows) {
+      if (row.ip_hash) ipSharedCounts.set(row.ip_hash, Number(row.other_count));
+    }
+  }
+
   return {
     steamId: String(p.steam_id),
     displayName: p.display_name ?? null,
@@ -2361,6 +2379,7 @@ export async function getPlayerCacheData(steamId) {
       sourceOrgIds: Array.isArray(r.source_org_ids)
         ? r.source_org_ids.map(String)
         : [],
+      sharedPlayerCount: ipSharedCounts.get(r.ip_hash) ?? 0,
     })),
     relatedAccounts: related.rows.map((r) => ({
       relatedBmId: String(r.related_bm_id),

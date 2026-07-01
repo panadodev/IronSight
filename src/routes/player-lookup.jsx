@@ -2471,7 +2471,9 @@ function ConnectionPointsSection({
           const connMeta = CONN_TYPE_META[entry.connType] ?? null;
           const isOpen = expanded === entry.ipHash;
           const sharedPlayerCount =
-            sharedPlayerCountByIp.get(entry.ipHash) ?? 0;
+            entry.sharedPlayerCount != null
+              ? entry.sharedPlayerCount
+              : (sharedPlayerCountByIp.get(entry.ipHash) ?? 0);
           const isSharedWithOthers = sharedPlayerCount > 0;
           const summary =
             connMeta?.label ??
