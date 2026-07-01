@@ -783,16 +783,47 @@ function computeAltEvidence(subject, alt, ipMetaByIp) {
     alt.sessions ?? [],
   );
 
-  // Weighted rollup. Residential/business shared IPs are the strongest signal;
-  // VPN/proxy/hosting contribute nothing (they're shared by thousands). Frequent
-  // co-play actively lowers the score (teammates, not the same person).
+  // Weighted rollup. Business and residential shared IPs are the strongest
+  // signal; VPN/proxy/hosting contribute nothing (shared by thousands of
+  // unrelated users). Co-play actively lowers the score (teammates ≠ same person).
+  //
+  // Business IPs are far more distinctive than residential — a corporate subnet
+  // has very few users, so overlap is highly significant. Scoring is deliberately
+  // steep per extra IP because each additional shared connection is an independent
+  // observation that multiplicatively corroborates the same-person hypothesis.
+  // Sharing IPs from MULTIPLE distinct network types (home + work) is treated as
+  // a cross-type bonus because it's nearly impossible by coincidence.
   let score = 0;
-  const resBiz = sharedIps.filter(
-    (x) => x.connType === "residential" || x.connType === "business",
+  const bizCount = sharedIps.filter((x) => x.connType === "business").length;
+  const resCount = sharedIps.filter((x) => x.connType === "residential").length;
+  const mobCount = sharedIps.filter((x) => x.connType === "mobile").length;
+
+  let ipScore = 0;
+  if (bizCount > 0) {
+    // 1 biz = "likely" territory on its own; 2+ = "high" (each extra +15, cap +30)
+    ipScore += 55 + Math.min(30, (bizCount - 1) * 15);
+    // Residential on top of business adds further corroboration (+6 each, cap +18)
+    if (resCount > 0) ipScore += Math.min(18, resCount * 6);
+    // Mobile on top of strong signal: minor additive (+2 each, cap +6)
+    if (mobCount > 0) ipScore += Math.min(6, mobCount * 2);
+  } else if (resCount > 0) {
+    // Residential only: first IP = possible-likely boundary; each extra +8, cap +20
+    ipScore += 40 + Math.min(20, (resCount - 1) * 8);
+    // Mobile on top of residential: minor additive
+    if (mobCount > 0) ipScore += Math.min(6, mobCount * 2);
+  } else if (mobCount > 0) {
+    // Mobile only: weak (carrier NAT pools many users); first +20, each extra +4, cap +10
+    ipScore += 20 + Math.min(10, (mobCount - 1) * 4);
+  }
+  // Cross-type bonus: sharing IPs from multiple distinct strong-network types
+  // (e.g. a residential home connection AND a business work connection) is
+  // essentially conclusive — those are independent, location-specific networks.
+  const distinctStrongTypes = [bizCount > 0, resCount > 0, mobCount > 0].filter(
+    Boolean,
   ).length;
-  const mob = sharedIps.filter((x) => x.connType === "mobile").length;
-  if (resBiz > 0) score += 45 + Math.min(15, (resBiz - 1) * 5);
-  else if (mob > 0) score += 25;
+  if (distinctStrongTypes >= 2) ipScore += 8;
+
+  score += Math.min(85, ipScore);
   if (nameSimilarity >= 70) score += 20;
   else if (nameSimilarity >= 45) score += 10;
   score += Math.min(15, mutualFriends.length * 5);
