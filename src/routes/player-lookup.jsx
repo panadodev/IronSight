@@ -2731,16 +2731,6 @@ function ConnectionPointsSection({
                         </dd>
                       </div>
                     )}
-                    {deviceEstimate?.subnet != null && (
-                      <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          Subnet Estimate
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {deviceEstimate.subnet}
-                        </dd>
-                      </div>
-                    )}
                     {detectionFirstSeen && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
@@ -2843,16 +2833,6 @@ function ConnectionPointsSection({
                         </dd>
                       </div>
                     )}
-                    {entry.addressRange && (
-                      <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          Address Range
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {entry.addressRange}
-                        </dd>
-                      </div>
-                    )}
                     <div>
                       <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
                         Type
@@ -2888,16 +2868,6 @@ function ConnectionPointsSection({
                         </dt>
                         <dd className="font-mono text-foreground">
                           {entry.continent}
-                        </dd>
-                      </div>
-                    )}
-                    {entry.timezone && (
-                      <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          Timezone
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {entry.timezone}
                         </dd>
                       </div>
                     )}
