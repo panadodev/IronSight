@@ -507,6 +507,7 @@ function MediaPage() {
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
   const [testingBucket, setTestingBucket] = useState(false);
   const [bucketTestResult, setBucketTestResult] = useState(null); // { ok, message }
+  const [userQuotas, setUserQuotas] = useState([]); // [{ orgId, orgName, used, limit }]
 
   const isSessionSysAdmin = sessionUser?.isSysAdmin === true;
   const canUploadInOrg = (orgId) =>
@@ -538,6 +539,7 @@ function MediaPage() {
       setMedia(body.media ?? []);
       setTotal(body.total ?? 0);
       setIsSysAdmin(body.isSysAdmin === true);
+      setUserQuotas(Array.isArray(body.userQuotas) ? body.userQuotas : []);
     } catch (err) {
       setError(err.message ?? "Failed to load media.");
     } finally {
@@ -697,6 +699,46 @@ function MediaPage() {
               }`}
             >
               {bucketTestResult.message}
+            </div>
+          )}
+
+          {!isSysAdmin && userQuotas.length > 0 && (
+            <div className="rounded-lg ring-1 ring-border bg-surface/20 p-3 space-y-2.5">
+              {userQuotas.map((q) => {
+                const pct =
+                  q.limit != null && q.limit > 0
+                    ? Math.min(100, (q.used / q.limit) * 100)
+                    : null;
+                const nearLimit = pct != null && pct >= 80;
+                const atLimit = pct != null && pct >= 100;
+                return (
+                  <div key={q.orgId} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-muted-foreground truncate">
+                        {q.orgName ?? q.orgId}
+                      </span>
+                      <span
+                        className={`text-[11px] tabular-nums shrink-0 ${
+                          atLimit
+                            ? "text-danger"
+                            : nearLimit
+                              ? "text-warning"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {formatBytes(q.used)}
+                        {q.limit != null ? ` / ${formatBytes(q.limit)}` : " used"}
+                      </span>
+                    </div>
+                    {q.limit != null && (
+                      <Progress
+                        value={pct}
+                        className={`h-1.5 ${atLimit ? "[&>div]:bg-danger" : nearLimit ? "[&>div]:bg-warning" : ""}`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

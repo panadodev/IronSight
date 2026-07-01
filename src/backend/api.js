@@ -12565,13 +12565,15 @@ async function handleListAllMedia(request) {
   ];
   const params = [];
   let paramIdx = 1;
+  let quotaOrgIds = [];
 
   if (!sysAdmin) {
     const userOrgs = await listUserOrganizations(session.userId);
     if (userOrgs.length === 0)
-      return json({ media: [], total: 0, isSysAdmin: false });
+      return json({ media: [], total: 0, isSysAdmin: false, userQuotas: [] });
 
     const orgIds = userOrgs.map((o) => String(o.orgId));
+    quotaOrgIds = orgIds;
     const elevatedOrgSet = new Set(
       Array.isArray(session.orgAdminOrgIds)
         ? session.orgAdminOrgIds.map((id) => String(id))
@@ -12596,7 +12598,7 @@ async function handleListAllMedia(request) {
     }
 
     if (scopeClauses.length === 0)
-      return json({ media: [], total: 0, isSysAdmin: false });
+      return json({ media: [], total: 0, isSysAdmin: false, userQuotas: [] });
 
     conditions.push(`(${scopeClauses.join(" OR ")})`);
   }
@@ -12628,10 +12630,39 @@ async function handleListAllMedia(request) {
     params,
   );
 
+  // Per-org storage quota for the current user (not shown to sysadmin).
+  let userQuotas = [];
+  if (!sysAdmin && quotaOrgIds.length > 0) {
+    const { rows: qRows } = await pool.query(
+      `SELECT o.org_id, o.name, o.media_user_limit_bytes,
+              COALESCE(SUM(m.file_size), 0)::BIGINT AS user_used
+       FROM organizations o
+       LEFT JOIN org_media m
+         ON m.org_id = o.org_id
+         AND m.uploaded_by = $2
+         AND m.deleted = FALSE
+         AND m.confirmed = TRUE
+         AND m.source = 'staff'
+       WHERE o.org_id = ANY($1::text[])
+       GROUP BY o.org_id, o.name, o.media_user_limit_bytes`,
+      [quotaOrgIds, session.userId],
+    );
+    userQuotas = qRows.map((r) => ({
+      orgId: String(r.org_id),
+      orgName: r.name ?? null,
+      used: Number(r.user_used),
+      limit:
+        r.media_user_limit_bytes != null
+          ? Number(r.media_user_limit_bytes)
+          : null,
+    }));
+  }
+
   return json({
     media: rows.map((r) => ({ ...serializeMedia(r), orgName: r.org_name })),
     total: Number(countRes.rows[0].total),
     isSysAdmin: sysAdmin,
+    userQuotas,
   });
 }
 
