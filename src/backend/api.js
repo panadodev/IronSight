@@ -964,7 +964,7 @@ async function init() {
           console.error("[media-expiry] purge job:", e.message),
         );
       },
-      6 * 60 * 60 * 1000, // every 6 hours
+      24 * 60 * 60 * 1000, // every 24 hours
     );
     // Discord messages must be purged on a schedule, not only on sync calls.
     // Retention < 30 days for non-banned users (GDPR/compliance).
@@ -13481,7 +13481,6 @@ async function purgeExpiredMedia() {
     );
 
   // Soft-delete confirmed media older than the org's configured expiry window.
-  // R2 does not support bucket lifecycle rules, so this BullMQ job is the sole expiry mechanism.
   const { rows: orgs } = await pool.query(
     `SELECT org_id, media_expiry_months FROM organizations WHERE media_expiry_months IS NOT NULL`,
   );

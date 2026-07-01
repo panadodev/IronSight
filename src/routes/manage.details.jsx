@@ -1540,8 +1540,8 @@ function ManageDetailsPage() {
                   className="w-full"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Objects not accessed in this many months are purged. Also sets
-                  an R2 lifecycle rule for the org prefix.
+                  Objects not accessed in this many months are purged. A daily
+                  job checks and deletes expired media automatically.
                 </p>
               </div>
 
