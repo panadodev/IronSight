@@ -179,9 +179,9 @@ function SessionTimeline({ sessionWindows }) {
   const handleLeave = () => setTooltip(null);
 
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-        <Clock className="size-3" />
+        <Clock className="size-3 shrink-0" />
         Session Timeline
         <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
           {total}

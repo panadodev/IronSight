@@ -75,7 +75,9 @@ import {
   ensurePlayerCacheRow,
   getPlayerCacheData,
   getPlayerDataFromRedis,
+  playerFetchLockKey,
   playerRedisKey,
+  playerRefreshedKey,
   refreshPlayerData,
   seedFlaggedSteamGroups,
 } from "./player-store.js";
@@ -917,6 +919,8 @@ async function init() {
     await migrateTimestampsToUnix(pool);
     await migratePterodactylApiKeys();
     await ensureRolePermissionSeed(pool);
+    const { rows: allOrgs } = await pool.query(`SELECT org_id FROM organizations`);
+    for (const { org_id } of allOrgs) await ensureDefaultTicketTypes(org_id);
     await pingDependencies();
 
     // Schedule expiry jobs for all active timed bans. Catches existing bans
@@ -14812,9 +14816,7 @@ async function handleRefreshPlayer(request, steamId) {
     return buildProtectedPlayerPayload(steamId, staffIdentity);
   }
 
-  // Force-refresh triggers external BattleMetrics/Steam/Proxycheck calls against
-  // the org's rotating keys. Cap per-user to prevent cost amplification / hammering
-  // those upstream APIs (and our own pool) by spamming distinct Steam IDs.
+  // Per-user rate limit: prevent a single staffer from hammering the upstream APIs.
   const rl = await checkRateLimit(
     `rl:player-refresh:${session.userId}`,
     PLAYER_REFRESH_RATE_LIMIT_PER_MINUTE,
@@ -14849,37 +14851,71 @@ async function handleRefreshPlayer(request, steamId) {
   );
   const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
 
-  // Clear Redis so the background refresh can acquire the lock and write fresh data
+  const refreshedKey = playerRefreshedKey(steamId);
+  const lockKey = playerFetchLockKey(steamId);
+
+  // Per-player 30-second cooldown: if a full refresh (including proxycheck) was
+  // recently completed by any staffer, skip re-fetching and return the fresh
+  // cached data. This prevents the panel from hammering upstream APIs when multiple
+  // staff members view the same player shortly after a refresh.
   try {
-    await redis.del(playerRedisKey(steamId));
-  } catch {}
-
-  // Fire the refresh in the background; poll Redis for core data (written mid-refresh,
-  // after BM/Steam calls complete) rather than awaiting the full ~4s pipeline.
-  // Once the refresh completes, evaluate threat triggers against the fresh data.
-  refreshPlayerData(steamId, orgId, candidateOrgIds, {
-    forceProxycheckRefresh: true,
-  })
-    .then(() => evaluateThreatTriggers(orgId, steamId, "refresh"))
-    .catch((err) =>
-      console.error(`[player:refresh] bg error for ${steamId}:`, err.message),
-    );
-
-  for (let i = 0; i < 6; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    const fresh = await getPlayerDataFromRedis(steamId);
-    if (fresh) {
-      const payload = applyShareEntitlement(
-        fresh,
-        ipEntitlement,
-        bmEntitlement,
-      );
-      if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
-      return json(payload);
+    const recentlyRefreshed = await redis.exists(refreshedKey);
+    if (recentlyRefreshed) {
+      const cached = await getPlayerDataFromRedis(steamId);
+      if (cached) {
+        const payload = applyShareEntitlement(cached, ipEntitlement, bmEntitlement);
+        if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
+        return json(payload);
+      }
     }
+  } catch {
+    // Redis unavailable — fall through and attempt a normal refresh
   }
 
-  // Core data not yet in Redis — tell the client to poll (same as a first-time fetch)
+  // If a refresh is already running (lock held by another request), don't delete
+  // the existing Redis data — just wait for the in-progress refresh to finish.
+  let refreshAlreadyRunning = false;
+  try {
+    refreshAlreadyRunning = (await redis.exists(lockKey)) === 1;
+  } catch {}
+
+  if (!refreshAlreadyRunning) {
+    // Clear Redis so the background refresh writes fresh data unconditionally.
+    try {
+      await redis.del(playerRedisKey(steamId));
+    } catch {}
+
+    // Fire the full refresh pipeline (Steam + BM + proxycheck) in the background.
+    // Once complete, evaluate threat triggers against the fresh data.
+    refreshPlayerData(steamId, orgId, candidateOrgIds, {
+      forceProxycheckRefresh: true,
+    })
+      .then(() => evaluateThreatTriggers(orgId, steamId, "refresh"))
+      .catch((err) =>
+        console.error(`[player:refresh] bg error for ${steamId}:`, err.message),
+      );
+  }
+
+  // Poll for the playerRefreshedKey, which is set only after the FULL pipeline
+  // (including proxycheck/friends/alt-scoring) completes — not just the first
+  // Redis write. This guarantees the client always gets a complete response on
+  // the first refresh click. Poll up to 12 seconds to cover slow proxycheck calls.
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const done = await redis.exists(refreshedKey);
+      if (done) {
+        const fresh = await getPlayerDataFromRedis(steamId);
+        if (fresh) {
+          const payload = applyShareEntitlement(fresh, ipEntitlement, bmEntitlement);
+          if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
+          return json(payload);
+        }
+      }
+    } catch {}
+  }
+
+  // Full pipeline not done within 12 s — tell the client to poll via GET.
   return json({ fetching: true, bmRateLimitWarning });
 }
 

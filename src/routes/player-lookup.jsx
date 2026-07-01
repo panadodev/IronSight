@@ -854,7 +854,7 @@ function PlayerLookupPage() {
     if (refreshCooldownRef.current) clearTimeout(refreshCooldownRef.current);
     refreshCooldownRef.current = setTimeout(
       () => setRefreshCooldown(false),
-      15000,
+      30000,
     );
   };
 
@@ -1250,17 +1250,19 @@ function PlayerLookupPage() {
 
                     {/* Server History */}
                     {canViewSessionHistory && (
-                      <ServerHistorySection
-                        subjectId={playerData.steamId}
-                        isOnline={
-                          playerData.bmSessions?.[0]?.lastSeen
-                            ? Date.now() / 1000 -
-                                playerData.bmSessions[0].lastSeen <
-                              300
-                            : false
-                        }
-                        bmSessions={playerData.bmSessions}
-                      />
+                      <div className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
+                        <ServerHistorySection
+                          subjectId={playerData.steamId}
+                          isOnline={
+                            playerData.bmSessions?.[0]?.lastSeen
+                              ? Date.now() / 1000 -
+                                  playerData.bmSessions[0].lastSeen <
+                                300
+                              : false
+                          }
+                          bmSessions={playerData.bmSessions}
+                        />
+                      </div>
                     )}
 
                     {/* Session Timeline */}
@@ -1272,9 +1274,9 @@ function PlayerLookupPage() {
 
                     {/* Chat History */}
                     {chatOrgId && (
-                      <section>
+                      <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
                         <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-                          <MessageSquare className="size-3" />
+                          <MessageSquare className="size-3 shrink-0" />
                           Chat History
                           <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
                             {chatLines.length}
@@ -1293,7 +1295,7 @@ function PlayerLookupPage() {
                             {chatLines.map((line) => (
                               <li
                                 key={line.id}
-                                className="bg-surface/30 ring-1 ring-border rounded px-2 py-1.5"
+                                className="bg-background/60 ring-1 ring-border rounded px-2 py-1.5"
                               >
                                 <div className="flex items-start gap-2">
                                   {line.teamMessage && (
@@ -1728,7 +1730,7 @@ function PlayerLookupPage() {
                     )}
 
                     {/* Previous Offenses (real bans / mutes from our orgs) */}
-                    <section>
+                    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
                       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
                         <span>Previous Offenses</span>
                         <span className="font-mono normal-case tracking-normal text-muted-foreground">
@@ -1948,7 +1950,7 @@ const REPORT_TYPE_TONE = {
 
 function PlayerReportsSection({ reports, loading, tz }) {
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>In-Game Reports</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
@@ -1962,7 +1964,7 @@ function PlayerReportsSection({ reports, loading, tz }) {
           No reports on file.
         </p>
       ) : (
-        <div className="rounded-md ring-1 ring-border overflow-hidden">
+        <div className="rounded-md ring-1 ring-border bg-background/60 overflow-hidden">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border bg-surface/60">
@@ -2456,7 +2458,7 @@ function ConnectionPointsSection({
   };
 
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Previous Connection Points</span>
         <span className="font-mono normal-case tracking-normal">

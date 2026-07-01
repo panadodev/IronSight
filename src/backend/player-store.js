@@ -1172,7 +1172,11 @@ async function runProxycheckForIps(ipList, orgId, options = {}) {
 // ── Player Redis cache helpers ────────────────────────────────────────────────
 
 export const playerRedisKey = (steamId) => `player:data:${steamId}`;
+// Set with 30-second TTL after a full refresh completes (proxycheck included).
+// Serves as both the poll-completion signal and the per-player refresh cooldown gate.
+export const playerRefreshedKey = (steamId) => `player:refreshed:${steamId}`;
 const playerFetchLock = (steamId) => `player:fetching:${steamId}`;
+export const playerFetchLockKey = (steamId) => `player:fetching:${steamId}`;
 // Redis is a hot cache layer; PostgreSQL is the permanent store. 14-day TTL
 // ensures Redis doesn't grow unboundedly while still serving most active players
 // from cache. PostgreSQL cache_expires_at stays at 30 days (2592000 seconds).
@@ -2034,6 +2038,13 @@ export async function refreshPlayerData(
     }
 
     await writePlayerDataToRedis(steamId);
+    // Signal that a FULL refresh (including proxycheck) has completed.
+    // 30-second TTL: the poll loop in handleRefreshPlayer watches for this key,
+    // and any subsequent refresh request within 30s skips re-fetching and returns
+    // the already-fresh cached data.
+    try {
+      await redis.set(playerRefreshedKey(steamId), "1", "EX", 30);
+    } catch {}
     console.log(
       `[player:refresh] ${steamId} — background tasks done, Redis updated`,
     );

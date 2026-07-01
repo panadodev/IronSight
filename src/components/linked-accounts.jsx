@@ -366,10 +366,10 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
   );
 
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span className="flex items-center gap-2">
-          <Wifi className="size-3" />
+          <Wifi className="size-3 shrink-0" />
           Linked Accounts
         </span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">

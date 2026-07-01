@@ -283,9 +283,9 @@ function PlayerNotesSection({ subjectId, orgId }) {
   };
 
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-        <StickyNote className="size-3" />
+        <StickyNote className="size-3 shrink-0" />
         Notes
         <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
           {visible.length}
@@ -294,7 +294,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
 
       <form
         onSubmit={submit}
-        className="bg-surface/40 ring-1 ring-border rounded p-3 space-y-2 mb-3"
+        className="bg-background/60 ring-1 ring-border rounded p-3 space-y-2 mb-3"
       >
         <textarea
           value={body}
@@ -376,9 +376,9 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
   );
   if (!orgId || visible.length === 0) return null;
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-        <Pin className="size-3 text-warning" />
+        <Pin className="size-3 shrink-0 text-warning" />
         Pinned Notes
         <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
           {visible.length}

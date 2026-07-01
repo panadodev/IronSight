@@ -56,13 +56,13 @@ function PlayerFriendsSection({ friends }) {
   // Private friends list — nothing to show.
   if (friends?.public === false && !friends?.wasPublic) {
     return (
-      <section>
+      <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
         <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-          <Users className="size-3" />
+          <Users className="size-3 shrink-0" />
           Steam Friends
         </h2>
         <p className="text-xs text-muted-foreground italic flex items-center gap-1.5">
-          <EyeOff className="size-3" />
+          <EyeOff className="size-3 shrink-0" />
           Friends list is private.
         </p>
       </section>
@@ -71,9 +71,9 @@ function PlayerFriendsSection({ friends }) {
 
   if (!enriched || enriched.length === 0) {
     return (
-      <section>
+      <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
         <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-          <Users className="size-3" />
+          <Users className="size-3 shrink-0" />
           Steam Friends
         </h2>
         <p className="text-xs text-muted-foreground italic">
@@ -87,9 +87,9 @@ function PlayerFriendsSection({ friends }) {
   const visible = expanded ? filtered : filtered.slice(0, 18);
 
   return (
-    <section>
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
-        <Users className="size-3" />
+        <Users className="size-3 shrink-0" />
         Steam Friends
         {bannedCount > 0 && (
           <span className="text-[9px] font-mono normal-case tracking-normal text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded">
