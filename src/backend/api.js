@@ -6701,7 +6701,7 @@ async function handleDeleteTicket(request, ticketIdStr) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!isGlobalAdmin(session)) return json({ error: "Forbidden" }, 403);
+  if (!isConfiguredSysAdmin(session)) return json({ error: "Forbidden" }, 403);
 
   const id = Number(ticketIdStr);
   if (!Number.isInteger(id) || id <= 0)
@@ -8354,13 +8354,21 @@ async function handleExecScriptRcon(request, orgId, scriptId) {
 
   const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(rconPassword)}`;
   const outputs = [];
+  let connectionErr = null;
   for (const cmd of cmds) {
+    if (connectionErr) {
+      outputs.push({ cmd, ok: false, response: connectionErr });
+      continue;
+    }
     let rconResult = null;
     let rconErr = null;
     try {
       rconResult = await executeRconCommand(rconUrl, cmd);
     } catch (err) {
       rconErr = String(err?.message ?? err);
+      if (/connection failed|timed out|network error/i.test(rconErr)) {
+        connectionErr = rconErr;
+      }
     }
     outputs.push({
       cmd,
@@ -11648,6 +11656,26 @@ async function handleCreateBan(request, orgId) {
     scheduleBanExpiry(banId, expiresAtUnix).catch((e) =>
       console.error("[ban-expire] schedule failed:", e.message),
     );
+  }
+
+  // Auto-close open tickets that reported this player when a ban is issued.
+  if (identifierType === "steam_id" && actionType !== "mute") {
+    const openTickets = await pool.query(
+      `UPDATE tickets SET status = 'closed', closed_at = unix_now(), updated_at = unix_now()
+       WHERE org_id = $1 AND $2 = ANY(reported_players) AND status != 'closed'
+       RETURNING ticket_id`,
+      [orgId, rawIdentifier],
+    );
+    for (const row of openTickets.rows) {
+      await pool.query(
+        `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, 'updated', $3)`,
+        [
+          row.ticket_id,
+          session.userId,
+          JSON.stringify({ status: "closed", reason: "ban_issued", banId }),
+        ],
+      );
+    }
   }
 
   const bmSyncCheck = await pool.query(

@@ -725,6 +725,7 @@ function TicketsPage() {
               servers={orgServers}
               submitterUsername={selectedTicket.created_by_username}
               submitterSteamId={selectedTicket.created_by_steam_id}
+              submitterDiscordId={selectedTicket.created_by_discord_id}
               submitterSteamAccounts={submitterSteamAccounts}
               ticketCreatedAt={selectedTicket.created_at}
             />
@@ -1945,6 +1946,7 @@ function PlayerIntelSidebar({
   servers,
   submitterUsername,
   submitterSteamId,
+  submitterDiscordId,
   submitterSteamAccounts,
   ticketCreatedAt,
 }) {
@@ -2061,12 +2063,21 @@ function PlayerIntelSidebar({
               <div className="size-5 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background bg-muted-foreground/40 shrink-0 text-[8px]">
                 {initials(submitterUsername)}
               </div>
-              <div className="min-w-0 flex-1 flex items-center gap-2">
-                <p className="text-xs font-medium truncate">
-                  {submitterUsername}
-                </p>
-                {submitterSteamId && (
-                  <ExternalLinks steamId={submitterSteamId} size={10} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-medium truncate">
+                    {submitterUsername}
+                  </p>
+                  {submitterSteamId && (
+                    <ExternalLinks steamId={submitterSteamId} size={10} />
+                  )}
+                </div>
+                {submitterDiscordId && (
+                  <p className="text-[10px] font-mono text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <span className="uppercase tracking-wider text-[9px]">Discord</span>
+                    <span>{submitterDiscordId}</span>
+                    <CopyButton text={submitterDiscordId} />
+                  </p>
                 )}
               </div>
             </div>

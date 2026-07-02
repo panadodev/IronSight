@@ -48,6 +48,7 @@ export async function loadTicketFromDb(ticketId) {
             t.reported_players,
             tt.ticket_type_name,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
+            creator.discord_id AS created_by_discord_id,
             assignee.username AS assigned_to_username
      FROM tickets t
      LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
@@ -68,6 +69,7 @@ export async function loadTicketFromDb(ticketId) {
     created_by: row.created_by ? String(row.created_by) : null,
     created_by_username: row.created_by_username ?? null,
     created_by_steam_id: row.created_by_steam_id ?? null,
+    created_by_discord_id: row.created_by_discord_id ? String(row.created_by_discord_id) : null,
     assigned_to: row.assigned_to ? String(row.assigned_to) : null,
     assigned_to_username: row.assigned_to_username ?? null,
     status: String(row.status),
