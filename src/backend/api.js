@@ -5872,7 +5872,7 @@ async function handleListOrgTicketTypes(request, orgId) {
     await ensureDefaultTicketTypes(orgId);
   }
 
-  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled, allow_media
+  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled, allow_media, max_open_per_user
      FROM ticket_types WHERE org_id = $1`;
 
   // Public users only see enabled ticket types
@@ -5891,6 +5891,8 @@ async function handleListOrgTicketTypes(request, orgId) {
       category: String(row.ticket_type_category),
       isEnabled: Boolean(row.is_enabled),
       allowMedia: row.allow_media !== false,
+      maxOpenPerUser:
+        row.max_open_per_user != null ? Number(row.max_open_per_user) : null,
     })),
   });
 }
@@ -5913,14 +5915,30 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { isEnabled, allowMedia } = body;
+  const { isEnabled, allowMedia, maxOpenPerUser } = body;
   if (isEnabled !== undefined && typeof isEnabled !== "boolean") {
     return json({ error: "isEnabled must be a boolean" }, 400);
   }
   if (allowMedia !== undefined && typeof allowMedia !== "boolean") {
     return json({ error: "allowMedia must be a boolean" }, 400);
   }
-  if (isEnabled === undefined && allowMedia === undefined) {
+  if (
+    maxOpenPerUser !== undefined &&
+    maxOpenPerUser !== null &&
+    (!Number.isInteger(maxOpenPerUser) ||
+      maxOpenPerUser < 1 ||
+      maxOpenPerUser > 100)
+  ) {
+    return json(
+      { error: "maxOpenPerUser must be null or an integer between 1 and 100" },
+      400,
+    );
+  }
+  if (
+    isEnabled === undefined &&
+    allowMedia === undefined &&
+    maxOpenPerUser === undefined
+  ) {
     return json({ error: "No fields to update" }, 400);
   }
 
@@ -5933,6 +5951,10 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
   if (allowMedia !== undefined) {
     params.push(allowMedia);
     setClauses.push(`allow_media = $${params.length}`);
+  }
+  if (maxOpenPerUser !== undefined) {
+    params.push(maxOpenPerUser);
+    setClauses.push(`max_open_per_user = $${params.length}`);
   }
   params.push(ticketTypeId, orgId);
 
@@ -6020,7 +6042,7 @@ async function handleCreateTicket(request) {
 
   if (ticketTypeId !== null) {
     const typeRes = await pool.query(
-      "SELECT ticket_type_id FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1",
+      "SELECT ticket_type_id, ticket_type_name, max_open_per_user FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1",
       [ticketTypeId, orgId],
     );
     if (!typeRes.rows[0])
@@ -6028,6 +6050,32 @@ async function handleCreateTicket(request) {
         { error: "Ticket type not found for this organization" },
         400,
       );
+
+    // Per-user cap on simultaneously open tickets of this type.
+    const maxOpen =
+      typeRes.rows[0].max_open_per_user != null
+        ? Number(typeRes.rows[0].max_open_per_user)
+        : null;
+    if (maxOpen !== null) {
+      const openRes = await pool.query(
+        `SELECT COUNT(*) AS n FROM tickets
+         WHERE org_id = $1 AND ticket_type_id = $2 AND created_by = $3
+           AND status != 'closed'`,
+        [orgId, ticketTypeId, session.userId],
+      );
+      if (Number(openRes.rows[0].n) >= maxOpen) {
+        const typeName = String(typeRes.rows[0].ticket_type_name);
+        return json(
+          {
+            error:
+              maxOpen === 1
+                ? `You already have an open "${typeName}" ticket. Please wait for it to be resolved before opening another.`
+                : `You already have ${maxOpen} open "${typeName}" tickets. Please wait for one to be resolved before opening another.`,
+          },
+          409,
+        );
+      }
+    }
   }
 
   // Verify all media IDs belong to this session user and are confirmed pending uploads for this org.

@@ -544,6 +544,48 @@ function ApplicationQuestions({ orgId, ticketTypeId }) {
   );
 }
 
+const OPEN_LIMIT_OPTIONS = [
+  { value: "unlimited", label: "No limit" },
+  { value: "1", label: "1" },
+  { value: "2", label: "2" },
+  { value: "3", label: "3" },
+  { value: "5", label: "5" },
+  { value: "10", label: "10" },
+];
+
+// How many tickets of this type a single user may have open at once.
+function OpenLimitSelect({ ticketType, disabled, onChange }) {
+  const current =
+    ticketType.maxOpenPerUser != null
+      ? String(ticketType.maxOpenPerUser)
+      : "unlimited";
+  // Keep a custom value (set via API) selectable even if it's not a preset.
+  const options = OPEN_LIMIT_OPTIONS.some((o) => o.value === current)
+    ? OPEN_LIMIT_OPTIONS
+    : [...OPEN_LIMIT_OPTIONS, { value: current, label: current }];
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">Open limit</span>
+      <Select
+        value={current}
+        disabled={disabled}
+        onValueChange={(v) => onChange(v === "unlimited" ? null : Number(v))}
+      >
+        <SelectTrigger className="h-7 w-[100px] text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function TicketsPage() {
   const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
@@ -648,6 +690,51 @@ function TicketsPage() {
     setUpdating(null);
   };
 
+  const handleLimitChange = async (ticketTypeId, value) => {
+    const prevValue = ticketTypes.find(
+      (tt) => tt.ticketTypeId === ticketTypeId,
+    )?.maxOpenPerUser;
+    setTicketTypes((prev) =>
+      prev.map((tt) =>
+        tt.ticketTypeId === ticketTypeId
+          ? { ...tt, maxOpenPerUser: value }
+          : tt,
+      ),
+    );
+
+    setUpdating(ticketTypeId);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketTypeId}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ maxOpenPerUser: value }),
+        },
+      );
+
+      if (!res.ok) {
+        setTicketTypes((prev) =>
+          prev.map((tt) =>
+            tt.ticketTypeId === ticketTypeId
+              ? { ...tt, maxOpenPerUser: prevValue }
+              : tt,
+          ),
+        );
+      }
+    } catch {
+      setTicketTypes((prev) =>
+        prev.map((tt) =>
+          tt.ticketTypeId === ticketTypeId
+            ? { ...tt, maxOpenPerUser: prevValue }
+            : tt,
+        ),
+      );
+    }
+    setUpdating(null);
+  };
+
   const regularTypes = ticketTypes.filter(
     (tt) => tt.category !== "staff_application",
   );
@@ -677,6 +764,11 @@ function TicketsPage() {
                   >
                     <span className="text-sm">{tt.name}</span>
                     <div className="flex items-center gap-4">
+                      <OpenLimitSelect
+                        ticketType={tt}
+                        disabled={updating === tt.ticketTypeId}
+                        onChange={(v) => handleLimitChange(tt.ticketTypeId, v)}
+                      />
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">
                           Media
@@ -735,6 +827,13 @@ function TicketsPage() {
                         </span>
                       </div>
                       <div className="flex items-center gap-4">
+                        <OpenLimitSelect
+                          ticketType={tt}
+                          disabled={updating === tt.ticketTypeId}
+                          onChange={(v) =>
+                            handleLimitChange(tt.ticketTypeId, v)
+                          }
+                        />
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs text-muted-foreground">
                             Media

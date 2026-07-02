@@ -2103,6 +2103,19 @@ export async function ensureRolePermissionSeed(pool) {
     END $$
   `);
 
+  // Per-user cap on simultaneously open tickets of a type (NULL = unlimited).
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'ticket_types' AND column_name = 'max_open_per_user'
+      ) THEN
+        ALTER TABLE ticket_types ADD COLUMN max_open_per_user INTEGER
+          CHECK (max_open_per_user IS NULL OR max_open_per_user >= 1);
+      END IF;
+    END $$
+  `);
+
   // Seed Staff Application ticket type for all existing orgs that don't have one yet.
   await pool.query(`
     INSERT INTO ticket_types (org_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled)
