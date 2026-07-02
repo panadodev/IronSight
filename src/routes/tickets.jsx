@@ -65,6 +65,25 @@ function ticketMeta(ticket) {
   return TYPE_META[ticket.type] ?? TYPE_META.general_support;
 }
 
+// The person who opened the ticket plays a different role depending on the
+// ticket type — "Reporter" only makes sense for player reports.
+function submitterRoleLabel(ticket) {
+  switch (ticket?.type) {
+    case "player_report":
+      return "Reporter";
+    case "ban_appeal":
+      return "Appellant";
+    case "staff_application":
+      return "Applicant";
+    case "vip_issue":
+      return "VIP Member";
+    case "general_support":
+      return "Submitter";
+    default:
+      return "Submitter";
+  }
+}
+
 function formatRelativeTime(unixSec) {
   if (!unixSec) return "";
   const diff = Math.floor(Date.now() / 1000) - unixSec;
@@ -726,6 +745,7 @@ function TicketsPage() {
               submitterUsername={selectedTicket.created_by_username}
               submitterSteamId={selectedTicket.created_by_steam_id}
               submitterDiscordId={selectedTicket.created_by_discord_id}
+              submitterLabel={submitterRoleLabel(selectedTicket)}
               submitterSteamAccounts={submitterSteamAccounts}
               ticketCreatedAt={selectedTicket.created_at}
             />
@@ -1384,6 +1404,36 @@ function CopyButton({ text, className = "" }) {
   );
 }
 
+// A single labeled identifier row (Steam / Discord) with copy-to-clipboard.
+function SubmitterIdRow({ label, value, href = null }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] font-mono min-w-0">
+      <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-12 shrink-0">
+        {label}
+      </span>
+      {value ? (
+        <>
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground truncate hover:text-brand transition-colors"
+            >
+              {value}
+            </a>
+          ) : (
+            <span className="text-foreground truncate">{value}</span>
+          )}
+          <CopyButton text={value} />
+        </>
+      ) : (
+        <span className="text-muted-foreground/60 italic">Not linked</span>
+      )}
+    </div>
+  );
+}
+
 function ExternalLinks({ steamId, size = 13 }) {
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0">
@@ -1947,6 +1997,7 @@ function PlayerIntelSidebar({
   submitterUsername,
   submitterSteamId,
   submitterDiscordId,
+  submitterLabel = "Submitter",
   submitterSteamAccounts,
   ticketCreatedAt,
 }) {
@@ -2054,31 +2105,37 @@ function PlayerIntelSidebar({
         {submitterUsername && (
           <section>
             <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
-              <span>Reporter</span>
+              <span>{submitterLabel}</span>
               <span className="font-mono normal-case tracking-normal text-muted-foreground">
                 {formatRelativeTime(ticketCreatedAt)}
               </span>
             </h2>
-            <div className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1.5 mb-2">
-              <div className="size-5 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background bg-muted-foreground/40 shrink-0 text-[8px]">
-                {initials(submitterUsername)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-xs font-medium truncate">
-                    {submitterUsername}
-                  </p>
-                  {submitterSteamId && (
-                    <ExternalLinks steamId={submitterSteamId} size={10} />
-                  )}
+            <div className="bg-surface/40 ring-1 ring-border rounded px-2 py-2 mb-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="size-5 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background bg-muted-foreground/40 shrink-0 text-[8px]">
+                  {initials(submitterUsername)}
                 </div>
-                {submitterDiscordId && (
-                  <p className="text-[10px] font-mono text-muted-foreground flex items-center gap-1 mt-0.5">
-                    <span className="uppercase tracking-wider text-[9px]">Discord</span>
-                    <span>{submitterDiscordId}</span>
-                    <CopyButton text={submitterDiscordId} />
-                  </p>
+                <p className="text-xs font-medium truncate min-w-0 flex-1">
+                  {submitterUsername}
+                </p>
+                {submitterSteamId && (
+                  <ExternalLinks steamId={submitterSteamId} size={10} />
                 )}
+              </div>
+              <div className="space-y-1 pl-7">
+                <SubmitterIdRow
+                  label="Steam"
+                  value={submitterSteamId}
+                  href={
+                    submitterSteamId
+                      ? `https://steamcommunity.com/profiles/${submitterSteamId}`
+                      : null
+                  }
+                />
+                <SubmitterIdRow
+                  label="Discord"
+                  value={submitterDiscordId}
+                />
               </div>
             </div>
             {submitterSteamAccounts && submitterSteamAccounts.length > 1 && (

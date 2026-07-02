@@ -69,7 +69,9 @@ export async function loadTicketFromDb(ticketId) {
     created_by: row.created_by ? String(row.created_by) : null,
     created_by_username: row.created_by_username ?? null,
     created_by_steam_id: row.created_by_steam_id ?? null,
-    created_by_discord_id: row.created_by_discord_id ? String(row.created_by_discord_id) : null,
+    created_by_discord_id: row.created_by_discord_id
+      ? String(row.created_by_discord_id)
+      : null,
     assigned_to: row.assigned_to ? String(row.assigned_to) : null,
     assigned_to_username: row.assigned_to_username ?? null,
     status: String(row.status),

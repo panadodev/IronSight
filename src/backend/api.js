@@ -6710,10 +6710,15 @@ async function handleDeleteTicket(request, ticketIdStr) {
   const ticket = await loadTicketFromDb(id);
   if (!ticket) return json({ error: "Ticket not found" }, 404);
 
+  // Soft-delete any evidence linked to this ticket so it gets purged. Media is
+  // associated via the ticket_media_links join table, not a column on org_media.
   await pool.query(
-    `UPDATE org_media SET source = 'deleted', deleted_at = unix_now() WHERE ticket_id = $1 AND deleted_at IS NULL`,
+    `UPDATE org_media SET deleted = TRUE
+     WHERE deleted = FALSE
+       AND media_id IN (SELECT media_id FROM ticket_media_links WHERE ticket_id = $1)`,
     [id],
   );
+  // Cascades remove ticket_media_links, ticket_messages and ticket_audit_log rows.
   await pool.query(`DELETE FROM tickets WHERE ticket_id = $1`, [id]);
 
   await invalidateTicketCache(id);
@@ -6781,6 +6786,7 @@ async function handleListOrgTickets(request, orgId) {
             tt.ticket_type_name,
             tt.ticket_type_category,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
+            creator.discord_id AS created_by_discord_id,
             assignee.username AS assigned_to_username
      FROM tickets t
      LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
@@ -6803,6 +6809,10 @@ async function handleListOrgTickets(request, orgId) {
       created_by: row.created_by ? String(row.created_by) : null,
       created_by_username: row.created_by_username ?? null,
       created_by_steam_id: row.created_by_steam_id ?? null,
+      created_by_discord_id:
+        row.created_by_discord_id == null
+          ? null
+          : String(row.created_by_discord_id),
       assigned_to: row.assigned_to ? String(row.assigned_to) : null,
       assigned_to_username: row.assigned_to_username ?? null,
       status: String(row.status),
