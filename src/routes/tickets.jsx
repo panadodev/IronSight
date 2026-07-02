@@ -1478,6 +1478,10 @@ function PlayerCard({ player }) {
   const proxy = player.ipHistory?.find((ip) => !ip.isVpn);
   const isProxy = proxy?.isProxy ?? null;
   const country = proxy?.country ?? null;
+  const lastSession =
+    (player.bmSessions ?? [])
+      .filter((s) => s.lastSeen)
+      .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0))[0] ?? null;
 
   return (
     <div className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
@@ -1543,6 +1547,23 @@ function PlayerCard({ player }) {
           </p>
           <p className="text-sm font-mono text-foreground">{country ?? "—"}</p>
         </div>
+      </div>
+      <div className="mt-3 pt-3 border-t border-border">
+        <p className="text-[10px] text-muted-foreground uppercase">
+          Last Server
+        </p>
+        {lastSession ? (
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-medium truncate min-w-0">
+              {lastSession.serverName ?? lastSession.bmServerId}
+            </p>
+            <span className="text-[10px] font-mono text-muted-foreground ml-auto shrink-0">
+              {formatRelativeTime(lastSession.lastSeen)}
+            </span>
+          </div>
+        ) : (
+          <p className="text-sm font-mono text-muted-foreground">—</p>
+        )}
       </div>
     </div>
   );
@@ -2089,18 +2110,12 @@ function PlayerIntelSidebar({
           </div>
         )}
 
-        {!loading && !hasPlayers && (
-          <div className="bg-surface/40 ring-1 ring-border rounded-lg p-4 text-center">
-            <p className="text-[10px] font-mono text-muted-foreground">
-              No reported players on this ticket.
-            </p>
-          </div>
+        {!loading && hasPlayers && (
+          <RconTeamSection
+            servers={servers}
+            initialSteamId={player?.steamId ?? ""}
+          />
         )}
-
-        <RconTeamSection
-          servers={servers}
-          initialSteamId={player?.steamId ?? ""}
-        />
 
         {submitterUsername && (
           <section>
