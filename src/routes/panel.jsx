@@ -931,7 +931,8 @@ function ScriptsTab({ servers, orgId }) {
   const triggerRun = (script, targets, targetLabel) => {
     if (!targets.length) return;
     if (!canRcon) return;
-    if (userRank < script.minRank) return;
+    const effectivePos = callerPosition == null ? Infinity : callerPosition;
+    if (effectivePos < script.minRank) return;
     const vars = extractVars(script.command);
     if (vars.length === 0) {
       executeRun(script, targets, {});

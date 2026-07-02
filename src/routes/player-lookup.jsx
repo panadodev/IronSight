@@ -2374,18 +2374,12 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
                       : ""}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    window.open(
-                      `/player-lookup?steam=${encodeURIComponent(m.steamId)}`,
-                      "_blank",
-                      "noopener,noreferrer",
-                    )
-                  }
+                <a
+                  href={`/player-lookup?steam=${encodeURIComponent(m.steamId)}`}
+                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-primary text-primary-foreground shadow hover:bg-primary/90 h-8 rounded-md px-3 text-xs"
                 >
                   Open
-                </Button>
+                </a>
               </li>
             ))}
           </ul>
@@ -2444,18 +2438,12 @@ function NameSearchResults({ query, loading, error, matches, onOpenPlayer }) {
                       : ""}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    window.open(
-                      `/player-lookup?steam=${encodeURIComponent(m.steamId)}`,
-                      "_blank",
-                      "noopener,noreferrer",
-                    )
-                  }
+                <a
+                  href={`/player-lookup?steam=${encodeURIComponent(m.steamId)}`}
+                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-primary text-primary-foreground shadow hover:bg-primary/90 h-8 rounded-md px-3 text-xs"
                 >
                   Open
-                </Button>
+                </a>
               </li>
             ))}
           </ul>

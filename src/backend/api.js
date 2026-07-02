@@ -268,6 +268,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "player_session_history",
   "player_steam_friends",
   "player_notes",
+  "cases_create",
 ];
 
 // Ban permissions were split from the legacy umbrella `bans_manage` into granular
@@ -15723,7 +15724,7 @@ async function handleGetOrgNoteRoles(request, orgId) {
     `SELECT role_id, role_name, position FROM roles
      WHERE role_id LIKE ($1 || '_%')
        AND role_id NOT IN ('org_member', 'org_admin', 'org_owner', 'org_disabled')
-     ORDER BY position DESC, role_name ASC`,
+     ORDER BY position ASC, role_name ASC`,
     [orgId],
   );
 

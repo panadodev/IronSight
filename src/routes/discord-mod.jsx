@@ -596,7 +596,7 @@ function DiscordModPage() {
       (entries) => {
         if (entries[0].isIntersecting) loadMoreMessages();
       },
-      { root: container, threshold: 0.1 },
+      { root: container, threshold: 0, rootMargin: "0px 0px 400px 0px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -1059,7 +1059,14 @@ function DiscordModPage() {
                       <span className="text-xs text-muted-foreground">
                         Loading…
                       </span>
-                    ) : !hasMore && messages.length > 0 ? (
+                    ) : hasMore ? (
+                      <button
+                        onClick={loadMoreMessages}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Load older messages
+                      </button>
+                    ) : messages.length > 0 ? (
                       <span className="text-[10px] text-muted-foreground/40">
                         All messages loaded
                       </span>
