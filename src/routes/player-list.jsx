@@ -112,7 +112,7 @@ function PlayerListPage() {
         fetch("/api/servers", { credentials: "include" }),
         ...selectedOrgIds.map((orgId) =>
           fetch(
-            `/api/orgs/${encodeURIComponent(orgId)}/player-list?includeBanned=${includeBanned ? "1" : "0"}`,
+            `/api/orgs/${encodeURIComponent(orgId)}/player-list`,
             {
               credentials: "include",
             },
@@ -139,7 +139,7 @@ function PlayerListPage() {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [canAccess, orgIdsKey, includeBanned]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canAccess, orgIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();
@@ -191,6 +191,9 @@ function PlayerListPage() {
     let list = players.filter(
       (p) => !p.isOnline || effectiveServerIds.has(p.serverId),
     );
+    if (!includeBanned) {
+      list = list.filter((p) => !p.isBanned);
+    }
     if (onlineOnly) {
       list = list.filter((p) => p.isOnline);
     }
@@ -213,7 +216,7 @@ function PlayerListPage() {
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return list;
-  }, [players, effectiveServerIds, query, onlineOnly, sortKey, sortDir]);
+  }, [players, effectiveServerIds, query, onlineOnly, includeBanned, sortKey, sortDir]);
 
   useEffect(() => {
     setPage(1);

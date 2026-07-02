@@ -25,6 +25,7 @@ import {
   Ban,
   Clock,
   Download,
+  Edit2,
   FileText,
   Hash,
   MessageSquareWarning,
@@ -33,6 +34,7 @@ import {
   Search,
   ShieldAlert,
   ShieldOff,
+  Trash2,
   UserCheck,
   UserMinus,
   Users,
@@ -994,8 +996,18 @@ function DiscordModPage() {
                               {msg.authorDiscordId}
                             </span>
                             {msg.deleted && (
-                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">
+                                <Trash2 className="size-2.5" />
                                 Deleted
+                              </span>
+                            )}
+                            {msg.editedAt && !msg.deleted && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400"
+                                title={`Edited ${fmtTs(msg.editedAt, tz)}`}
+                              >
+                                <Edit2 className="size-2.5" />
+                                Edited {fmtAgo(msg.editedAt)}
                               </span>
                             )}
                             <span className="text-[10px] text-muted-foreground ml-auto">
@@ -1011,6 +1023,18 @@ function DiscordModPage() {
                               </em>
                             )}
                           </p>
+                          {msg.editedAt &&
+                            msg.originalContent &&
+                            msg.originalContent !== msg.content && (
+                              <details className="mt-1">
+                                <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground select-none">
+                                  Original message
+                                </summary>
+                                <p className="text-[11px] text-muted-foreground mt-1 break-words whitespace-pre-wrap line-through pl-2 border-l border-border">
+                                  {msg.originalContent}
+                                </p>
+                              </details>
+                            )}
                           <MessageAttachments attachments={msg.attachments} />
                         </div>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

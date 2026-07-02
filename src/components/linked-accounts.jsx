@@ -18,6 +18,7 @@ import {
   Copy,
   ExternalLink,
   Filter,
+  Heart,
   ShieldAlert,
   Users,
   Wifi,
@@ -402,7 +403,12 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
 
 // ── Full comparison list ──────────────────────────────────────────────────────
 
-function LinkedAccountsSection({ subjectName, relatedAccounts }) {
+function LinkedAccountsSection({
+  subjectName,
+  relatedAccounts,
+  sessionRelated = [],
+  friendSteamIds = new Set(),
+}) {
   const accounts = useMemo(
     () => (Array.isArray(relatedAccounts) ? relatedAccounts : []),
     [relatedAccounts],
@@ -759,7 +765,101 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
         subjectName={subjectName}
         account={openAccount}
       />
+
+      {/* Playing Partners — cross-server co-players from BM sessions */}
+      {sessionRelated.length > 0 && (
+        <PlayingPartnersSection
+          sessionRelated={sessionRelated}
+          friendSteamIds={friendSteamIds}
+        />
+      )}
     </section>
+  );
+}
+
+function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
+  const sorted = useMemo(
+    () =>
+      [...sessionRelated]
+        .filter((c) => c.overlapSessions > 0 || c.distinctDays > 0)
+        .sort(
+          (a, b) =>
+            b.overlapSessions - a.overlapSessions ||
+            b.distinctDays - a.distinctDays,
+        )
+        .slice(0, 10),
+    [sessionRelated],
+  );
+
+  if (!sorted.length) return null;
+
+  return (
+    <div className="border-t border-border pt-4 mt-2">
+      <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-2">
+        <Users className="size-3" />
+        Playing Partners
+        <span className="text-[9px] font-mono ml-auto">{sorted.length}</span>
+      </h4>
+      <ul className="space-y-1">
+        {sorted.map((c) => {
+          const name =
+            c.relatedName ?? c.relatedSteamId ?? `BM ${c.relatedBmId}`;
+          const isFriend =
+            c.relatedSteamId && friendSteamIds.has(c.relatedSteamId);
+          const hasBan = c.alsoIpLinked;
+          return (
+            <li
+              key={c.relatedBmId}
+              className="flex items-center gap-2 px-2 py-1.5 rounded bg-surface/40 ring-1 ring-border/50"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-medium truncate max-w-[10rem]">
+                    {name}
+                  </span>
+                  {isFriend && (
+                    <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-brand/10 text-brand text-[8px] font-mono uppercase ring-1 ring-brand/30">
+                      <Heart className="size-2" />
+                      Friend
+                    </span>
+                  )}
+                  {hasBan && (
+                    <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-danger/10 text-danger text-[8px] font-mono uppercase ring-1 ring-danger/30">
+                      <Ban className="size-2" />
+                      IP link
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] font-mono text-muted-foreground">
+                  {c.overlapSessions > 0 && `${c.overlapSessions} co-play`}
+                  {c.distinctDays > 0 && ` · ${c.distinctDays}d`}
+                  {(c.sharedServers ?? []).length > 0 &&
+                    ` · ${c.sharedServers.length} server${c.sharedServers.length === 1 ? "" : "s"}`}
+                </div>
+              </div>
+              {c.relatedSteamId ? (
+                <Link
+                  to="/player-lookup"
+                  search={{ steam: c.relatedSteamId }}
+                  className="shrink-0 text-brand hover:underline text-[10px] font-mono inline-flex items-center gap-0.5"
+                >
+                  View <ExternalLink className="size-2.5" />
+                </Link>
+              ) : (
+                <a
+                  href={`https://www.battlemetrics.com/players/${c.relatedBmId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-brand hover:underline text-[10px] font-mono inline-flex items-center gap-0.5"
+                >
+                  BM <ExternalLink className="size-2.5" />
+                </a>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

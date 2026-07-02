@@ -4,6 +4,7 @@ import {
   CopyObjectCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -88,9 +89,45 @@ export function r2Configured() {
   );
 }
 
-export function getPublicUrl(key) {
-  if (!env.r2PublicUrl) return null;
-  return `${env.r2PublicUrl}/${key}`;
+// ── Signed media URLs ─────────────────────────────────────────────────────────
+// Media is no longer served from a public bucket domain. Files are streamed
+// through GET /api/media/:mediaId/file, authorized by an HMAC signature in the
+// query string. Signed paths are only minted inside authenticated API
+// responses, so possessing a valid URL implies a panel login (or a fresh link
+// shared by someone with one — links expire after at most 2 windows).
+//
+// The expiry is bucketed to MEDIA_URL_WINDOW_SECONDS so every URL minted
+// within the same window is byte-identical → Cloudflare's edge cache (keyed by
+// full URL) gets real hit rates instead of one cache entry per page load.
+
+const MEDIA_URL_WINDOW_SECONDS = 6 * 3600; // links live 6-12 h, stable per 6 h
+
+function mediaSignature(mediaId, exp) {
+  return crypto
+    .createHmac("sha256", env.jwtSecret)
+    .update(`media:${mediaId}:${exp}`)
+    .digest("base64url");
+}
+
+export function signedMediaPath(mediaId) {
+  if (!env.jwtSecret) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const exp =
+    (Math.floor(now / MEDIA_URL_WINDOW_SECONDS) + 2) * MEDIA_URL_WINDOW_SECONDS;
+  return `/api/media/${mediaId}/file?e=${exp}&s=${mediaSignature(mediaId, exp)}`;
+}
+
+export function verifyMediaSignature(mediaId, exp, sig) {
+  if (!env.jwtSecret) return false;
+  const expNum = Number(exp);
+  if (!Number.isInteger(expNum)) return false;
+  if (expNum < Math.floor(Date.now() / 1000)) return false;
+  const expected = Buffer.from(mediaSignature(mediaId, expNum));
+  const provided = Buffer.from(String(sig ?? ""));
+  return (
+    provided.length === expected.length &&
+    crypto.timingSafeEqual(provided, expected)
+  );
 }
 
 export function sanitizeFilename(name) {
@@ -219,6 +256,42 @@ export async function headObject(key) {
       err?.name === "NoSuchKey"
     )
       return null;
+    throw err;
+  }
+}
+
+// Stream an object's bytes for the signed media file endpoint. `range` is the
+// raw HTTP Range header from the client (forwarded verbatim so <video> seeking
+// works). Returns null on 404 and { rangeError: true } on an unsatisfiable
+// range so the caller can answer 416.
+export async function getMediaObject(key, range) {
+  try {
+    const res = await getR2Client().send(
+      new GetObjectCommand({
+        Bucket: env.r2BucketName,
+        Key: key,
+        ...(range ? { Range: range } : {}),
+      }),
+    );
+    return {
+      body: res.Body?.transformToWebStream
+        ? res.Body.transformToWebStream()
+        : res.Body,
+      contentLength:
+        res.ContentLength != null ? Number(res.ContentLength) : null,
+      contentRange: res.ContentRange ?? null,
+      etag: res.ETag ?? null,
+      status: res.ContentRange ? 206 : 200,
+    };
+  } catch (err) {
+    if (
+      err?.$metadata?.httpStatusCode === 404 ||
+      err?.name === "NotFound" ||
+      err?.name === "NoSuchKey"
+    )
+      return null;
+    if (err?.$metadata?.httpStatusCode === 416 || err?.name === "InvalidRange")
+      return { rangeError: true };
     throw err;
   }
 }

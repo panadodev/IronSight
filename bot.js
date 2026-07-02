@@ -337,32 +337,86 @@ function connect(resume = false) {
                     : "",
                 ),
               );
-          } else if (t === "MESSAGE_DELETE") {
-            if (d.guild_id) {
-              fetch(`${API_URL}/api/internal/discord/message/delete`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bot ${TOKEN}`,
-                },
-                body: JSON.stringify({
-                  messageId: d.id,
-                  guildId: d.guild_id,
-                }),
+          }
+        } else if (t === "MESSAGE_UPDATE") {
+          if (d.guild_id && d.author && !d.author.bot && !d.webhook_id) {
+            fetch(`${API_URL}/api/internal/discord/message/update`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bot ${TOKEN}`,
+              },
+              body: JSON.stringify({
+                messageId: d.id,
+                guildId: d.guild_id,
+                content: d.content ?? "",
+                editedTimestamp: d.edited_timestamp,
+              }),
+            })
+              .then((r) => {
+                if (!r.ok)
+                  console.warn(
+                    `[IronSight Bot] Update ingest failed (${r.status}) for message ${d.id}`,
+                  );
               })
-                .then((r) => {
-                  if (!r.ok)
-                    console.warn(
-                      `[IronSight Bot] Delete ingest failed (${r.status}) for message ${d.id}`,
-                    );
-                })
-                .catch((err) =>
-                  console.error(
-                    `[IronSight Bot] Delete ingest error for message ${d.id}:`,
-                    err.message,
-                  ),
-                );
-            }
+              .catch((err) =>
+                console.error(
+                  `[IronSight Bot] Update ingest error for message ${d.id}:`,
+                  err.message,
+                ),
+              );
+          }
+        } else if (t === "MESSAGE_DELETE") {
+          if (d.guild_id) {
+            fetch(`${API_URL}/api/internal/discord/message/delete`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bot ${TOKEN}`,
+              },
+              body: JSON.stringify({
+                messageId: d.id,
+                guildId: d.guild_id,
+              }),
+            })
+              .then((r) => {
+                if (!r.ok)
+                  console.warn(
+                    `[IronSight Bot] Delete ingest failed (${r.status}) for message ${d.id}`,
+                  );
+              })
+              .catch((err) =>
+                console.error(
+                  `[IronSight Bot] Delete ingest error for message ${d.id}:`,
+                  err.message,
+                ),
+              );
+          }
+        } else if (t === "MESSAGE_DELETE_BULK") {
+          if (d.guild_id && Array.isArray(d.ids)) {
+            fetch(`${API_URL}/api/internal/discord/message/delete-bulk`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bot ${TOKEN}`,
+              },
+              body: JSON.stringify({
+                messageIds: d.ids,
+                guildId: d.guild_id,
+              }),
+            })
+              .then((r) => {
+                if (!r.ok)
+                  console.warn(
+                    `[IronSight Bot] Bulk-delete ingest failed (${r.status}) for ${d.ids.length} messages`,
+                  );
+              })
+              .catch((err) =>
+                console.error(
+                  `[IronSight Bot] Bulk-delete ingest error:`,
+                  err.message,
+                ),
+              );
           }
         }
         break;

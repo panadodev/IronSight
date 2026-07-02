@@ -71,7 +71,8 @@ export const env = {
   r2AccessKeyId: process.env.R2_ACCESS_KEY_ID,
   r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   r2BucketName: process.env.R2_BUCKET_NAME,
-  r2PublicUrl: process.env.R2_PUBLIC_URL?.replace(/\/+$/, ""),
+  // R2_PUBLIC_URL is intentionally no longer read: media is streamed through
+  // the signed /api/media/:id/file endpoint, never a public bucket domain.
 
   // Media rate limits
   mediaPrepareRateLimitPerMinute: Number(

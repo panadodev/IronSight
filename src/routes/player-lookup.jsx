@@ -2,10 +2,7 @@ import { LENGTH_OPTIONS } from "@/components/ban-dialog";
 import { EacBanStatus } from "@/components/eac-ban-status";
 import { ExternalBansSection } from "@/components/external-bans";
 import { HINTS } from "@/components/hint";
-import {
-  LinkedAccountsSection,
-  SessionRelatedSection,
-} from "@/components/linked-accounts";
+import { LinkedAccountsSection } from "@/components/linked-accounts";
 import { NewBanDialog } from "@/components/new-ban-dialog";
 import { PlayerFriendsSection } from "@/components/player-friends";
 import { PlayerLinks } from "@/components/player-links";
@@ -151,10 +148,7 @@ const Route = createFileRoute("/player-lookup")({
     meta: [{ title: "Player Lookup — IronSight" }],
   }),
   validateSearch: (s) => ({
-    steam:
-      typeof s.steam === "string" && normalizeSteamLookupQuery(s.steam)
-        ? normalizeSteamLookupQuery(s.steam)
-        : void 0,
+    steam: normalizeSteamLookupQuery(s.steam) || void 0,
     ipHash:
       typeof s.ipHash === "string" &&
       (IP_ADDRESS_RE.test(s.ipHash.trim()) ||
@@ -327,6 +321,11 @@ function PlayerLookupPage() {
 
   const [chatLines, setChatLines] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatHasMore, setChatHasMore] = useState(false);
+  const [chatLoadingMore, setChatLoadingMore] = useState(false);
+  const chatSentinelRef = useRef(null);
+  const chatScrollRef = useRef(null);
+  const chatLoadingMoreRef = useRef(false);
 
   const [caseDialogOpen, setCaseDialogOpen] = useState(false);
   const [hasOpenTicketInCaseOrg, setHasOpenTicketInCaseOrg] = useState(false);
@@ -736,22 +735,26 @@ function PlayerLookupPage() {
   useEffect(() => {
     if (!steamId || !chatOrgId) {
       setChatLines([]);
+      setChatHasMore(false);
       return;
     }
     let cancelled = false;
     setChatLoading(true);
-    fetch(`/api/players/${encodeURIComponent(steamId)}/chat?limit=50`, {
+    setChatHasMore(false);
+    fetch(`/api/players/${encodeURIComponent(steamId)}/chat?limit=10`, {
       credentials: "include",
     })
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
-        if (!r.ok) {
+        if (!r.ok)
           throw new Error(body?.error ?? "Failed to load chat history.");
-        }
         return body;
       })
       .then((b) => {
-        if (!cancelled) setChatLines(b.lines ?? []);
+        if (!cancelled) {
+          setChatLines(b.lines ?? []);
+          setChatHasMore(b.hasMore ?? false);
+        }
       })
       .catch(() => {
         if (!cancelled) setChatLines([]);
@@ -763,6 +766,43 @@ function PlayerLookupPage() {
       cancelled = true;
     };
   }, [steamId, chatOrgId]);
+
+  const loadMoreChat = useCallback(() => {
+    if (!steamId || !chatOrgId || chatLoadingMoreRef.current || !chatHasMore)
+      return;
+    const oldest = chatLines[chatLines.length - 1]?.ts;
+    if (!oldest) return;
+    chatLoadingMoreRef.current = true;
+    setChatLoadingMore(true);
+    fetch(
+      `/api/players/${encodeURIComponent(steamId)}/chat?limit=20&before=${oldest}`,
+      { credentials: "include" },
+    )
+      .then((r) => r.json())
+      .then((b) => {
+        setChatLines((prev) => [...prev, ...(b.lines ?? [])]);
+        setChatHasMore(b.hasMore ?? false);
+      })
+      .catch(() => {})
+      .finally(() => {
+        chatLoadingMoreRef.current = false;
+        setChatLoadingMore(false);
+      });
+  }, [steamId, chatOrgId, chatHasMore, chatLines]);
+
+  useEffect(() => {
+    const sentinel = chatSentinelRef.current;
+    const container = chatScrollRef.current;
+    if (!sentinel || !container || !chatHasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMoreChat();
+      },
+      { root: container, threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [chatHasMore, loadMoreChat]);
 
   useEffect(() => {
     if (!steamId || !caseOrgId) {
@@ -1282,6 +1322,7 @@ function PlayerLookupPage() {
                           Chat History
                           <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
                             {chatLines.length}
+                            {chatHasMore ? "+" : ""}
                           </span>
                         </h2>
                         {chatLoading ? (
@@ -1293,44 +1334,79 @@ function PlayerLookupPage() {
                             No chat messages on record.
                           </p>
                         ) : (
-                          <ul className="space-y-1">
-                            {chatLines.map((line) => (
-                              <li
-                                key={line.id}
-                                className="bg-background/60 ring-1 ring-border rounded px-2 py-1.5"
-                              >
-                                <div className="flex items-start gap-2">
-                                  {line.teamMessage && (
-                                    <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
-                                      team
-                                    </span>
-                                  )}
-                                  <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
-                                    {line.message}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground">
-                                  <span>
-                                    {new Date(
-                                      line.ts * 1000,
-                                    ).toLocaleDateString(undefined, {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    })}
-                                  </span>
-                                  {line.serverName && (
-                                    <>
-                                      <span>·</span>
-                                      <span className="truncate">
-                                        {line.serverName}
+                          <div
+                            ref={chatScrollRef}
+                            className="max-h-[480px] overflow-y-auto"
+                          >
+                            <ul className="space-y-1">
+                              {chatLines.map((line) => {
+                                const flagged =
+                                  Array.isArray(line.aiFlags) &&
+                                  line.aiFlags.length > 0;
+                                const activeFlags = flagged
+                                  ? line.aiFlags.filter((f) => !f.resolved)
+                                  : [];
+                                return (
+                                  <li
+                                    key={line.id}
+                                    className={`ring-1 rounded px-2 py-1.5 ${activeFlags.length > 0 ? "bg-warning/5 ring-warning/30" : "bg-background/60 ring-border"}`}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      {line.teamMessage && (
+                                        <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
+                                          team
+                                        </span>
+                                      )}
+                                      <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
+                                        {line.message}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground flex-wrap">
+                                      <span>
+                                        {new Date(
+                                          line.ts * 1000,
+                                        ).toLocaleDateString(undefined, {
+                                          month: "short",
+                                          day: "numeric",
+                                          year: "numeric",
+                                        })}
                                       </span>
-                                    </>
-                                  )}
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
+                                      {line.serverName && (
+                                        <>
+                                          <span>·</span>
+                                          <span className="truncate">
+                                            {line.serverName}
+                                          </span>
+                                        </>
+                                      )}
+                                      {activeFlags.map((f) => (
+                                        <span
+                                          key={f.category}
+                                          className="px-1 py-0.5 rounded bg-warning/15 text-warning uppercase tracking-wider text-[8px]"
+                                        >
+                                          {f.category}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            <div
+                              ref={chatSentinelRef}
+                              className="py-2 flex items-center justify-center"
+                            >
+                              {chatLoadingMore ? (
+                                <span className="text-[10px] text-muted-foreground">
+                                  Loading…
+                                </span>
+                              ) : !chatHasMore && chatLines.length > 0 ? (
+                                <span className="text-[10px] text-muted-foreground/40">
+                                  All messages loaded
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
                         )}
                       </section>
                     )}
@@ -1780,13 +1856,33 @@ function PlayerLookupPage() {
                           playerData.displayName ?? playerData.steamId
                         }
                         relatedAccounts={playerData.relatedAccounts}
+                        sessionRelated={
+                          canViewSessionHistory
+                            ? (playerData.sessionRelated ?? [])
+                            : []
+                        }
+                        friendSteamIds={
+                          new Set(
+                            (playerData.friends?.enriched ?? [])
+                              .map((f) => f.steamId)
+                              .filter(Boolean),
+                          )
+                        }
                       />
                     )}
 
-                    {/* Session-Linked Players (temporal alt detection) */}
-                    {canViewSessionHistory && (
-                      <SessionRelatedSection
-                        sessionRelated={playerData.sessionRelated}
+                    {/* Previous Connection Points */}
+                    {canViewIpConnections && (
+                      <ConnectionPointsSection
+                        ipHistory={visibleIpHistory}
+                        relatedAccounts={playerData.relatedAccounts}
+                        currentSteamId={playerData.steamId}
+                        tz={tz}
+                        onSearchHash={(hash) =>
+                          navigate({
+                            search: { steam: undefined, ipHash: hash },
+                          })
+                        }
                       />
                     )}
 
@@ -1808,21 +1904,6 @@ function PlayerLookupPage() {
                           ))}
                         </ul>
                       </section>
-                    )}
-
-                    {/* Previous Connection Points */}
-                    {canViewIpConnections && (
-                      <ConnectionPointsSection
-                        ipHistory={visibleIpHistory}
-                        relatedAccounts={playerData.relatedAccounts}
-                        currentSteamId={playerData.steamId}
-                        tz={tz}
-                        onSearchHash={(hash) =>
-                          navigate({
-                            search: { steam: undefined, ipHash: hash },
-                          })
-                        }
-                      />
                     )}
                   </div>
                 </div>

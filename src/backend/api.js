@@ -90,15 +90,18 @@ import {
   deleteMediaObject,
   generatePresignedMultipart,
   generatePresignedPut,
-  getPublicUrl,
+  getMediaObject,
   headObject,
   MAX_FILE_SIZE,
   MULTIPART_THRESHOLD,
   normalizeObjectContentType,
   PUBLIC_ALLOWED_MIME,
   r2Configured,
+  sanitizeFilename,
+  signedMediaPath,
   STAFF_ALLOWED_MIME,
   testR2BucketWriteDelete,
+  verifyMediaSignature,
 } from "./r2.js";
 import { sanitizeDocHtml } from "./sanitize.js";
 import {
@@ -11554,7 +11557,7 @@ async function handleCreateBan(request, orgId) {
       } else if (identifierType === "ip") {
         command = `banip ${safeId}`;
       } else {
-        command = `ban ${safeId} "${safeReason}"`;
+        command = `ban ${safeId} "${safeReason} | Appeal: help.archipel.gg"`;
       }
       return executeRconCommand(rconUrl, command)
         .then((result) => ({
@@ -12593,7 +12596,10 @@ function mediaFileType(mimeType) {
 }
 
 function resolveMediaUrl(r) {
-  if (r.r2_key) return getPublicUrl(String(r.r2_key));
+  // R2 media is served through the signed /api/media/:id/file endpoint — the
+  // raw bucket URL is never exposed, so viewing requires a link minted for a
+  // logged-in panel user.
+  if (r.r2_key) return signedMediaPath(String(r.media_id));
   return r.zipline_url ? String(r.zipline_url) : null; // legacy Zipline fallback
 }
 
@@ -12636,6 +12642,72 @@ async function getUserStorageUsed(orgId, userId) {
   return Number(rows[0].used);
 }
 
+// Streams a media object's bytes. Authorization is the HMAC signature in the
+// query string (minted by signedMediaPath inside authenticated API responses),
+// NOT the session cookie — the response carries no per-user data, so keeping
+// the cookie out of the decision lets Cloudflare edge-cache it by URL. Forwards
+// the Range header so <video> elements can seek without downloading the file.
+async function handleGetMediaFile(request, mediaId) {
+  const url = new URL(request.url);
+  if (
+    !verifyMediaSignature(
+      mediaId,
+      url.searchParams.get("e"),
+      url.searchParams.get("s"),
+    )
+  )
+    return json({ error: "Invalid or expired media link" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT r2_key, mime_type, filename, file_size FROM org_media
+     WHERE media_id = $1 AND deleted = FALSE AND confirmed = TRUE`,
+    [mediaId],
+  );
+  if (!rows[0]?.r2_key) return json({ error: "Media not found" }, 404);
+  const row = rows[0];
+
+  let obj;
+  try {
+    obj = await getMediaObject(
+      String(row.r2_key),
+      request.headers.get("range"),
+    );
+  } catch (err) {
+    console.error(`[r2] get failed mediaId=${mediaId}:`, err?.message);
+    return json({ error: "Failed to fetch media" }, 502);
+  }
+  if (!obj) return json({ error: "Media not found" }, 404);
+  if (obj.rangeError)
+    return new Response(null, {
+      status: 416,
+      headers: { "Content-Range": `bytes */${Number(row.file_size ?? 0)}` },
+    });
+
+  // Keeps the org media-expiry window honest for files that are still viewed.
+  // Edge-cached hits skip the origin (and this update) — acceptable drift.
+  pool
+    .query(
+      `UPDATE org_media SET last_accessed_at = unix_now() WHERE media_id = $1`,
+      [mediaId],
+    )
+    .catch(() => {});
+
+  const headers = new Headers({
+    // Serve the DB's vetted MIME (pinned at confirm time), never a sniffable one.
+    "Content-Type": String(row.mime_type || "application/octet-stream"),
+    "Content-Disposition": `inline; filename="${sanitizeFilename(row.filename)}"`,
+    // URL rotates with the signature window, so cached copies age out safely.
+    "Cache-Control": "public, max-age=3600, immutable",
+    "Accept-Ranges": "bytes",
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (obj.contentLength != null)
+    headers.set("Content-Length", String(obj.contentLength));
+  if (obj.contentRange) headers.set("Content-Range", obj.contentRange);
+  if (obj.etag) headers.set("ETag", obj.etag);
+  return new Response(obj.body, { status: obj.status, headers });
+}
+
 async function handleListAllMedia(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -12650,6 +12722,7 @@ async function handleListAllMedia(request) {
     parseInt(url.searchParams.get("offset") ?? "0", 10),
   );
   const fileType = url.searchParams.get("type") ?? null;
+  const orgFilter = url.searchParams.get("org")?.trim() || null;
   const sysAdmin = isConfiguredSysAdmin(session);
 
   const conditions = [
@@ -12666,8 +12739,23 @@ async function handleListAllMedia(request) {
     if (userOrgs.length === 0)
       return json({ media: [], total: 0, isSysAdmin: false, userQuotas: [] });
 
-    const orgIds = userOrgs.map((o) => String(o.orgId));
-    quotaOrgIds = orgIds;
+    const allOrgIds = userOrgs.map((o) => String(o.orgId));
+    // Quota bars always reflect every org the user belongs to, even when the
+    // list itself is narrowed to one org.
+    quotaOrgIds = allOrgIds;
+
+    // Org filter: silently scoped to the caller's own orgs — a non-member
+    // orgId yields an empty list, never another tenant's media.
+    const orgIds = orgFilter
+      ? allOrgIds.filter((id) => id === orgFilter)
+      : allOrgIds;
+    if (orgIds.length === 0)
+      return json({
+        media: [],
+        total: 0,
+        isSysAdmin: false,
+        userQuotas: [],
+      });
     const elevatedOrgSet = new Set(
       Array.isArray(session.orgAdminOrgIds)
         ? session.orgAdminOrgIds.map((id) => String(id))
@@ -12695,6 +12783,11 @@ async function handleListAllMedia(request) {
       return json({ media: [], total: 0, isSysAdmin: false, userQuotas: [] });
 
     conditions.push(`(${scopeClauses.join(" OR ")})`);
+  }
+
+  if (sysAdmin && orgFilter) {
+    conditions.push(`m.org_id = $${paramIdx++}`);
+    params.push(orgFilter);
   }
 
   if (fileType && ["image", "video", "other"].includes(fileType)) {
@@ -12845,7 +12938,7 @@ async function handlePrepareMedia(request, orgId) {
     return json(
       {
         error:
-          "R2 storage is not configured on this server. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, and R2_PUBLIC_URL.",
+          "R2 storage is not configured on this server. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME.",
       },
       503,
     );
@@ -14040,7 +14133,10 @@ async function enforceIpBanEvasion(server, steamId, ip, ipHash, playerName) {
         const safeReason = reason
           .replace(/[\r\n\x00-\x1f]/g, " ")
           .replace(/"/g, "'");
-        await executeRconCommand(rconUrl, `ban ${steamId} "${safeReason}"`);
+        await executeRconCommand(
+          rconUrl,
+          `ban ${steamId} "${safeReason} | Appeal: help.archipel.gg"`,
+        );
       } catch (err) {
         console.error(
           `[ip-ban-evasion] RCON ban failed for ${steamId}:`,
@@ -15053,7 +15149,15 @@ async function handleGetPlayerChat(request, steamId) {
 
   const { rows } = await pool.query(
     `SELECT tcl.id, tcl.message, tcl.steam_id, tcl.player_name, tcl.team_message,
-            tcl.created_at AS ts, s.server_name, s.server_id
+            tcl.created_at AS ts, s.server_name, s.server_id, tcl.ai_flags,
+            (SELECT json_agg(json_build_object(
+               'category', acf.triggered_category,
+               'score', acf.score,
+               'action', acf.action,
+               'resolved', acf.resolved
+             ))
+             FROM ai_chat_flags acf
+             WHERE acf.chat_log_id = tcl.id) AS ai_chat_flags
      FROM text_chat_log tcl
      JOIN servers s ON s.server_id = tcl.server_id
      WHERE tcl.steam_id = $1
@@ -15073,9 +15177,43 @@ async function handleGetPlayerChat(request, steamId) {
     ts: Number(r.ts),
     serverName: r.server_name ?? null,
     serverId: String(r.server_id),
+    aiFlags: Array.isArray(r.ai_chat_flags) ? r.ai_chat_flags : [],
   }));
 
   return json({ lines, hasMore });
+}
+
+// ── BM server co-players ──────────────────────────────────────────────────────
+
+async function handleGetBmServerCoPlayers(request, orgId, bmServerId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT DISTINCT pc.steam_id, pc.display_name, pc.avatar_url,
+            pc.bm_rust_bans_banned, pc.steam_vac_banned, pc.steam_vac_count,
+            pc.steam_game_ban_count
+     FROM player_session_windows psw
+     JOIN player_cache pc ON pc.steam_id = psw.steam_id
+     WHERE psw.bm_server_id = $1
+     ORDER BY pc.display_name
+     LIMIT 50`,
+    [String(bmServerId)],
+  );
+
+  return json({
+    players: rows.map((r) => ({
+      steamId: String(r.steam_id),
+      displayName: r.display_name ?? null,
+      avatarUrl: r.avatar_url ?? null,
+      bmBanned: Boolean(r.bm_rust_bans_banned),
+      vacBanned: Boolean(r.steam_vac_banned),
+      vacCount: Number(r.steam_vac_count ?? 0),
+      gameBanCount: Number(r.steam_game_ban_count ?? 0),
+    })),
+  });
 }
 
 // ── Sysadmin: clear all player cache ─────────────────────────────────────────
@@ -15986,15 +16124,7 @@ async function handleGetOrgPlayerList(request, orgId) {
   )
     return json({ error: "Forbidden: player_list permission required" }, 403);
 
-  const url = new URL(request.url);
-  const includeBannedParam = String(
-    url.searchParams.get("includeBanned") ?? "1",
-  ).toLowerCase();
-  const includeBanned = !["0", "false", "no", "off"].includes(
-    includeBannedParam,
-  );
-
-  const cacheKey = `player-list:${orgId}:${includeBanned ? "with-banned" : "without-banned"}`;
+  const cacheKey = `player-list:${orgId}`;
   try {
     const cached = await redis.get(cacheKey);
     if (cached) return json(JSON.parse(cached));
@@ -16050,33 +16180,29 @@ async function handleGetOrgPlayerList(request, orgId) {
     } catch {}
   }
 
-  const bannedExclusionClause = includeBanned
-    ? ""
-    : `
-       AND NOT EXISTS (
-         SELECT 1 FROM player_bans pb
-         WHERE pb.identifier = pc.steam_id
-           AND pb.identifier_type = 'steam_id'
-           AND pb.org_id = $1
-           AND pb.revoked = FALSE
-           AND pb.action_type = 'ban'
-           AND (pb.expires_at IS NULL OR pb.expires_at > unix_now())
-       )`;
-
   // All sighted players for this org with cache data.
-  const sightingsRes = await pool.query(
-    `SELECT pc.steam_id, pc.display_name, pc.avatar_url,
-            pc.steam_rust_hours, pc.steam_profile_created_at,
-            pc.bm_rust_hours, pc.bm_kills, pc.bm_deaths,
-            pc.bm_cheating_reports, pc.bm_teaming_reports, pc.bm_other_reports,
-            pc.bm_rust_bans_count
-     FROM org_player_sightings ops
-     JOIN player_cache pc ON pc.steam_id = ops.steam_id
-     WHERE ops.org_id = $1
-     ${bannedExclusionClause}
-     ORDER BY ops.last_seen_at DESC`,
-    [orgId],
-  );
+  const [sightingsRes, activeBansRes] = await Promise.all([
+    pool.query(
+      `SELECT pc.steam_id, pc.display_name, pc.avatar_url,
+              pc.steam_rust_hours, pc.steam_profile_created_at,
+              pc.bm_rust_hours, pc.bm_kills, pc.bm_deaths,
+              pc.bm_cheating_reports, pc.bm_teaming_reports, pc.bm_other_reports,
+              pc.bm_rust_bans_count
+       FROM org_player_sightings ops
+       JOIN player_cache pc ON pc.steam_id = ops.steam_id
+       WHERE ops.org_id = $1
+       ORDER BY ops.last_seen_at DESC`,
+      [orgId],
+    ),
+    pool.query(
+      `SELECT DISTINCT identifier FROM player_bans
+       WHERE org_id = $1 AND identifier_type = 'steam_id'
+         AND revoked = FALSE AND action_type = 'ban'
+         AND (expires_at IS NULL OR expires_at > unix_now())`,
+      [orgId],
+    ),
+  ]);
+  const bannedSteamIds = new Set(activeBansRes.rows.map((r) => r.identifier));
 
   const allSteamIds = sightingsRes.rows.map((r) => r.steam_id);
   let ipMap = {};
@@ -16136,6 +16262,7 @@ async function handleGetOrgPlayerList(request, orgId) {
       isOnline: !!online,
       serverId: online?.serverId ?? null,
       serverName: online?.serverName ?? null,
+      isBanned: bannedSteamIds.has(cache.steam_id),
       susScore,
       rustHours: totalHours,
       bmHours: cache.bm_rust_hours != null ? Number(cache.bm_rust_hours) : 0,
@@ -16231,6 +16358,20 @@ async function _handleApiRequest(request) {
       request.method === "POST"
     ) {
       return handleDeleteDiscordMessage(request);
+    }
+
+    if (
+      pathname === "/api/internal/discord/message/delete-bulk" &&
+      request.method === "POST"
+    ) {
+      return handleBulkDeleteDiscordMessages(request);
+    }
+
+    if (
+      pathname === "/api/internal/discord/message/update" &&
+      request.method === "POST"
+    ) {
+      return handleUpdateDiscordMessage(request);
     }
 
     if (
@@ -17293,6 +17434,11 @@ async function _handleApiRequest(request) {
     if (orgGlobalpingLimitsMatch && request.method === "GET")
       return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
 
+    // Signed media file streaming (HMAC in query string, no session — see handler)
+    const mediaFileMatch = pathname.match(/^\/api\/media\/([a-f0-9-]+)\/file$/);
+    if (mediaFileMatch && request.method === "GET")
+      return handleGetMediaFile(request, mediaFileMatch[1]);
+
     // Cross-org media list:
     // - sysadmin sees all media
     // - org owners/admins see all media in orgs they manage
@@ -17414,6 +17560,17 @@ async function _handleApiRequest(request) {
         request,
         orgPlayerOpenTicketMatch[1],
         orgPlayerOpenTicketMatch[2],
+      );
+
+    // BM server co-players
+    const bmServerCoPlayersMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bm-server\/([^/]+)\/co-players$/,
+    );
+    if (bmServerCoPlayersMatch && request.method === "GET")
+      return handleGetBmServerCoPlayers(
+        request,
+        bmServerCoPlayersMatch[1],
+        bmServerCoPlayersMatch[2],
       );
 
     // Org player list
@@ -18397,6 +18554,79 @@ async function handleDeleteDiscordMessage(request) {
   return json({ ok: true });
 }
 
+async function handleBulkDeleteDiscordMessages(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const { messageIds, guildId } = body ?? {};
+  if (!Array.isArray(messageIds) || messageIds.length === 0 || !guildId) {
+    return json({ error: "Missing required fields" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT org_id FROM organizations WHERE guild_id = $1 LIMIT 1`,
+    [String(guildId)],
+  );
+  if (!orgRes.rows[0]) return json({ ok: false, reason: "no org" });
+  const orgId = orgRes.rows[0].org_id;
+
+  const ids = messageIds.slice(0, 100).map(String);
+  await pool.query(
+    `UPDATE discord_messages SET deleted = TRUE
+     WHERE org_id = $1 AND message_id = ANY($2)`,
+    [orgId, ids],
+  );
+
+  return json({ ok: true });
+}
+
+async function handleUpdateDiscordMessage(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const { messageId, guildId, content, editedTimestamp } = body ?? {};
+  if (!messageId || !guildId) {
+    return json({ error: "Missing required fields" }, 400);
+  }
+
+  const orgRes = await pool.query(
+    `SELECT org_id FROM organizations WHERE guild_id = $1 LIMIT 1`,
+    [String(guildId)],
+  );
+  if (!orgRes.rows[0]) return json({ ok: false, reason: "no org" });
+  const orgId = orgRes.rows[0].org_id;
+
+  const editedAt = editedTimestamp
+    ? Math.floor(new Date(editedTimestamp).getTime() / 1000)
+    : nowUnix();
+
+  // Preserve original content before first edit
+  await pool.query(
+    `UPDATE discord_messages
+     SET edited_at = $3,
+         original_content = COALESCE(original_content, content),
+         content = $4
+     WHERE org_id = $1 AND message_id = $2 AND deleted = FALSE`,
+    [orgId, String(messageId), editedAt, String(content ?? "").slice(0, 8000)],
+  );
+
+  return json({ ok: true });
+}
+
 async function handleGetDiscordBotGuilds(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -18527,7 +18757,7 @@ async function handleGetDiscordMessages(request, orgId) {
 
   const { rows } = await pool.query(
     `SELECT message_id, channel_id, channel_name, author_discord_id, author_username,
-            content, attachments, discord_created_at, deleted
+            content, attachments, discord_created_at, deleted, edited_at, original_content
      FROM discord_messages
      WHERE ${conditions.join(" AND ")}
      ORDER BY discord_created_at DESC
@@ -18546,6 +18776,8 @@ async function handleGetDiscordMessages(request, orgId) {
       attachments: r.attachments,
       createdAt: r.discord_created_at,
       deleted: r.deleted,
+      editedAt: r.edited_at ?? null,
+      originalContent: r.original_content ?? null,
     })),
   });
 }

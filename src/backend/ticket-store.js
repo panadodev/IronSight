@@ -2,7 +2,7 @@
 // the ticket handlers in api.js; depends only on the runtime singletons.
 
 import { pool, redis } from "./runtime.js";
-import { getPublicUrl } from "./r2.js";
+import { signedMediaPath } from "./r2.js";
 
 export function ticketCacheKey(ticketId) {
   return `ticket:${ticketId}`;
@@ -122,6 +122,6 @@ export async function loadTicketMedia(ticketId) {
     fileSize: row.file_size != null ? Number(row.file_size) : null,
     title: row.title ?? "",
     uploadedAt: Number(row.uploaded_at),
-    url: row.r2_key ? getPublicUrl(String(row.r2_key)) : null,
+    url: row.r2_key ? signedMediaPath(String(row.media_id)) : null,
   }));
 }

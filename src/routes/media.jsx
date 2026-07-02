@@ -165,16 +165,26 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
         for (let i = 0; i < partUrls.length; i++) {
           const start = i * partSize;
           const chunk = file.slice(start, start + partSize);
-          const etag = await uploadChunkXhr(partUrls[i], chunk, (frac) => {
-            setProgress(Math.round(((i + frac) / partUrls.length) * 95));
-          }, xhrRef);
+          const etag = await uploadChunkXhr(
+            partUrls[i],
+            chunk,
+            (frac) => {
+              setProgress(Math.round(((i + frac) / partUrls.length) * 95));
+            },
+            xhrRef,
+          );
           parts.push({ partNumber: i + 1, etag });
         }
       } else {
         setStatusText("Uploading…");
-        await uploadChunkXhr(uploadUrl, file, (frac) => {
-          setProgress(Math.round(frac * 95));
-        }, xhrRef);
+        await uploadChunkXhr(
+          uploadUrl,
+          file,
+          (frac) => {
+            setProgress(Math.round(frac * 95));
+          },
+          xhrRef,
+        );
       }
 
       setStatusText("Finalizing…");
@@ -364,7 +374,7 @@ function Thumbnail({ item }) {
       <video
         src={item.url}
         className="size-9 rounded object-cover bg-black/20 shrink-0"
-        preload="none"
+        preload="metadata"
         muted
       />
     );
@@ -379,7 +389,94 @@ function Thumbnail({ item }) {
   );
 }
 
-function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
+function PreviewDialog({ item, onClose, onDelete, showOrg }) {
+  return (
+    <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl">
+        {item && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="truncate pr-8">
+                {item.title || item.filename}
+              </DialogTitle>
+              {item.title && (
+                <DialogDescription className="truncate">
+                  {item.filename}
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="rounded-md overflow-hidden bg-black/60 grid place-items-center">
+              {item.fileType === "video" && item.url ? (
+                <video
+                  src={item.url}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="w-full max-h-[65vh] bg-black"
+                />
+              ) : item.fileType === "image" && item.url ? (
+                <img
+                  src={item.url}
+                  alt={item.title || item.filename}
+                  className="max-h-[65vh] w-auto object-contain"
+                />
+              ) : (
+                <div className="py-16 flex flex-col items-center gap-2 text-muted-foreground">
+                  <FileIcon className="size-8" />
+                  <span className="text-sm">
+                    No inline preview for this file type.
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className="capitalize inline-flex items-center gap-1">
+                <FileTypeIcon fileType={item.fileType} className="size-3" />
+                {item.fileType}
+              </span>
+              <span className="tabular-nums">{formatBytes(item.fileSize)}</span>
+              <span className="tabular-nums">
+                {formatDate(item.uploadedAt)}
+              </span>
+              {showOrg && (item.orgName || item.orgId) && (
+                <span className="truncate">{item.orgName ?? item.orgId}</span>
+              )}
+              {item.uploadedByName && <span>by {item.uploadedByName}</span>}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger hover:text-danger"
+                onClick={() => onDelete(item)}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </Button>
+              {item.url && (
+                <Button asChild size="sm" variant="outline">
+                  <a href={item.url} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="size-3.5" />
+                    Open
+                  </a>
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MediaTable({
+  media,
+  onDelete,
+  onPreview,
+  deletingId,
+  showOrgCol,
+  showUploaderCol,
+}) {
   return (
     <div className="rounded-lg ring-1 ring-border overflow-hidden">
       <table className="w-full text-xs">
@@ -389,12 +486,12 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
             <th className="text-left px-3 py-2 font-medium text-muted-foreground">
               Name
             </th>
-            {isSysAdmin && (
+            {showOrgCol && (
               <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden md:table-cell">
                 Org
               </th>
             )}
-            {isSysAdmin && (
+            {showUploaderCol && (
               <th className="text-left px-3 py-2 font-medium text-muted-foreground hidden lg:table-cell">
                 Uploader
               </th>
@@ -417,7 +514,8 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
           {media.map((item) => (
             <tr
               key={item.mediaId}
-              className="hover:bg-surface/20 transition-colors"
+              className="hover:bg-surface/20 transition-colors cursor-pointer"
+              onClick={() => onPreview(item)}
             >
               <td className="px-3 py-2">
                 <Thumbnail item={item} />
@@ -432,12 +530,12 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
                   </p>
                 )}
               </td>
-              {isSysAdmin && (
+              {showOrgCol && (
                 <td className="px-3 py-2 hidden md:table-cell text-muted-foreground truncate max-w-[120px]">
                   {item.orgName ?? item.orgId ?? "—"}
                 </td>
               )}
-              {isSysAdmin && (
+              {showUploaderCol && (
                 <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground truncate max-w-[120px]">
                   {item.uploadedByName ?? "—"}
                 </td>
@@ -461,6 +559,7 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
                       href={item.url}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-border hover:bg-surface/60 transition-colors text-muted-foreground hover:text-foreground"
                       title="Open"
                     >
@@ -468,7 +567,10 @@ function MediaTable({ media, onDelete, deletingId, isSysAdmin }) {
                     </a>
                   )}
                   <button
-                    onClick={() => onDelete(item)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(item);
+                    }}
                     disabled={deletingId === item.mediaId}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-danger/40 hover:bg-danger/10 transition-colors text-danger disabled:opacity-40"
                     title="Delete"
@@ -501,8 +603,10 @@ function MediaPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [orgFilter, setOrgFilter] = useState("all");
   const [offset, setOffset] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [preview, setPreview] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // { mediaId, orgId, filename }
   const [testingBucket, setTestingBucket] = useState(false);
@@ -528,6 +632,7 @@ function MediaPage() {
         offset: String(offset),
       });
       if (typeFilter !== "all") params.set("type", typeFilter);
+      if (orgFilter !== "all") params.set("org", orgFilter);
       const res = await fetch(`/api/media?${params}`, {
         credentials: "include",
       });
@@ -545,11 +650,11 @@ function MediaPage() {
     } finally {
       setLoading(false);
     }
-  }, [typeFilter, offset]);
+  }, [typeFilter, orgFilter, offset]);
 
   useEffect(() => {
     setOffset(0);
-  }, [typeFilter]);
+  }, [typeFilter, orgFilter]);
   useEffect(() => {
     if (orgsLoaded) load();
   }, [load, orgsLoaded]);
@@ -635,7 +740,22 @@ function MediaPage() {
                   : "Your uploaded evidence clips, screenshots, and files stored in Cloudflare R2."}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {(isSysAdmin || orgs.length > 1) && (
+                <Select value={orgFilter} onValueChange={setOrgFilter}>
+                  <SelectTrigger className="h-7 w-44 text-xs">
+                    <SelectValue placeholder="All organizations" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All organizations</SelectItem>
+                    {orgs.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <div className="flex items-center gap-1">
                 {["all", "image", "video", "other"].map((t) => (
                   <button
@@ -727,7 +847,9 @@ function MediaPage() {
                         }`}
                       >
                         {formatBytes(q.used)}
-                        {q.limit != null ? ` / ${formatBytes(q.limit)}` : " used"}
+                        {q.limit != null
+                          ? ` / ${formatBytes(q.limit)}`
+                          : " used"}
                       </span>
                     </div>
                     {q.limit != null && (
@@ -789,8 +911,10 @@ function MediaPage() {
               <MediaTable
                 media={media}
                 onDelete={(item) => setConfirmDelete(item)}
+                onPreview={(item) => setPreview(item)}
                 deletingId={deletingId}
-                isSysAdmin={isSysAdmin}
+                showOrgCol={isSysAdmin || orgs.length > 1}
+                showUploaderCol={isSysAdmin}
               />
             </>
           )}
@@ -826,6 +950,16 @@ function MediaPage() {
             onUploaded={(item) => {
               setMedia((prev) => [item, ...prev]);
               setTotal((t) => t + 1);
+            }}
+          />
+
+          <PreviewDialog
+            item={preview}
+            onClose={() => setPreview(null)}
+            showOrg={isSysAdmin || orgs.length > 1}
+            onDelete={(item) => {
+              setPreview(null);
+              setConfirmDelete(item);
             }}
           />
 

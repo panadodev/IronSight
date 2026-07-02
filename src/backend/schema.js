@@ -1289,6 +1289,12 @@ export async function ensureSchema(pool) {
     `ALTER TABLE discord_messages ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT FALSE`,
   );
   await pool.query(
+    `ALTER TABLE discord_messages ADD COLUMN IF NOT EXISTS edited_at BIGINT`,
+  );
+  await pool.query(
+    `ALTER TABLE discord_messages ADD COLUMN IF NOT EXISTS original_content TEXT`,
+  );
+  await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_discord_messages_org_channel
      ON discord_messages(org_id, channel_id, discord_created_at DESC)`,
   );
