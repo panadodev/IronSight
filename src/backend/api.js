@@ -19501,9 +19501,7 @@ async function handleListOrgDocs(request, orgId) {
   )
     return json({ error: "Forbidden" }, 403);
 
-  const isFullAccess =
-    orgHasPermission(session, orgId, "docs_edit") ||
-    canManageOrg(session, orgId);
+  const isFullAccess = canManageOrg(session, orgId);
 
   const catsPromise = pool.query(
     `SELECT category_id, org_id, name, parent_id, sort_order, created_at

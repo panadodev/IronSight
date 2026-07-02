@@ -258,6 +258,7 @@ function StaffPage() {
         `/api/orgs/${encodeURIComponent(orgId)}/members`,
         {
           credentials: "include",
+          cache: "no-store",
         },
       );
       if (res.ok) {
@@ -415,6 +416,11 @@ function StaffPage() {
       }
       const body = await res.json().catch(() => ({}));
       for (const w of body.warnings ?? []) toast.error(w);
+      // Optimistically update local state so the UI reflects the new role
+      // immediately instead of waiting for the refetch (or a stale cached GET).
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === userId ? { ...m, roleId: newRole } : m)),
+      );
       invalidateAuthMe();
       await loadMembers();
     } finally {
