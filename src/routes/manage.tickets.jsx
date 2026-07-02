@@ -134,8 +134,8 @@ function QuestionForm({ orgId, ticketTypeId, question, onSave, onCancel }) {
       onSave(question ? { ...question, ...payload } : data.question);
     } catch {
       setError("Network error");
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
@@ -314,6 +314,7 @@ function ApplicationQuestions({ orgId, ticketTypeId }) {
   const [reordering, setReordering] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     fetch(
       `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketTypeId}/questions`,
@@ -321,10 +322,16 @@ function ApplicationQuestions({ orgId, ticketTypeId }) {
     )
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        if (cancelled) return;
         setQuestions(data?.questions ?? []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [orgId, ticketTypeId]);
 
   const handleSaveNew = (q) => {
@@ -634,9 +641,7 @@ function TicketsPage() {
     } catch {
       setTicketTypes((prev) =>
         prev.map((tt) =>
-          tt.ticketTypeId === ticketTypeId
-            ? { ...tt, allowMedia: !value }
-            : tt,
+          tt.ticketTypeId === ticketTypeId ? { ...tt, allowMedia: !value } : tt,
         ),
       );
     }

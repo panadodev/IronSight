@@ -858,6 +858,9 @@ async function init() {
           return;
         }
         const chunk = sseEncoder.encode(`data: ${raw}\n\n`);
+        // Mirror handleGetTicket's redaction: non-staff viewers never see
+        // other participants' username/steamId on public messages.
+        let redactedChunk = null;
         for (const entry of set) {
           if (
             event.type === "new_message" &&
@@ -865,8 +868,25 @@ async function init() {
             !entry.isStaff
           )
             continue;
+          let out = chunk;
+          if (
+            event.type === "new_message" &&
+            !entry.isStaff &&
+            event.message?.userId !== entry.userId
+          ) {
+            if (!redactedChunk) {
+              const redacted = {
+                ...event,
+                message: { ...event.message, username: null, steamId: null },
+              };
+              redactedChunk = sseEncoder.encode(
+                `data: ${JSON.stringify(redacted)}\n\n`,
+              );
+            }
+            out = redactedChunk;
+          }
           try {
-            entry.controller.enqueue(chunk);
+            entry.controller.enqueue(out);
           } catch {
             set.delete(entry);
           }
@@ -5980,6 +6000,8 @@ async function handleCreateTicket(request) {
     return json({ error: "title must be 255 characters or fewer" }, 400);
   if (message.length > 10000)
     return json({ error: "message is too long" }, 400);
+  if (/\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(message))
+    return json({ error: "Messages cannot contain raw IP addresses." }, 400);
 
   const orgRes = await pool.query(
     "SELECT org_id, media_public_max_files FROM organizations WHERE org_id = $1 LIMIT 1",
@@ -6069,6 +6091,29 @@ async function handleCreateTicket(request) {
   return json({ ok: true, ticketId }, 201);
 }
 
+// Role-based ticket-type restriction: when the caller's role is explicitly
+// assigned ticket types, tickets of other types are off limits. Callers that
+// pass the admin/owner/global gates never reach this check.
+async function ticketTypeRestricted(session, ticket) {
+  if (ticket.ticket_type_id === null) return false;
+  const typeRes = await pool.query(
+    `SELECT 1 FROM organization_members om
+     JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+     WHERE om.org_id = $1 AND om.user_id = $2
+     LIMIT 1`,
+    [ticket.org_id, session.userId],
+  );
+  if (typeRes.rows.length === 0) return false;
+  const allowed = await pool.query(
+    `SELECT 1 FROM organization_members om
+     JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
+     WHERE om.org_id = $1 AND om.user_id = $2 AND ttr.ticket_type_id = $3
+     LIMIT 1`,
+    [ticket.org_id, session.userId, ticket.ticket_type_id],
+  );
+  return !allowed.rows[0];
+}
+
 async function handleStreamTicket(request, ticketIdStr) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -6095,25 +6140,8 @@ async function handleStreamTicket(request, ticketIdStr) {
         perms.includes("tickets_view") || perms.includes("tickets_manage");
       if (!hasPermission) return json({ error: "Forbidden" }, 403);
 
-      if (ticket.ticket_type_id !== null) {
-        const typeRes = await pool.query(
-          `SELECT 1 FROM organization_members om
-           JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
-           WHERE om.org_id = $1 AND om.user_id = $2
-           LIMIT 1`,
-          [ticket.org_id, session.userId],
-        );
-        if (typeRes.rows.length > 0) {
-          const allowed = await pool.query(
-            `SELECT 1 FROM organization_members om
-             JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
-             WHERE om.org_id = $1 AND om.user_id = $2 AND ttr.ticket_type_id = $3
-             LIMIT 1`,
-            [ticket.org_id, session.userId, ticket.ticket_type_id],
-          );
-          if (!allowed.rows[0]) return json({ error: "Forbidden" }, 403);
-        }
-      }
+      if (await ticketTypeRestricted(session, ticket))
+        return json({ error: "Forbidden" }, 403);
     }
   }
 
@@ -6127,7 +6155,7 @@ async function handleStreamTicket(request, ticketIdStr) {
   let heartbeat;
   const stream = new ReadableStream({
     start(controller) {
-      entry = { controller, isStaff };
+      entry = { controller, isStaff, userId: session.userId };
       if (!ticketStreams.has(id)) ticketStreams.set(id, new Set());
       ticketStreams.get(id).add(entry);
       controller.enqueue(sseEncoder.encode(": connected\n\n"));
@@ -6185,27 +6213,8 @@ async function handleGetTicket(request, ticketIdStr) {
         perms.includes("tickets_view") || perms.includes("tickets_manage");
       if (!hasPermission) return json({ error: "Forbidden" }, 403);
 
-      // Enforce ticket type restriction if the role has specific types assigned
-      if (ticket.ticket_type_id !== null) {
-        const typeRes = await pool.query(
-          `SELECT 1 FROM organization_members om
-           JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
-           WHERE om.org_id = $1 AND om.user_id = $2
-           LIMIT 1`,
-          [ticket.org_id, session.userId],
-        );
-        if (typeRes.rows.length > 0) {
-          // Role has type restrictions — check if this ticket's type is allowed
-          const allowed = await pool.query(
-            `SELECT 1 FROM organization_members om
-             JOIN ticket_type_roles ttr ON ttr.role_id = om.role_id
-             WHERE om.org_id = $1 AND om.user_id = $2 AND ttr.ticket_type_id = $3
-             LIMIT 1`,
-            [ticket.org_id, session.userId, ticket.ticket_type_id],
-          );
-          if (!allowed.rows[0]) return json({ error: "Forbidden" }, 403);
-        }
-      }
+      if (await ticketTypeRestricted(session, ticket))
+        return json({ error: "Forbidden" }, 403);
     }
   }
 
@@ -6529,6 +6538,17 @@ async function handleAddTicketMessage(request, ticketIdStr) {
   // Internal notes are staff-only; non-staff cannot post internal notes.
   if (isInternal && !isStaff) return json({ error: "Forbidden" }, 403);
 
+  // Type-restricted staff can only post to tickets of their assigned types
+  // (same restriction handleGetTicket applies to viewing).
+  if (
+    !isCreator &&
+    !isGlobalAdmin(session) &&
+    !canManageOrg(session, ticket.org_id) &&
+    (await ticketTypeRestricted(session, ticket))
+  ) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
   // Only block public messages on closed tickets; staff can still post internal notes.
   if (ticket.status === "closed" && !isInternal)
     return json({ error: "Cannot add messages to a closed ticket" }, 400);
@@ -6604,6 +6624,12 @@ async function handleUpdateTicket(request, ticketIdStr) {
         403,
       );
     }
+    if (
+      !canManageOrg(session, ticket.org_id) &&
+      (await ticketTypeRestricted(session, ticket))
+    ) {
+      return json({ error: "Forbidden" }, 403);
+    }
   }
 
   let body;
@@ -6625,11 +6651,32 @@ async function handleUpdateTicket(request, ticketIdStr) {
       : String(body.assignedTo)
     : undefined;
 
-  if (status && !["open", "waiting_response", "closed"].includes(status)) {
+  if (
+    status !== null &&
+    !["open", "waiting_response", "closed"].includes(status)
+  ) {
     return json({ error: "Invalid status" }, 400);
   }
-  if (priority && !["urgent", "high", "normal", "low"].includes(priority)) {
+  if (
+    priority !== null &&
+    !["urgent", "high", "normal", "low"].includes(priority)
+  ) {
     return json({ error: "Invalid priority" }, 400);
+  }
+
+  // An assignee must belong to the ticket's org. Global admins may still
+  // self-claim tickets in orgs they are not a member of.
+  if (assignedTo != null && assignedTo !== session.userId) {
+    const memberRes = await pool.query(
+      `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+      [ticket.org_id, assignedTo],
+    );
+    if (!memberRes.rows[0]) {
+      return json(
+        { error: "assignedTo must be a member of this organization" },
+        400,
+      );
+    }
   }
 
   const setClauses = ["updated_at = unix_now()"];

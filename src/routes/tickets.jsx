@@ -121,7 +121,11 @@ function parseTeamInfoResponse(raw) {
   const positions = [];
   let m;
   while ((m = steamIdRe.exec(afterHeader)) !== null) {
-    positions.push({ steamId: m[1], end: m.index + m[1].length });
+    positions.push({
+      steamId: m[1],
+      index: m.index,
+      end: m.index + m[1].length,
+    });
   }
   if (!positions.length) return { teamId, members: [] };
   return {
@@ -222,7 +226,11 @@ function TicketsPage() {
   const [submitterSteamAccounts, setSubmitterSteamAccounts] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [replyText, setReplyText] = useState("");
-  const [composerMode, setComposerMode] = useState("reply");
+  const [composerMode, setComposerModeRaw] = useState("reply");
+  const setComposerMode = useCallback((mode) => {
+    setComposerModeRaw(mode);
+    setSubmitError("");
+  }, []);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -273,6 +281,7 @@ function TicketsPage() {
     setSelectedMessages([]);
     setSelectedMedia([]);
     setSubmitterSteamAccounts([]);
+    setSubmitError("");
     fetch(`/api/tickets/${selectedId}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { messages: [], media: [] }))
       .then((data) => {
