@@ -1518,6 +1518,12 @@ export const playerRedisKey = (steamId) => `player:data:${steamId}`;
 // Set with 30-second TTL after a full refresh completes (proxycheck included).
 // Serves as both the poll-completion signal and the per-player refresh cooldown gate.
 export const playerRefreshedKey = (steamId) => `player:refreshed:${steamId}`;
+// Set as soon as the CORE data (Steam + BM profile/sessions/bans/IPs) of an
+// in-flight refresh has been written to Redis — before the slow enrichment
+// (proxycheck, full session history, alt scoring). handleRefreshPlayer returns
+// early on this key instead of blocking on the full pipeline.
+export const playerCoreRefreshedKey = (steamId) =>
+  `player:core-refreshed:${steamId}`;
 const playerFetchLock = (steamId) => `player:fetching:${steamId}`;
 export const playerFetchLockKey = (steamId) => `player:fetching:${steamId}`;
 // Redis is a hot cache layer; PostgreSQL is the permanent store. 14-day TTL
@@ -2159,6 +2165,12 @@ export async function refreshPlayerData(
     return;
   }
 
+  // Clear the core-ready marker from any previous run so a stale key can't
+  // satisfy this run's early-return poll before the core data is rewritten.
+  try {
+    await redis.del(playerCoreRefreshedKey(steamId));
+  } catch {}
+
   // When the acting user belongs to several orgs, the selected org may have no
   // keys for a given service while a sibling org does. Resolve, per service, the
   // first candidate org (selected org preferred) that actually has an available
@@ -2282,8 +2294,12 @@ export async function refreshPlayerData(
     }
 
     // Write core data (Steam + BM profile/sessions/bans/IPs) to Redis immediately
-    // so the frontend polling can respond without waiting for the slower tasks below
+    // so the refresh endpoint and frontend polling can respond without waiting
+    // for the slower enrichment tasks below.
     await writePlayerDataToRedis(steamId);
+    try {
+      await redis.set(playerCoreRefreshedKey(steamId), "1", "EX", 120);
+    } catch {}
     console.log(`[player:refresh] ${steamId} — core data written to Redis`);
 
     // Secondary pass: friends, activity, related account details, proxycheck

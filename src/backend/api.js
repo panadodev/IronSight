@@ -75,6 +75,7 @@ import {
   ensurePlayerCacheRow,
   getPlayerCacheData,
   getPlayerDataFromRedis,
+  playerCoreRefreshedKey,
   playerFetchLockKey,
   playerRedisKey,
   playerRefreshedKey,
@@ -14977,6 +14978,12 @@ async function handleGetPlayer(request, steamId) {
       d.steam?.rustHours,
       d.bm?.rustHours,
     );
+    // A refresh pipeline is still running for this player — tell the client so
+    // it keeps silently re-polling until the enrichment lands.
+    try {
+      if ((await redis.exists(playerFetchLockKey(steamId))) === 1)
+        d.enriching = true;
+    } catch {}
     return json(d);
   }
 
@@ -15004,6 +15011,10 @@ async function handleGetPlayer(request, steamId) {
     d.steam?.rustHours,
     d.bm?.rustHours,
   );
+  try {
+    if ((await redis.exists(playerFetchLockKey(steamId))) === 1)
+      d.enriching = true;
+  } catch {}
   return json(d);
 }
 
@@ -15218,15 +15229,21 @@ async function handleRefreshPlayer(request, steamId) {
       );
   }
 
-  // Poll for the playerRefreshedKey, which is set only after the FULL pipeline
-  // (including proxycheck/friends/alt-scoring) completes — not just the first
-  // Redis write. This guarantees the client always gets a complete response on
-  // the first refresh click. Poll up to 12 seconds to cover slow proxycheck calls.
+  // Poll for pipeline progress. The full refreshedKey (proxycheck / friends /
+  // alt-scoring all done) is preferred, but the pipeline writes its CORE data
+  // (Steam + BM profile/sessions/bans/IPs) to Redis early and marks it with
+  // playerCoreRefreshedKey — return that as soon as it lands (typically 1-3 s)
+  // instead of blocking the request on the slow enrichment, which routinely
+  // exceeds the 12 s budget (full BM session history alone can be dozens of
+  // paginated calls). The response is flagged `enriching: true` so the client
+  // silently re-polls via GET to pick up the enrichment once it completes.
+  const coreKey = playerCoreRefreshedKey(steamId);
   for (let i = 0; i < 24; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try {
       const done = await redis.exists(refreshedKey);
-      if (done) {
+      const coreDone = done ? 1 : await redis.exists(coreKey);
+      if (done || coreDone) {
         const fresh = await getPlayerDataFromRedis(steamId);
         if (fresh) {
           const payload = applyShareEntitlement(
@@ -15234,6 +15251,7 @@ async function handleRefreshPlayer(request, steamId) {
             ipEntitlement,
             bmEntitlement,
           );
+          if (!done) payload.enriching = true;
           if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
           return json(payload);
         }
@@ -15379,6 +15397,107 @@ async function handleGetPlayerChat(request, steamId) {
   }));
 
   return json({ lines, hasMore });
+}
+
+// ── Player PVP feed ───────────────────────────────────────────────────────────
+
+// Kill/death feed + body-part hit stats for a player across the caller's
+// players_view orgs. pvp_log stores only the victim's display name (no steam
+// id), so deaths are matched against the player's known names from
+// player_cache (current display name + BM aliases) — best-effort by design.
+async function handleGetPlayerPvp(request, steamId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isValidSteamId(steamId)) return json({ error: "Invalid Steam ID" }, 400);
+
+  const url = new URL(request.url);
+  const limit = Math.min(
+    Math.max(parseInt(url.searchParams.get("limit") ?? "25", 10) || 25, 1),
+    100,
+  );
+
+  const scopedOrgIds = sessionCandidateOrgIds(session, null).filter((o) =>
+    orgHasPermission(session, o, "players_view"),
+  );
+
+  const emptyStats = {
+    kills: { total: 0, bodyparts: {} },
+    deaths: { total: 0, bodyparts: {} },
+  };
+  if (scopedOrgIds.length === 0) return json({ lines: [], stats: emptyStats });
+
+  const nameRes = await pool.query(
+    `SELECT display_name, bm_name_aliases FROM player_cache WHERE steam_id = $1`,
+    [steamId],
+  );
+  const names = new Set();
+  const cacheRow = nameRes.rows[0];
+  if (cacheRow?.display_name) names.add(String(cacheRow.display_name));
+  if (Array.isArray(cacheRow?.bm_name_aliases)) {
+    for (const n of cacheRow.bm_name_aliases) {
+      if (typeof n === "string" && n) names.add(n);
+    }
+  }
+  const nameArr = [...names];
+
+  const [feedRes, statsRes] = await Promise.all([
+    pool.query(
+      `SELECT p.id, p.killer_steam_id, p.victim_name, p.combatlog_cache,
+              p.server_name, p.created_at AS ts,
+              kpc.display_name AS killer_name
+       FROM pvp_log p
+       JOIN servers s ON s.server_id = p.server_id
+       LEFT JOIN player_cache kpc ON kpc.steam_id = p.killer_steam_id
+       WHERE s.owner_org_id = ANY($2)
+         AND (p.killer_steam_id = $1 OR p.victim_name = ANY($3))
+       ORDER BY p.created_at DESC
+       LIMIT $4`,
+      [steamId, scopedOrgIds, nameArr, limit],
+    ),
+    pool.query(
+      `SELECT (p.killer_steam_id = $1) AS is_kill,
+              LOWER(COALESCE(NULLIF(TRIM(p.combatlog_cache->>'bodypart'), ''), 'unknown')) AS bodypart,
+              COUNT(*)::int AS count
+       FROM pvp_log p
+       JOIN servers s ON s.server_id = p.server_id
+       WHERE s.owner_org_id = ANY($2)
+         AND (p.killer_steam_id = $1 OR p.victim_name = ANY($3))
+       GROUP BY 1, 2`,
+      [steamId, scopedOrgIds, nameArr],
+    ),
+  ]);
+
+  const stats = emptyStats;
+  for (const r of statsRes.rows) {
+    const bucket = r.is_kill ? stats.kills : stats.deaths;
+    bucket.total += r.count;
+    bucket.bodyparts[r.bodypart] =
+      (bucket.bodyparts[r.bodypart] ?? 0) + r.count;
+  }
+
+  const lines = feedRes.rows.map((r) => {
+    const log = r.combatlog_cache ?? {};
+    const distance = log.distance != null ? Number(log.distance) : null;
+    const hpBefore = log.hp_before != null ? Number(log.hp_before) : null;
+    const hpAfter = log.hp_after != null ? Number(log.hp_after) : null;
+    return {
+      id: String(r.id),
+      role: String(r.killer_steam_id) === steamId ? "kill" : "death",
+      killerSteamId: String(r.killer_steam_id),
+      killerName: r.killer_name ?? null,
+      victimName: String(r.victim_name),
+      serverName: r.server_name ?? null,
+      weapon: typeof log.weapon === "string" ? log.weapon : null,
+      bodypart: typeof log.bodypart === "string" ? log.bodypart : null,
+      distance: Number.isFinite(distance) ? distance : null,
+      hpBefore: Number.isFinite(hpBefore) ? hpBefore : null,
+      hpAfter: Number.isFinite(hpAfter) ? hpAfter : null,
+      ts: Number(r.ts),
+    };
+  });
+
+  return json({ lines, stats });
 }
 
 // ── BM server co-players ──────────────────────────────────────────────────────
@@ -17826,6 +17945,11 @@ async function _handleApiRequest(request) {
     const playerChatMatch = pathname.match(/^\/api\/players\/(\d+)\/chat$/);
     if (playerChatMatch && request.method === "GET")
       return handleGetPlayerChat(request, playerChatMatch[1]);
+
+    // Kill/death feed + body-part stats from server combat logs
+    const playerPvpMatch = pathname.match(/^\/api\/players\/(\d+)\/pvp$/);
+    if (playerPvpMatch && request.method === "GET")
+      return handleGetPlayerPvp(request, playerPvpMatch[1]);
 
     // Sysadmin: clear all player cache
     if (pathname === "/api/admin/player-cache" && request.method === "DELETE")

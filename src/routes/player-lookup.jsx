@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   Ban,
   Clock,
+  Crosshair,
   FolderOpen,
   History,
   MessageSquare,
@@ -300,6 +301,10 @@ function PlayerLookupPage() {
   const [firstFetch, setFirstFetch] = useState(false);
   const pollRef = useRef(null);
   const pollAttemptsRef = useRef(0);
+  // Silent re-poll timer for when a refresh returns early with `enriching:
+  // true` (core data written, deep enrichment still running server-side).
+  const enrichPollRef = useRef(null);
+  const enrichAttemptsRef = useRef(0);
   // Remembers the last (steamId, org) we fetched so the fetch effect can tell an
   // org switch (→ force a fresh pull from the new org's keys) apart from a new
   // player or first load (→ a normal cache-first GET).
@@ -310,6 +315,9 @@ function PlayerLookupPage() {
 
   const [reports, setReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
+
+  const [pvpData, setPvpData] = useState(null);
+  const [pvpLoading, setPvpLoading] = useState(false);
 
   const [issueBanOpen, setIssueBanOpen] = useState(false);
   const [issueBanActionType, setIssueBanActionType] = useState("ban");
@@ -412,13 +420,17 @@ function PlayerLookupPage() {
   const canCreateCase = caseOrgIds.length > 0;
 
   const fetchPlayer = useCallback(
-    async (forceRefresh = false) => {
+    async (forceRefresh = false, silent = false) => {
       if (pollRef.current) {
         clearTimeout(pollRef.current);
         pollRef.current = null;
       }
+      if (enrichPollRef.current) {
+        clearTimeout(enrichPollRef.current);
+        enrichPollRef.current = null;
+      }
       if (!steamId || !fetchOrgId) return;
-      setPlayerLoading(true);
+      if (!silent) setPlayerLoading(true);
       setPlayerError(null);
       try {
         const url = forceRefresh
@@ -430,9 +442,12 @@ function PlayerLookupPage() {
         });
         const body = await res.json();
         if (!res.ok) {
+          // A silent enrichment poll must never wipe the data on screen.
+          if (silent) return;
           setPlayerError(body?.error ?? "Failed to fetch player data.");
           setPlayerData(null);
         } else if (body.fetching) {
+          if (silent) return;
           // Backend is still fetching — poll until data is ready
           if (pollAttemptsRef.current >= 10) {
             pollAttemptsRef.current = 0;
@@ -462,12 +477,25 @@ function PlayerLookupPage() {
               avatarUrl: body.avatarUrl ?? null,
             });
           }
+          // Core data returned while the deep enrichment (proxycheck, full
+          // session history, alt scoring) is still running server-side —
+          // silently re-poll to pick it up once it lands.
+          if (body.enriching && enrichAttemptsRef.current < 10) {
+            enrichAttemptsRef.current += 1;
+            enrichPollRef.current = setTimeout(
+              () => fetchPlayer(false, true),
+              3000,
+            );
+          } else {
+            enrichAttemptsRef.current = 0;
+          }
         }
       } catch {
+        if (silent) return;
         setPlayerError("Failed to fetch player data.");
         setPlayerData(null);
       } finally {
-        setPlayerLoading(false);
+        if (!silent) setPlayerLoading(false);
         if (forceRefresh) setRefreshing(false);
       }
     },
@@ -608,11 +636,17 @@ function PlayerLookupPage() {
     setFirstFetch(false);
     setOffenses([]);
     setReports([]);
+    setPvpData(null);
     if (pollRef.current) {
       clearTimeout(pollRef.current);
       pollRef.current = null;
     }
     pollAttemptsRef.current = 0;
+    if (enrichPollRef.current) {
+      clearTimeout(enrichPollRef.current);
+      enrichPollRef.current = null;
+    }
+    enrichAttemptsRef.current = 0;
     fetchPlayer(orgSwitched);
   }, [steamId, fetchOrgId, orgsLoaded, ipHashQuery]);
 
@@ -726,6 +760,37 @@ function PlayerLookupPage() {
       })
       .finally(() => {
         if (!cancelled) setReportsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [steamId]);
+
+  // PVP kills/deaths + body-part stats from server combat logs. Entitlement
+  // (players_view orgs) is resolved server-side — fetch once per player.
+  useEffect(() => {
+    if (!steamId) {
+      setPvpData(null);
+      return;
+    }
+    let cancelled = false;
+    setPvpLoading(true);
+    fetch(`/api/players/${encodeURIComponent(steamId)}/pvp?limit=25`, {
+      credentials: "include",
+    })
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body?.error ?? "Failed to load PVP feed.");
+        return body;
+      })
+      .then((b) => {
+        if (!cancelled) setPvpData(b);
+      })
+      .catch(() => {
+        if (!cancelled) setPvpData(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPvpLoading(false);
       });
     return () => {
       cancelled = true;
@@ -1832,6 +1897,13 @@ function PlayerLookupPage() {
                       )}
                     </section>
 
+                    {/* PVP Activity (kills / deaths from server combat logs) */}
+                    <PlayerPvpSection
+                      pvp={pvpData}
+                      loading={pvpLoading}
+                      subjectSteamId={playerData.steamId}
+                    />
+
                     {/* Previous In-Game Reports */}
                     {!isSupportOnly && (
                       <PlayerReportsSection
@@ -2041,6 +2113,217 @@ const REPORT_TYPE_TONE = {
   teaming: "text-warning bg-warning/10 ring-warning/30",
   toxicity: "text-warning bg-warning/10 ring-warning/30",
 };
+
+// Rust combatlog body parts arrive as e.g. "r_hand" / "l_leg" — fold the
+// left/right variants together for display and stats.
+function normalizeBodypart(raw) {
+  const s = String(raw ?? "")
+    .toLowerCase()
+    .replace(/^[lr]_/, "")
+    .trim();
+  return s || "unknown";
+}
+
+function bodypartLabel(part) {
+  return part.charAt(0).toUpperCase() + part.slice(1);
+}
+
+function formatWeapon(weapon) {
+  if (!weapon) return null;
+  return String(weapon)
+    .replace(/\.entity$/, "")
+    .replace(/_/g, " ");
+}
+
+function mergeBodyparts(bodyparts) {
+  const merged = {};
+  for (const [part, count] of Object.entries(bodyparts ?? {})) {
+    const key = normalizeBodypart(part);
+    merged[key] = (merged[key] ?? 0) + Number(count);
+  }
+  return Object.entries(merged).sort((a, b) => b[1] - a[1]);
+}
+
+function BodypartBreakdown({ label, total, bodyparts, barClass }) {
+  const entries = mergeBodyparts(bodyparts);
+  return (
+    <div className="rounded-md ring-1 ring-border bg-background/60 p-3">
+      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
+        <span>{label}</span>
+        <span>{total}</span>
+      </p>
+      {entries.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground italic">No data.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {entries.map(([part, count]) => (
+            <li key={part} className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-[10px] font-mono text-muted-foreground truncate">
+                {bodypartLabel(part)}
+              </span>
+              <div className="flex-1 h-1.5 rounded-full bg-surface overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${barClass}`}
+                  style={{
+                    width: `${Math.max(4, Math.round((count / total) * 100))}%`,
+                  }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right text-[10px] font-mono text-muted-foreground">
+                {count}
+                <span className="text-muted-foreground/50">
+                  {" "}
+                  {Math.round((count / total) * 100)}%
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PlayerPvpSection({ pvp, loading, subjectSteamId }) {
+  const lines = pvp?.lines ?? [];
+  const stats = pvp?.stats ?? {
+    kills: { total: 0, bodyparts: {} },
+    deaths: { total: 0, bodyparts: {} },
+  };
+  const hasAny = stats.kills.total > 0 || stats.deaths.total > 0;
+
+  return (
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <Crosshair className="size-3 shrink-0" />
+          PVP Activity
+        </span>
+        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+          {loading ? "…" : `${stats.kills.total}K / ${stats.deaths.total}D`}
+        </span>
+      </h3>
+      {loading ? (
+        <p className="text-xs text-muted-foreground italic">Loading…</p>
+      ) : !hasAny ? (
+        <p className="text-xs text-muted-foreground italic">
+          No PVP events on record.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {/* Body-part hit distribution from the killing-blow combatlog */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <BodypartBreakdown
+              label="Hits Dealt (Kills)"
+              total={stats.kills.total}
+              bodyparts={stats.kills.bodyparts}
+              barClass="bg-success/70"
+            />
+            <BodypartBreakdown
+              label="Hits Taken (Deaths)"
+              total={stats.deaths.total}
+              bodyparts={stats.deaths.bodyparts}
+              barClass="bg-danger/70"
+            />
+          </div>
+
+          {/* Recent kill / death feed */}
+          {lines.length > 0 && (
+            <div className="rounded-md ring-1 ring-border bg-background/60 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-surface/60">
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Event
+                    </th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Player
+                    </th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">
+                      Weapon
+                    </th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Hit
+                    </th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden md:table-cell">
+                      Distance
+                    </th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      When
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((l, i) => {
+                    const isKill = l.role === "kill";
+                    // Kills only carry the victim's display name; deaths carry
+                    // the killer's steam id, which we can link to a lookup.
+                    const opponentName = isKill
+                      ? l.victimName
+                      : (l.killerName ?? l.killerSteamId);
+                    return (
+                      <tr
+                        key={l.id}
+                        className={`border-b border-border last:border-0 ${i % 2 === 0 ? "bg-background" : "bg-surface/30"}`}
+                      >
+                        <td className="px-3 py-2 shrink-0">
+                          <span
+                            className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${isKill ? "text-success bg-success/10 ring-success/30" : "text-danger bg-danger/10 ring-danger/30"}`}
+                          >
+                            {isKill ? "Kill" : "Death"}
+                          </span>
+                        </td>
+                        <td
+                          className="px-3 py-2 text-foreground truncate max-w-[140px]"
+                          title={
+                            isKill
+                              ? opponentName
+                              : `${opponentName} (${l.killerSteamId})`
+                          }
+                        >
+                          {!isKill && l.killerSteamId !== subjectSteamId ? (
+                            <Link
+                              to="/player-lookup"
+                              search={{ steam: l.killerSteamId }}
+                              className="text-brand hover:underline"
+                            >
+                              {opponentName}
+                            </Link>
+                          ) : (
+                            opponentName
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px] hidden sm:table-cell">
+                          {formatWeapon(l.weapon) ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                          {l.bodypart
+                            ? bodypartLabel(normalizeBodypart(l.bodypart))
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground whitespace-nowrap hidden md:table-cell">
+                          {l.distance != null
+                            ? `${l.distance.toFixed(1)}m`
+                            : "—"}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-muted-foreground whitespace-nowrap"
+                          title={l.serverName ?? undefined}
+                        >
+                          {relativeTime(l.ts)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function PlayerReportsSection({ reports, loading, tz }) {
   return (

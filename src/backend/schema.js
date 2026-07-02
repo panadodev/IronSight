@@ -473,6 +473,9 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_pvp_log_killer_steam_id ON pvp_log(killer_steam_id)`,
   );
   await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pvp_log_victim_name ON pvp_log(victim_name)`,
+  );
+  await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_pvp_log_server_created ON pvp_log(server_id, created_at)`,
   );
 
