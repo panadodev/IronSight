@@ -158,23 +158,25 @@ const TAB_STATUSES = {
   closed: new Set(["closed"]),
 };
 const TYPE_FILTERS = [
-  "ALL",
-  "REPORT",
-  "APPEAL",
-  "VIP",
-  "SUPPORT",
-  "AUTO",
-  "CASE",
+  { key: "ALL", label: "All", type: null, dot: null },
+  { key: "REPORT", label: "Report", type: "player_report", dot: "bg-rose-400" },
+  { key: "APPEAL", label: "Appeal", type: "ban_appeal", dot: "bg-yellow-400" },
+  { key: "VIP", label: "VIP", type: "vip_issue", dot: "bg-cyan-400" },
+  {
+    key: "SUPPORT",
+    label: "Support",
+    type: "general_support",
+    dot: "bg-green-400",
+  },
+  {
+    key: "APPLY",
+    label: "Apply",
+    type: "staff_application",
+    dot: "bg-purple-400",
+  },
+  { key: "AUTO", label: "Auto", type: "threat_auto", dot: "bg-orange-400" },
+  { key: "CASE", label: "Case", type: "staff_case", dot: "bg-sky-400" },
 ];
-const TYPE_FILTER_MAP = {
-  ALL: null,
-  REPORT: "player_report",
-  APPEAL: "ban_appeal",
-  VIP: "vip_issue",
-  SUPPORT: "general_support",
-  AUTO: "threat_auto",
-  CASE: "staff_case",
-};
 
 function TicketsPage() {
   const {
@@ -209,8 +211,8 @@ function TicketsPage() {
     return Array.from(ids).filter((id) => selectedOrgIds.includes(id));
   }, [adminableOrgIds, orgs, sessionOrgPermissions, selectedOrgIds]);
 
-  const [applicationsOpen, setApplicationsOpen] = useState(true);
   const [tab, setTab] = useState("active");
+  const [assignee, setAssignee] = useState("all");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [tickets, setTickets] = useState([]);
@@ -251,13 +253,18 @@ function TicketsPage() {
       if (cancelled) return;
       const all = results.flat().sort((a, b) => b.created_at - a.created_at);
       setTickets(all);
-      if (all.length > 0) setSelectedId((prev) => prev ?? all[0].ticket_id);
+      const first = all.find(
+        (t) =>
+          t.ticket_type_category !== "staff_application" ||
+          applicationOrgIds.includes(t.org_id),
+      );
+      if (first) setSelectedId((prev) => prev ?? first.ticket_id);
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [orgsLoaded, ticketOrgIds]);
+  }, [orgsLoaded, ticketOrgIds, applicationOrgIds]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -336,41 +343,31 @@ function TicketsPage() {
     };
   }, [selectedOrgId]);
 
-  const totalNonClosed = useMemo(
+  // Application tickets only surface for orgs where the caller has
+  // applications_view; everything else in the queue is already scoped
+  // by ticketOrgIds at fetch time.
+  const visibleTickets = useMemo(
     () =>
       tickets.filter(
         (t) =>
-          NON_CLOSED.has(t.status) &&
-          t.ticket_type_category !== "staff_application",
-      ).length,
-    [tickets],
-  );
-
-  const applicationTickets = useMemo(
-    () =>
-      tickets
-        .filter(
-          (t) =>
-            t.ticket_type_category === "staff_application" &&
-            applicationOrgIds.includes(t.org_id),
-        )
-        .sort((a, b) => b.created_at - a.created_at),
+          t.ticket_type_category !== "staff_application" ||
+          applicationOrgIds.includes(t.org_id),
+      ),
     [tickets, applicationOrgIds],
   );
 
-  const pendingApplicationCount = useMemo(
-    () => applicationTickets.filter((t) => NON_CLOSED.has(t.status)).length,
-    [applicationTickets],
+  const totalNonClosed = useMemo(
+    () => visibleTickets.filter((t) => NON_CLOSED.has(t.status)).length,
+    [visibleTickets],
   );
 
-  const filtered = useMemo(() => {
+  // Tab + search narrowing, before the assignee and type filters — so the
+  // "My tickets" and per-type counts stay live for the current view.
+  const baseTickets = useMemo(() => {
     const statuses = TAB_STATUSES[tab];
-    const typeVal = TYPE_FILTER_MAP[typeFilter];
     const q = search.trim().toLowerCase();
-    return tickets.filter((t) => {
-      if (t.ticket_type_category === "staff_application") return false;
+    return visibleTickets.filter((t) => {
       if (!statuses.has(t.status)) return false;
-      if (typeVal && t.type !== typeVal) return false;
       if (q) {
         const name = (t.created_by_username ?? "").toLowerCase();
         const steamId = t.created_by_steam_id ?? "";
@@ -383,7 +380,36 @@ function TicketsPage() {
       }
       return true;
     });
-  }, [tab, typeFilter, search, tickets]);
+  }, [tab, search, visibleTickets]);
+
+  const myTicketCount = useMemo(
+    () =>
+      sessionUser?.userId
+        ? baseTickets.filter((t) => t.assigned_to === sessionUser.userId).length
+        : 0,
+    [baseTickets, sessionUser],
+  );
+
+  const scopedTickets = useMemo(
+    () =>
+      assignee === "mine"
+        ? baseTickets.filter((t) => t.assigned_to === sessionUser?.userId)
+        : baseTickets,
+    [assignee, baseTickets, sessionUser],
+  );
+
+  const typeCounts = useMemo(() => {
+    const counts = {};
+    for (const t of scopedTickets) counts[t.type] = (counts[t.type] ?? 0) + 1;
+    return counts;
+  }, [scopedTickets]);
+
+  const filtered = useMemo(() => {
+    const typeVal = TYPE_FILTERS.find((f) => f.key === typeFilter)?.type;
+    return typeVal
+      ? scopedTickets.filter((t) => t.type === typeVal)
+      : scopedTickets;
+  }, [typeFilter, scopedTickets]);
 
   const selectedTicket =
     tickets.find((t) => t.ticket_id === selectedId) ?? null;
@@ -576,7 +602,7 @@ function TicketsPage() {
           <div className="px-3 py-2 border-b border-border shrink-0">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
-                Active Queue
+                Ticket Queue
               </span>
               <span className="text-[10px] font-mono text-muted-foreground">
                 {totalNonClosed}
@@ -601,6 +627,28 @@ function TicketsPage() {
                 </button>
               ))}
             </div>
+            <div className="flex ring-1 ring-border rounded overflow-hidden mt-1.5">
+              <button
+                onClick={() => setAssignee("all")}
+                className={`flex-1 py-1 text-[10px] font-mono transition-colors ${
+                  assignee === "all"
+                    ? "bg-brand text-brand-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                All tickets
+              </button>
+              <button
+                onClick={() => setAssignee("mine")}
+                className={`flex-1 py-1 text-[10px] font-mono transition-colors ${
+                  assignee === "mine"
+                    ? "bg-brand text-brand-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                My tickets{myTicketCount > 0 ? ` (${myTicketCount})` : ""}
+              </button>
+            </div>
           </div>
           <div className="px-2 py-2 border-b border-border shrink-0">
             <div className="relative">
@@ -613,20 +661,43 @@ function TicketsPage() {
               />
             </div>
           </div>
-          <div className="px-2 py-1.5 border-b border-border flex gap-0.5 flex-wrap shrink-0">
-            {TYPE_FILTERS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setTypeFilter(f)}
-                className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded transition-colors ${
-                  typeFilter === f
-                    ? "bg-brand text-brand-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
+          <div className="px-2 py-1.5 border-b border-border flex gap-1 flex-wrap shrink-0">
+            {TYPE_FILTERS.filter(
+              (f) => f.key !== "APPLY" || applicationOrgIds.length > 0,
+            ).map((f) => {
+              const count = f.type
+                ? (typeCounts[f.type] ?? 0)
+                : scopedTickets.length;
+              const active = typeFilter === f.key;
+              // Hide empty type chips to keep the row scannable, but never
+              // hide "All" or the chip that is currently selected.
+              if (count === 0 && !active && f.type) return null;
+              return (
+                <button
+                  key={f.key}
+                  onClick={() => setTypeFilter(f.key)}
+                  className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors ${
+                    active
+                      ? "bg-brand text-brand-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-surface/60"
+                  }`}
+                >
+                  {f.dot && (
+                    <span className={`size-1.5 rounded-full ${f.dot}`} />
+                  )}
+                  {f.label}
+                  <span
+                    className={
+                      active
+                        ? "text-brand-foreground/70"
+                        : "text-muted-foreground/70"
+                    }
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <div className="flex-1 overflow-y-auto">
             {loading ? (
@@ -635,7 +706,9 @@ function TicketsPage() {
               </div>
             ) : filtered.length === 0 ? (
               <div className="text-[10px] text-muted-foreground text-center py-10">
-                No tickets
+                {assignee === "mine"
+                  ? "No tickets assigned to you"
+                  : "No tickets"}
               </div>
             ) : (
               filtered.map((ticket) => (
@@ -649,49 +722,6 @@ function TicketsPage() {
               ))
             )}
           </div>
-
-          {applicationOrgIds.length > 0 && (
-            <div className="border-t border-border shrink-0">
-              <button
-                onClick={() => setApplicationsOpen((v) => !v)}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-surface/40 transition-colors"
-              >
-                <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
-                  Applications
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {pendingApplicationCount > 0 && (
-                    <span className="text-[10px] font-mono text-purple-400">
-                      {pendingApplicationCount}
-                    </span>
-                  )}
-                  <ChevronDown
-                    size={10}
-                    className={`text-muted-foreground transition-transform ${applicationsOpen ? "rotate-180" : ""}`}
-                  />
-                </div>
-              </button>
-              {applicationsOpen && (
-                <div className="max-h-52 overflow-y-auto border-t border-border">
-                  {applicationTickets.length === 0 ? (
-                    <div className="text-[10px] text-muted-foreground text-center py-4">
-                      No applications
-                    </div>
-                  ) : (
-                    applicationTickets.map((ticket) => (
-                      <ApplicationListItem
-                        key={ticket.ticket_id}
-                        ticket={ticket}
-                        orgs={orgs}
-                        selected={ticket.ticket_id === selectedId}
-                        onClick={() => setSelectedId(ticket.ticket_id)}
-                      />
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </aside>
 
         {/* Center: detail */}
@@ -804,47 +834,6 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
         <div className="flex items-center gap-1 mt-0.5">
           <span className="text-[9px] font-mono text-muted-foreground capitalize">
             {ticket.priority}
-          </span>
-          <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
-            {formatRelativeTime(ticket.created_at)}
-          </span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function ApplicationListItem({ ticket, orgs, selected, onClick }) {
-  const prefix = getOrgPrefix(ticket.org_id, orgs);
-  const statusColor =
-    ticket.status === "open"
-      ? "text-brand"
-      : ticket.status === "waiting_response"
-        ? "text-yellow-400"
-        : "text-muted-foreground";
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-2 py-1.5 border-b border-border transition-colors flex items-start gap-1.5 min-w-0 ${
-        selected ? "bg-brand/10" : "hover:bg-surface/60"
-      }`}
-    >
-      <span className="text-[9px] font-mono font-bold text-muted-foreground shrink-0 mt-0.5 w-4 text-center">
-        {prefix}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1 min-w-0">
-          <span className="text-[10px] font-mono font-bold shrink-0 text-purple-400">
-            Apply
-          </span>
-          <span className="text-[9px] text-muted-foreground shrink-0">·</span>
-          <span className="text-[10px] font-medium truncate min-w-0">
-            {ticket.created_by_username ?? "Unknown"}
-          </span>
-        </div>
-        <div className="flex items-center gap-1 mt-0.5">
-          <span className={`text-[9px] font-mono capitalize ${statusColor}`}>
-            {ticket.status === "waiting_response" ? "waiting" : ticket.status}
           </span>
           <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
             {formatRelativeTime(ticket.created_at)}
@@ -1139,9 +1128,14 @@ function TicketDetail({
           <div className="ml-auto flex items-center gap-1">
             {confirmDelete ? (
               <>
-                <span className="text-[10px] font-mono text-danger">Delete?</span>
+                <span className="text-[10px] font-mono text-danger">
+                  Delete?
+                </span>
                 <button
-                  onClick={() => { onDelete(); setConfirmDelete(false); }}
+                  onClick={() => {
+                    onDelete();
+                    setConfirmDelete(false);
+                  }}
                   className="text-[10px] font-mono px-2 py-0.5 rounded bg-danger text-white hover:bg-danger/80 transition-colors"
                 >
                   Yes
@@ -1369,11 +1363,17 @@ function parseApplicationMessage(text) {
     const match = line.match(/^(\d+)[.)]\s*(.*)/);
     if (match) {
       if (current) entries.push(current);
-      current = { num: parseInt(match[1], 10), question: match[2].trim(), answer: "" };
+      current = {
+        num: parseInt(match[1], 10),
+        question: match[2].trim(),
+        answer: "",
+      };
     } else if (current !== null) {
       const trimmed = line.trim();
       if (trimmed) {
-        current.answer = current.answer ? current.answer + "\n" + trimmed : trimmed;
+        current.answer = current.answer
+          ? current.answer + "\n" + trimmed
+          : trimmed;
       }
     }
   }
@@ -2191,10 +2191,7 @@ function PlayerIntelSidebar({
                       : null
                   }
                 />
-                <SubmitterIdRow
-                  label="Discord"
-                  value={submitterDiscordId}
-                />
+                <SubmitterIdRow label="Discord" value={submitterDiscordId} />
               </div>
             </div>
             {submitterSteamAccounts && submitterSteamAccounts.length > 1 && (
