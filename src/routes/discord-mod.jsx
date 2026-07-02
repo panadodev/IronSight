@@ -849,7 +849,7 @@ function DiscordModPage() {
       <SiteNav />
       <main className="ml-56 flex-1 flex flex-col min-h-0">
         {/* Header */}
-        <div className="border-b border-border px-6 py-4 flex items-center gap-4 shrink-0">
+        <div className="border-b border-border px-4 sm:px-6 py-4 flex items-center gap-4 flex-wrap shrink-0">
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-semibold text-foreground">
               Discord Moderation
@@ -1049,7 +1049,7 @@ function DiscordModPage() {
 
         {/* ── Members ── */}
         {tab === "members" && (
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6 gap-4">
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 sm:p-6 gap-4">
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
@@ -1083,8 +1083,8 @@ function DiscordModPage() {
             )}
 
             {members.length > 0 && (
-              <div className="rounded-md ring-1 ring-border overflow-hidden">
-                <div className="grid grid-cols-[1fr_160px_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
+              <div className="rounded-md ring-1 ring-border overflow-x-auto">
+                <div className="min-w-[480px] grid grid-cols-[1fr_160px_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
                   <span>Member</span>
                   <span>Discord ID</span>
                   <span>Actions</span>
@@ -1092,7 +1092,7 @@ function DiscordModPage() {
                 {members.map((m) => (
                   <div
                     key={m.discordId}
-                    className="grid grid-cols-[1fr_160px_auto] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
+                    className="min-w-[480px] grid grid-cols-[1fr_160px_auto] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <MemberAvatar
@@ -1141,7 +1141,7 @@ function DiscordModPage() {
 
         {/* ── Bans ── */}
         {tab === "bans" && (
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6 gap-4">
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 sm:p-6 gap-4">
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
@@ -1183,9 +1183,9 @@ function DiscordModPage() {
             ) : (
               <div
                 ref={bansScrollRef}
-                className="rounded-md ring-1 ring-border overflow-hidden overflow-y-auto flex-1"
+                className="rounded-md ring-1 ring-border overflow-x-auto overflow-y-auto flex-1"
               >
-                <div className="grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border sticky top-0">
+                <div className="min-w-[640px] grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border sticky top-0">
                   <span>User</span>
                   <span>Discord ID</span>
                   <span>Reason</span>
@@ -1195,7 +1195,7 @@ function DiscordModPage() {
                 {bans.map((b) => (
                   <div
                     key={b.discordUserId}
-                    className="grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
+                    className="min-w-[640px] grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="size-6 rounded-full bg-danger/10 text-danger flex items-center justify-center shrink-0 text-[10px] font-bold uppercase">
@@ -1278,8 +1278,8 @@ function DiscordModPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-0 rounded-md ring-1 ring-border overflow-hidden">
-                <div className="grid grid-cols-[1fr_80px_1fr_100px_90px_140px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
+              <div className="space-y-0 rounded-md ring-1 ring-border overflow-x-auto">
+                <div className="min-w-[700px] grid grid-cols-[1fr_80px_1fr_100px_90px_140px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
                   <span>Target</span>
                   <span>Action</span>
                   <span>Reason</span>
@@ -1290,7 +1290,7 @@ function DiscordModPage() {
                 {modLog.map((entry) => (
                   <div
                     key={entry.id}
-                    className="grid grid-cols-[1fr_80px_1fr_100px_90px_140px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors"
+                    className="min-w-[700px] grid grid-cols-[1fr_80px_1fr_100px_90px_140px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-foreground truncate">

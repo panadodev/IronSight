@@ -138,7 +138,15 @@ const TAB_STATUSES = {
   waiting: new Set(["waiting_response"]),
   closed: new Set(["closed"]),
 };
-const TYPE_FILTERS = ["ALL", "REPORT", "APPEAL", "VIP", "SUPPORT", "AUTO", "CASE"];
+const TYPE_FILTERS = [
+  "ALL",
+  "REPORT",
+  "APPEAL",
+  "VIP",
+  "SUPPORT",
+  "AUTO",
+  "CASE",
+];
 const TYPE_FILTER_MAP = {
   ALL: null,
   REPORT: "player_report",
@@ -527,8 +535,13 @@ function TicketsPage() {
     <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
       <div className="flex-1 flex min-h-0">
-        {/* Left: ticket list */}
-        <aside className="w-[230px] shrink-0 border-r border-border flex flex-col bg-background">
+        {/* Left: ticket list. On mobile this is a master-detail flow: the
+            queue fills the screen until a ticket is selected, then hides. */}
+        <aside
+          className={`shrink-0 border-r border-border flex-col bg-background md:flex md:w-[230px] ${
+            selectedTicket ? "hidden" : "flex w-full"
+          }`}
+        >
           <div className="px-3 py-2 border-b border-border shrink-0">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
@@ -653,6 +666,12 @@ function TicketsPage() {
         {/* Center: detail */}
         {selectedTicket ? (
           <main className="flex-1 flex flex-col min-w-0 overflow-hidden border-r border-border">
+            <button
+              onClick={() => setSelectedId(null)}
+              className="md:hidden flex items-center gap-1.5 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground shrink-0"
+            >
+              ← Back to queue
+            </button>
             <TicketDetail
               ticket={selectedTicket}
               messages={selectedMessages}
@@ -677,7 +696,7 @@ function TicketsPage() {
             />
           </main>
         ) : (
-          <main className="flex-1 grid place-items-center border-r border-border">
+          <main className="flex-1 hidden md:grid place-items-center border-r border-border">
             <p className="text-sm text-muted-foreground">
               {loading ? "Loading tickets..." : "Select a ticket"}
             </p>
@@ -1233,7 +1252,9 @@ function TicketDetail({
             <div className="flex items-center justify-end mt-1.5">
               <button
                 onClick={onPostReply}
-                disabled={!replyText.trim() || submitting || isClosed || replyHasIp}
+                disabled={
+                  !replyText.trim() || submitting || isClosed || replyHasIp
+                }
                 className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? "Sending..." : "Send Reply"}
@@ -1258,7 +1279,9 @@ function TicketDetail({
             <div className="flex items-center justify-end mt-1.5">
               <button
                 onClick={onPostNote}
-                disabled={!noteText.trim() || submitting || isClosed || noteHasIp}
+                disabled={
+                  !noteText.trim() || submitting || isClosed || noteHasIp
+                }
                 className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? "Posting..." : "Post Note"}
@@ -1912,7 +1935,7 @@ function PlayerIntelSidebar({
   const hasPlayers = players.length > 0;
 
   return (
-    <aside className="w-[28rem] shrink-0 border-l border-border bg-background overflow-y-auto">
+    <aside className="w-[28rem] shrink-0 border-l border-border bg-background overflow-y-auto hidden xl:block">
       <div className="p-6 space-y-8">
         {loading && (
           <div className="text-[10px] font-mono text-muted-foreground text-center py-10">
@@ -2086,7 +2109,7 @@ function TeamInfoPanel({ servers }) {
   };
 
   return (
-    <aside className="w-[220px] shrink-0 flex flex-col bg-background overflow-hidden">
+    <aside className="w-[220px] shrink-0 hidden lg:flex flex-col bg-background overflow-hidden">
       <div className="px-3 py-2 border-b border-border shrink-0 flex items-center gap-1.5">
         <Users size={10} className="text-muted-foreground shrink-0" />
         <span className="text-[10px] font-mono uppercase tracking-widest font-bold">

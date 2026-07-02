@@ -556,6 +556,288 @@ async function fetchBMSessions(
   return out;
 }
 
+// ── Session-adjacency related players ─────────────────────────────────────────
+// Finds accounts related to the subject by TEMPORAL fingerprint instead of
+// shared IPs: probe BattleMetrics for sessions on the subject's servers in
+// narrow slices around the subject's own connect/disconnect times, then rank
+// players who repeatedly appear right after the subject leaves (or drop right
+// before the subject joins) without meaningful concurrent play. That is the
+// signature of one person switching accounts, and it catches alts on networks
+// IP linking can't see (mobile hotspot, VPN, a second household).
+
+const SESSION_ADJ_WINDOW_SECONDS = 15 * 60;
+// Total BM API calls one refresh may spend on adjacency probes. Each probed
+// subject window costs 2 calls (a slice at its start + a slice at its stop).
+const SESSION_PROBE_CALL_BUDGET = 12;
+const SESSION_RELATED_MAX_RESULTS = 10;
+// How many top candidates get one extra BM call to resolve their steamID when
+// our player_cache doesn't already know their bm_id.
+const SESSION_RELATED_RESOLVE_LIMIT = 5;
+// Concurrent play shorter than this doesn't count as overlap (crossing paths
+// for a few minutes during a handover is expected for account switching).
+const SESSION_OVERLAP_MIN_SECONDS = 15 * 60;
+
+// One probe: all sessions on a server that were active at any point inside
+// [fromUnix, toUnix]. include=player supplies display names. Single page —
+// a 15-minute slice on even a full 100+ pop server fits in one page of 100,
+// and losing a few candidates on a mega-server beats paging the budget away.
+async function fetchSessionsSlice(orgId, bmServerId, fromUnix, toUnix) {
+  const fromIso = new Date(fromUnix * 1000).toISOString();
+  const toIso = new Date(toUnix * 1000).toISOString();
+  const url =
+    `https://api.battlemetrics.com/sessions?page[size]=100&include=player` +
+    `&filter[servers]=${encodeURIComponent(bmServerId)}` +
+    `&filter[at]=${encodeURIComponent(`${fromIso}:${toIso}`)}`;
+  const resp = await bmFetch(orgId, url);
+  if (!resp?.ok) return null;
+  const json = await resp.json().catch(() => null);
+  if (!json) return null;
+  const nameByPlayerId = new Map(
+    (json.included ?? [])
+      .filter((inc) => inc.type === "player")
+      .map((inc) => [String(inc.id), inc.attributes?.name ?? null]),
+  );
+  return (json.data ?? [])
+    .map((s) => {
+      const playerId = s.relationships?.player?.data?.id
+        ? String(s.relationships.player.data.id)
+        : null;
+      const start = toUnixOrNull(s.attributes?.start);
+      if (!playerId || start == null) return null;
+      return {
+        bmPlayerId: playerId,
+        name: s.attributes?.name ?? nameByPlayerId.get(playerId) ?? null,
+        startedAt: start,
+        stoppedAt: toUnixOrNull(s.attributes?.stop),
+      };
+    })
+    .filter(Boolean);
+}
+
+export async function fetchSessionRelatedPlayers(
+  subjectBmId,
+  orgId,
+  subjectWindows,
+  { ipLinkedBmIds = new Set(), serverNameById = new Map() } = {},
+) {
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const sinceUnix = nowUnix - 90 * 86400;
+  const ADJ = SESSION_ADJ_WINDOW_SECONDS;
+
+  // Closed subject windows from the last 90 days, newest first. Open sessions
+  // have no disconnect boundary yet, so there is nothing to probe around.
+  const windows = (subjectWindows ?? [])
+    .filter(
+      (w) =>
+        w.startedAt >= sinceUnix &&
+        w.stoppedAt != null &&
+        w.stoppedAt > w.startedAt,
+    )
+    .sort((a, b) => b.startedAt - a.startedAt);
+  // No probeable windows (player inactive for 90 days, or the session fetch
+  // itself came back empty after a BM hiccup) — treat as "no data", keeping
+  // whatever was cached before, rather than wiping rows on a bad fetch.
+  if (!windows.length) return null;
+
+  // Spread the probe budget across the subject's most-played servers (up to 3)
+  // instead of burning it all on one server's most recent sessions — an alt is
+  // usually switched on the same server, but which server varies by day.
+  const byServer = new Map();
+  for (const w of windows) {
+    if (!byServer.has(w.bmServerId)) byServer.set(w.bmServerId, []);
+    byServer.get(w.bmServerId).push(w);
+  }
+  const topServers = [...byServer.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 3);
+  const windowsPerServer = Math.max(
+    1,
+    Math.floor(SESSION_PROBE_CALL_BUDGET / 2 / topServers.length),
+  );
+
+  const candidates = new Map();
+  const track = (bmPlayerId, name) => {
+    let c = candidates.get(bmPlayerId);
+    if (!c) {
+      c = {
+        relatedBmId: bmPlayerId,
+        relatedName: name ?? null,
+        adjacencyEvents: 0,
+        switchIns: 0,
+        switchOuts: 0,
+        eventDays: new Set(),
+        gaps: [],
+        serverEvents: new Map(),
+        overlapSessions: 0,
+        candidateSessions: 0,
+        lastEventAt: null,
+        seenSessionKeys: new Set(),
+      };
+      candidates.set(bmPlayerId, c);
+    }
+    if (name && !c.relatedName) c.relatedName = name;
+    return c;
+  };
+  const noteEvent = (c, kind, atUnix, gapSeconds, serverId) => {
+    c.adjacencyEvents++;
+    if (kind === "in") c.switchIns++;
+    else c.switchOuts++;
+    c.eventDays.add(new Date(atUnix * 1000).toISOString().slice(0, 10));
+    c.gaps.push(gapSeconds);
+    c.serverEvents.set(serverId, (c.serverEvents.get(serverId) ?? 0) + 1);
+    if (c.lastEventAt == null || atUnix > c.lastEventAt) c.lastEventAt = atUnix;
+  };
+  const overlapSeconds = (w, s) => {
+    const sStop = s.stoppedAt ?? nowUnix;
+    return Math.min(w.stoppedAt, sStop) - Math.max(w.startedAt, s.startedAt);
+  };
+  const ingestSlice = (sessions, w, serverId, boundary) => {
+    for (const s of sessions ?? []) {
+      if (s.bmPlayerId === String(subjectBmId)) continue;
+      const c = track(s.bmPlayerId, s.name);
+      const key = `${s.bmPlayerId}:${serverId}:${s.startedAt}`;
+      const firstSeen = !c.seenSessionKeys.has(key);
+      if (firstSeen) {
+        c.seenSessionKeys.add(key);
+        c.candidateSessions++;
+        if (overlapSeconds(w, s) >= SESSION_OVERLAP_MIN_SECONDS)
+          c.overlapSessions++;
+      }
+      if (
+        boundary === "stop" &&
+        s.startedAt >= w.stoppedAt - 60 &&
+        s.startedAt <= w.stoppedAt + ADJ
+      ) {
+        // Candidate connected right after the subject disconnected.
+        noteEvent(c, "in", s.startedAt, s.startedAt - w.stoppedAt, serverId);
+      } else if (
+        boundary === "start" &&
+        s.stoppedAt != null &&
+        s.stoppedAt >= w.startedAt - ADJ &&
+        s.stoppedAt <= w.startedAt + 60
+      ) {
+        // Candidate disconnected right before the subject connected.
+        noteEvent(c, "out", s.stoppedAt, w.startedAt - s.stoppedAt, serverId);
+      }
+    }
+  };
+
+  // Probes run sequentially (one window = 2 parallel slice calls) so a refresh
+  // never bursts more than 2 concurrent requests at the org's BM keys.
+  let successfulProbes = 0;
+  for (const [serverId, ws] of topServers) {
+    for (const w of ws.slice(0, windowsPerServer)) {
+      const [stopSlice, startSlice] = await Promise.all([
+        fetchSessionsSlice(
+          orgId,
+          serverId,
+          w.stoppedAt - 60,
+          w.stoppedAt + ADJ,
+        ),
+        fetchSessionsSlice(
+          orgId,
+          serverId,
+          w.startedAt - ADJ,
+          w.startedAt + 60,
+        ),
+      ]);
+      if (stopSlice) successfulProbes++;
+      if (startSlice) successfulProbes++;
+      ingestSlice(stopSlice, w, serverId, "stop");
+      ingestSlice(startSlice, w, serverId, "start");
+    }
+  }
+  // Every probe failed (BM outage / all keys rate-limited): report "no data"
+  // rather than "no candidates" so the caller keeps the previous cached rows.
+  if (successfulProbes === 0) return null;
+
+  const scored = [...candidates.values()]
+    .filter(
+      (c) =>
+        c.adjacencyEvents >= 2 &&
+        // Repeated long concurrent play marks a teammate, not an alt — one
+        // overlapping session is tolerated as noise (shared queue, handover).
+        c.overlapSessions <= Math.max(1, Math.floor(c.adjacencyEvents / 4)),
+    )
+    .map((c) => {
+      const days = c.eventDays.size;
+      let confidence;
+      if (c.adjacencyEvents >= 5 && days >= 3 && c.overlapSessions === 0)
+        confidence = "high";
+      else if (c.adjacencyEvents >= 3 && days >= 2 && c.overlapSessions <= 1)
+        confidence = "likely";
+      else confidence = "possible";
+      const sortedGaps = [...c.gaps].sort((a, b) => a - b);
+      return {
+        relatedBmId: c.relatedBmId,
+        relatedSteamId: null,
+        relatedName: c.relatedName,
+        adjacencyEvents: c.adjacencyEvents,
+        switchIns: c.switchIns,
+        switchOuts: c.switchOuts,
+        distinctDays: days,
+        sharedServers: [...c.serverEvents.entries()].map(([id, events]) => ({
+          bmServerId: id,
+          serverName: serverNameById.get(id) ?? null,
+          events,
+        })),
+        overlapSessions: c.overlapSessions,
+        candidateSessions: c.candidateSessions,
+        medianGapSeconds:
+          sortedGaps.length > 0
+            ? sortedGaps[Math.floor(sortedGaps.length / 2)]
+            : null,
+        lastEventAt: c.lastEventAt,
+        alsoIpLinked: ipLinkedBmIds.has(c.relatedBmId),
+        confidence,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.adjacencyEvents - a.adjacencyEvents ||
+        b.distinctDays - a.distinctDays,
+    )
+    .slice(0, SESSION_RELATED_MAX_RESULTS);
+
+  if (!scored.length) return scored;
+
+  // Resolve steamIDs: free from our own cache first, then spend at most
+  // SESSION_RELATED_RESOLVE_LIMIT extra BM calls on the strongest candidates.
+  const { rows: knownRows } = await pool.query(
+    `SELECT steam_id, bm_id FROM player_cache WHERE bm_id = ANY($1)`,
+    [scored.map((c) => c.relatedBmId)],
+  );
+  const steamByBmId = new Map(
+    knownRows.map((r) => [String(r.bm_id), String(r.steam_id)]),
+  );
+  for (const c of scored) {
+    c.relatedSteamId = steamByBmId.get(c.relatedBmId) ?? null;
+  }
+  const unresolved = scored
+    .filter((c) => !c.relatedSteamId)
+    .slice(0, SESSION_RELATED_RESOLVE_LIMIT);
+  await Promise.allSettled(
+    unresolved.map(async (c) => {
+      const resp = await bmFetch(
+        orgId,
+        `https://api.battlemetrics.com/players/${encodeURIComponent(c.relatedBmId)}?include=identifier&version=%5E0.1.0`,
+      );
+      if (!resp?.ok) return;
+      const json = await resp.json().catch(() => null);
+      const steamIdInc = (json?.included ?? []).find(
+        (inc) =>
+          inc.type === "identifier" && inc.attributes?.type === "steamID",
+      );
+      if (steamIdInc?.attributes?.identifier)
+        c.relatedSteamId = String(steamIdInc.attributes.identifier);
+      if (!c.relatedName && json?.data?.attributes?.name)
+        c.relatedName = json.data.attributes.name;
+    }),
+  );
+
+  return scored;
+}
+
 async function fetchRelatedAccountDetails(relatedPlayers, orgId) {
   const sinceUnix = Math.floor(Date.now() / 1000) - 90 * 86400;
   const settled = await Promise.allSettled(
@@ -833,6 +1115,34 @@ function computeAltEvidence(subject, alt, ipMetaByIp) {
   if (alt.hasEacBans || alt.hasBmBans) score += 5;
   score = Math.max(0, Math.min(100, score));
 
+  // ── Hard link ──────────────────────────────────────────────────────────────
+  // Set when INDEPENDENT strong signals coincide such that two different
+  // people producing them by chance is statistically implausible. Every
+  // criterion requires at least two unrelated evidence channels (name reuse,
+  // location-specific networks, temporal account-switching) — a single channel
+  // (even a 100% name match alone, which an impersonator can fake) never
+  // qualifies. Co-play actively disqualifies: two accounts online together
+  // are provably operated concurrently.
+  const hardLinkReasons = [];
+  if (coPresence.verdict !== "co_play") {
+    const strongIpCount = bizCount + resCount;
+    if (nameSimilarity === 100 && nonProxyLinked)
+      hardLinkReasons.push("identical_name_same_network");
+    if (strongIpCount >= 3) hardLinkReasons.push("multiple_strong_networks");
+    if (distinctStrongTypes >= 2 && strongIpCount > 0)
+      hardLinkReasons.push("cross_network_types");
+    if (
+      coPresence.verdict === "alt_switch" &&
+      nonProxyLinked &&
+      nameSimilarity >= 70
+    )
+      hardLinkReasons.push("account_switching_same_network");
+    if (nameSimilarity === 100 && coPresence.verdict === "alt_switch")
+      hardLinkReasons.push("identical_name_account_switching");
+  }
+  const hardLink = hardLinkReasons.length > 0;
+  if (hardLink) score = Math.max(score, 95);
+
   let altConfidence;
   if (score >= 70) altConfidence = "high";
   else if (score >= 45) altConfidence = "likely";
@@ -850,6 +1160,8 @@ function computeAltEvidence(subject, alt, ipMetaByIp) {
     coPresence,
     altConfidence,
     altScore: score,
+    hardLink,
+    hardLinkReasons,
   };
 }
 
@@ -1476,8 +1788,9 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
          (steam_id, related_bm_id, related_steam_id, related_name, name_aliases,
           match_count, has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban,
           name_similarity, shared_ips, non_proxy_linked, mutual_friends,
-          shared_groups, server_overlap, co_presence, alt_confidence)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+          shared_groups, server_overlap, co_presence, alt_confidence,
+          alt_score, hard_link, hard_link_reasons)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
          related_steam_id = EXCLUDED.related_steam_id,
          related_name     = COALESCE(EXCLUDED.related_name, player_related_accounts.related_name),
@@ -1495,6 +1808,9 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
          server_overlap   = EXCLUDED.server_overlap,
          co_presence      = EXCLUDED.co_presence,
          alt_confidence   = EXCLUDED.alt_confidence,
+         alt_score        = EXCLUDED.alt_score,
+         hard_link        = EXCLUDED.hard_link,
+         hard_link_reasons = EXCLUDED.hard_link_reasons,
          cached_at        = unix_now(),
          cache_expires_at = unix_now() + 2592000`,
       [
@@ -1516,6 +1832,9 @@ async function writeRelatedAccountsToCache(steamId, accounts) {
         a.serverOverlap ? JSON.stringify(a.serverOverlap) : null,
         a.coPresence ? JSON.stringify(a.coPresence) : null,
         a.altConfidence ?? null,
+        a.altScore ?? null,
+        a.hardLink ?? false,
+        a.hardLinkReasons ? JSON.stringify(a.hardLinkReasons) : null,
       ],
     );
   }
@@ -1621,6 +1940,57 @@ async function writeSessionWindowsToCache(steamId, windows) {
       rows.map((w) => w.stoppedAt),
     ],
   );
+}
+
+// Full replace per refresh: the candidate set is recomputed wholesale from
+// fresh probes, so stale rows (players no longer adjacent) must not linger.
+async function writeSessionRelatedToCache(steamId, candidates) {
+  await pool.query(`DELETE FROM player_session_related WHERE steam_id = $1`, [
+    steamId,
+  ]);
+  for (const c of candidates ?? []) {
+    await pool.query(
+      `INSERT INTO player_session_related
+         (steam_id, related_bm_id, related_steam_id, related_name,
+          adjacency_events, switch_ins, switch_outs, distinct_days,
+          shared_servers, overlap_sessions, candidate_sessions,
+          median_gap_seconds, last_event_at, also_ip_linked, confidence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (steam_id, related_bm_id) DO UPDATE SET
+         related_steam_id   = EXCLUDED.related_steam_id,
+         related_name       = EXCLUDED.related_name,
+         adjacency_events   = EXCLUDED.adjacency_events,
+         switch_ins         = EXCLUDED.switch_ins,
+         switch_outs        = EXCLUDED.switch_outs,
+         distinct_days      = EXCLUDED.distinct_days,
+         shared_servers     = EXCLUDED.shared_servers,
+         overlap_sessions   = EXCLUDED.overlap_sessions,
+         candidate_sessions = EXCLUDED.candidate_sessions,
+         median_gap_seconds = EXCLUDED.median_gap_seconds,
+         last_event_at      = EXCLUDED.last_event_at,
+         also_ip_linked     = EXCLUDED.also_ip_linked,
+         confidence         = EXCLUDED.confidence,
+         cached_at          = unix_now(),
+         cache_expires_at   = unix_now() + 2592000`,
+      [
+        steamId,
+        c.relatedBmId,
+        c.relatedSteamId ?? null,
+        c.relatedName ?? null,
+        c.adjacencyEvents ?? 0,
+        c.switchIns ?? 0,
+        c.switchOuts ?? 0,
+        c.distinctDays ?? 0,
+        c.sharedServers ? JSON.stringify(c.sharedServers) : null,
+        c.overlapSessions ?? 0,
+        c.candidateSessions ?? 0,
+        c.medianGapSeconds ?? null,
+        c.lastEventAt ?? null,
+        c.alsoIpLinked ?? false,
+        c.confidence ?? null,
+      ],
+    );
+  }
 }
 
 async function writeFriendsToCache(steamId, result, orgId) {
@@ -2048,6 +2418,39 @@ export async function refreshPlayerData(
         await writeRelatedAccountsToCache(steamId, scored);
         await warmRelatedProfilesCache(scored, altDetails, steamOrg, orgId);
       }
+
+      // Phase C: session-adjacency related players. Independent of the
+      // IP-linked set on purpose — this is the detection path for alts that
+      // never shared a network with the subject. Failures degrade to keeping
+      // the previous cached rows.
+      if (bmId) {
+        try {
+          const sessionRelated = await fetchSessionRelatedPlayers(
+            bmId,
+            bmOrg,
+            subjectWindows,
+            {
+              ipLinkedBmIds: new Set(
+                (relIdentifiers.relatedPlayers ?? []).map((r) =>
+                  String(r.bmId),
+                ),
+              ),
+              serverNameById: new Map(
+                (bmData?.sessions ?? []).map((s) => [
+                  String(s.bmServerId),
+                  s.serverName ?? null,
+                ]),
+              ),
+            },
+          );
+          if (sessionRelated !== null)
+            await writeSessionRelatedToCache(steamId, sessionRelated);
+        } catch (err) {
+          console.warn(
+            `[player:refresh] ${steamId} — session-related probe error: ${err.message}`,
+          );
+        }
+      }
     } catch (err) {
       console.error(
         `[player:refresh] ${steamId} — background task error: ${err.message}`,
@@ -2138,6 +2541,7 @@ export async function getPlayerCacheData(steamId) {
     ipConnectionEvents,
     related,
     sessionWindows,
+    sessionRelated,
   ] = await Promise.all([
     pool.query(
       `SELECT *, cache_expires_at < unix_now() AS is_stale
@@ -2201,9 +2605,10 @@ export async function getPlayerCacheData(steamId) {
       `SELECT related_bm_id, related_steam_id, related_name, name_aliases,
                 match_count, has_bm_bans, bm_ban_count, has_eac_bans, eac_last_ban,
                 name_similarity, shared_ips, non_proxy_linked, mutual_friends,
-                shared_groups, server_overlap, co_presence, alt_confidence, cached_at
+                shared_groups, server_overlap, co_presence, alt_confidence,
+                alt_score, hard_link, hard_link_reasons, cached_at
          FROM player_related_accounts WHERE steam_id = $1
-         ORDER BY match_count DESC`,
+         ORDER BY hard_link DESC NULLS LAST, match_count DESC`,
       [steamId],
     ),
     // Raw session windows for the activity timeline — the 500 most recent
@@ -2217,6 +2622,15 @@ export async function getPlayerCacheData(steamId) {
          WHERE psw.steam_id = $1
          ORDER BY psw.started_at DESC
          LIMIT 500`,
+      [steamId],
+    ),
+    pool.query(
+      `SELECT related_bm_id, related_steam_id, related_name, adjacency_events,
+              switch_ins, switch_outs, distinct_days, shared_servers,
+              overlap_sessions, candidate_sessions, median_gap_seconds,
+              last_event_at, also_ip_linked, confidence, cached_at
+         FROM player_session_related WHERE steam_id = $1
+         ORDER BY adjacency_events DESC, distinct_days DESC`,
       [steamId],
     ),
   ]);
@@ -2426,6 +2840,11 @@ export async function getPlayerCacheData(steamId) {
       serverOverlap: r.server_overlap ?? [],
       coPresence: r.co_presence ?? null,
       altConfidence: r.alt_confidence ?? null,
+      altScore: r.alt_score != null ? Number(r.alt_score) : null,
+      hardLink: Boolean(r.hard_link),
+      hardLinkReasons: Array.isArray(r.hard_link_reasons)
+        ? r.hard_link_reasons
+        : [],
       cachedAt: r.cached_at,
     })),
     sessionWindows: sessionWindows.rows.map((r) => ({
@@ -2433,6 +2852,24 @@ export async function getPlayerCacheData(steamId) {
       serverName: r.server_name ?? null,
       startedAt: Number(r.started_at),
       stoppedAt: r.stopped_at != null ? Number(r.stopped_at) : null,
+    })),
+    sessionRelated: sessionRelated.rows.map((r) => ({
+      relatedBmId: String(r.related_bm_id),
+      relatedSteamId: r.related_steam_id ?? null,
+      relatedName: r.related_name ?? null,
+      adjacencyEvents: Number(r.adjacency_events),
+      switchIns: Number(r.switch_ins),
+      switchOuts: Number(r.switch_outs),
+      distinctDays: Number(r.distinct_days),
+      sharedServers: Array.isArray(r.shared_servers) ? r.shared_servers : [],
+      overlapSessions: Number(r.overlap_sessions),
+      candidateSessions: Number(r.candidate_sessions),
+      medianGapSeconds:
+        r.median_gap_seconds != null ? Number(r.median_gap_seconds) : null,
+      lastEventAt: r.last_event_at != null ? Number(r.last_event_at) : null,
+      alsoIpLinked: Boolean(r.also_ip_linked),
+      confidence: r.confidence ?? null,
+      cachedAt: r.cached_at,
     })),
     nameAliases: Array.isArray(p.bm_name_aliases) ? p.bm_name_aliases : [],
     isStale: Boolean(p.is_stale),

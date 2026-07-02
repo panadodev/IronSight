@@ -96,6 +96,80 @@ const CONFIDENCE_META = {
   },
 };
 
+// Server-computed hard-link criteria → human-readable labels. A hard link is
+// set when independent signals coincide such that two different people
+// producing them by chance is statistically implausible.
+const HARD_LINK_REASON_LABELS = {
+  identical_name_same_network:
+    "Identical name + same non-proxy network (home/work/mobile)",
+  multiple_strong_networks:
+    "3+ shared residential/business IPs — independent location matches",
+  cross_network_types:
+    "Same networks of multiple types (e.g. home AND work) — near-impossible by coincidence",
+  account_switching_same_network:
+    "Account-switching session pattern + same network + matching name",
+  identical_name_account_switching:
+    "Identical name + many shared sessions that never overlap (account switching)",
+};
+
+const HARD_LINK_HINT =
+  "Hard link: multiple independent signals (name reuse, location-specific networks, session-switching pattern) coincide in a way that is statistically implausible for two different people. Treat these accounts as the same person.";
+
+// One-line verdict for the Compare dialog so staff get a clear related /
+// not-related answer instead of having to interpret raw signals.
+function comparisonVerdict(account) {
+  if (account.hardLink)
+    return {
+      label: "Same person",
+      detail:
+        "Hard-linked: the evidence combination below is not realistically produced by two different people.",
+      tone: "text-danger",
+      box: "bg-danger/10 ring-danger/40",
+    };
+  if (account.coPresence?.verdict === "co_play")
+    return {
+      label: "Likely different people (teammates)",
+      detail:
+        "These accounts are frequently online at the same time on the same servers — two people playing together, not one person's alt.",
+      tone: "text-success",
+      box: "bg-success/10 ring-success/40",
+    };
+  switch (account.altConfidence) {
+    case "high":
+      return {
+        label: "Almost certainly the same person",
+        detail:
+          "Strong evidence (non-proxy IP overlap plus corroborating signals). Not quite a hard link, but treat as related.",
+        tone: "text-danger",
+        box: "bg-danger/10 ring-danger/40",
+      };
+    case "likely":
+      return {
+        label: "Probably the same person",
+        detail:
+          "Solid indirect evidence. Verify with the signals below before acting on it.",
+        tone: "text-warning",
+        box: "bg-warning/10 ring-warning/40",
+      };
+    case "possible":
+      return {
+        label: "Weak link — could be coincidence",
+        detail:
+          "Only weak signals connect these accounts (e.g. a shared mobile carrier IP or minor name overlap).",
+        tone: "text-brand",
+        box: "bg-brand/10 ring-brand/40",
+      };
+    default:
+      return {
+        label: "Probably not related",
+        detail:
+          "A single weak identifier connects these accounts — most likely two unrelated players.",
+        tone: "text-muted-foreground",
+        box: "bg-surface ring-border",
+      };
+  }
+}
+
 const CO_PRESENCE_META = {
   alt_switch: {
     label: "Never online together",
@@ -198,6 +272,16 @@ function ConfidenceBadge({ tier }) {
   );
 }
 
+function HardLinkBadge() {
+  return (
+    <Hint text={HARD_LINK_HINT}>
+      <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help text-danger bg-danger/15 ring-danger/50 font-bold">
+        <ShieldAlert className="size-3" /> Hard Link
+      </span>
+    </Hint>
+  );
+}
+
 // ── Summary card (also used by the appeal sidebar) ────────────────────────────
 
 function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
@@ -208,12 +292,14 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
     let serverBanned = 0;
     let strongBanned = 0;
     let highConfidence = 0;
+    let hardLinked = 0;
     for (const a of list) {
       if (a.hasEacBans) gameBanned++;
       if (a.hasBmBans) serverBanned++;
       if (a.nonProxyLinked && (a.hasEacBans || a.hasBmBans)) strongBanned++;
       if (a.altConfidence === "high" || a.altConfidence === "likely")
         highConfidence++;
+      if (a.hardLink) hardLinked++;
     }
     return {
       hasData,
@@ -222,6 +308,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
       serverBanned,
       strongBanned,
       highConfidence,
+      hardLinked,
     };
   }, [relatedAccounts]);
 
@@ -273,6 +360,17 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
                 </p>
               </div>
             </div>
+            {summary.hardLinked > 0 && (
+              <div className="flex items-start gap-2 bg-danger/10 ring-1 ring-danger/40 rounded p-2">
+                <ShieldAlert className="size-3.5 text-danger shrink-0 mt-0.5" />
+                <p className="text-[10px] text-danger leading-snug">
+                  <span className="font-bold">{summary.hardLinked}</span>{" "}
+                  <span className="font-bold">hard-linked</span>{" "}
+                  {summary.hardLinked === 1 ? "account" : "accounts"} — same
+                  person beyond reasonable doubt.
+                </p>
+              </div>
+            )}
             {summary.strongBanned > 0 ? (
               <div className="flex items-start gap-2 bg-danger/10 ring-1 ring-danger/40 rounded p-2">
                 <ShieldAlert className="size-3.5 text-danger shrink-0 mt-0.5" />
@@ -383,6 +481,8 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
         }
       })
       .sort((a, b) => {
+        if (Boolean(b.hardLink) !== Boolean(a.hardLink))
+          return b.hardLink ? 1 : -1;
         const ra = CONFIDENCE_META[a.altConfidence]?.rank ?? 0;
         const rb = CONFIDENCE_META[b.altConfidence]?.rank ?? 0;
         if (rb !== ra) return rb - ra;
@@ -577,7 +677,11 @@ function LinkedAccountsSection({ subjectName, relatedAccounts }) {
                           <PlayerLinks steamId={a.relatedSteamId} size="xs" />
                         </span>
                       )}
-                      <ConfidenceBadge tier={a.altConfidence} />
+                      {a.hardLink ? (
+                        <HardLinkBadge />
+                      ) : (
+                        <ConfidenceBadge tier={a.altConfidence} />
+                      )}
                       {a.nameSimilarity > 0 && (
                         <Hint text="Best bigram character similarity between this account's alias history and the subject's. ≥60% is a strong naming signal; ≥35% is notable.">
                           <span
@@ -680,6 +784,14 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
     lines.push(
       `Confidence: ${CONFIDENCE_META[account.altConfidence]?.label ?? "Unlikely"} (score ${account.altScore ?? 0})`,
     );
+    if (account.hardLink) {
+      lines.push(
+        `HARD LINK — statistically implausible to be different people:`,
+      );
+      for (const r of account.hardLinkReasons ?? []) {
+        lines.push(`  - ${HARD_LINK_REASON_LABELS[r] ?? r}`);
+      }
+    }
     lines.push("");
 
     const links = [];
@@ -735,7 +847,11 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
               <span className="text-sm flex items-center gap-2">
                 {subjectName} <span className="text-muted-foreground">vs</span>{" "}
                 {name}
-                <ConfidenceBadge tier={account.altConfidence} />
+                {account.hardLink ? (
+                  <HardLinkBadge />
+                ) : (
+                  <ConfidenceBadge tier={account.altConfidence} />
+                )}
               </span>
               <span className="text-[10px] font-mono text-muted-foreground">
                 {account.relatedSteamId ?? `BM ${account.relatedBmId}`}
@@ -762,6 +878,37 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
         </DialogHeader>
 
         <div className="space-y-5">
+          {/* Verdict — the clear related / not-related answer */}
+          {(() => {
+            const verdict = comparisonVerdict(account);
+            return (
+              <div className={`rounded-lg ring-1 p-3 ${verdict.box}`}>
+                <p
+                  className={`text-xs font-mono font-bold uppercase tracking-wider ${verdict.tone}`}
+                >
+                  {verdict.label}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
+                  {verdict.detail}
+                </p>
+                {account.hardLink &&
+                  (account.hardLinkReasons ?? []).length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {account.hardLinkReasons.map((r) => (
+                        <li
+                          key={r}
+                          className="flex items-start gap-1.5 text-[11px] text-danger leading-snug"
+                        >
+                          <ShieldAlert className="size-3 shrink-0 mt-0.5" />
+                          {HARD_LINK_REASON_LABELS[r] ?? r}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+              </div>
+            );
+          })()}
+
           {/* Ban status */}
           <div className="flex flex-wrap gap-2">
             {account.hasEacBans ? (
@@ -1035,4 +1182,168 @@ function SmallStat({ icon, label, value, tone, hint }) {
   );
 }
 
-export { LinkedAccountIntelSection, LinkedAccountsSection };
+// ── Session-history related players ───────────────────────────────────────────
+// Accounts linked by TEMPORAL fingerprint instead of shared IPs: the backend
+// probes BattleMetrics sessions around the subject's own connect/disconnect
+// times and surfaces players who repeatedly join right after the subject
+// leaves (or leave right before the subject joins) without playing at the
+// same time — the signature of one person switching accounts. Catches alts
+// on networks IP linking can't see (mobile hotspot, VPN, second household).
+
+const SESSION_CONFIDENCE_META = {
+  high: {
+    label: "High",
+    tone: "text-danger bg-danger/10 ring-danger/30",
+    hint: "5+ switch events across 3+ different days with zero overlapping play — a consistent account-switching pattern, very unlikely by chance.",
+  },
+  likely: {
+    label: "Likely",
+    tone: "text-warning bg-warning/10 ring-warning/30",
+    hint: "Repeated switch events across multiple days with at most one overlapping session — probably the same person switching accounts.",
+  },
+  possible: {
+    label: "Possible",
+    tone: "text-brand bg-brand/10 ring-brand/30",
+    hint: "A couple of switch events. Could be coincidence (server queues produce join/leave adjacency) — corroborate with other evidence.",
+  },
+};
+
+function formatGap(seconds) {
+  if (seconds == null) return null;
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
+function SessionRelatedSection({ sessionRelated }) {
+  const list = Array.isArray(sessionRelated) ? sessionRelated : [];
+  return (
+    <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <Clock className="size-3 shrink-0" />
+          Session-Linked Players
+          <Hint text="Players who repeatedly connect right after this player disconnects (or vice versa) on the same servers, without ever meaningfully playing at the same time. This catches account switching even when the alt uses a different network, so it finds links shared-IP analysis misses.">
+            <span className="text-warning normal-case tracking-normal font-mono cursor-help">
+              · timing
+            </span>
+          </Hint>
+        </span>
+        <span className="font-mono normal-case tracking-normal text-muted-foreground">
+          {list.length}
+        </span>
+      </h3>
+
+      {list.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          No account-switching pattern detected in recent session history.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border/60 ring-1 ring-border rounded-lg bg-surface/40 overflow-hidden">
+          {list.map((c) => {
+            const name = displayNameOf(c);
+            const meta =
+              SESSION_CONFIDENCE_META[c.confidence] ??
+              SESSION_CONFIDENCE_META.possible;
+            const gap = formatGap(c.medianGapSeconds);
+            return (
+              <li key={c.relatedBmId} className="px-3 py-2 flex gap-3">
+                <MiniAvatar id={c.relatedBmId} name={name} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold truncate max-w-[12rem]">
+                      {name}
+                    </span>
+                    {c.relatedSteamId && (
+                      <span className="text-[10px] font-mono text-muted-foreground inline-flex items-center gap-1">
+                        <PlayerLinks steamId={c.relatedSteamId} size="xs" />
+                      </span>
+                    )}
+                    <Hint text={meta.hint}>
+                      <span
+                        className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help ${meta.tone}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </Hint>
+                    {c.alsoIpLinked && (
+                      <Hint text="This player ALSO shares an IP identifier with the subject (see Linked Accounts). Two independent detection methods agreeing is very strong evidence.">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[9px] font-mono uppercase ring-1 ring-danger/40 cursor-help">
+                          <Wifi className="size-2.5" /> IP match
+                        </span>
+                      </Hint>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 flex-wrap text-[10px] font-mono text-muted-foreground">
+                    <Hint text="Times this player connected within 15 minutes of the subject disconnecting (or disconnected within 15 minutes of the subject connecting) on the same server.">
+                      <span className="cursor-help text-foreground">
+                        {c.adjacencyEvents} switch event
+                        {c.adjacencyEvents === 1 ? "" : "s"}
+                      </span>
+                    </Hint>
+                    <span>·</span>
+                    <span>
+                      {c.distinctDays} day{c.distinctDays === 1 ? "" : "s"}
+                    </span>
+                    {gap && (
+                      <>
+                        <span>·</span>
+                        <Hint text="Median time between the subject's disconnect and this player's connect (or vice versa). Short, consistent gaps look like one person relogging.">
+                          <span className="cursor-help">~{gap} gap</span>
+                        </Hint>
+                      </>
+                    )}
+                    {c.overlapSessions > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="text-success">
+                          {c.overlapSessions} overlap
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {(c.sharedServers ?? []).length > 0 && (
+                    <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                      {c.sharedServers.map((s) => (
+                        <span
+                          key={s.bmServerId}
+                          className="px-1.5 py-0.5 rounded bg-surface ring-1 ring-border text-[9px] font-mono text-muted-foreground truncate max-w-[11rem]"
+                        >
+                          {s.serverName ?? `BM ${s.bmServerId}`}
+                          {s.events > 1 ? ` ×${s.events}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {c.relatedSteamId ? (
+                  <Link
+                    to="/player-lookup"
+                    search={{ steam: c.relatedSteamId }}
+                    className="self-center shrink-0 text-brand hover:underline text-[10px] font-mono uppercase tracking-widest inline-flex items-center gap-1"
+                  >
+                    View <ExternalLink className="size-2.5" />
+                  </Link>
+                ) : (
+                  <a
+                    href={`https://www.battlemetrics.com/players/${c.relatedBmId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="self-center shrink-0 text-brand hover:underline text-[10px] font-mono uppercase tracking-widest inline-flex items-center gap-1"
+                  >
+                    BM <ExternalLink className="size-2.5" />
+                  </a>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export {
+  LinkedAccountIntelSection,
+  LinkedAccountsSection,
+  SessionRelatedSection,
+};

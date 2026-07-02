@@ -360,7 +360,7 @@ function PlayerListPage() {
         <SiteNav />
         <div className="flex-1 overflow-hidden flex">
           <div className="flex-1 overflow-y-auto">
-            <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-4">
               {/* Header */}
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -497,8 +497,8 @@ function PlayerListPage() {
 
               {/* Table */}
               {(!loading || players.length > 0) && (
-                <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                  <div className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+                <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-x-auto">
+                  <div className="min-w-[900px] grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
                     <HeaderCell
                       label="Player"
                       k="name"
@@ -648,7 +648,7 @@ function PlayerListPage() {
                       return (
                         <div
                           key={p.steamId}
-                          className="grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
+                          className="min-w-[900px] grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             {p.avatarUrl ? (
@@ -808,7 +808,7 @@ function timeAgo(unix) {
 
 function RecentReportsSidebar({ reports, loading }) {
   return (
-    <div className="w-72 shrink-0 border-l border-border flex flex-col overflow-hidden">
+    <div className="w-72 shrink-0 border-l border-border hidden lg:flex flex-col overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center gap-2 shrink-0">
         <Flag className="size-3.5 text-warning" />
         <span className="text-xs font-semibold">Recent F7 Reports</span>

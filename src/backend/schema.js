@@ -1150,6 +1150,13 @@ export async function ensureSchema(pool) {
     `server_overlap JSONB`,
     `co_presence JSONB`,
     `alt_confidence TEXT`,
+    // Raw 0-100 evidence score behind alt_confidence, and the "hard link"
+    // flag: set when independent signals make it statistically implausible
+    // the two accounts belong to different people (e.g. identical name +
+    // shared residential network). hard_link_reasons lists which criteria hit.
+    `alt_score INT`,
+    `hard_link BOOLEAN`,
+    `hard_link_reasons JSONB`,
   ]) {
     await pool.query(
       `ALTER TABLE player_related_accounts ADD COLUMN IF NOT EXISTS ${col}`,
@@ -1170,6 +1177,37 @@ export async function ensureSchema(pool) {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_player_session_windows_steam_id
      ON player_session_windows(steam_id)`,
+  );
+  // Players related to the subject by SESSION ADJACENCY rather than shared
+  // IPs: accounts that repeatedly join a server right after the subject leaves
+  // (or leave right before the subject joins) without ever meaningfully
+  // playing at the same time — the temporal fingerprint of one person
+  // switching between accounts. Recomputed wholesale on each player refresh.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_session_related (
+      steam_id TEXT NOT NULL,
+      related_bm_id TEXT NOT NULL,
+      related_steam_id TEXT,
+      related_name TEXT,
+      adjacency_events INT NOT NULL DEFAULT 0,
+      switch_ins INT NOT NULL DEFAULT 0,
+      switch_outs INT NOT NULL DEFAULT 0,
+      distinct_days INT NOT NULL DEFAULT 0,
+      shared_servers JSONB,
+      overlap_sessions INT NOT NULL DEFAULT 0,
+      candidate_sessions INT NOT NULL DEFAULT 0,
+      median_gap_seconds INT,
+      last_event_at BIGINT,
+      also_ip_linked BOOLEAN NOT NULL DEFAULT FALSE,
+      confidence TEXT,
+      cached_at BIGINT NOT NULL DEFAULT unix_now(),
+      cache_expires_at BIGINT NOT NULL DEFAULT unix_now() + 2592000,
+      PRIMARY KEY (steam_id, related_bm_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_player_session_related_steam_id
+     ON player_session_related(steam_id)`,
   );
 
   // Staff notes attached to a player, scoped per org and gated by min_rank so

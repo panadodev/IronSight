@@ -250,7 +250,7 @@ function PanelPage() {
       <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
         <SiteNav />
         <main className="flex-1 overflow-y-auto">
-          <div className="p-6 max-w-[1500px] mx-auto space-y-5">
+          <div className="p-4 sm:p-6 max-w-[1500px] mx-auto space-y-5">
             {/* Org switcher */}
             <div className="flex items-center justify-end gap-4 flex-wrap">
               <OrgSwitcher
@@ -515,7 +515,7 @@ function RconTab({ servers, orgId }) {
   if (!servers.length)
     return <EmptyState label="No servers configured for this org" />;
   return (
-    <div className="grid grid-cols-[260px_1fr] gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
       <div className="space-y-1 ring-1 ring-border rounded-md bg-surface/40 p-2 h-fit">
         <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Servers
@@ -1666,7 +1666,8 @@ function OrgPluginsTab({ orgId }) {
         )
       : null;
 
-  const COLS = "grid grid-cols-[1.6fr_1fr_0.7fr_1.7fr_1.2fr_auto] gap-3";
+  const COLS =
+    "min-w-[720px] grid grid-cols-[1.6fr_1fr_0.7fr_1.7fr_1.2fr_auto] gap-3";
 
   return (
     <div className="space-y-3">
@@ -1717,7 +1718,7 @@ function OrgPluginsTab({ orgId }) {
       )}
 
       {!loading && !error && plugins.length > 0 && (
-        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
+        <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
           <div
             className={`${COLS} px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground`}
           >
@@ -2311,8 +2312,8 @@ function PresetsTab({ servers, orgId }) {
               </span>
             </p>
           )}
-          <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-            <div className="grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
+            <div className="min-w-[560px] grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Plugin</div>
               <div>Version</div>
               <div>Description</div>
@@ -2327,7 +2328,7 @@ function PresetsTab({ servers, orgId }) {
                 <div
                   key={p.fileName}
                   className={
-                    "grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center " +
+                    "min-w-[560px] grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center " +
                     (p.status === "failed" ? "bg-destructive/5" : "")
                   }
                 >
@@ -4090,8 +4091,8 @@ function StatusTab({ orgId }) {
             <span className="font-mono text-foreground">Servers</span> tab.
           </p>
         ) : (
-          <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
-            <div className="grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
+            <div className="min-w-[760px] grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Server</div>
               <div>Node</div>
               <div>CPU</div>
@@ -4117,7 +4118,7 @@ function StatusTab({ orgId }) {
 
               return (
                 <Fragment key={s.uuid ?? s.identifier ?? s.pteroId}>
-                  <div className="grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40">
+                  <div className="min-w-[760px] grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40">
                     <div className="flex items-center gap-2 min-w-0">
                       <StateDot state={state} />
                       <span className="font-medium truncate">{s.name}</span>
@@ -4672,8 +4673,8 @@ function ServersTab({ orgId, onServerUpdate }) {
             </p>
           )}
           {pteroServers !== null && pteroServers.length > 0 && (
-            <div className="divide-y divide-border">
-              <div className="grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="divide-y divide-border overflow-x-auto">
+              <div className="min-w-[640px] grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
                 <div>Status</div>
                 <div>Name</div>
                 <div>Allocation</div>
@@ -4712,7 +4713,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                 return (
                   <div
                     key={s.pteroId}
-                    className={`grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-60" : ""}`}
+                    className={`min-w-[640px] grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-60" : ""}`}
                   >
                     <span
                       className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ${statusCls}`}
@@ -4997,8 +4998,8 @@ function ServersTab({ orgId, onServerUpdate }) {
             No servers registered yet. Import one from Pterodactyl above.
           </p>
         ) : (
-          <div className="divide-y divide-border">
-            <div className="grid grid-cols-[2fr_1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="divide-y divide-border overflow-x-auto">
+            <div className="min-w-[560px] grid grid-cols-[2fr_1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Server</div>
               <div>Pterodactyl</div>
               <div>Last Ping</div>

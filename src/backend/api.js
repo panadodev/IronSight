@@ -919,7 +919,9 @@ async function init() {
     await migrateTimestampsToUnix(pool);
     await migratePterodactylApiKeys();
     await ensureRolePermissionSeed(pool);
-    const { rows: allOrgs } = await pool.query(`SELECT org_id FROM organizations`);
+    const { rows: allOrgs } = await pool.query(
+      `SELECT org_id FROM organizations`,
+    );
     for (const { org_id } of allOrgs) await ensureDefaultTicketTypes(org_id);
     await pingDependencies();
 
@@ -5524,7 +5526,11 @@ async function handleListTicketTypeQuestions(request, orgId, ticketTypeId) {
   });
 }
 
-async function handleListPublicTicketTypeQuestions(request, orgId, ticketTypeId) {
+async function handleListPublicTicketTypeQuestions(
+  request,
+  orgId,
+  ticketTypeId,
+) {
   const rl = await checkRateLimit(
     `rl:public-questions:${getClientIp(request)}`,
     PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
@@ -6498,10 +6504,7 @@ async function handleAddTicketMessage(request, ticketIdStr) {
     return json({ error: "message is too long" }, 400);
 
   if (/\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(message))
-    return json(
-      { error: "Messages cannot contain raw IP addresses." },
-      400,
-    );
+    return json({ error: "Messages cannot contain raw IP addresses." }, 400);
 
   const isInternal = Boolean(body?.isInternal);
 
@@ -6812,8 +6815,7 @@ async function handleCreateCase(request, orgId) {
     return json({ error: "Invalid Steam ID" }, 400);
   if (title.length > 255)
     return json({ error: "title must be 255 characters or fewer" }, 400);
-  if (note.length > 10000)
-    return json({ error: "note is too long" }, 400);
+  if (note.length > 10000) return json({ error: "note is too long" }, 400);
 
   const orgRes = await pool.query(
     "SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1",
@@ -13034,6 +13036,22 @@ async function handleConfirmMedia(request, orgId) {
         `[r2] complete multipart failed mediaId=${mediaId}:`,
         err?.message,
       );
+      // Permanent client-side failures (wrong/missing ETags, upload already
+      // gone) can never succeed on retry — discard now instead of leaving a
+      // dead pending row until the hourly purge. Transient R2 errors stay
+      // retryable: the row remains unconfirmed so the client can re-confirm.
+      const code = String(err?.name ?? err?.Code ?? "");
+      if (
+        [
+          "InvalidPart",
+          "InvalidPartOrder",
+          "EntityTooSmall",
+          "NoSuchUpload",
+        ].includes(code)
+      ) {
+        await discard();
+        return json({ error: "Multipart upload is invalid or expired" }, 400);
+      }
       return json({ error: "Failed to complete multipart upload" }, 502);
     }
   }
@@ -14354,6 +14372,13 @@ async function getShareVersion() {
 // (keyed by version) is busted immediately rather than waiting for the TTL.
 async function bumpShareVersion() {
   try {
+    // Seed with a millisecond timestamp when the key is missing (fresh Redis,
+    // restart, or LRU eviction) before incrementing. A bare INCR would restart
+    // the counter at 1, which could collide with a version number that live
+    // `share:resolve:<ver>:*` entries were keyed under — serving a stale grant
+    // graph for up to the 30s cache TTL. A time-seeded counter can never
+    // regress to a previously-used version.
+    await redis.set("share:ver", String(Date.now()), "NX");
     await redis.incr("share:ver");
   } catch {
     /* fail-open: stale reads self-heal within the cache TTL */
@@ -14862,7 +14887,11 @@ async function handleRefreshPlayer(request, steamId) {
     if (recentlyRefreshed) {
       const cached = await getPlayerDataFromRedis(steamId);
       if (cached) {
-        const payload = applyShareEntitlement(cached, ipEntitlement, bmEntitlement);
+        const payload = applyShareEntitlement(
+          cached,
+          ipEntitlement,
+          bmEntitlement,
+        );
         if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
         return json(payload);
       }
@@ -14906,7 +14935,11 @@ async function handleRefreshPlayer(request, steamId) {
       if (done) {
         const fresh = await getPlayerDataFromRedis(steamId);
         if (fresh) {
-          const payload = applyShareEntitlement(fresh, ipEntitlement, bmEntitlement);
+          const payload = applyShareEntitlement(
+            fresh,
+            ipEntitlement,
+            bmEntitlement,
+          );
           if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
           return json(payload);
         }
@@ -18141,7 +18174,15 @@ async function handleGetDiscordChannels(request, orgId) {
 
 function requireBotAuth(request) {
   const authHeader = request.headers.get("authorization") ?? "";
-  if (!env.discordBotToken || authHeader !== `Bot ${env.discordBotToken}`) {
+  if (!env.discordBotToken) return json({ error: "Unauthorized" }, 401);
+  // Constant-time compare of same-length digests — a plain !== leaks the
+  // match-prefix length through response timing.
+  const given = crypto.createHash("sha256").update(authHeader).digest();
+  const expected = crypto
+    .createHash("sha256")
+    .update(`Bot ${env.discordBotToken}`)
+    .digest();
+  if (!crypto.timingSafeEqual(given, expected)) {
     return json({ error: "Unauthorized" }, 401);
   }
   return null;
@@ -18297,9 +18338,26 @@ async function handleIngestDiscordMessage(request) {
       String(channelId),
       String(channelName ?? ""),
       String(authorId),
-      String(authorUsername ?? ""),
-      String(content ?? ""),
-      JSON.stringify(Array.isArray(attachments) ? attachments : []),
+      String(authorUsername ?? "").slice(0, 255),
+      // Discord caps messages at 4000 chars (Nitro); cap defensively so a
+      // compromised bot token can't bloat rows with megabyte payloads.
+      String(content ?? "").slice(0, 8000),
+      // Project raw Discord attachment objects down to the fields the panel
+      // renders, with per-field caps — bounds the JSONB row size and drops
+      // whatever extra keys Discord adds to the gateway payload.
+      JSON.stringify(
+        (Array.isArray(attachments) ? attachments.slice(0, 25) : []).map(
+          (a) => ({
+            id: a?.id != null ? String(a.id).slice(0, 32) : null,
+            url: String(a?.url ?? "").slice(0, 1024),
+            proxy_url: a?.proxy_url ? String(a.proxy_url).slice(0, 1024) : null,
+            filename: String(a?.filename ?? "").slice(0, 255),
+            content_type: a?.content_type
+              ? String(a.content_type).slice(0, 100)
+              : null,
+          }),
+        ),
+      ),
       createdAt,
     ],
   );

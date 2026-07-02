@@ -240,7 +240,7 @@ function BansMutesPage() {
       <div className="h-screen w-full flex flex-col bg-background">
         <SiteNav />
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-4">
             {actionResult && (
               <div
                 className={
@@ -310,8 +310,8 @@ function BansMutesPage() {
             </div>
 
             {/* Table */}
-            <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-              <div className="grid grid-cols-[minmax(200px,2fr)_90px_1fr_120px_130px_110px_100px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+            <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-x-auto">
+              <div className="min-w-[820px] grid grid-cols-[minmax(200px,2fr)_90px_1fr_120px_130px_110px_100px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
                 <div>Identifier</div>
                 <div>Category</div>
                 <div>Reason</div>
@@ -330,7 +330,7 @@ function BansMutesPage() {
                   return (
                     <div
                       key={r.banId}
-                      className="grid grid-cols-[minmax(200px,2fr)_90px_1fr_120px_130px_110px_100px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60"
+                      className="min-w-[820px] grid grid-cols-[minmax(200px,2fr)_90px_1fr_120px_130px_110px_100px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60"
                     >
                       <div className="min-w-0">
                         <div className="font-mono font-medium truncate">

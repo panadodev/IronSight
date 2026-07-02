@@ -1384,8 +1384,8 @@ function CompletedView({
           </p>
         </div>
       ) : (
-        <div className="ring-1 ring-border rounded-md overflow-hidden">
-          <div className="grid grid-cols-[1fr_160px_160px_80px] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        <div className="ring-1 ring-border rounded-md overflow-x-auto">
+          <div className="min-w-[560px] grid grid-cols-[1fr_160px_160px_80px] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
             <div>Task</div>
             <div>Assignee</div>
             <div>Org</div>
@@ -1397,7 +1397,7 @@ function CompletedView({
               <button
                 key={todo.id}
                 onClick={() => onOpenEdit(todo)}
-                className="w-full grid grid-cols-[1fr_160px_160px_80px] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center text-left hover:bg-surface/60 transition-colors"
+                className="w-full min-w-[560px] grid grid-cols-[1fr_160px_160px_80px] gap-3 px-3 py-2.5 border-b border-border last:border-0 items-center text-left hover:bg-surface/60 transition-colors"
               >
                 <div className="min-w-0">
                   <p className="text-xs font-medium truncate">{todo.title}</p>

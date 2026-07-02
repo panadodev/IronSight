@@ -2,7 +2,10 @@ import { LENGTH_OPTIONS } from "@/components/ban-dialog";
 import { EacBanStatus } from "@/components/eac-ban-status";
 import { ExternalBansSection } from "@/components/external-bans";
 import { HINTS } from "@/components/hint";
-import { LinkedAccountsSection } from "@/components/linked-accounts";
+import {
+  LinkedAccountsSection,
+  SessionRelatedSection,
+} from "@/components/linked-accounts";
 import { NewBanDialog } from "@/components/new-ban-dialog";
 import { PlayerFriendsSection } from "@/components/player-friends";
 import { PlayerLinks } from "@/components/player-links";
@@ -321,7 +324,6 @@ function PlayerLookupPage() {
   const [refreshCooldown, setRefreshCooldown] = useState(false);
   const refreshCooldownRef = useRef(null);
   const [bmRateLimitWarning, setBmRateLimitWarning] = useState(false);
-
 
   const [chatLines, setChatLines] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -1778,6 +1780,13 @@ function PlayerLookupPage() {
                           playerData.displayName ?? playerData.steamId
                         }
                         relatedAccounts={playerData.relatedAccounts}
+                      />
+                    )}
+
+                    {/* Session-Linked Players (temporal alt detection) */}
+                    {canViewSessionHistory && (
+                      <SessionRelatedSection
+                        sessionRelated={playerData.sessionRelated}
                       />
                     )}
 
