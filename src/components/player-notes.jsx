@@ -31,7 +31,7 @@ const LEGACY_RANK_LABELS = {
 function noteVisibilityLabel(note, roles) {
   if (note.requiredRoleId) {
     const role = roles.find((r) => r.roleId === note.requiredRoleId);
-    return role ? role.roleName : note.requiredRoleId;
+    return role ? `${role.roleName} and above` : note.requiredRoleId;
   }
   return LEGACY_RANK_LABELS[note.minRank] ?? `Rank ${note.minRank}+`;
 }
@@ -319,7 +319,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
                   value={`role:${role.roleId}`}
                   className="text-xs"
                 >
-                  {role.roleName} only
+                  {role.roleName} and above
                 </SelectItem>
               ))}
             </SelectContent>

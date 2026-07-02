@@ -524,6 +524,18 @@ function TicketsPage() {
     [selectedId],
   );
 
+  const handleDeleteTicket = useCallback(async () => {
+    if (!selectedId) return;
+    const res = await fetch(`/api/tickets/${selectedId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (res.ok) {
+      setTickets((prev) => prev.filter((t) => t.ticket_id !== selectedId));
+      setSelectedId(null);
+    }
+  }, [selectedId]);
+
   const hasPlayerIntelAccess =
     selectedOrgId &&
     (adminableOrgIds.includes(selectedOrgId) ||
@@ -687,6 +699,7 @@ function TicketsPage() {
               onClaim={handleClaim}
               onAssign={handleAssign}
               onUpdateStatus={handleUpdateStatus}
+              onDelete={handleDeleteTicket}
               submitting={submitting}
               submitError={submitError}
               detailLoading={detailLoading}
@@ -996,6 +1009,7 @@ function TicketDetail({
   onClaim,
   onAssign,
   onUpdateStatus,
+  onDelete,
   submitting,
   submitError,
   detailLoading,
@@ -1010,6 +1024,8 @@ function TicketDetail({
   const isInternalOnly = isAuto || isCase;
   const internalMessages = messages.filter((m) => m.isInternal);
   const publicMessages = messages.filter((m) => !m.isInternal);
+  const isSysAdmin = sessionUser?.isSysAdmin || sessionUser?.globalAdmin;
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const noteHasIp = IP_IN_TEXT_RE.test(noteText);
   const replyHasIp = IP_IN_TEXT_RE.test(replyText);
@@ -1097,6 +1113,34 @@ function TicketDetail({
           >
             Mark Active
           </button>
+        )}
+        {isSysAdmin && (
+          <div className="ml-auto flex items-center gap-1">
+            {confirmDelete ? (
+              <>
+                <span className="text-[10px] font-mono text-danger">Delete?</span>
+                <button
+                  onClick={() => { onDelete(); setConfirmDelete(false); }}
+                  className="text-[10px] font-mono px-2 py-0.5 rounded bg-danger text-white hover:bg-danger/80 transition-colors"
+                >
+                  Yes
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-danger/80 hover:text-danger transition-colors"
+              >
+                Delete
+              </button>
+            )}
+          </div>
         )}
       </div>
 

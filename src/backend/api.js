@@ -6696,6 +6696,30 @@ async function handleUpdateTicket(request, ticketIdStr) {
   return json({ ok: true });
 }
 
+async function handleDeleteTicket(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!isGlobalAdmin(session)) return json({ error: "Forbidden" }, 403);
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  const ticket = await loadTicketFromDb(id);
+  if (!ticket) return json({ error: "Ticket not found" }, 404);
+
+  await pool.query(
+    `UPDATE org_media SET source = 'deleted', deleted_at = unix_now() WHERE ticket_id = $1 AND deleted_at IS NULL`,
+    [id],
+  );
+  await pool.query(`DELETE FROM tickets WHERE ticket_id = $1`, [id]);
+
+  await invalidateTicketCache(id);
+
+  return json({ ok: true });
+}
+
 async function handleListOrgTickets(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -11427,6 +11451,22 @@ async function handleCreateBan(request, orgId) {
     }
   }
 
+  // Per-target 30-second cooldown to prevent duplicate ban/mutes when multiple
+  // staff members act on the same player at the same time.
+  const targetCd = await checkRateLimit(
+    `rl:ban-cd:${orgId}:${actionType}:${rawIdentifier}`,
+    1,
+    30,
+  );
+  if (targetCd)
+    return json(
+      {
+        error:
+          "A recent ban/mute for this target is still processing. Please wait 30 seconds before issuing another.",
+      },
+      429,
+    );
+
   const banId = crypto.randomUUID();
   let expiresAtUnix = null;
   if (expiresAt != null && expiresAt !== "") {
@@ -14701,6 +14741,18 @@ async function buildProtectedPlayerPayload(steamId, staff) {
   });
 }
 
+async function evalBoughtHoursFlag(orgId, steamHours, bmHours) {
+  try {
+    const cfg = await getThreatTriggerConfigOrDefault(orgId);
+    const ba = cfg?.boughtAccount;
+    if (!ba?.enabled || !ba?.hoursRule?.enabled) return false;
+    if (steamHours == null || bmHours == null || bmHours <= 0) return false;
+    return steamHours / bmHours >= (ba.hoursRule.ratio ?? 10);
+  } catch {
+    return false;
+  }
+}
+
 async function handleGetPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -14785,7 +14837,13 @@ async function handleGetPlayer(request, steamId) {
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
     }
-    return json(applyShareEntitlement(fromRedis, ipEntitlement, bmEntitlement));
+    const d = applyShareEntitlement(fromRedis, ipEntitlement, bmEntitlement);
+    d.boughtHoursTriggered = await evalBoughtHoursFlag(
+      orgId,
+      d.steam?.rustHours,
+      d.bm?.rustHours,
+    );
+    return json(d);
   }
 
   // Redis miss — fall back to PostgreSQL
@@ -14806,7 +14864,13 @@ async function handleGetPlayer(request, steamId) {
     );
   }
 
-  return json(applyShareEntitlement(cached, ipEntitlement, bmEntitlement));
+  const d = applyShareEntitlement(cached, ipEntitlement, bmEntitlement);
+  d.boughtHoursTriggered = await evalBoughtHoursFlag(
+    orgId,
+    d.steam?.rustHours,
+    d.bm?.rustHours,
+  );
+  return json(d);
 }
 
 async function handleGetPlayerIpBanEligibility(request, orgId, steamId) {
@@ -15539,8 +15603,13 @@ async function handleListPlayerNotes(request, orgId, steamId) {
        $3 >= 4
        OR (required_role_id IS NULL AND min_rank <= $3)
        OR EXISTS (
-         SELECT 1 FROM organization_members
-         WHERE user_id = $4 AND org_id = $1 AND role_id = required_role_id
+         SELECT 1 FROM organization_members om
+         JOIN roles r ON om.role_id = r.role_id
+         WHERE om.user_id = $4 AND om.org_id = $1
+           AND r.position >= COALESCE(
+             (SELECT position FROM roles WHERE role_id = required_role_id),
+             0
+           )
        )
      )
      ORDER BY pinned DESC, created_at DESC`,
@@ -15593,8 +15662,13 @@ async function handleListPlayerNotesCombined(request, steamId) {
          $3 >= 4
          OR (n.required_role_id IS NULL AND n.min_rank <= $3)
          OR EXISTS (
-           SELECT 1 FROM organization_members
-           WHERE user_id = $4 AND org_id = $1 AND role_id = n.required_role_id
+           SELECT 1 FROM organization_members om
+           JOIN roles r ON om.role_id = r.role_id
+           WHERE om.user_id = $4 AND om.org_id = $1
+             AND r.position >= COALESCE(
+               (SELECT position FROM roles WHERE role_id = n.required_role_id),
+               0
+             )
          )
        )`,
       [org, steamId, rank, session.userId],
@@ -16448,6 +16522,9 @@ async function _handleApiRequest(request) {
     }
     if (ticketMatch && request.method === "PATCH") {
       return handleUpdateTicket(request, ticketMatch[1]);
+    }
+    if (ticketMatch && request.method === "DELETE") {
+      return handleDeleteTicket(request, ticketMatch[1]);
     }
 
     const ticketStreamMatch = pathname.match(/^\/api\/tickets\/(\d+)\/stream$/);

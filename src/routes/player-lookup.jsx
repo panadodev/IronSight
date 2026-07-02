@@ -3,7 +3,7 @@ import { EacBanStatus } from "@/components/eac-ban-status";
 import { ExternalBansSection } from "@/components/external-bans";
 import { HINTS } from "@/components/hint";
 import { LinkedAccountsSection } from "@/components/linked-accounts";
-import { NewBanDialog } from "@/components/new-ban-dialog";
+import { NewBanDialog, computeNextWipeTs } from "@/components/new-ban-dialog";
 import { PlayerFriendsSection } from "@/components/player-friends";
 import { PlayerLinks } from "@/components/player-links";
 import { PlayerNotesSection } from "@/components/player-notes";
@@ -54,14 +54,15 @@ const LENGTH_MINUTES = {
   "4d": 5760,
   "5d": 7200,
   "6d": 8640,
-  next_wipe: 10080,
   "7d": 10080,
   "14d": 20160,
   "30d": 43200,
 };
 
-function lengthToExpiresAt(length) {
-  if (length === "permanent" || !LENGTH_MINUTES[length]) return null;
+function lengthToExpiresAt(length, serverName = "") {
+  if (length === "permanent") return null;
+  if (length === "next_wipe") return computeNextWipeTs([serverName]);
+  if (!LENGTH_MINUTES[length]) return null;
   return Math.floor(Date.now() / 1000) + LENGTH_MINUTES[length] * 60;
 }
 
@@ -1083,6 +1084,8 @@ function PlayerLookupPage() {
       out.push({ key: "orgban", label: "Active Ban", tone: "danger" });
     if (hasActiveMute)
       out.push({ key: "orgmute", label: "Active Mute", tone: "warning" });
+    if (playerData.boughtHoursTriggered)
+      out.push({ key: "botted_hours", label: "Botted Hours", tone: "warning" });
 
     return out;
   })();
@@ -2202,7 +2205,9 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
           method: "PATCH",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ expiresAt: lengthToExpiresAt(newLength) }),
+          body: JSON.stringify({
+            expiresAt: lengthToExpiresAt(newLength, r.serverName),
+          }),
         },
       );
       if (!res.ok) {

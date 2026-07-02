@@ -757,7 +757,7 @@ function MediaPage() {
                 </Select>
               )}
               <div className="flex items-center gap-1">
-                {["all", "image", "video", "other"].map((t) => (
+                {["all", "image", "video"].map((t) => (
                   <button
                     key={t}
                     onClick={() => setTypeFilter(t)}

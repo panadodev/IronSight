@@ -29,11 +29,85 @@ export const DURATION_PRESETS = [
   { label: "1 Day", value: "1440" },
   { label: "2 Days", value: "2880" },
   { label: "3 Days", value: "4320" },
+  { label: "Until Next Wipe", value: "next_wipe" },
   { label: "7 Days", value: "10080" },
   { label: "14 Days", value: "20160" },
   { label: "30 Days", value: "43200" },
   { label: "Permanent", value: "-1" },
 ];
+
+// Ordered longest-first so "thursday" matches before "thu", etc.
+const WIPE_WEEKDAY_PATTERNS = [
+  { words: ["thursday", "thursdays", "thurs"], day: 4 },
+  { words: ["wednesday", "wednesdays"], day: 3 },
+  { words: ["saturday", "saturdays"], day: 6 },
+  { words: ["tuesday", "tuesdays", "tues"], day: 2 },
+  { words: ["monday", "mondays"], day: 1 },
+  { words: ["friday", "fridays"], day: 5 },
+  { words: ["sunday", "sundays"], day: 0 },
+];
+
+function firstThursdayOfMonthUnix(year, month) {
+  const d = new Date(Date.UTC(year, month, 1, 14, 0, 0, 0));
+  while (d.getUTCDay() !== 4) d.setUTCDate(d.getUTCDate() + 1);
+  return Math.floor(d.getTime() / 1000);
+}
+
+function nextForceWipeUnix() {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const thisMonthThur = firstThursdayOfMonthUnix(y, m);
+  // If the wipe is still in the future (allow a 6-hour window), use this month
+  if (now.getTime() / 1000 < thisMonthThur + 6 * 3600) return thisMonthThur;
+  const nm = m + 1 > 11 ? 0 : m + 1;
+  const ny = m + 1 > 11 ? y + 1 : y;
+  return firstThursdayOfMonthUnix(ny, nm);
+}
+
+function nextWeekdayUnix(weekday) {
+  const now = new Date();
+  const cur = now.getUTCDay();
+  let days = (weekday - cur + 7) % 7;
+  if (days === 0) {
+    // Same weekday — use today if wipe (2pm UTC) hasn't happened yet
+    const todayWipeMs = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      14,
+      0,
+      0,
+      0,
+    );
+    if (now.getTime() < todayWipeMs) return Math.floor(todayWipeMs / 1000);
+    days = 7;
+  }
+  const d = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + days,
+      14,
+      0,
+      0,
+      0,
+    ),
+  );
+  return Math.floor(d.getTime() / 1000);
+}
+
+// Given a list of server names, return the Unix timestamp of the next wipe.
+// Checks for "force" (monthly first-Thursday), then weekday name patterns,
+// then falls back to next force wipe.
+export function computeNextWipeTs(serverNames) {
+  const combined = (serverNames ?? []).join(" ").toLowerCase();
+  if (/\bforce\b/.test(combined)) return nextForceWipeUnix();
+  for (const { words, day } of WIPE_WEEKDAY_PATTERNS) {
+    if (words.some((w) => combined.includes(w))) return nextWeekdayUnix(day);
+  }
+  return nextForceWipeUnix();
+}
 
 export const BAN_CATEGORIES = [
   "cheating",
@@ -46,8 +120,13 @@ export const BAN_CATEGORIES = [
 
 export const MUTE_CATEGORIES = ["toxicity", "spam", "harassment", "mic_abuse"];
 
-export function computeExpiresAt(durationValue, fromUnix = null) {
+export function computeExpiresAt(
+  durationValue,
+  fromUnix = null,
+  serverNames = [],
+) {
   if (durationValue === "-1") return null;
+  if (durationValue === "next_wipe") return computeNextWipeTs(serverNames);
   const minutes = parseInt(durationValue, 10);
   if (isNaN(minutes)) return null;
   const base = fromUnix ?? Math.floor(Date.now() / 1000);
@@ -373,7 +452,13 @@ export function NewBanDialog({
           category: category || null,
           reason,
           note,
-          expiresAt: computeExpiresAt(duration),
+          expiresAt: computeExpiresAt(
+            duration,
+            null,
+            orgServers
+              .filter((s) => selectedServerIds.includes(s.serverId))
+              .map((s) => s.serverName),
+          ),
           serverIds: selectedServerIds,
           mediaIds: linkedMediaIds,
           ...(identifierType === "ip" && playerSteamId
@@ -433,7 +518,15 @@ export function NewBanDialog({
                   >
                     <span className="font-medium truncate">{r.serverName}</span>
                     <span className="text-[10px] font-mono ml-2 text-right shrink-0">
-                      {r.ok ? r.response || "OK" : r.error}
+                      {r.ok
+                        ? r.response || "OK"
+                        : /non-101|network error|connection failed/i.test(
+                              r.error,
+                            )
+                          ? "Server unreachable"
+                          : /timed out/i.test(r.error)
+                            ? "Connection timed out"
+                            : r.error}
                     </span>
                   </div>
                 ))}
@@ -722,7 +815,18 @@ export function NewBanDialog({
                 <p className="text-[10px] text-muted-foreground">
                   {duration === "-1"
                     ? "This ban will never expire."
-                    : `Expires in ${fmtRemaining(computeExpiresAt(duration), false)}.`}
+                    : duration === "next_wipe"
+                      ? (() => {
+                          const wipeTs = computeNextWipeTs(
+                            orgServers
+                              .filter((s) =>
+                                selectedServerIds.includes(s.serverId),
+                              )
+                              .map((s) => s.serverName),
+                          );
+                          return `Expires at next wipe — ${new Date(wipeTs * 1000).toUTCString().replace(/ GMT$/, " UTC")}.`;
+                        })()
+                      : `Expires in ${fmtRemaining(computeExpiresAt(duration), false)}.`}
                 </p>
               </div>
 
