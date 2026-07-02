@@ -1359,7 +1359,36 @@ function TicketDetail({
   );
 }
 
+function parseApplicationMessage(text) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const entries = [];
+  let current = null;
+  for (const line of lines) {
+    // Accept "1. Question", "1.Question", "1)Question", etc.
+    const match = line.match(/^(\d+)[.)]\s*(.*)/);
+    if (match) {
+      if (current) entries.push(current);
+      current = { num: parseInt(match[1], 10), question: match[2].trim(), answer: "" };
+    } else if (current !== null) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        current.answer = current.answer ? current.answer + "\n" + trimmed : trimmed;
+      }
+    }
+  }
+  if (current) entries.push(current);
+  // Require at least 2 questions with sequential numbering starting at 1 to avoid false positives
+  if (entries.length < 2) return null;
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].num !== i + 1) return null;
+  }
+  return entries;
+}
+
 function MessageBubble({ msg, internal }) {
+  const appEntries = !internal ? parseApplicationMessage(msg.message) : null;
+
   return (
     <div
       className={`rounded-md px-3 py-2 ring-1 text-xs ${
@@ -1379,7 +1408,22 @@ function MessageBubble({ msg, internal }) {
           </span>
         )}
       </div>
-      <p className="leading-relaxed">{msg.message}</p>
+      {appEntries ? (
+        <div className="space-y-2 mt-1.5">
+          {appEntries.map((entry, i) => (
+            <div key={i}>
+              <div className="text-[10px] font-semibold text-foreground">
+                {i + 1}. {entry.question}
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5 pl-3 whitespace-pre-wrap">
+                {entry.answer || "(no answer)"}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="leading-relaxed">{msg.message}</p>
+      )}
     </div>
   );
 }
