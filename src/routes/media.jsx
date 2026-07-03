@@ -613,6 +613,13 @@ function MediaPage() {
   const [bucketTestResult, setBucketTestResult] = useState(null); // { ok, message }
   const [userQuotas, setUserQuotas] = useState([]); // [{ orgId, orgName, used, limit }]
 
+  // Owner/admin-only section: media submitted through the public ticket portal.
+  const [publicMedia, setPublicMedia] = useState([]);
+  const [publicTotal, setPublicTotal] = useState(0);
+  const [publicLoading, setPublicLoading] = useState(true);
+  const [publicError, setPublicError] = useState("");
+  const [publicOffset, setPublicOffset] = useState(0);
+
   const isSessionSysAdmin = sessionUser?.isSysAdmin === true;
   const canUploadInOrg = (orgId) =>
     isSessionSysAdmin ||
@@ -622,6 +629,11 @@ function MediaPage() {
 
   const uploadOrgs = orgs.filter((o) => canUploadInOrg(o.id));
   const canAccess = isSessionSysAdmin || uploadOrgs.length > 0;
+  // Only org admins/owners (and sysadmin) may review public submissions.
+  const canSeePublic =
+    isSessionSysAdmin ||
+    sessionOrgOwnerIds.length > 0 ||
+    sessionOrgAdminIds.length > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -652,12 +664,44 @@ function MediaPage() {
     }
   }, [typeFilter, orgFilter, offset]);
 
+  const loadPublic = useCallback(async () => {
+    setPublicLoading(true);
+    setPublicError("");
+    try {
+      const params = new URLSearchParams({
+        source: "public",
+        limit: String(LIMIT),
+        offset: String(publicOffset),
+      });
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (orgFilter !== "all") params.set("org", orgFilter);
+      const res = await fetch(`/api/media?${params}`, {
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setPublicError(body?.error ?? "Failed to load public submissions.");
+        return;
+      }
+      setPublicMedia(body.media ?? []);
+      setPublicTotal(body.total ?? 0);
+    } catch (err) {
+      setPublicError(err.message ?? "Failed to load public submissions.");
+    } finally {
+      setPublicLoading(false);
+    }
+  }, [typeFilter, orgFilter, publicOffset]);
+
   useEffect(() => {
     setOffset(0);
+    setPublicOffset(0);
   }, [typeFilter, orgFilter]);
   useEffect(() => {
     if (orgsLoaded) load();
   }, [load, orgsLoaded]);
+  useEffect(() => {
+    if (orgsLoaded && canSeePublic) loadPublic();
+  }, [loadPublic, orgsLoaded, canSeePublic]);
 
   async function handleDelete(item) {
     setDeletingId(item.mediaId);
@@ -668,9 +712,21 @@ function MediaPage() {
         { method: "DELETE", credentials: "include" },
       );
       if (res.ok) {
+        const inStaff = media.some((m) => m.mediaId === item.mediaId);
         setMedia((prev) => prev.filter((m) => m.mediaId !== item.mediaId));
-        setTotal((t) => Math.max(0, t - 1));
+        setPublicMedia((prev) =>
+          prev.filter((m) => m.mediaId !== item.mediaId),
+        );
+        if (inStaff) setTotal((t) => Math.max(0, t - 1));
+        else setPublicTotal((t) => Math.max(0, t - 1));
+      } else {
+        // Keep the item visible — the backend leaves the row intact when the
+        // bucket object couldn't be removed, so a retry stays possible.
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? "Failed to delete media.");
       }
+    } catch (err) {
+      setError(err.message ?? "Failed to delete media.");
     } finally {
       setDeletingId(null);
     }
@@ -708,6 +764,8 @@ function MediaPage() {
 
   const pages = Math.ceil(total / LIMIT);
   const currentPage = Math.floor(offset / LIMIT) + 1;
+  const publicPages = Math.ceil(publicTotal / LIMIT);
+  const currentPublicPage = Math.floor(publicOffset / LIMIT) + 1;
 
   if (!canAccess) {
     return (
@@ -940,6 +998,100 @@ function MediaPage() {
               >
                 Next
               </Button>
+            </div>
+          )}
+
+          {canSeePublic && (
+            <div className="space-y-3 pt-5 mt-2 border-t border-border">
+              <div>
+                <h2 className="text-base font-semibold">
+                  Public Ticket Submissions
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Clips and screenshots players uploaded through the public
+                  ticket portal for your organization
+                  {isSessionSysAdmin || orgs.length > 1 ? "s" : ""}. Visible to
+                  owners and admins only.
+                </p>
+              </div>
+
+              {publicError && (
+                <div className="rounded-md ring-1 ring-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+                  {publicError}
+                </div>
+              )}
+
+              {publicLoading && publicMedia.length === 0 ? (
+                <div className="rounded-lg ring-1 ring-border overflow-hidden">
+                  <div className="divide-y divide-border">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 px-3 py-2"
+                      >
+                        <div className="size-9 rounded bg-surface/40 animate-pulse shrink-0" />
+                        <div className="flex-1 space-y-1.5">
+                          <div className="h-3 w-48 bg-surface/60 rounded animate-pulse" />
+                          <div className="h-2.5 w-32 bg-surface/40 rounded animate-pulse" />
+                        </div>
+                        <div className="h-3 w-20 bg-surface/40 rounded animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : publicMedia.length === 0 ? (
+                <div className="rounded-lg ring-1 ring-border bg-surface/20 py-10 flex flex-col items-center gap-2 text-center">
+                  <HardDrive className="size-7 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    No public submissions yet.
+                  </p>
+                  <p className="text-xs text-muted-foreground max-w-xs">
+                    Media attached by players when they open tickets will appear
+                    here.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {publicTotal} file{publicTotal !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <MediaTable
+                    media={publicMedia}
+                    onDelete={(item) => setConfirmDelete(item)}
+                    onPreview={(item) => setPreview(item)}
+                    deletingId={deletingId}
+                    showOrgCol={isSessionSysAdmin || orgs.length > 1}
+                    showUploaderCol
+                  />
+                  {publicPages > 1 && (
+                    <div className="flex items-center gap-2 justify-center pt-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={currentPublicPage <= 1}
+                        onClick={() =>
+                          setPublicOffset((o) => Math.max(0, o - LIMIT))
+                        }
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {currentPublicPage} of {publicPages}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={currentPublicPage >= publicPages}
+                        onClick={() => setPublicOffset((o) => o + LIMIT)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

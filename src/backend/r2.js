@@ -343,13 +343,18 @@ export async function testR2BucketWriteDelete() {
 
 // ── Object deletion ───────────────────────────────────────────────────────────
 
+// Returns true if the object is gone from the bucket (S3/R2 DeleteObject is
+// idempotent, so a missing key still succeeds), false if the delete failed —
+// callers that must not orphan bytes in R2 can act on that.
 export async function deleteMediaObject(key) {
-  if (!key) return;
+  if (!key) return true;
   try {
     await getR2Client().send(
       new DeleteObjectCommand({ Bucket: env.r2BucketName, Key: key }),
     );
+    return true;
   } catch (err) {
     console.error(`[r2] delete failed key=${key}:`, err?.message);
+    return false;
   }
 }

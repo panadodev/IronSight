@@ -13166,11 +13166,15 @@ async function handleListAllMedia(request) {
   const fileType = url.searchParams.get("type") ?? null;
   const orgFilter = url.searchParams.get("org")?.trim() || null;
   const sysAdmin = isConfiguredSysAdmin(session);
+  // 'public' lists media submitted through the public ticket flow (source
+  // 'ticket'/'pending'); it is visible only to org admins/owners (and sysadmin).
+  // Default 'staff' keeps the original behaviour (media library + ban evidence).
+  const isPublic = url.searchParams.get("source") === "public";
 
   const conditions = [
     "m.deleted = FALSE",
     "m.confirmed = TRUE",
-    "m.source = 'staff'",
+    isPublic ? "m.source IN ('ticket','pending')" : "m.source = 'staff'",
   ];
   const params = [];
   let paramIdx = 1;
@@ -13212,7 +13216,9 @@ async function handleListAllMedia(request) {
       params.push(elevatedOrgIds);
     }
 
-    if (personalOrgIds.length > 0) {
+    // Public submissions are org-manager-only, so a plain staffer never sees
+    // them via their personal-org scope — skip that clause on the public tab.
+    if (!isPublic && personalOrgIds.length > 0) {
       const personalOrgsParam = paramIdx++;
       const userParam = paramIdx++;
       scopeClauses.push(
@@ -13259,9 +13265,10 @@ async function handleListAllMedia(request) {
     params,
   );
 
-  // Per-org storage quota for the current user (not shown to sysadmin).
+  // Per-org storage quota for the current user (staff uploads only; not shown
+  // to sysadmin or on the public tab).
   let userQuotas = [];
-  if (!sysAdmin && quotaOrgIds.length > 0) {
+  if (!sysAdmin && !isPublic && quotaOrgIds.length > 0) {
     const { rows: qRows } = await pool.query(
       `SELECT o.org_id, o.name, o.media_user_limit_bytes,
               COALESCE(SUM(m.file_size), 0)::BIGINT AS user_used
@@ -13713,14 +13720,23 @@ async function handleDeleteMedia(request, orgId, mediaId) {
       403,
     );
 
-  if (row.r2_key) {
-    await deleteMediaObject(String(row.r2_key));
-  }
+  // Abort any dangling multipart upload first (frees its parts), then remove the
+  // finished object. Only soft-delete the DB row once R2 confirms the object is
+  // gone — otherwise a failed bucket delete would orphan the bytes in storage
+  // while the row disappears from the panel.
   if (row.multipart_upload_id) {
     await abortMultipartUpload(
       String(row.r2_key),
       String(row.multipart_upload_id),
     );
+  }
+  if (row.r2_key) {
+    const removed = await deleteMediaObject(String(row.r2_key));
+    if (!removed)
+      return json(
+        { error: "Failed to delete file from storage. Please try again." },
+        502,
+      );
   }
 
   await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [
