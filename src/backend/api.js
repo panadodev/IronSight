@@ -608,6 +608,7 @@ function getPendingLink(request) {
     return {
       discordId: String(payload.discordId),
       username: String(payload.username),
+      avatarHash: payload.avatarHash ?? null,
       next: sanitizeNext(payload.next),
     };
   } catch {
@@ -1608,6 +1609,7 @@ async function handleDiscordCallback(request) {
     const pendingToken = signPendingLink({
       discordId: discordUser.discordId,
       username: discordUser.username,
+      avatarHash: discordUser.avatarHash,
       next: sanitizeNext(stateData.next),
     });
 
@@ -1729,6 +1731,7 @@ async function handleSteamCallback(request) {
          SET username = $2,
              steam_id = $3,
              discord_guilds = COALESCE($4, discord_guilds),
+             discord_avatar_hash = COALESCE($5, discord_avatar_hash),
              updated_at = unix_now()
          WHERE user_id = $1`,
         [
@@ -1736,6 +1739,7 @@ async function handleSteamCallback(request) {
           pending.username,
           steamId,
           cachedGuildsJson,
+          pending.avatarHash,
         ],
       );
 
@@ -1756,23 +1760,9 @@ async function handleSteamCallback(request) {
 
     const userId = crypto.randomUUID();
     try {
-      // Fetch Discord avatar for new user
-      let avatarHash = null;
-      try {
-        if (env.discordBotToken) {
-          const userRes = await fetch(
-            `https://discord.com/api/v10/users/${pending.discordId}`,
-            {
-              headers: { authorization: `Bot ${env.discordBotToken}` },
-            },
-          );
-          if (userRes.ok) {
-            const discordUser = await userRes.json();
-            avatarHash = discordUser.avatar ?? null;
-          }
-        }
-      } catch {}
-
+      // Avatar hash was captured during the Discord OAuth step and carried
+      // through the pending-link token, so it is available for both public and
+      // staff flows without depending on a configured bot token.
       await pool.query(
         `INSERT INTO users (user_id, username, discord_id, steam_id, discord_guilds, discord_avatar_hash)
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -1782,7 +1772,7 @@ async function handleSteamCallback(request) {
           pending.discordId,
           steamId,
           cachedGuildsJson,
-          avatarHash,
+          pending.avatarHash,
         ],
       );
     } catch (err) {
