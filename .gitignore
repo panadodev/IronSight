@@ -26,3 +26,4 @@ bm_extra_example/
 /tmp
 CLAUDE.md
 .claude
+tmp-relay.py

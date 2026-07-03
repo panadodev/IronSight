@@ -598,6 +598,11 @@ function SiteNav() {
           show: isSysAdminSession,
         },
         {
+          to: "/sys-relays",
+          label: "API Relays",
+          show: isSysAdminSession,
+        },
+        {
           to: "/db-usage",
           label: "Database",
           show: isSysAdminSession,

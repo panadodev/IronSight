@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { env } from "./config.js";
 import { decryptExternalApiKey } from "./crypto-keys.js";
 import { diagRecordOutgoing } from "./diagnostics.js";
+import { proxyBmViaRelay } from "./relay.js";
 import { pool } from "./runtime.js";
 
 // ── External API key helpers (BM / Steam / Proxycheck) ───────────────────────
@@ -113,12 +114,17 @@ async function recordRateLimitStats(keyId, orgId, service, resp) {
   );
 }
 
-// Tries each available key in priority order; returns Response or null if all fail
+// Tries each available key in priority order; returns Response or null if all fail.
+// `transport(url, options)` dispatches a single request — defaults to a direct
+// fetch, but BM requests pass a relay-aware transport (see bmFetch).
 async function externalFetchWithRotation(
   orgId,
   service,
   buildRequest,
-  { privacyAware = false } = {},
+  {
+    privacyAware = false,
+    transport = (url, options) => fetch(url, options),
+  } = {},
 ) {
   const keys = await getAvailableExternalKeys(orgId, service);
   if (!keys.length) {
@@ -133,7 +139,7 @@ async function externalFetchWithRotation(
     let resp;
     const t0ext = Date.now();
     try {
-      resp = await fetch(url, options ?? {});
+      resp = await transport(url, options ?? {});
     } catch (err) {
       console.warn(
         `[ext-api:${service}] key=${keyId} network error: ${err.message}`,
@@ -213,14 +219,37 @@ async function externalFetchWithRotation(
   return null;
 }
 
+// BattleMetrics transport: send each request through an available relay (an
+// encrypted IP-diversity proxy) so the panel's IP isn't the rate-limit
+// bottleneck. If no relay can serve it (none configured / all offline / all
+// cooling down / relay error), fall back to a direct fetch so BM features never
+// hard-depend on relays. The BM token stays inside options.headers.Authorization
+// and rides inside the relay's encrypted envelope.
+async function bmRelayTransport(url, options) {
+  try {
+    const relayed = await proxyBmViaRelay({ url, options });
+    if (relayed) return relayed;
+  } catch (err) {
+    console.warn(
+      `[ext-api:battlemetrics] relay path failed, falling back to direct: ${err.message}`,
+    );
+  }
+  return fetch(url, options);
+}
+
 export async function bmFetch(orgId, url, opts = {}) {
-  return externalFetchWithRotation(orgId, "battlemetrics", (key) => ({
-    url,
-    options: {
-      ...opts,
-      headers: { Authorization: `Bearer ${key}`, ...(opts.headers ?? {}) },
-    },
-  }));
+  return externalFetchWithRotation(
+    orgId,
+    "battlemetrics",
+    (key) => ({
+      url,
+      options: {
+        ...opts,
+        headers: { Authorization: `Bearer ${key}`, ...(opts.headers ?? {}) },
+      },
+    }),
+    { transport: bmRelayTransport },
+  );
 }
 
 // Simple in-process concurrency gate: at most `max` wrapped calls run at once,

@@ -52,6 +52,11 @@ import {
 } from "./diagnostics.js";
 import { bmFetch, proxycheckApiFetch } from "./external-fetch.js";
 import {
+  generateRelayKey,
+  healthCheckRelay,
+  normalizeRelayBaseUrl,
+} from "./relay.js";
+import {
   handleGetBlacklistedWordsForServer,
   handleIngestChatMessage,
   handleIngestMuteSync,
@@ -15861,6 +15866,221 @@ async function handleResetExternalKeyLimits(request) {
   return json({ ok: true, cleared: rowCount ?? 0 });
 }
 
+// ── Sysadmin: BattleMetrics API relays ───────────────────────────────────────
+
+async function requireSysAdminSession(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return { error };
+  if (!isConfiguredSysAdmin(session))
+    return { error: json({ error: "Forbidden: sysadmin only" }, 403) };
+  return { session };
+}
+
+// Serialise a relay row for the sysadmin page — never exposes the key.
+function serializeRelay(r) {
+  const requests = Number(r.request_count) || 0;
+  const totalLatency = Number(r.total_latency_ms) || 0;
+  return {
+    relayId: String(r.relay_id),
+    label: r.label ?? "",
+    baseUrl: r.base_url,
+    enabled: r.enabled,
+    online: r.online,
+    rateLimitedUntil: r.rate_limited_until
+      ? Number(r.rate_limited_until)
+      : null,
+    lastHealthAt: r.last_health_at ? Number(r.last_health_at) : null,
+    lastLatencyMs: r.last_latency_ms != null ? Number(r.last_latency_ms) : null,
+    lastUsedAt: r.last_used_at ? Number(r.last_used_at) : null,
+    createdAt: Number(r.created_at) || null,
+    stats: {
+      requests,
+      errors: Number(r.error_count) || 0,
+      rateLimited: Number(r.rate_limited_count) || 0,
+      avgLatencyMs: requests > 0 ? Math.round(totalLatency / requests) : null,
+    },
+  };
+}
+
+async function handleListRelays(request) {
+  const { session, error } = await requireSysAdminSession(request);
+  if (error) return error;
+  void session;
+
+  const { rows } = await pool.query(
+    `SELECT r.relay_id, r.label, r.base_url, r.enabled, r.online,
+            r.rate_limited_until, r.last_health_at, r.last_latency_ms,
+            r.last_used_at, r.created_at,
+            COALESCE(s.request_count, 0)      AS request_count,
+            COALESCE(s.error_count, 0)        AS error_count,
+            COALESCE(s.rate_limited_count, 0) AS rate_limited_count,
+            COALESCE(s.total_latency_ms, 0)   AS total_latency_ms
+     FROM api_relays r
+     LEFT JOIN (
+       SELECT relay_id,
+              SUM(request_count)      AS request_count,
+              SUM(error_count)        AS error_count,
+              SUM(rate_limited_count) AS rate_limited_count,
+              SUM(total_latency_ms)   AS total_latency_ms
+       FROM api_relay_stats
+       WHERE bucket_hour >= unix_now() - 86400
+       GROUP BY relay_id
+     ) s ON s.relay_id = r.relay_id
+     ORDER BY r.created_at ASC`,
+  );
+  return json({ relays: rows.map(serializeRelay) });
+}
+
+async function handleCreateRelay(request) {
+  const { session, error } = await requireSysAdminSession(request);
+  if (error) return error;
+
+  if (!getPterodactylEncryptionKey())
+    return json(
+      { error: "Server misconfigured: no encryption key available" },
+      503,
+    );
+
+  const body = await request.json().catch(() => ({}));
+  const label = String(body?.label ?? "")
+    .trim()
+    .slice(0, 100);
+
+  let baseUrl;
+  try {
+    baseUrl = normalizeRelayBaseUrl(body?.baseUrl);
+  } catch {
+    return json(
+      { error: "Invalid relay URL — must be a public https:// host." },
+      400,
+    );
+  }
+
+  const plaintextKey = generateRelayKey();
+  const encKey = encryptExternalApiKey(plaintextKey);
+  const { rows } = await pool.query(
+    `INSERT INTO api_relays (label, base_url, enc_key_encrypted, created_by_user_id)
+     VALUES ($1, $2, $3, $4)
+     RETURNING relay_id`,
+    [label, baseUrl, encKey, session.userId],
+  );
+  const relayId = String(rows[0].relay_id);
+
+  // The plaintext key is returned exactly once — the sysadmin sets it as
+  // API_ENCRYPTION_KEY on the relay container. It's never retrievable again.
+  return json({
+    ok: true,
+    relayId,
+    baseUrl,
+    apiEncryptionKey: plaintextKey,
+  });
+}
+
+async function handleUpdateRelay(request, relayId) {
+  const { error } = await requireSysAdminSession(request);
+  if (error) return error;
+
+  const { rows: existing } = await pool.query(
+    `SELECT relay_id FROM api_relays WHERE relay_id = $1`,
+    [relayId],
+  );
+  if (!existing.length) return json({ error: "Relay not found" }, 404);
+
+  const body = await request.json().catch(() => ({}));
+  const sets = [];
+  const params = [];
+  let i = 1;
+
+  if (body?.label !== undefined) {
+    sets.push(`label = $${i++}`);
+    params.push(String(body.label).trim().slice(0, 100));
+  }
+  if (body?.enabled !== undefined) {
+    sets.push(`enabled = $${i++}`);
+    params.push(Boolean(body.enabled));
+  }
+  if (body?.baseUrl !== undefined) {
+    try {
+      sets.push(`base_url = $${i++}`);
+      params.push(normalizeRelayBaseUrl(body.baseUrl));
+      // A URL change invalidates the online status until re-checked.
+      sets.push(`online = FALSE`);
+    } catch {
+      return json(
+        { error: "Invalid relay URL — must be a public https:// host." },
+        400,
+      );
+    }
+  }
+  if (!sets.length) return json({ error: "No fields to update" }, 400);
+
+  params.push(relayId);
+  await pool.query(
+    `UPDATE api_relays SET ${sets.join(", ")} WHERE relay_id = $${i}`,
+    params,
+  );
+  return json({ ok: true });
+}
+
+async function handleRotateRelayKey(request, relayId) {
+  const { error } = await requireSysAdminSession(request);
+  if (error) return error;
+
+  if (!getPterodactylEncryptionKey())
+    return json(
+      { error: "Server misconfigured: no encryption key available" },
+      503,
+    );
+
+  const plaintextKey = generateRelayKey();
+  const encKey = encryptExternalApiKey(plaintextKey);
+  const { rowCount } = await pool.query(
+    `UPDATE api_relays
+     SET enc_key_encrypted = $1, online = FALSE
+     WHERE relay_id = $2`,
+    [encKey, relayId],
+  );
+  if (!rowCount) return json({ error: "Relay not found" }, 404);
+  return json({ ok: true, apiEncryptionKey: plaintextKey });
+}
+
+async function handleRelayHealthCheck(request, relayId) {
+  const { error } = await requireSysAdminSession(request);
+  if (error) return error;
+
+  const { rows } = await pool.query(
+    `SELECT relay_id, base_url, enc_key_encrypted FROM api_relays WHERE relay_id = $1`,
+    [relayId],
+  );
+  if (!rows.length) return json({ error: "Relay not found" }, 404);
+
+  let keyB64;
+  try {
+    keyB64 = decryptExternalApiKey(String(rows[0].enc_key_encrypted));
+  } catch {
+    return json({ error: "Relay key could not be decrypted" }, 500);
+  }
+
+  const result = await healthCheckRelay({
+    relayId: String(rows[0].relay_id),
+    baseUrl: String(rows[0].base_url),
+    keyB64,
+  });
+  return json({ ok: true, ...result });
+}
+
+async function handleDeleteRelay(request, relayId) {
+  const { error } = await requireSysAdminSession(request);
+  if (error) return error;
+
+  const { rowCount } = await pool.query(
+    `DELETE FROM api_relays WHERE relay_id = $1`,
+    [relayId],
+  );
+  if (!rowCount) return json({ error: "Relay not found" }, 404);
+  return json({ ok: true });
+}
+
 async function handleTestMediaBucket(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -18260,6 +18480,31 @@ async function _handleApiRequest(request) {
     // Sysadmin: test R2 bucket write/delete capability
     if (pathname === "/api/sys/media/test-bucket" && request.method === "POST")
       return handleTestMediaBucket(request);
+
+    // Sysadmin: BattleMetrics API relays
+    if (pathname === "/api/sys/relays") {
+      if (request.method === "GET") return handleListRelays(request);
+      if (request.method === "POST") return handleCreateRelay(request);
+    }
+    const relayIdMatch = pathname.match(
+      /^\/api\/sys\/relays\/([0-9a-fA-F-]{36})$/,
+    );
+    if (relayIdMatch) {
+      if (request.method === "PATCH")
+        return handleUpdateRelay(request, relayIdMatch[1]);
+      if (request.method === "DELETE")
+        return handleDeleteRelay(request, relayIdMatch[1]);
+    }
+    const relayRotateMatch = pathname.match(
+      /^\/api\/sys\/relays\/([0-9a-fA-F-]{36})\/rotate-key$/,
+    );
+    if (relayRotateMatch && request.method === "POST")
+      return handleRotateRelayKey(request, relayRotateMatch[1]);
+    const relayHealthMatch = pathname.match(
+      /^\/api\/sys\/relays\/([0-9a-fA-F-]{36})\/health$/,
+    );
+    if (relayHealthMatch && request.method === "POST")
+      return handleRelayHealthCheck(request, relayHealthMatch[1]);
 
     // Player reports
     const playerReportsMatch = pathname.match(

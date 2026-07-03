@@ -843,6 +843,44 @@ export async function ensureSchema(pool) {
      ON org_external_api_key_stats(org_id, bucket_hour DESC)`,
   );
 
+  // ── BattleMetrics API relays (sysadmin-managed IP-diversity proxies) ────────
+  // Each relay is a small FastAPI service on its own container/IP. The panel
+  // encrypts the outbound BM request (token included) with the relay's
+  // per-relay AES-256-GCM key and forwards it; the relay decrypts, calls BM,
+  // and returns an encrypted response. Relays own no tokens — the org's token
+  // rides inside the encrypted envelope. See src/backend/relay.js.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_relays (
+      relay_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      label              TEXT    NOT NULL DEFAULT '',
+      base_url           TEXT    NOT NULL,
+      enc_key_encrypted  TEXT    NOT NULL,
+      enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+      rate_limited_until BIGINT,
+      online             BOOLEAN NOT NULL DEFAULT FALSE,
+      last_health_at     BIGINT,
+      last_latency_ms    INT,
+      last_used_at       BIGINT,
+      created_at         BIGINT  NOT NULL DEFAULT unix_now(),
+      created_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_relay_stats (
+      relay_id         UUID   NOT NULL REFERENCES api_relays(relay_id) ON DELETE CASCADE,
+      bucket_hour      BIGINT NOT NULL,
+      request_count    INT    NOT NULL DEFAULT 0,
+      error_count      INT    NOT NULL DEFAULT 0,
+      rate_limited_count INT  NOT NULL DEFAULT 0,
+      total_latency_ms BIGINT NOT NULL DEFAULT 0,
+      PRIMARY KEY (relay_id, bucket_hour)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_api_relay_stats_bucket
+     ON api_relay_stats(relay_id, bucket_hour DESC)`,
+  );
+
   // ── Player data cache tables ───────────────────────────────────────────────
 
   await pool.query(`

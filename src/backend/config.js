@@ -81,6 +81,14 @@ export const env = {
   publicMediaPrepareRateLimitPerMinute: Number(
     process.env.PUBLIC_MEDIA_PREPARE_RATE_LIMIT_PER_MINUTE ?? 20,
   ),
+
+  // BattleMetrics API relays. Set RELAY_ALLOW_INSECURE=true ONLY for local dev
+  // to permit http:// and localhost/private relay base URLs (production requires
+  // https + a public host).
+  relayAllowInsecure:
+    String(process.env.RELAY_ALLOW_INSECURE ?? "")
+      .trim()
+      .toLowerCase() === "true",
 };
 
 if (!env.databaseUrl) {
