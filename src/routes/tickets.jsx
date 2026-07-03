@@ -23,65 +23,97 @@ export const Route = createFileRoute("/tickets")({
   component: TicketsPage,
 });
 
-const TYPE_META = {
-  player_report: { label: "Report", color: "text-rose-400" },
-  ban_appeal: { label: "Appeal", color: "text-yellow-400" },
-  vip_issue: { label: "VIP", color: "text-cyan-400" },
-  general_support: { label: "Support", color: "text-green-400" },
-  staff_application: { label: "Apply", color: "text-purple-400" },
-  threat_auto: { label: "Auto", color: "text-orange-400" },
-  staff_case: { label: "Case", color: "text-sky-400" },
-};
-
 const IP_IN_TEXT_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
 
-function typeFromTicket(ticket) {
-  // Direct category overrides (auto-opened or staff-initiated cases)
-  if (ticket.category === "threat_auto") return "threat_auto";
-  if (ticket.category === "staff_case") return "staff_case";
+// A ticket's display "kind" is derived only from authoritative data: the
+// server-set `category` (auto/case overrides) and the ticket type's own
+// `ticket_type_category` column — never by string-matching the type name.
+// Structural kinds get fixed colours; every other (generic) type is shown under
+// its real configured name with a colour derived deterministically from that
+// name, so custom types like "Bug Report" render correctly and consistently
+// without any per-name special-casing.
+const STRUCTURAL_KINDS = {
+  REPORT: {
+    key: "REPORT",
+    label: "Report",
+    color: "text-rose-400",
+    dot: "bg-rose-400",
+  },
+  APPLY: {
+    key: "APPLY",
+    label: "Apply",
+    color: "text-purple-400",
+    dot: "bg-purple-400",
+  },
+  AUTO: {
+    key: "AUTO",
+    label: "Auto",
+    color: "text-orange-400",
+    dot: "bg-orange-400",
+  },
+  CASE: {
+    key: "CASE",
+    label: "Case",
+    color: "text-sky-400",
+    dot: "bg-sky-400",
+  },
+};
 
-  // Use the authoritative ticket type category next
-  const cat = ticket.ticket_type_category;
-  if (cat === "player_single" || cat === "player_multi") return "player_report";
-  if (cat === "staff_application") return "staff_application";
+// Order structural kinds ahead of generic ones in the filter row.
+const STRUCTURAL_ORDER = ["REPORT", "APPLY", "AUTO", "CASE"];
 
-  // Fall back to name-based inference for generic category (appeal, vip, etc.)
-  const n = (ticket.ticket_type_name ?? "").toLowerCase();
-  if (n.includes("ban appeal") || n.includes("appeal")) return "ban_appeal";
-  if (n.includes("vip")) return "vip_issue";
-  if (
-    n.includes("cheating") ||
-    n.includes("cheat") ||
-    n.includes("teaming") ||
-    n.includes("toxicity") ||
-    n.includes("player report") ||
-    n.includes("report")
-  )
-    return "player_report";
-  return "general_support";
+// Palette for generic ticket types, picked so none collide with the structural
+// kind colours above.
+const GENERIC_PALETTE = [
+  { color: "text-green-400", dot: "bg-green-400" },
+  { color: "text-yellow-400", dot: "bg-yellow-400" },
+  { color: "text-cyan-400", dot: "bg-cyan-400" },
+  { color: "text-lime-400", dot: "bg-lime-400" },
+  { color: "text-fuchsia-400", dot: "bg-fuchsia-400" },
+  { color: "text-teal-400", dot: "bg-teal-400" },
+  { color: "text-amber-400", dot: "bg-amber-400" },
+  { color: "text-indigo-400", dot: "bg-indigo-400" },
+];
+
+// Deterministic string hash (FNV-1a) → palette index, so a given type name
+// always maps to the same colour across reloads and across orgs.
+function paletteForName(seed) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return GENERIC_PALETTE[Math.abs(h) % GENERIC_PALETTE.length];
 }
 
-function ticketMeta(ticket) {
-  return TYPE_META[ticket.type] ?? TYPE_META.general_support;
+// Returns { key, label, color, dot } for a ticket. `key` is stable per kind and
+// used for filtering/counting.
+function ticketKind(ticket) {
+  // Server-set overrides win (auto-opened threats, staff-initiated cases).
+  if (ticket.category === "threat_auto") return STRUCTURAL_KINDS.AUTO;
+  if (ticket.category === "staff_case") return STRUCTURAL_KINDS.CASE;
+
+  const cat = ticket.ticket_type_category;
+  if (cat === "player_single" || cat === "player_multi")
+    return STRUCTURAL_KINDS.REPORT;
+  if (cat === "staff_application") return STRUCTURAL_KINDS.APPLY;
+
+  // Generic type: identify it by its real configured name, grouped
+  // case-insensitively so the same type across orgs shares one chip/colour.
+  const label = ticket.ticket_type_name?.trim() || "Support";
+  const norm = label.toLowerCase();
+  return { key: `TYPE:${norm}`, label, ...paletteForName(norm) };
 }
 
 // The person who opened the ticket plays a different role depending on the
-// ticket type — "Reporter" only makes sense for player reports.
+// ticket type. Derived from category only — generic types are just "Submitter".
 function submitterRoleLabel(ticket) {
-  switch (ticket?.type) {
-    case "player_report":
-      return "Reporter";
-    case "ban_appeal":
-      return "Appellant";
-    case "staff_application":
-      return "Applicant";
-    case "vip_issue":
-      return "VIP Member";
-    case "general_support":
-      return "Submitter";
-    default:
-      return "Submitter";
-  }
+  if (ticket?.category === "threat_auto" || ticket?.category === "staff_case")
+    return "Submitter";
+  const cat = ticket?.ticket_type_category;
+  if (cat === "player_single" || cat === "player_multi") return "Reporter";
+  if (cat === "staff_application") return "Applicant";
+  return "Submitter";
 }
 
 function formatRelativeTime(unixSec) {
@@ -161,26 +193,6 @@ const TAB_STATUSES = {
   waiting: new Set(["waiting_response"]),
   closed: new Set(["closed"]),
 };
-const TYPE_FILTERS = [
-  { key: "ALL", label: "All", type: null, dot: null },
-  { key: "REPORT", label: "Report", type: "player_report", dot: "bg-rose-400" },
-  { key: "APPEAL", label: "Appeal", type: "ban_appeal", dot: "bg-yellow-400" },
-  { key: "VIP", label: "VIP", type: "vip_issue", dot: "bg-cyan-400" },
-  {
-    key: "SUPPORT",
-    label: "Support",
-    type: "general_support",
-    dot: "bg-green-400",
-  },
-  {
-    key: "APPLY",
-    label: "Apply",
-    type: "staff_application",
-    dot: "bg-purple-400",
-  },
-  { key: "AUTO", label: "Auto", type: "threat_auto", dot: "bg-orange-400" },
-  { key: "CASE", label: "Case", type: "staff_case", dot: "bg-sky-400" },
-];
 
 function TicketsPage() {
   const {
@@ -253,7 +265,7 @@ function TicketsPage() {
           .then((data) =>
             (data.tickets ?? []).map((t) => ({
               ...t,
-              type: typeFromTicket(t),
+              kind: ticketKind(t),
             })),
           )
           .catch(() => []),
@@ -414,16 +426,44 @@ function TicketsPage() {
 
   const typeCounts = useMemo(() => {
     const counts = {};
-    for (const t of scopedTickets) counts[t.type] = (counts[t.type] ?? 0) + 1;
+    for (const t of scopedTickets)
+      counts[t.kind.key] = (counts[t.kind.key] ?? 0) + 1;
     return counts;
   }, [scopedTickets]);
 
+  // Filter chips are built from the kinds actually present: structural kinds in
+  // a fixed order, then generic types alphabetically. No hardcoded taxonomy, so
+  // any custom ticket type gets its own chip automatically.
+  const typeFilters = useMemo(() => {
+    const byKey = new Map();
+    for (const t of scopedTickets) {
+      if (!byKey.has(t.kind.key))
+        byKey.set(t.kind.key, {
+          key: t.kind.key,
+          label: t.kind.label,
+          dot: t.kind.dot,
+        });
+    }
+    const structural = STRUCTURAL_ORDER.filter((k) => byKey.has(k)).map((k) =>
+      byKey.get(k),
+    );
+    const generic = [...byKey.values()]
+      .filter((f) => !STRUCTURAL_ORDER.includes(f.key))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [{ key: "ALL", label: "All", dot: null }, ...structural, ...generic];
+  }, [scopedTickets]);
+
   const filtered = useMemo(() => {
-    const typeVal = TYPE_FILTERS.find((f) => f.key === typeFilter)?.type;
-    return typeVal
-      ? scopedTickets.filter((t) => t.type === typeVal)
-      : scopedTickets;
+    if (typeFilter === "ALL") return scopedTickets;
+    return scopedTickets.filter((t) => t.kind.key === typeFilter);
   }, [typeFilter, scopedTickets]);
+
+  // If the selected type chip no longer has any tickets (e.g. after switching
+  // tab/scope), fall back to "All" so the queue never looks mysteriously empty.
+  useEffect(() => {
+    if (typeFilter !== "ALL" && !typeFilters.some((f) => f.key === typeFilter))
+      setTypeFilter("ALL");
+  }, [typeFilters, typeFilter]);
 
   const selectedTicket =
     tickets.find((t) => t.ticket_id === selectedId) ?? null;
@@ -676,16 +716,15 @@ function TicketsPage() {
             </div>
           </div>
           <div className="px-2 py-1.5 border-b border-border flex gap-1 flex-wrap shrink-0">
-            {TYPE_FILTERS.filter(
-              (f) => f.key !== "APPLY" || applicationOrgIds.length > 0,
-            ).map((f) => {
-              const count = f.type
-                ? (typeCounts[f.type] ?? 0)
-                : scopedTickets.length;
+            {typeFilters.map((f) => {
+              const isAll = f.key === "ALL";
+              const count = isAll
+                ? scopedTickets.length
+                : (typeCounts[f.key] ?? 0);
               const active = typeFilter === f.key;
               // Hide empty type chips to keep the row scannable, but never
               // hide "All" or the chip that is currently selected.
-              if (count === 0 && !active && f.type) return null;
+              if (count === 0 && !active && !isAll) return null;
               return (
                 <button
                   key={f.key}
@@ -808,7 +847,7 @@ function getOrgPrefix(orgId, orgs) {
 }
 
 function TicketListItem({ ticket, orgs, selected, onClick }) {
-  const meta = ticketMeta(ticket);
+  const kind = ticket.kind ?? ticketKind(ticket);
   const prefix = getOrgPrefix(ticket.org_id, orgs);
   const isAuto = ticket.category === "threat_auto";
   const isCase = ticket.category === "staff_case";
@@ -825,9 +864,10 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 min-w-0">
           <span
-            className={`text-[10px] font-mono font-bold shrink-0 ${meta.color}`}
+            className={`text-[10px] font-mono font-bold shrink-0 truncate max-w-[7rem] ${kind.color}`}
+            title={kind.label}
           >
-            {meta.label}
+            {kind.label}
           </span>
           {isAuto && (
             <span className="text-[8px] font-mono uppercase tracking-widest text-orange-400/70 bg-orange-400/10 px-1 rounded shrink-0">
