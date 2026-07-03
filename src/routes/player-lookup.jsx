@@ -1246,8 +1246,12 @@ function PlayerLookupPage() {
       out.push({ key: "orgban", label: "Active Ban", tone: "danger" });
     if (hasActiveMute)
       out.push({ key: "orgmute", label: "Active Mute", tone: "warning" });
-    if (playerData.boughtHoursTriggered)
-      out.push({ key: "botted_hours", label: "Botted Hours", tone: "warning" });
+    if (playerData.boughtAccountTriggered)
+      out.push({
+        key: "bought_account",
+        label: "Bought/Botted Account",
+        tone: "warning",
+      });
 
     return out;
   })();

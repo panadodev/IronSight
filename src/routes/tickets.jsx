@@ -2511,7 +2511,7 @@ function formatSeconds(sec) {
 // Pairwise relationship intel between the reported players — Steam
 // friendship, time spent on the org's servers together, and kills between
 // the pair. Shown automatically for teaming-style multi-player reports.
-function RelationshipPairCard({ pair, playersById }) {
+function RelationshipPairCard({ pair, playersById, onSelectPlayer }) {
   const [a, b] = pair.steamIds;
   const nameOf = (sid) => playersById.get(sid)?.displayName ?? sid.slice(-6);
   const sessions = pair.sharedSessions;
@@ -2522,9 +2522,19 @@ function RelationshipPairCard({ pair, playersById }) {
   return (
     <div className="bg-surface/40 ring-1 ring-border rounded-lg p-3 space-y-2">
       <div className="flex items-center gap-1.5 min-w-0 text-xs font-medium">
-        <span className="truncate">{nameOf(a)}</span>
+        <button
+          onClick={() => onSelectPlayer?.(a)}
+          className="truncate hover:text-brand transition-colors text-left"
+        >
+          {nameOf(a)}
+        </button>
         <span className="text-muted-foreground shrink-0">↔</span>
-        <span className="truncate">{nameOf(b)}</span>
+        <button
+          onClick={() => onSelectPlayer?.(b)}
+          className="truncate hover:text-brand transition-colors text-left"
+        >
+          {nameOf(b)}
+        </button>
       </div>
 
       <div className="flex items-center gap-1.5 text-[10px] font-mono">
@@ -2614,7 +2624,7 @@ function RelationshipPairCard({ pair, playersById }) {
   );
 }
 
-function RelationshipSection({ data }) {
+function RelationshipSection({ data, onSelectPlayer }) {
   const playersById = useMemo(
     () => new Map((data?.players ?? []).map((p) => [p.steamId, p])),
     [data],
@@ -2633,6 +2643,7 @@ function RelationshipSection({ data }) {
             key={pair.steamIds.join("|")}
             pair={pair}
             playersById={playersById}
+            onSelectPlayer={onSelectPlayer}
           />
         ))}
       </div>
@@ -2683,6 +2694,14 @@ function PlayerIntelSidebar({
   const hasPlayers = players.length > 0;
   const hasMultiplePlayers = players.length >= 2;
 
+  const handleSelectPlayer = useCallback(
+    (steamId) => {
+      const idx = players.findIndex((p) => p.steamId === steamId);
+      if (idx >= 0) setSelectedIdx(idx);
+    },
+    [players],
+  );
+
   // Pairwise relationship intel (friends / shared sessions / kills) only
   // exists for multi-player reports such as teaming.
   useEffect(() => {
@@ -2730,7 +2749,10 @@ function PlayerIntelSidebar({
         )}
 
         {!loading && relationshipData && (
-          <RelationshipSection data={relationshipData} />
+          <RelationshipSection
+            data={relationshipData}
+            onSelectPlayer={handleSelectPlayer}
+          />
         )}
 
         {!loading && player && !player.fetching && (

@@ -85,6 +85,7 @@ import {
   playerRedisKey,
   playerRefreshedKey,
   refreshPlayerData,
+  resolveSteamGroupInfo,
   seedFlaggedSteamGroups,
 } from "./player-store.js";
 import {
@@ -125,8 +126,10 @@ import {
   migrateTimestampsToUnix,
 } from "./schema.js";
 import {
+  evaluateBoughtAccount,
   evaluateThreatTriggers,
   getThreatTriggerConfigOrDefault,
+  namesFromAliases,
   saveThreatTriggerConfig,
   TRIGGER_FACTS,
 } from "./threat-triggers.js";
@@ -6832,24 +6835,31 @@ async function handleGetTicketRelationships(request, ticketIdStr) {
       const bNames = [...(names.get(b) ?? [])].slice(0, 25);
 
       const [sessionsRes, killsRes] = await Promise.all([
+        // Only count shared sessions on external servers (player_session_windows
+        // is populated from BM API data, so it never includes the org's own
+        // plugin-tracked servers). Own-server co-presence is expected for any
+        // report filed on those servers and is not meaningful teaming evidence.
         pool.query(
-          `SELECT s1.server_id, srv.server_name,
+          `SELECT w1.bm_server_id AS server_id,
+                  COALESCE(bs.server_name, w1.bm_server_id) AS server_name,
                   COUNT(*)::int AS overlap_count,
                   COALESCE(SUM(
-                    LEAST(COALESCE(s1.disconnected_at, $4), COALESCE(s2.disconnected_at, $4)) -
-                    GREATEST(s1.connected_at, s2.connected_at)
+                    LEAST(COALESCE(w1.stopped_at, $3), COALESCE(w2.stopped_at, $3)) -
+                    GREATEST(w1.started_at, w2.started_at)
                   ), 0)::bigint AS overlap_seconds,
-                  MAX(LEAST(COALESCE(s1.disconnected_at, $4), COALESCE(s2.disconnected_at, $4))) AS last_together
-           FROM server_player_sessions s1
-           JOIN server_player_sessions s2
-             ON s2.org_id = s1.org_id AND s2.server_id = s1.server_id AND s2.steam_id = $3
-           JOIN servers srv ON srv.server_id = s1.server_id
-           WHERE s1.org_id = $1 AND s1.steam_id = $2
-             AND s1.connected_at < COALESCE(s2.disconnected_at, $4)
-             AND s2.connected_at < COALESCE(s1.disconnected_at, $4)
-           GROUP BY s1.server_id, srv.server_name
+                  MAX(LEAST(COALESCE(w1.stopped_at, $3), COALESCE(w2.stopped_at, $3))) AS last_together
+           FROM player_session_windows w1
+           JOIN player_session_windows w2
+             ON w2.bm_server_id = w1.bm_server_id
+            AND w2.steam_id = $2
+            AND w1.started_at < COALESCE(w2.stopped_at, $3)
+            AND w2.started_at < COALESCE(w1.stopped_at, $3)
+           LEFT JOIN player_bm_sessions bs
+             ON bs.steam_id = $1 AND bs.bm_server_id = w1.bm_server_id
+           WHERE w1.steam_id = $1
+           GROUP BY w1.bm_server_id, bs.server_name
            ORDER BY overlap_seconds DESC`,
-          [ticket.org_id, a, b, nowUnix],
+          [a, b, nowUnix],
         ),
         pool.query(
           `SELECT
@@ -11487,6 +11497,36 @@ async function handleSaveThreatTriggers(request, orgId) {
   return json({ ok: true, config });
 }
 
+// Resolve a Steam group vanity/URL/GID into { gid, label, vanity } so the
+// bought-account group rule can store the stable GID. Gated on triggers_manage.
+async function handleResolveSteamGroup(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "triggers_manage")) {
+    return json(
+      { error: "Forbidden: triggers_manage permission required" },
+      403,
+    );
+  }
+
+  const rl = await checkRateLimit(`rl:group-resolve:${session.userId}`, 30, 60);
+  if (rl) return rl;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+  const input = String(body?.input ?? "").trim();
+  if (!input) return json({ error: "input required" }, 400);
+  if (input.length > 200) return json({ error: "input too long" }, 400);
+
+  const info = await resolveSteamGroupInfo(input);
+  if (!info) return json({ error: "Could not resolve Steam group" }, 404);
+  return json(info);
+}
+
 async function handleExecRconCommand(request, serverId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -15323,13 +15363,25 @@ async function buildProtectedPlayerPayload(steamId, staff) {
   });
 }
 
-async function evalBoughtHoursFlag(orgId, steamHours, bmHours) {
+// Display-only bought/botted-account flag for the player-lookup page. Evaluates
+// the org's hours, name, and Steam-group rules against the cached player payload.
+// Never opens a ticket — that path was removed from evaluateConfig.
+async function evalBoughtAccountFlag(orgId, d) {
   try {
     const cfg = await getThreatTriggerConfigOrDefault(orgId);
     const ba = cfg?.boughtAccount;
-    if (!ba?.enabled || !ba?.hoursRule?.enabled) return false;
-    if (steamHours == null || bmHours == null || bmHours <= 0) return false;
-    return steamHours / bmHours >= (ba.hoursRule.ratio ?? 10);
+    if (!ba?.enabled) return false;
+    const names = [
+      ...(d?.displayName ? [String(d.displayName)] : []),
+      ...namesFromAliases(d?.nameAliases),
+    ];
+    const reasons = evaluateBoughtAccount(ba, {
+      steamRustHours: d?.steam?.rustHours ?? null,
+      bmRustHours: d?.bm?.rustHours ?? null,
+      names,
+      steamGroups: Array.isArray(d?.steamGroups) ? d.steamGroups : [],
+    });
+    return Boolean(reasons);
   } catch {
     return false;
   }
@@ -15420,11 +15472,7 @@ async function handleGetPlayer(request, steamId) {
       );
     }
     const d = applyShareEntitlement(fromRedis, ipEntitlement, bmEntitlement);
-    d.boughtHoursTriggered = await evalBoughtHoursFlag(
-      orgId,
-      d.steam?.rustHours,
-      d.bm?.rustHours,
-    );
+    d.boughtAccountTriggered = await evalBoughtAccountFlag(orgId, d);
     // A refresh pipeline is still running for this player — tell the client so
     // it keeps silently re-polling until the enrichment lands.
     try {
@@ -15453,11 +15501,7 @@ async function handleGetPlayer(request, steamId) {
   }
 
   const d = applyShareEntitlement(cached, ipEntitlement, bmEntitlement);
-  d.boughtHoursTriggered = await evalBoughtHoursFlag(
-    orgId,
-    d.steam?.rustHours,
-    d.bm?.rustHours,
-  );
+  d.boughtAccountTriggered = await evalBoughtAccountFlag(orgId, d);
   try {
     if ((await redis.exists(playerFetchLockKey(steamId))) === 1)
       d.enriching = true;
@@ -17581,6 +17625,13 @@ async function _handleApiRequest(request) {
     }
     if (orgThreatTriggersMatch && request.method === "PUT") {
       return handleSaveThreatTriggers(request, orgThreatTriggersMatch[1]);
+    }
+
+    const orgResolveGroupMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/threat-triggers\/resolve-group$/,
+    );
+    if (orgResolveGroupMatch && request.method === "POST") {
+      return handleResolveSteamGroup(request, orgResolveGroupMatch[1]);
     }
 
     const orgMemberDetailMatch = pathname.match(

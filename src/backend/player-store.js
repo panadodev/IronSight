@@ -2926,6 +2926,42 @@ async function resolveGroupVanityToGid(vanity) {
   }
 }
 
+// Resolve a group vanity name OR a raw 64-bit GID to { gid, label, vanity } via
+// the Steam group memberslist XML (which carries both the GID and display name).
+// Used by the threat-trigger config UI to add a Steam-group rule. Returns null
+// when the group can't be resolved.
+export async function resolveSteamGroupInfo(input) {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+  // Accept a full community URL by pulling the trailing segment.
+  const cleaned = raw
+    .replace(/^https?:\/\/steamcommunity\.com\/(groups|gid)\//i, "")
+    .replace(/\/+$/, "");
+  const isGid = /^\d{5,20}$/.test(cleaned);
+  const url = isGid
+    ? `https://steamcommunity.com/gid/${encodeURIComponent(cleaned)}/memberslistxml/?xml=1`
+    : `https://steamcommunity.com/groups/${encodeURIComponent(cleaned)}/memberslistxml/?xml=1`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const xml = await res.text();
+    const gidMatch = xml.match(/<groupID64>(\d+)<\/groupID64>/);
+    if (!gidMatch) return null;
+    const gid = gidMatch[1];
+    const nameMatch = xml.match(
+      /<groupName>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/groupName>/,
+    );
+    const vanityMatch = xml.match(
+      /<groupURL>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/groupURL>/,
+    );
+    const label = (nameMatch?.[1] ?? (isGid ? gid : cleaned)).trim() || gid;
+    const vanity = vanityMatch?.[1]?.trim() || (isGid ? null : cleaned);
+    return { gid, label, vanity: vanity || null };
+  } catch {
+    return null;
+  }
+}
+
 export async function seedFlaggedSteamGroups() {
   const toSeed = [
     {

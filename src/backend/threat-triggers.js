@@ -1,9 +1,12 @@
 // Threat-trigger evaluation engine.
 //
 // Per-org config (stored in threat_trigger_config.config JSONB) defines weighted
-// signals, AND-joined trigger blocks, and bought-account rules. The engine is
-// evaluated on player refresh and on F7 report ingest; when something fires it
-// auto-opens (or reactivates) a ticket on the player with an internal note.
+// signals, AND-joined trigger blocks, and bought/botted-account rules. The
+// signals + blocks are evaluated on player refresh and on F7 report ingest; when
+// one fires it auto-opens (or reactivates) a ticket on the player with an
+// internal note. The bought-account rules are DISPLAY-ONLY — evaluated at
+// player-lookup read time (evaluateBoughtAccount) to show a "Bought/Botted
+// Account" tag, and never open a ticket.
 //
 // Shared between api.js (config endpoints + refresh hook) and handlers/ingest.js
 // (F7 hook), so it depends only on runtime.js and ticket-store.js.
@@ -117,6 +120,7 @@ export const DEFAULT_TRIGGER_CONFIG = {
       ratio: 10,
     },
     nameRule: { enabled: false, terms: [] },
+    groupRule: { enabled: false, groups: [] },
   },
 };
 
@@ -156,6 +160,26 @@ export function sanitizeTriggerConfig(raw) {
         terms: Array.isArray(raw?.boughtAccount?.nameRule?.terms)
           ? raw.boughtAccount.nameRule.terms
               .map((t) => String(t).trim())
+              .filter(Boolean)
+              .slice(0, 50)
+          : [],
+      },
+      groupRule: {
+        enabled: Boolean(raw?.boughtAccount?.groupRule?.enabled),
+        groups: Array.isArray(raw?.boughtAccount?.groupRule?.groups)
+          ? raw.boughtAccount.groupRule.groups
+              .map((g) => {
+                const gid = String(g?.gid ?? "").trim();
+                if (!/^\d{5,20}$/.test(gid)) return null;
+                const label = String(g?.label ?? gid).trim();
+                return {
+                  gid,
+                  label: (label || gid).slice(0, 100),
+                  vanity: g?.vanity
+                    ? String(g.vanity).trim().slice(0, 100)
+                    : null,
+                };
+              })
               .filter(Boolean)
               .slice(0, 50)
           : [],
@@ -220,7 +244,7 @@ export async function saveThreatTriggerConfig(orgId, rawConfig, userId) {
 
 // ── Fact computation ─────────────────────────────────────────────────────────
 
-function namesFromAliases(aliases) {
+export function namesFromAliases(aliases) {
   if (!Array.isArray(aliases)) return [];
   return aliases
     .map((a) => {
@@ -355,7 +379,10 @@ function matchCondition(facts, cond) {
   }
 }
 
-function evaluateBoughtAccount(ba, data) {
+// Evaluate the org's bought/botted-account rules against a player. Display-only:
+// a match tags the player on the lookup page, it never opens a ticket. Returns
+// an array of human-readable reasons, or null when nothing matched.
+export function evaluateBoughtAccount(ba, data) {
   if (!ba?.enabled) return null;
   const reasons = [];
   const steam = num(data.steamRustHours);
@@ -371,7 +398,7 @@ function evaluateBoughtAccount(ba, data) {
   }
 
   if (ba.nameRule?.enabled && Array.isArray(ba.nameRule.terms)) {
-    const lowered = data.names.map((n) => n.toLowerCase());
+    const lowered = (data.names ?? []).map((n) => String(n).toLowerCase());
     for (const term of ba.nameRule.terms) {
       const t = term.toLowerCase();
       const hit = lowered.find((n) => n.includes(t));
@@ -380,6 +407,12 @@ function evaluateBoughtAccount(ba, data) {
         break;
       }
     }
+  }
+
+  if (ba.groupRule?.enabled && Array.isArray(ba.groupRule.groups)) {
+    const memberGids = new Set((data.steamGroups ?? []).map(String));
+    const hit = ba.groupRule.groups.find((g) => memberGids.has(String(g.gid)));
+    if (hit) reasons.push(`Steam group match "${hit.label ?? hit.gid}"`);
   }
 
   return reasons.length ? reasons : null;
@@ -410,9 +443,9 @@ export function evaluateConfig(config, data) {
     }
   }
 
-  // Bought-account rules
-  const ba = evaluateBoughtAccount(config.boughtAccount, data);
-  if (ba) reasons.push(...ba);
+  // Bought/botted-account rules are intentionally NOT evaluated here — they are
+  // display-only (they tag the player on the lookup page via evaluateBoughtAccount
+  // at read time) and must never open or reactivate a ticket.
 
   return { fired: reasons.length > 0, reasons, score };
 }

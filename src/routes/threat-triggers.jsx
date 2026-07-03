@@ -60,6 +60,16 @@ function hydrate(config) {
           ? config.boughtAccount.nameRule.terms
           : [],
       },
+      groupRule: {
+        enabled: Boolean(config?.boughtAccount?.groupRule?.enabled),
+        groups: Array.isArray(config?.boughtAccount?.groupRule?.groups)
+          ? config.boughtAccount.groupRule.groups.map((g) => ({
+              gid: String(g?.gid ?? ""),
+              label: String(g?.label ?? g?.gid ?? ""),
+              vanity: g?.vanity ? String(g.vanity) : null,
+            }))
+          : [],
+      },
     },
   };
 }
@@ -434,6 +444,7 @@ function ThreatTriggersPage() {
 
               {/* Bought account */}
               <BoughtAccountCard
+                orgId={orgId}
                 bought={cur.boughtAccount}
                 onChange={setBought}
                 onSave={handleSave}
@@ -682,13 +693,19 @@ function BlockCard({
   );
 }
 
-function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
+function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
   const [term, setTerm] = useState("");
+  const [groupInput, setGroupInput] = useState("");
+  const [resolvingGroup, setResolvingGroup] = useState(false);
+  const [groupError, setGroupError] = useState(null);
   const { hoursRule, nameRule } = bought;
+  const groupRule = bought.groupRule ?? { enabled: false, groups: [] };
 
   const setHours = (patch) =>
     onChange({ hoursRule: { ...hoursRule, ...patch } });
   const setName = (patch) => onChange({ nameRule: { ...nameRule, ...patch } });
+  const setGroup = (patch) =>
+    onChange({ groupRule: { ...groupRule, ...patch } });
 
   const addTerm = () => {
     const t = term.trim();
@@ -700,6 +717,44 @@ function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
     setTerm("");
   };
 
+  const addGroup = async () => {
+    const raw = groupInput.trim();
+    if (!raw || !orgId || resolvingGroup) return;
+    setResolvingGroup(true);
+    setGroupError(null);
+    try {
+      const res = await fetch(
+        `/api/orgs/${orgId}/threat-triggers/resolve-group`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: raw }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setGroupError(data?.error ?? "Could not resolve Steam group");
+        return;
+      }
+      if (groupRule.groups.some((g) => g.gid === data.gid)) {
+        setGroupError("Group already added");
+        return;
+      }
+      setGroup({
+        groups: [
+          ...groupRule.groups,
+          { gid: data.gid, label: data.label, vanity: data.vanity ?? null },
+        ],
+      });
+      setGroupInput("");
+    } catch {
+      setGroupError("Could not resolve Steam group");
+    } finally {
+      setResolvingGroup(false);
+    }
+  };
+
   return (
     <section className="rounded-md ring-1 ring-border bg-surface/40">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -708,8 +763,9 @@ function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
           <div>
             <h2 className="text-sm font-semibold">Bought account triggers</h2>
             <p className="text-[11px] text-muted-foreground">
-              Catch resold / boosted accounts by playtime mismatch or known
-              names.
+              Tag resold / botted accounts on player lookup by playtime
+              mismatch, known names, or Steam group membership. Display-only —
+              these never open a ticket.
             </p>
           </div>
         </div>
@@ -804,6 +860,75 @@ function BoughtAccountCard({ bought, onChange, onSave, saving, dirty }) {
                   <button
                     onClick={() =>
                       setName({ terms: nameRule.terms.filter((x) => x !== t) })
+                    }
+                    className="text-muted-foreground hover:text-danger"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Steam group rule */}
+        <div className="rounded-md ring-1 ring-border bg-background p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold">Steam group membership</p>
+              <p className="text-[10px] text-muted-foreground">
+                Flag if the player is a member of any of these Steam groups
+                (e.g. known account-farming / botting groups).
+              </p>
+            </div>
+            <Toggle
+              checked={groupRule.enabled}
+              onClick={() => setGroup({ enabled: !groupRule.enabled })}
+              label={groupRule.enabled ? "On" : "Off"}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              value={groupInput}
+              onChange={(e) => {
+                setGroupInput(e.target.value);
+                setGroupError(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && addGroup()}
+              placeholder="Group vanity, URL, or GID"
+              className="h-8 text-xs flex-1"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addGroup}
+              disabled={resolvingGroup || !groupInput.trim()}
+            >
+              <Plus className="size-3.5" />{" "}
+              {resolvingGroup ? "Resolving…" : "Add"}
+            </Button>
+          </div>
+          {groupError && (
+            <p className="text-[10px] text-danger">{groupError}</p>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {groupRule.groups.length === 0 ? (
+              <span className="text-[11px] text-muted-foreground italic">
+                No groups yet.
+              </span>
+            ) : (
+              groupRule.groups.map((g) => (
+                <span
+                  key={g.gid}
+                  className="inline-flex items-center gap-1 text-[11px] bg-surface ring-1 ring-border rounded px-2 py-0.5"
+                  title={g.gid}
+                >
+                  {g.label}
+                  <button
+                    onClick={() =>
+                      setGroup({
+                        groups: groupRule.groups.filter((x) => x.gid !== g.gid),
+                      })
                     }
                     className="text-muted-foreground hover:text-danger"
                   >
