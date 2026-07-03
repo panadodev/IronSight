@@ -184,6 +184,11 @@ function SubmitPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitted, setSubmitted] = useState(null);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackHover, setFeedbackHover] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackDone, setFeedbackDone] = useState(false);
   // File attachments state
   const [attachments, setAttachments] = useState([]); // { file, mediaId, status, progress, error }
   const attachFileRef = useRef(null);
@@ -509,6 +514,11 @@ function SubmitPage() {
 
   function resetForm() {
     setSubmitted(null);
+    setFeedbackRating(0);
+    setFeedbackHover(0);
+    setFeedbackComment("");
+    setFeedbackSubmitting(false);
+    setFeedbackDone(false);
     setSelectedTypeId(null);
     setSelectedServerId(null);
     setTitle("");
@@ -591,49 +601,131 @@ function SubmitPage() {
     );
   }
 
+  async function handleFeedbackSubmit() {
+    if (!feedbackRating || !submitted) return;
+    setFeedbackSubmitting(true);
+    try {
+      await fetch(`/api/tickets/${submitted.ticketId}/feedback`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          rating: feedbackRating,
+          comment: feedbackComment.trim() || null,
+        }),
+      });
+    } catch {}
+    setFeedbackDone(true);
+    setFeedbackSubmitting(false);
+  }
+
   if (submitted) {
     return (
       <div className="h-screen flex flex-col bg-background text-foreground">
         <SiteNav />
         <div className="flex-1 grid place-items-center p-6">
-          <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 text-center">
-            <div className="size-10 mx-auto mb-4 bg-success/10 ring-1 ring-success/30 rounded-full grid place-items-center text-success font-bold text-lg">
-              ✓
+          <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 text-center space-y-6">
+            <div>
+              <div className="size-10 mx-auto mb-4 bg-success/10 ring-1 ring-success/30 rounded-full grid place-items-center text-success font-bold text-lg">
+                ✓
+              </div>
+              <h1 className="text-xl font-semibold mb-1">Ticket submitted</h1>
+              <p className="text-sm text-muted-foreground mb-2">
+                Your ticket reference is{" "}
+                <span className="font-mono text-brand">
+                  #{submitted.ticketId}
+                </span>
+                .
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Staff will review your ticket shortly. Track it in{" "}
+                <Link
+                  to="/my-reports"
+                  search={{ org: orgId }}
+                  className="text-brand underline"
+                >
+                  My Tickets
+                </Link>
+                .
+              </p>
             </div>
-            <h1 className="text-xl font-semibold mb-1">Ticket submitted</h1>
-            <p className="text-sm text-muted-foreground mb-2">
-              Your ticket reference is{" "}
-              <span className="font-mono text-brand">
-                #{submitted.ticketId}
-              </span>
-              .
-            </p>
-            <p className="text-xs text-muted-foreground mb-6">
-              Staff will review your ticket shortly. Track it in{" "}
-              <Link
-                to="/my-reports"
-                search={{ org: orgId }}
-                className="text-brand underline"
-              >
-                My Tickets
-              </Link>
-              .
-            </p>
-            <div className="flex gap-2 justify-center">
-              <button
-                onClick={resetForm}
-                className="px-4 py-2 bg-surface ring-1 ring-border rounded text-xs font-semibold uppercase tracking-wider hover:bg-surface/80"
-              >
-                Submit another
-              </button>
-              <Link
-                to="/my-reports"
-                search={{ org: orgId }}
-                className="px-4 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider hover:opacity-90"
-              >
-                View my tickets
-              </Link>
-            </div>
+
+            {feedbackDone ? (
+              <p className="text-xs text-success">
+                Thanks for your feedback!
+              </p>
+            ) : (
+              <div className="border-t border-border pt-5 space-y-3 text-left">
+                <p className="text-xs text-muted-foreground text-center">
+                  Please give feedback on your experience so we can improve this
+                  service.
+                </p>
+                <div className="flex justify-center gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setFeedbackRating(star)}
+                      onMouseEnter={() => setFeedbackHover(star)}
+                      onMouseLeave={() => setFeedbackHover(0)}
+                      className="text-2xl leading-none transition-transform hover:scale-110"
+                    >
+                      <span
+                        className={
+                          star <= (feedbackHover || feedbackRating)
+                            ? "text-amber-400"
+                            : "text-border"
+                        }
+                      >
+                        ★
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {feedbackRating > 0 && (
+                  <textarea
+                    value={feedbackComment}
+                    onChange={(e) => setFeedbackComment(e.target.value)}
+                    placeholder="Any additional comments? (optional)"
+                    maxLength={2000}
+                    className="w-full h-20 bg-background border border-border rounded p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand/40 resize-none"
+                  />
+                )}
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={() => setFeedbackDone(true)}
+                    className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={handleFeedbackSubmit}
+                    disabled={!feedbackRating || feedbackSubmitting}
+                    className="px-4 py-1.5 bg-brand text-brand-foreground rounded text-xs font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                  >
+                    {feedbackSubmitting ? "Sending…" : "Submit feedback"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {feedbackDone && (
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={resetForm}
+                  className="px-4 py-2 bg-surface ring-1 ring-border rounded text-xs font-semibold uppercase tracking-wider hover:bg-surface/80"
+                >
+                  Submit another
+                </button>
+                <Link
+                  to="/my-reports"
+                  search={{ org: orgId }}
+                  className="px-4 py-2 bg-brand text-brand-foreground rounded text-xs font-semibold uppercase tracking-wider hover:opacity-90"
+                >
+                  View my tickets
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>

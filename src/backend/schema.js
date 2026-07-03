@@ -2231,4 +2231,26 @@ export async function ensureRolePermissionSeed(pool) {
       WHERE tt.org_id = o.org_id AND LOWER(tt.ticket_type_name) = 'staff application'
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_feedback (
+      feedback_id SERIAL PRIMARY KEY,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      steam_id TEXT,
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      comment TEXT,
+      created_at BIGINT NOT NULL DEFAULT unix_now()
+    )
+  `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_feedback_ticket_id ON ticket_feedback(ticket_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_feedback_org_id ON ticket_feedback(org_id)`,
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_feedback_unique_ticket ON ticket_feedback(ticket_id)`,
+  );
 }

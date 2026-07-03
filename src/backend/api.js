@@ -7495,6 +7495,90 @@ async function handleListMyTickets(request) {
   });
 }
 
+async function handleSubmitTicketFeedback(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const ticketId = parseInt(ticketIdStr, 10);
+  if (!ticketId) return json({ error: "Invalid ticket ID" }, 400);
+
+  const body = await request.json().catch(() => null);
+  const rating = body?.rating;
+  const comment =
+    typeof body?.comment === "string"
+      ? body.comment.trim().slice(0, 2000)
+      : null;
+
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5)
+    return json({ error: "rating must be an integer 1–5" }, 400);
+
+  // Verify the ticket belongs to this session user.
+  const { rows: ticketRows } = await pool.query(
+    `SELECT ticket_id, org_id FROM tickets WHERE ticket_id = $1 AND created_by = $2`,
+    [ticketId, session.userId],
+  );
+  if (ticketRows.length === 0)
+    return json({ error: "Ticket not found or not yours" }, 404);
+
+  const orgId = ticketRows[0].org_id;
+
+  try {
+    await pool.query(
+      `INSERT INTO ticket_feedback (ticket_id, org_id, steam_id, rating, comment)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [ticketId, orgId, session.steamId ?? null, rating, comment || null],
+    );
+  } catch (err) {
+    if (err.code === "23505")
+      return json({ error: "Feedback already submitted for this ticket" }, 409);
+    throw err;
+  }
+
+  return json({ ok: true });
+}
+
+async function handleSysListFeedback(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!isConfiguredSysAdmin(session))
+    return json({ error: "Forbidden: sysadmin only" }, 403);
+
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+  const limit = 50;
+  const offset = (page - 1) * limit;
+
+  const { rows } = await pool.query(
+    `SELECT f.feedback_id, f.ticket_id, f.org_id, f.steam_id, f.rating, f.comment, f.created_at,
+            o.name AS org_name
+     FROM ticket_feedback f
+     LEFT JOIN organizations o ON o.org_id = f.org_id
+     ORDER BY f.created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset],
+  );
+
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*) AS total FROM ticket_feedback`,
+  );
+
+  return json({
+    feedback: rows.map((r) => ({
+      feedbackId: Number(r.feedback_id),
+      ticketId: Number(r.ticket_id),
+      orgId: String(r.org_id),
+      orgName: r.org_name ?? r.org_id,
+      steamId: r.steam_id ?? null,
+      rating: Number(r.rating),
+      comment: r.comment ?? null,
+      createdAt: Number(r.created_at),
+    })),
+    total: Number(countRows[0].total),
+    page,
+    limit,
+  });
+}
+
 // ── Pterodactyl integration ──────────────────────────────────────────────────
 
 async function handleSavePteroKey(request, orgId) {
@@ -17496,6 +17580,12 @@ async function _handleApiRequest(request) {
       return handleDeleteTodo(request, todoMatch[1]);
     }
 
+    const ticketFeedbackMatch = pathname.match(
+      /^\/api\/tickets\/(\d+)\/feedback$/,
+    );
+    if (ticketFeedbackMatch && request.method === "POST")
+      return handleSubmitTicketFeedback(request, ticketFeedbackMatch[1]);
+
     const ticketMatch = pathname.match(/^\/api\/tickets\/(\d+)$/);
     if (ticketMatch && request.method === "GET") {
       return handleGetTicket(request, ticketMatch[1]);
@@ -18875,6 +18965,9 @@ async function _handleApiRequest(request) {
 
     if (pathname === "/api/sys/linked-accounts" && request.method === "GET")
       return handleSysListLinkedAccounts(request);
+
+    if (pathname === "/api/sys/feedback" && request.method === "GET")
+      return handleSysListFeedback(request);
 
     const sysLinkedAccountMatch = pathname.match(
       /^\/api\/sys\/linked-accounts\/([a-f0-9-]+)$/,

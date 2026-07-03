@@ -3319,16 +3319,6 @@ function ConnectionPointsSection({
                         {rawType ?? summary}
                       </dd>
                     </div>
-                    {entry.city && (
-                      <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          City
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {entry.city}
-                        </dd>
-                      </div>
-                    )}
                     {entry.region && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">

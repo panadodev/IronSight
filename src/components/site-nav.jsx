@@ -612,6 +612,11 @@ function SiteNav() {
           label: "Linked Accounts",
           show: isSysAdminSession,
         },
+        {
+          to: "/sys-feedback",
+          label: "Ticket Feedback",
+          show: isSysAdminSession,
+        },
       ],
     },
   ]
