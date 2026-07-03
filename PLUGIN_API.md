@@ -178,7 +178,7 @@ Stores a player report submitted via the in-game F7 menu or a custom plugin comm
 
 ## Team Event
 
-**`POST /api/ingest/team-event`**
+**`POST /api/teaminfo`**
 
 Logs a team/squad change event (member join, leave, team creation, or invite).
 

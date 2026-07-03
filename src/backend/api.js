@@ -18182,7 +18182,10 @@ async function _handleApiRequest(request) {
       return handleGetReports(request);
     }
 
-    if (pathname === "/api/teaminfo") {
+    // The panel reader uses /api/teaminfo; the game-server plugin posts to
+    // /api/ingest/teaminfo (its Enqueue paths are all /ingest/*). Accept both so
+    // deployed plugins don't 404 (a 404 here jams the plugin's shared send queue).
+    if (pathname === "/api/teaminfo" || pathname === "/api/ingest/teaminfo") {
       if (request.method === "POST") return handleIngestTeamEvent(request);
       if (request.method === "GET") return handleGetTeamEvents(request);
     }
