@@ -233,7 +233,7 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 
 | Field             | Type          | Required | Description                                                                                                                                                                                                       |
 | ----------------- | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `event_type`      | string        | Yes      | Any non-empty string (uppercased automatically). Common values: `ADMIN_COMMAND`, `ADMIN_CONNECT`, `ADMIN_DISCONNECT`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE` |
+| `event_type`      | string        | Yes      | Any non-empty string (uppercased automatically). Common values: `ADMIN_COMMAND`, `ADMIN_CONNECT`, `ADMIN_DISCONNECT`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE`, `ENTITY`, `SPAWN`, `GIVE` |
 | `admin_steam_id`  | string        | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                                                                                                    |
 | `admin_name`      | string        | No       | In-game display name of the admin (max 128 chars)                                                                                                                                                                 |
 | `target_steam_id` | string        | No       | SteamID64 of the affected player (max 64 chars)                                                                                                                                                                   |
@@ -263,6 +263,17 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 | Unmute issued (custom)          | `UNMUTE`             | `admin_steam_id`, `admin_name`, `target_steam_id`                                                                     |
 | Noclip toggled                  | `NOCLIP_TOGGLE`      | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates`                                                      |
 | Godmode toggled                 | `GODMODE_TOGGLE`     | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates`                                                      |
+| Admin killed an entity          | `ENTITY`             | `admin_steam_id`, `admin_name`, `details.action` = `"kill"`, `target_steam_id`/`target_name` (when the entity is a player), `coordinates` |
+| Admin spawned an entity/item    | `SPAWN`              | `admin_steam_id`, `admin_name`, `command`/`details`, `coordinates`                                                    |
+| Admin gave an item              | `GIVE`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `details`, `coordinates`                                          |
+
+> **Server Logs → Discord DM alerts.** Org admins can subscribe (per admin) on
+> the Server Logs page to be DM'd when certain events land: an `ENTITY` event
+> with `details.action: "kill"` (entity killed), a `SPAWN` event (entity/item
+> spawned), any kill whose `target_steam_id` is a player SteamID64 (player
+> killed by admin), or any action whose `admin_steam_id` is **not** linked to a
+> staff member of the org (non-staff admin action). Send `details.action` and
+> `target_steam_id` accordingly so these fire correctly.
 
 ---
 

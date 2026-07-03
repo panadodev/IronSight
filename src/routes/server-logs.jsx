@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
+  Bell,
 } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
@@ -211,6 +212,131 @@ function compareLog(a, b, key) {
 
 const PAGE_SIZE = 50;
 
+const NOTIFY_OPTIONS = [
+  {
+    key: "entityKilled",
+    label: "Entity killed by admin",
+    hint: "An admin killed an entity (building, animal, etc.)",
+  },
+  {
+    key: "entitySpawned",
+    label: "Entity / item spawned",
+    hint: "An admin spawned an entity or item",
+  },
+  {
+    key: "playerKilledByAdmin",
+    label: "Player killed by admin",
+    hint: "An admin killed a player (target has a SteamID)",
+  },
+  {
+    key: "nonStaffAdmin",
+    label: "Admin action by non-staff",
+    hint: "An admin action from a SteamID not linked to a staff member",
+  },
+];
+
+function LogNotificationPrefs({ orgId }) {
+  const [prefs, setPrefs] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!orgId) return;
+    setPrefs(null);
+    setError(null);
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/notification-prefs`, {
+      credentials: "include",
+    })
+      .then((r) => r.json())
+      .then((d) => setPrefs(d))
+      .catch(() => setError("Failed to load notification settings."));
+  }, [orgId]);
+
+  const toggle = async (key) => {
+    if (!prefs || busy) return;
+    const next = !prefs[key];
+    setBusy(key);
+    setError(null);
+    // Optimistic update, reverted on failure.
+    setPrefs((p) => ({ ...p, [key]: next }));
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/notification-prefs`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ [key]: next }),
+        },
+      );
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setPrefs(d);
+    } catch {
+      setPrefs((p) => ({ ...p, [key]: !next }));
+      setError("Failed to save. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section>
+      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+        <Bell className="size-3.5" />
+        Discord DM alerts
+      </h2>
+      <div className="bg-surface/40 ring-1 ring-border rounded-lg p-4 space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Get a Discord DM when a selected event is logged on this org&apos;s
+          servers. Alerts are sent to your linked Discord account.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {NOTIFY_OPTIONS.map((opt) => {
+            const on = !!prefs?.[opt.key];
+            return (
+              <button
+                key={opt.key}
+                onClick={() => toggle(opt.key)}
+                disabled={!prefs || busy === opt.key}
+                title={opt.hint}
+                className={`flex items-start gap-2.5 text-left px-3 py-2.5 rounded-md ring-1 transition-colors disabled:opacity-60 ${
+                  on
+                    ? "ring-brand/40 bg-brand/10"
+                    : "ring-border hover:bg-surface/60"
+                }`}
+              >
+                <span
+                  className={`mt-0.5 shrink-0 flex items-center h-4 w-7 rounded-full px-0.5 transition-colors ${
+                    on ? "bg-brand" : "bg-border"
+                  }`}
+                >
+                  <span
+                    className={`size-3 rounded-full bg-background transition-transform ${
+                      on ? "translate-x-3" : ""
+                    }`}
+                  />
+                </span>
+                <span className="min-w-0">
+                  <span
+                    className={`block text-xs font-medium ${on ? "text-foreground" : "text-muted-foreground"}`}
+                  >
+                    {opt.label}
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground/70 leading-snug mt-0.5">
+                    {opt.hint}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {error && <p className="text-[11px] text-danger">{error}</p>}
+      </div>
+    </section>
+  );
+}
+
 function ServerLogsPage() {
   const { sessionOrgAdminIds } = useAuth();
   const tz = useTimezone();
@@ -348,6 +474,8 @@ function ServerLogsPage() {
 
             {isAdmin && orgId && (
               <>
+                <LogNotificationPrefs orgId={orgId} />
+
                 <section>
                   <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3">
                     Activity · last 30 days
@@ -482,7 +610,14 @@ function ServerLogsPage() {
                                 <tr
                                   key={log.id}
                                   className="border-t border-border"
-                                  style={isKill ? { outline: "1px solid hsl(0 80% 55%)", outlineOffset: "-1px" } : undefined}
+                                  style={
+                                    isKill
+                                      ? {
+                                          outline: "1px solid hsl(0 80% 55%)",
+                                          outlineOffset: "-1px",
+                                        }
+                                      : undefined
+                                  }
                                 >
                                   <td className="px-2 py-1 text-muted-foreground whitespace-nowrap">
                                     {formatWhen(log.createdAt, tz)}

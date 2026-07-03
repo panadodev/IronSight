@@ -162,6 +162,30 @@ export async function ensureSchema(pool) {
     )
   `);
 
+  // Per-org blacklist barring a Steam account from opening (certain) ticket
+  // types. A NULL ticket_type_id blocks every type; a specific id blocks only
+  // that type. Enforced in handleCreateTicket.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_blacklist (
+      blacklist_id SERIAL PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+      steam_id TEXT NOT NULL,
+      ticket_type_id INTEGER REFERENCES ticket_types(ticket_type_id) ON DELETE CASCADE,
+      reason TEXT NOT NULL DEFAULT '',
+      created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
+      created_at BIGINT NOT NULL DEFAULT unix_now()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_blacklist_lookup ON ticket_blacklist(org_id, steam_id)`,
+  );
+  // COALESCE keeps the "all types" (NULL) entry unique alongside per-type ones,
+  // which a plain UNIQUE constraint would not enforce (NULLs are distinct).
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_blacklist_entry
+       ON ticket_blacklist(org_id, steam_id, COALESCE(ticket_type_id, 0))`,
+  );
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tickets (
       ticket_id SERIAL PRIMARY KEY,
@@ -625,6 +649,20 @@ export async function ensureSchema(pool) {
       PRIMARY KEY (user_id, org_id)
     )
   `);
+
+  // Per-staff Discord-DM toggles for server-log events (configured on the
+  // Server Logs page). `enabled` above stays the server health/online alert.
+  for (const col of [
+    "notify_entity_killed",
+    "notify_entity_spawned",
+    "notify_player_killed_by_admin",
+    "notify_nonstaff_admin",
+  ]) {
+    await pool.query(
+      `ALTER TABLE staff_notification_prefs
+       ADD COLUMN IF NOT EXISTS ${col} BOOLEAN NOT NULL DEFAULT FALSE`,
+    );
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS server_alert_state (
@@ -1996,6 +2034,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('tickets_view',        'View support tickets'),
       ('tickets_manage',      'Manage and respond to tickets'),
       ('tickets_player_intel','View player intelligence panel in tickets'),
+      ('tickets_blacklist',   'Blacklist users from creating ticket types'),
       ('ban_configs_manage',  'Manage ban and mute configurations'),
       ('toxicity_manage',     'Manage toxicity filters'),
       ('predefines_manage',   'Manage ticket pre-defines'),

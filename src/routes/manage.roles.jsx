@@ -93,6 +93,11 @@ const PERMISSION_GROUPS = [
             desc: "View the player intelligence sidebar in tickets",
           },
           {
+            id: "tickets_blacklist",
+            label: "Manage Ticket Blacklist",
+            desc: "Blacklist users from submitting certain ticket types again",
+          },
+          {
             id: "cases_create",
             label: "Create Cases",
             desc: "Create internal staff cases from the Player Lookup page (owners and admins always have this)",

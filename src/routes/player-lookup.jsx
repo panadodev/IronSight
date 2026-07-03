@@ -335,6 +335,9 @@ function PlayerLookupPage() {
   const chatSentinelRef = useRef(null);
   const chatScrollRef = useRef(null);
   const chatLoadingMoreRef = useRef(false);
+  const [chatSearch, setChatSearch] = useState("");
+  const [chatQuery, setChatQuery] = useState("");
+  const [confirmedLines, setConfirmedLines] = useState([]);
 
   const [caseDialogOpen, setCaseDialogOpen] = useState(false);
   const [hasOpenTicketInCaseOrg, setHasOpenTicketInCaseOrg] = useState(false);
@@ -797,6 +800,12 @@ function PlayerLookupPage() {
     };
   }, [steamId]);
 
+  // Debounce the chat search box into the query that drives fetches.
+  useEffect(() => {
+    const t = setTimeout(() => setChatQuery(chatSearch.trim()), 300);
+    return () => clearTimeout(t);
+  }, [chatSearch]);
+
   // Chat history for this player across the org's servers
   useEffect(() => {
     if (!steamId || !chatOrgId) {
@@ -807,7 +816,8 @@ function PlayerLookupPage() {
     let cancelled = false;
     setChatLoading(true);
     setChatHasMore(false);
-    fetch(`/api/players/${encodeURIComponent(steamId)}/chat?limit=10`, {
+    const qs = chatQuery ? `&q=${encodeURIComponent(chatQuery)}` : "";
+    fetch(`/api/players/${encodeURIComponent(steamId)}/chat?limit=10${qs}`, {
       credentials: "include",
     })
       .then(async (r) => {
@@ -831,7 +841,31 @@ function PlayerLookupPage() {
     return () => {
       cancelled = true;
     };
-  }, [steamId, chatOrgId]);
+  }, [steamId, chatOrgId, chatQuery]);
+
+  // Confirmed-toxic messages pinned above the full history (skipped while
+  // searching so search results span the whole history unfiltered).
+  useEffect(() => {
+    if (!steamId || !chatOrgId || chatQuery) {
+      setConfirmedLines([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/players/${encodeURIComponent(steamId)}/chat?limit=50&filter=confirmed`,
+      { credentials: "include" },
+    )
+      .then((r) => (r.ok ? r.json() : { lines: [] }))
+      .then((b) => {
+        if (!cancelled) setConfirmedLines(b.lines ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setConfirmedLines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [steamId, chatOrgId, chatQuery]);
 
   const loadMoreChat = useCallback(() => {
     if (!steamId || !chatOrgId || chatLoadingMoreRef.current || !chatHasMore)
@@ -840,8 +874,9 @@ function PlayerLookupPage() {
     if (!oldest) return;
     chatLoadingMoreRef.current = true;
     setChatLoadingMore(true);
+    const qs = chatQuery ? `&q=${encodeURIComponent(chatQuery)}` : "";
     fetch(
-      `/api/players/${encodeURIComponent(steamId)}/chat?limit=20&before=${oldest}`,
+      `/api/players/${encodeURIComponent(steamId)}/chat?limit=20&before=${oldest}${qs}`,
       { credentials: "include" },
     )
       .then((r) => r.json())
@@ -854,7 +889,7 @@ function PlayerLookupPage() {
         chatLoadingMoreRef.current = false;
         setChatLoadingMore(false);
       });
-  }, [steamId, chatOrgId, chatHasMore, chatLines]);
+  }, [steamId, chatOrgId, chatHasMore, chatLines, chatQuery]);
 
   useEffect(() => {
     const sentinel = chatSentinelRef.current;
@@ -869,6 +904,68 @@ function PlayerLookupPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [chatHasMore, loadMoreChat]);
+
+  const renderChatLine = (line, keyPrefix = "") => {
+    const flags = Array.isArray(line.aiFlags) ? line.aiFlags : [];
+    const confirmedFlags = flags.filter(
+      (f) => f.resolved && f.resolutionType === "confirmed",
+    );
+    const pendingFlags = flags.filter((f) => !f.resolved);
+    const rowClass =
+      confirmedFlags.length > 0
+        ? "bg-danger/10 ring-danger/40"
+        : pendingFlags.length > 0
+          ? "bg-warning/5 ring-warning/30"
+          : "bg-background/60 ring-border";
+    return (
+      <li
+        key={`${keyPrefix}${line.id}`}
+        className={`ring-1 rounded px-2 py-1.5 ${rowClass}`}
+      >
+        <div className="flex items-start gap-2">
+          {line.teamMessage && (
+            <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
+              team
+            </span>
+          )}
+          <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
+            {line.message}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground flex-wrap">
+          <span>
+            {new Date(line.ts * 1000).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </span>
+          {line.serverName && (
+            <>
+              <span>·</span>
+              <span className="truncate">{line.serverName}</span>
+            </>
+          )}
+          {confirmedFlags.map((f) => (
+            <span
+              key={`c-${f.category}`}
+              className="px-1 py-0.5 rounded bg-danger/20 text-danger uppercase tracking-wider text-[8px]"
+            >
+              {f.category} · toxic
+            </span>
+          ))}
+          {pendingFlags.map((f) => (
+            <span
+              key={`p-${f.category}`}
+              className="px-1 py-0.5 rounded bg-warning/15 text-warning uppercase tracking-wider text-[8px]"
+            >
+              {f.category}
+            </span>
+          ))}
+        </div>
+      </li>
+    );
+  };
 
   useEffect(() => {
     if (!steamId || !caseOrgId) {
@@ -1393,72 +1490,58 @@ function PlayerLookupPage() {
                             {chatHasMore ? "+" : ""}
                           </span>
                         </h2>
+                        <div className="relative mb-3">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                          <input
+                            type="text"
+                            value={chatSearch}
+                            onChange={(e) => setChatSearch(e.target.value)}
+                            placeholder="Search chat history…"
+                            className="w-full pl-8 pr-7 py-1.5 bg-background ring-1 ring-border rounded-md text-xs focus:outline-none focus:ring-brand"
+                          />
+                          {chatSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setChatSearch("")}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm leading-none"
+                              aria-label="Clear search"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
                         {chatLoading ? (
                           <p className="text-xs text-muted-foreground italic animate-pulse">
                             Loading…
                           </p>
                         ) : chatLines.length === 0 ? (
                           <p className="text-xs text-muted-foreground italic">
-                            No chat messages on record.
+                            {chatQuery
+                              ? "No messages match your search."
+                              : "No chat messages on record."}
                           </p>
                         ) : (
                           <div
                             ref={chatScrollRef}
                             className="max-h-[480px] overflow-y-auto"
                           >
+                            {!chatQuery && confirmedLines.length > 0 && (
+                              <div className="mb-2">
+                                <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-danger mb-1">
+                                  Confirmed toxic ({confirmedLines.length})
+                                </p>
+                                <ul className="space-y-1">
+                                  {confirmedLines.map((line) =>
+                                    renderChatLine(line, "confirmed-"),
+                                  )}
+                                </ul>
+                                <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mt-3 mb-1">
+                                  All messages
+                                </p>
+                              </div>
+                            )}
                             <ul className="space-y-1">
-                              {chatLines.map((line) => {
-                                const flagged =
-                                  Array.isArray(line.aiFlags) &&
-                                  line.aiFlags.length > 0;
-                                const activeFlags = flagged
-                                  ? line.aiFlags.filter((f) => !f.resolved)
-                                  : [];
-                                return (
-                                  <li
-                                    key={line.id}
-                                    className={`ring-1 rounded px-2 py-1.5 ${activeFlags.length > 0 ? "bg-warning/5 ring-warning/30" : "bg-background/60 ring-border"}`}
-                                  >
-                                    <div className="flex items-start gap-2">
-                                      {line.teamMessage && (
-                                        <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
-                                          team
-                                        </span>
-                                      )}
-                                      <p className="text-xs text-foreground leading-relaxed flex-1 break-words">
-                                        {line.message}
-                                      </p>
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground flex-wrap">
-                                      <span>
-                                        {new Date(
-                                          line.ts * 1000,
-                                        ).toLocaleDateString(undefined, {
-                                          month: "short",
-                                          day: "numeric",
-                                          year: "numeric",
-                                        })}
-                                      </span>
-                                      {line.serverName && (
-                                        <>
-                                          <span>·</span>
-                                          <span className="truncate">
-                                            {line.serverName}
-                                          </span>
-                                        </>
-                                      )}
-                                      {activeFlags.map((f) => (
-                                        <span
-                                          key={f.category}
-                                          className="px-1 py-0.5 rounded bg-warning/15 text-warning uppercase tracking-wider text-[8px]"
-                                        >
-                                          {f.category}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </li>
-                                );
-                              })}
+                              {chatLines.map((line) => renderChatLine(line))}
                             </ul>
                             <div
                               ref={chatSentinelRef}

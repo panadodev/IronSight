@@ -241,6 +241,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "tickets_view",
   "tickets_manage",
   "tickets_player_intel",
+  "tickets_blacklist",
   "ticket_types_manage",
   "ban_configs_manage",
   "toxicity_manage",
@@ -4333,16 +4334,28 @@ async function handleGetStaffAuditLog(request, orgId) {
   });
 }
 
+function serializeNotificationPrefs(row) {
+  return {
+    enabled: row?.enabled ?? false,
+    entityKilled: row?.notify_entity_killed ?? false,
+    entitySpawned: row?.notify_entity_spawned ?? false,
+    playerKilledByAdmin: row?.notify_player_killed_by_admin ?? false,
+    nonStaffAdmin: row?.notify_nonstaff_admin ?? false,
+  };
+}
+
 async function handleGetNotificationPrefs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!canManageOrg(session, orgId)) return json({ error: "Forbidden" }, 403);
 
   const res = await pool.query(
-    `SELECT enabled FROM staff_notification_prefs WHERE user_id = $1 AND org_id = $2`,
+    `SELECT enabled, notify_entity_killed, notify_entity_spawned,
+            notify_player_killed_by_admin, notify_nonstaff_admin
+     FROM staff_notification_prefs WHERE user_id = $1 AND org_id = $2`,
     [session.userId, orgId],
   );
-  return json({ enabled: res.rows[0]?.enabled ?? false });
+  return json(serializeNotificationPrefs(res.rows[0]));
 }
 
 async function handlePutNotificationPrefs(request, orgId) {
@@ -4356,15 +4369,38 @@ async function handlePutNotificationPrefs(request, orgId) {
   } catch {
     return json({ error: "Invalid JSON" }, 400);
   }
-  const enabled = !!body?.enabled;
 
-  await pool.query(
-    `INSERT INTO staff_notification_prefs (user_id, org_id, enabled)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id, org_id) DO UPDATE SET enabled = EXCLUDED.enabled`,
-    [session.userId, orgId, enabled],
+  // Partial update: only the boolean fields present in the body change; a
+  // NULL param keeps the existing value (and inserts FALSE for a new row). This
+  // lets the health-alert toggle and the per-event toggles co-exist safely.
+  const tri = (v) => (v === undefined ? null : !!v);
+  const params = [
+    session.userId,
+    orgId,
+    tri(body?.enabled),
+    tri(body?.entityKilled),
+    tri(body?.entitySpawned),
+    tri(body?.playerKilledByAdmin),
+    tri(body?.nonStaffAdmin),
+  ];
+
+  const res = await pool.query(
+    `INSERT INTO staff_notification_prefs
+       (user_id, org_id, enabled, notify_entity_killed, notify_entity_spawned,
+        notify_player_killed_by_admin, notify_nonstaff_admin)
+     VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), COALESCE($5, FALSE),
+             COALESCE($6, FALSE), COALESCE($7, FALSE))
+     ON CONFLICT (user_id, org_id) DO UPDATE SET
+       enabled = COALESCE($3, staff_notification_prefs.enabled),
+       notify_entity_killed = COALESCE($4, staff_notification_prefs.notify_entity_killed),
+       notify_entity_spawned = COALESCE($5, staff_notification_prefs.notify_entity_spawned),
+       notify_player_killed_by_admin = COALESCE($6, staff_notification_prefs.notify_player_killed_by_admin),
+       notify_nonstaff_admin = COALESCE($7, staff_notification_prefs.notify_nonstaff_admin)
+     RETURNING enabled, notify_entity_killed, notify_entity_spawned,
+               notify_player_killed_by_admin, notify_nonstaff_admin`,
+    params,
   );
-  return json({ enabled });
+  return json(serializeNotificationPrefs(res.rows[0]));
 }
 
 async function handleGetImpersonateViewOrgMember(request, orgId, userId) {
@@ -5977,6 +6013,123 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
   return json({ ok: true });
 }
 
+// ── Ticket blacklist ──────────────────────────────────────────────────────────
+
+function canManageTicketBlacklist(session, orgId) {
+  return (
+    canManageOrg(session, orgId) ||
+    orgHasPermission(session, orgId, "tickets_blacklist")
+  );
+}
+
+async function handleListTicketBlacklist(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageTicketBlacklist(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const { rows } = await pool.query(
+    `SELECT b.blacklist_id, b.steam_id, b.ticket_type_id, b.reason, b.created_at,
+            tt.ticket_type_name,
+            creator.username AS created_by_username
+     FROM ticket_blacklist b
+     LEFT JOIN ticket_types tt ON tt.ticket_type_id = b.ticket_type_id
+     LEFT JOIN users creator ON creator.user_id = b.created_by
+     WHERE b.org_id = $1
+     ORDER BY b.created_at DESC`,
+    [orgId],
+  );
+
+  return json({
+    entries: rows.map((row) => ({
+      blacklistId: Number(row.blacklist_id),
+      steamId: String(row.steam_id),
+      ticketTypeId:
+        row.ticket_type_id != null ? Number(row.ticket_type_id) : null,
+      ticketTypeName: row.ticket_type_name ?? null,
+      reason: row.reason ?? "",
+      createdBy: row.created_by_username ?? null,
+      createdAt: Number(row.created_at),
+    })),
+  });
+}
+
+async function handleCreateTicketBlacklist(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageTicketBlacklist(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const steamId = String(body?.steamId ?? "").trim();
+  const reason = String(body?.reason ?? "").trim();
+  const ticketTypeId =
+    body?.ticketTypeId == null ? null : Number(body.ticketTypeId);
+
+  if (!/^\d{17}$/.test(steamId))
+    return json({ error: "A valid SteamID64 is required" }, 400);
+  if (reason.length > 500)
+    return json({ error: "reason must be 500 characters or fewer" }, 400);
+  if (ticketTypeId !== null && !Number.isInteger(ticketTypeId))
+    return json({ error: "Invalid ticketTypeId" }, 400);
+
+  const orgRes = await pool.query(
+    `SELECT org_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [orgId],
+  );
+  if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  // A per-type entry must reference a ticket type in this org (prevents
+  // blacklisting against another tenant's type id).
+  if (ticketTypeId !== null) {
+    const typeRes = await pool.query(
+      `SELECT 1 FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1`,
+      [ticketTypeId, orgId],
+    );
+    if (!typeRes.rows[0])
+      return json(
+        { error: "Ticket type not found for this organization" },
+        400,
+      );
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO ticket_blacklist (org_id, steam_id, ticket_type_id, reason, created_by)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (org_id, steam_id, COALESCE(ticket_type_id, 0))
+     DO UPDATE SET reason = EXCLUDED.reason, created_by = EXCLUDED.created_by, created_at = unix_now()
+     RETURNING blacklist_id`,
+    [orgId, steamId, ticketTypeId, reason, session.userId],
+  );
+
+  return json({ ok: true, blacklistId: Number(rows[0].blacklist_id) }, 201);
+}
+
+async function handleDeleteTicketBlacklist(request, orgId, blacklistId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  if (!canManageTicketBlacklist(session, orgId))
+    return json({ error: "Forbidden" }, 403);
+
+  const res = await pool.query(
+    `DELETE FROM ticket_blacklist WHERE blacklist_id = $1 AND org_id = $2`,
+    [blacklistId, orgId],
+  );
+  if (res.rowCount === 0)
+    return json({ error: "Blacklist entry not found" }, 404);
+
+  return json({ ok: true });
+}
+
 // ── Ticket CRUD ───────────────────────────────────────────────────────────────
 
 async function handleCreateTicket(request) {
@@ -6046,6 +6199,22 @@ async function handleCreateTicket(request) {
     [orgId],
   );
   if (!orgRes.rows[0]) return json({ error: "Organization not found" }, 404);
+
+  // Blacklist gate: a NULL ticket_type_id entry blocks every type; a matching
+  // ticket_type_id blocks just that one. Keyed on the submitter's Steam id.
+  const blacklistRes = await pool.query(
+    `SELECT 1 FROM ticket_blacklist
+     WHERE org_id = $1 AND steam_id = $2
+       AND (ticket_type_id IS NULL OR ticket_type_id = $3)
+     LIMIT 1`,
+    [orgId, session.steamId, ticketTypeId],
+  );
+  if (blacklistRes.rows[0])
+    return json(
+      { error: "You have been blocked from submitting this type of ticket." },
+      403,
+    );
+
   const maxFiles = Number(
     orgRes.rows[0].media_public_max_files ?? DEFAULT_PUBLIC_MAX_FILES,
   );
@@ -6306,7 +6475,7 @@ async function handleGetTicket(request, ticketIdStr) {
         .filter((m) => !m.isInternal)
         .map((m) =>
           m.userId !== session.userId
-            ? { ...m, username: null, steamId: null }
+            ? { ...m, username: null, steamId: null, discordAvatarUrl: null }
             : m,
         );
 
@@ -15643,12 +15812,32 @@ async function handleGetPlayerChat(request, steamId) {
 
   if (scopedOrgIds.length === 0) return json({ lines: [], hasMore: false });
 
+  // Optional free-text search over message bodies. Escape LIKE wildcards so the
+  // query stays a literal substring match (still parameterized — this only
+  // prevents `%`/`_` in the input from acting as wildcards).
+  const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
+  // filter=confirmed restricts to messages that have a flag confirmed as toxic
+  // (used to pin confirmed-toxic messages above the rest of the history).
+  const confirmedOnly = url.searchParams.get("filter") === "confirmed";
+
   const params = [steamId, scopedOrgIds, limit + 1];
   let idx = 4;
-  let beforeClause = "";
+  let extraClauses = "";
   if (before != null) {
-    beforeClause = ` AND tcl.created_at < $${idx++}`;
+    extraClauses += ` AND tcl.created_at < $${idx++}`;
     params.push(before);
+  }
+  if (q) {
+    extraClauses += ` AND tcl.message ILIKE $${idx++} ESCAPE '\\'`;
+    params.push(`%${q.replace(/[\\%_]/g, "\\$&")}%`);
+  }
+  if (confirmedOnly) {
+    extraClauses += ` AND EXISTS (
+      SELECT 1 FROM ai_chat_flags acf2
+      WHERE acf2.chat_log_id = tcl.id
+        AND acf2.resolved = TRUE
+        AND acf2.resolution_type = 'confirmed'
+    )`;
   }
 
   const { rows } = await pool.query(
@@ -15658,14 +15847,15 @@ async function handleGetPlayerChat(request, steamId) {
                'category', acf.triggered_category,
                'score', acf.score,
                'action', acf.action,
-               'resolved', acf.resolved
+               'resolved', acf.resolved,
+               'resolutionType', acf.resolution_type
              ))
              FROM ai_chat_flags acf
              WHERE acf.chat_log_id = tcl.id) AS ai_chat_flags
      FROM text_chat_log tcl
      JOIN servers s ON s.server_id = tcl.server_id
      WHERE tcl.steam_id = $1
-       AND s.owner_org_id = ANY($2)${beforeClause}
+       AND s.owner_org_id = ANY($2)${extraClauses}
      ORDER BY tcl.created_at DESC
      LIMIT $3`,
     params,
@@ -17543,6 +17733,27 @@ async function _handleApiRequest(request) {
     );
     if (orgTicketTypesMatch && request.method === "GET") {
       return handleListOrgTicketTypes(request, orgTicketTypesMatch[1]);
+    }
+
+    const orgTicketBlacklistMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-blacklist$/,
+    );
+    if (orgTicketBlacklistMatch) {
+      if (request.method === "GET")
+        return handleListTicketBlacklist(request, orgTicketBlacklistMatch[1]);
+      if (request.method === "POST")
+        return handleCreateTicketBlacklist(request, orgTicketBlacklistMatch[1]);
+    }
+
+    const orgTicketBlacklistEntryMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/ticket-blacklist\/(\d+)$/,
+    );
+    if (orgTicketBlacklistEntryMatch && request.method === "DELETE") {
+      return handleDeleteTicketBlacklist(
+        request,
+        orgTicketBlacklistEntryMatch[1],
+        parseInt(orgTicketBlacklistEntryMatch[2]),
+      );
     }
 
     const orgTicketTypeMatch = pathname.match(

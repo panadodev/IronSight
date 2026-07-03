@@ -13,6 +13,134 @@ import { runChatModerationAsync } from "../ai-moderation.js";
 
 const RECOVERY_STALE_THRESHOLD_SECONDS = 10 * 60;
 
+// SteamID64 for an individual account: 17 digits beginning 765611.
+const STEAMID64_RE = /^765611\d{11}$/;
+const isSteamId64 = (v) => typeof v === "string" && STEAMID64_RE.test(v);
+
+// Per (org, server, category) DM throttle so a burst of spawns/kills can't
+// flood a staffer's DMs (Discord would rate-limit the bot anyway).
+const LOG_NOTIFY_RATE_LIMIT_PER_MINUTE = 20;
+
+// Human labels + pref column for each server-log notification category.
+const LOG_NOTIFY_CATEGORIES = {
+  entity_killed: {
+    column: "notify_entity_killed",
+    label: "Entity killed by admin",
+  },
+  entity_spawned: {
+    column: "notify_entity_spawned",
+    label: "Entity/item spawned",
+  },
+  player_killed_by_admin: {
+    column: "notify_player_killed_by_admin",
+    label: "Player killed by admin",
+  },
+  nonstaff_admin: {
+    column: "notify_nonstaff_admin",
+    label: "Admin action by a non-staff SteamID",
+  },
+};
+
+// Fire-and-forget: DM staff who opted in to any category this log event matches.
+// Never throws (best-effort) and never blocks the ingest response.
+async function notifyServerLogEvent(orgId, fields) {
+  const {
+    eventType,
+    adminSteamId,
+    adminName,
+    targetSteamId,
+    targetName,
+    command,
+    details,
+    coordinates,
+    serverName,
+    serverId,
+  } = fields;
+
+  const action =
+    typeof details?.action === "string" ? details.action.toLowerCase() : null;
+
+  const triggered = new Set();
+  if (eventType === "ENTITY" && action === "kill")
+    triggered.add("entity_killed");
+  if (eventType === "SPAWN") triggered.add("entity_spawned");
+  // A kill whose target is an actual player (identified by SteamID64).
+  if (action === "kill" && isSteamId64(targetSteamId))
+    triggered.add("player_killed_by_admin");
+
+  // An admin action whose SteamID isn't linked to any staff member of this org.
+  if (isSteamId64(adminSteamId)) {
+    const staffRes = await pool.query(
+      `SELECT 1 FROM organization_members om
+       JOIN users u ON u.user_id = om.user_id
+       WHERE om.org_id = $1 AND u.steam_id = $2
+       LIMIT 1`,
+      [orgId, adminSteamId],
+    );
+    if (!staffRes.rows[0]) triggered.add("nonstaff_admin");
+  }
+
+  if (triggered.size === 0) return;
+
+  const subsRes = await pool.query(
+    `SELECT u.discord_id,
+            snp.notify_entity_killed,
+            snp.notify_entity_spawned,
+            snp.notify_player_killed_by_admin,
+            snp.notify_nonstaff_admin
+     FROM staff_notification_prefs snp
+     JOIN users u ON u.user_id = snp.user_id
+     WHERE snp.org_id = $1
+       AND u.discord_id IS NOT NULL
+       AND (snp.notify_entity_killed
+            OR snp.notify_entity_spawned
+            OR snp.notify_player_killed_by_admin
+            OR snp.notify_nonstaff_admin)`,
+    [orgId],
+  );
+  if (subsRes.rows.length === 0) return;
+
+  // Throttle per category so a spawn/kill flood can't spam DMs. A dropped
+  // category simply isn't delivered for that event.
+  const allowed = new Set();
+  for (const cat of triggered) {
+    const limited = await checkRateLimit(
+      `rl:lognotify:${orgId}:${serverId}:${cat}`,
+      LOG_NOTIFY_RATE_LIMIT_PER_MINUTE,
+      60,
+    );
+    if (!limited) allowed.add(cat);
+  }
+  if (allowed.size === 0) return;
+
+  const adminLabel = adminName
+    ? `${adminName}${adminSteamId ? ` (${adminSteamId})` : ""}`
+    : (adminSteamId ?? "unknown");
+  const targetLabel = targetName
+    ? `${targetName}${targetSteamId ? ` (${targetSteamId})` : ""}`
+    : (targetSteamId ?? null);
+
+  for (const row of subsRes.rows) {
+    // The categories this staffer opted into that also fired for this event.
+    const reasons = [...allowed].filter(
+      (cat) => row[LOG_NOTIFY_CATEGORIES[cat].column],
+    );
+    if (reasons.length === 0) continue;
+
+    const lines = [
+      `🔔 **IronSight** — server log alert on **${serverName}**`,
+      reasons.map((c) => `• ${LOG_NOTIFY_CATEGORIES[c].label}`).join("\n"),
+      `Event: \`${eventType}\``,
+      `Admin: ${adminLabel}`,
+    ];
+    if (targetLabel) lines.push(`Target: ${targetLabel}`);
+    if (command) lines.push(`Command: \`${command.slice(0, 300)}\``);
+    if (coordinates) lines.push(`Coords: ${coordinates}`);
+
+    await sendDiscordDm(row.discord_id, lines.join("\n"));
+  }
+}
+
 const HEALTH_CHECK_RATE_LIMIT_PER_MINUTE = 60;
 const SERVER_LOG_RATE_LIMIT_PER_MINUTE = 120;
 const CHAT_INGEST_RATE_LIMIT_PER_MINUTE = 120;
@@ -710,6 +838,26 @@ export async function handleIngestServerLog(request) {
 
   console.log(
     `[ingest:server-log] event=${eventType} admin=${adminSteamId ?? "?"} server=${server.server_name}`,
+  );
+
+  // Notify opted-in staff via Discord DM (fire-and-forget — never blocks or
+  // fails the ingest response).
+  notifyServerLogEvent(server.owner_org_id, {
+    eventType,
+    adminSteamId,
+    adminName,
+    targetSteamId,
+    targetName,
+    command,
+    details,
+    coordinates,
+    serverName: server.server_name,
+    serverId: server.server_id,
+  }).catch((err) =>
+    console.error(
+      `[ingest:server-log] notify failed for ${server.server_id}:`,
+      err.message,
+    ),
   );
 
   return json({ ok: true, id: String(row.id) }, 201);

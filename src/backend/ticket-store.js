@@ -92,7 +92,7 @@ export async function loadTicketMessages(ticketId) {
   const { rows } = await pool.query(
     `SELECT tm.message_id, tm.ticket_id, tm.user_id, tm.message, tm.is_internal,
             tm.created_at,
-            u.username, u.steam_id
+            u.username, u.steam_id, u.discord_id, u.discord_avatar_hash
      FROM ticket_messages tm
      LEFT JOIN users u ON u.user_id = tm.user_id
      WHERE tm.ticket_id = $1
@@ -105,6 +105,10 @@ export async function loadTicketMessages(ticketId) {
     userId: row.user_id ? String(row.user_id) : null,
     username: row.username ?? null,
     steamId: row.steam_id ?? null,
+    discordAvatarUrl:
+      row.discord_avatar_hash && row.discord_id
+        ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar_hash}.png?size=64`
+        : null,
     message: String(row.message),
     isInternal: Boolean(row.is_internal),
     createdAt: Number(row.created_at),

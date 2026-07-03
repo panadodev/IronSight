@@ -5,6 +5,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Activity,
   AlertTriangle,
+  Ban,
   ChevronDown,
   Copy,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
   LayoutList,
   Search,
   Shield,
+  UserCheck,
   UserSearch,
   Users,
   Wifi,
@@ -252,6 +254,8 @@ function TicketsPage() {
   const [orgServers, setOrgServers] = useState([]);
   const [orgStaff, setOrgStaff] = useState([]);
   const [orgPredefines, setOrgPredefines] = useState([]);
+  // null = blacklist manager closed; otherwise the prefill for the add form.
+  const [blacklistPrefill, setBlacklistPrefill] = useState(null);
 
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;
@@ -643,6 +647,20 @@ function TicketsPage() {
         "tickets_player_intel",
       ));
 
+  const canBlacklist =
+    selectedOrgId &&
+    (adminableOrgIds.includes(selectedOrgId) ||
+      (sessionOrgPermissions[selectedOrgId] ?? []).includes(
+        "tickets_blacklist",
+      ));
+
+  const openBlacklist = useCallback(() => {
+    setBlacklistPrefill({
+      steamId: selectedTicket?.created_by_steam_id ?? "",
+      ticketTypeId: selectedTicket?.ticket_type_id ?? null,
+    });
+  }, [selectedTicket]);
+
   return (
     <div className="h-screen w-full flex flex-col bg-background">
       <SiteNav />
@@ -772,6 +790,7 @@ function TicketsPage() {
                   orgs={orgs}
                   selected={ticket.ticket_id === selectedId}
                   onClick={() => setSelectedId(ticket.ticket_id)}
+                  myUserId={sessionUser?.userId}
                 />
               ))
             )}
@@ -810,6 +829,8 @@ function TicketsPage() {
               sessionUser={sessionUser}
               orgStaff={orgStaff}
               predefines={orgPredefines}
+              canBlacklist={canBlacklist}
+              onOpenBlacklist={openBlacklist}
             />
           </main>
         ) : (
@@ -838,6 +859,13 @@ function TicketsPage() {
             <TeamInfoPanel servers={orgServers} />
           ))}
       </div>
+      {blacklistPrefill && selectedOrgId && (
+        <BlacklistManager
+          orgId={selectedOrgId}
+          prefill={blacklistPrefill}
+          onClose={() => setBlacklistPrefill(null)}
+        />
+      )}
     </div>
   );
 }
@@ -847,11 +875,13 @@ function getOrgPrefix(orgId, orgs) {
   return org ? org.short : (orgId ?? "??").slice(0, 2).toUpperCase();
 }
 
-function TicketListItem({ ticket, orgs, selected, onClick }) {
+function TicketListItem({ ticket, orgs, selected, onClick, myUserId }) {
   const kind = ticket.kind ?? ticketKind(ticket);
   const prefix = getOrgPrefix(ticket.org_id, orgs);
   const isAuto = ticket.category === "threat_auto";
   const isCase = ticket.category === "staff_case";
+  const claimed = Boolean(ticket.assigned_to);
+  const claimedByMe = claimed && ticket.assigned_to === myUserId;
   return (
     <button
       onClick={onClick}
@@ -891,6 +921,23 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
           <span className="text-[9px] font-mono text-muted-foreground capitalize">
             {ticket.priority}
           </span>
+          {claimed && (
+            <span
+              title={`Claimed by ${claimedByMe ? "you" : (ticket.assigned_to_username ?? "staff")}`}
+              className={`flex items-center gap-0.5 text-[8px] font-mono uppercase tracking-wider px-1 rounded shrink-0 max-w-[6rem] ${
+                claimedByMe
+                  ? "text-brand bg-brand/10"
+                  : "text-emerald-400 bg-emerald-400/10"
+              }`}
+            >
+              <UserCheck size={8} className="shrink-0" />
+              <span className="truncate">
+                {claimedByMe
+                  ? "You"
+                  : (ticket.assigned_to_username ?? "Claimed")}
+              </span>
+            </span>
+          )}
           <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
             {formatRelativeTime(ticket.created_at)}
           </span>
@@ -1109,6 +1156,198 @@ function SubmissionDetails({ formData }) {
   );
 }
 
+// Blacklist manager modal — lists the org's ticket blacklist and lets a
+// permitted staffer bar a Steam account from opening a specific ticket type (or
+// all of them). Opened prefilled with the current ticket's submitter + type.
+function BlacklistManager({ orgId, prefill, onClose }) {
+  const [entries, setEntries] = useState([]);
+  const [ticketTypes, setTicketTypes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [steamId, setSteamId] = useState(prefill?.steamId ?? "");
+  const [typeId, setTypeId] = useState(
+    prefill?.ticketTypeId != null ? String(prefill.ticketTypeId) : "ALL",
+  );
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadEntries = useCallback(() => {
+    setLoading(true);
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-blacklist`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : { entries: [] }))
+      .then((data) => setEntries(data.entries ?? []))
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false));
+  }, [orgId]);
+
+  useEffect(() => {
+    loadEntries();
+    fetch(`/api/orgs/${encodeURIComponent(orgId)}/ticket-types`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : { ticketTypes: [] }))
+      .then((data) => setTicketTypes(data.ticketTypes ?? []))
+      .catch(() => setTicketTypes([]));
+  }, [orgId, loadEntries]);
+
+  const handleAdd = async () => {
+    const sid = steamId.trim();
+    if (!/^\d{17}$/.test(sid)) {
+      setError("Enter a valid SteamID64 (17 digits).");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ticket-blacklist`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            steamId: sid,
+            ticketTypeId: typeId === "ALL" ? null : Number(typeId),
+            reason: reason.trim(),
+          }),
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error ?? "Failed to add entry.");
+        return;
+      }
+      setReason("");
+      loadEntries();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async (id) => {
+    const res = await fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/ticket-blacklist/${id}`,
+      { method: "DELETE", credentials: "include" },
+    );
+    if (res.ok) setEntries((prev) => prev.filter((e) => e.blacklistId !== id));
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[85vh] flex flex-col bg-background border border-border rounded-lg shadow-xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <Ban className="size-3.5 text-danger" />
+            <span className="text-xs font-bold">Ticket Blacklist</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-[10px] font-mono text-muted-foreground hover:text-foreground"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="px-4 py-3 border-b border-border shrink-0 space-y-2">
+          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            Add entry
+          </div>
+          <input
+            value={steamId}
+            onChange={(e) => setSteamId(e.target.value)}
+            placeholder="SteamID64 (17 digits)"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+          />
+          <select
+            value={typeId}
+            onChange={(e) => setTypeId(e.target.value)}
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+          >
+            <option value="ALL">All ticket types</option>
+            {ticketTypes.map((t) => (
+              <option key={t.ticketTypeId} value={t.ticketTypeId}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (optional)"
+            maxLength={500}
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+          />
+          {error && (
+            <p className="text-[10px] font-mono text-danger">{error}</p>
+          )}
+          <button
+            onClick={handleAdd}
+            disabled={saving}
+            className="text-[10px] font-mono bg-danger text-white rounded px-3 py-1 hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? "Adding..." : "Add to blacklist"}
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="text-[10px] text-muted-foreground text-center py-8">
+              Loading...
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="text-[10px] text-muted-foreground text-center py-8">
+              No blacklisted users
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {entries.map((e) => (
+                <li
+                  key={e.blacklistId}
+                  className="px-4 py-2 flex items-start gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-mono truncate">
+                        {e.steamId}
+                      </span>
+                      <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground shrink-0">
+                        {e.ticketTypeName ?? "All types"}
+                      </span>
+                    </div>
+                    {e.reason && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5 break-words">
+                        {e.reason}
+                      </p>
+                    )}
+                    <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">
+                      {e.createdBy ? `by ${e.createdBy} · ` : ""}
+                      {formatRelativeTime(e.createdAt)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleRemove(e.blacklistId)}
+                    className="text-[10px] font-mono text-muted-foreground hover:text-danger shrink-0"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TicketDetail({
   ticket,
   messages,
@@ -1132,6 +1371,8 @@ function TicketDetail({
   sessionUser,
   orgStaff,
   predefines = [],
+  canBlacklist = false,
+  onOpenBlacklist,
 }) {
   const isClaimed = ticket.assigned_to === sessionUser?.userId;
   const isClosed = ticket.status === "closed";
@@ -1230,6 +1471,16 @@ function TicketDetail({
             Mark Active
           </button>
         )}
+        {canBlacklist && (
+          <button
+            onClick={onOpenBlacklist}
+            title="Blacklist this submitter from ticket types"
+            className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-danger transition-colors"
+          >
+            <Ban size={10} className="shrink-0" />
+            Blacklist
+          </button>
+        )}
         {isSysAdmin && (
           <div className="ml-auto flex items-center gap-1">
             {confirmDelete ? (
@@ -1279,7 +1530,11 @@ function TicketDetail({
                   Conversation
                 </div>
                 {publicMessages.map((msg) => (
-                  <MessageBubble key={msg.messageId} msg={msg} myUserId={sessionUser?.userId} />
+                  <MessageBubble
+                    key={msg.messageId}
+                    msg={msg}
+                    myUserId={sessionUser?.userId}
+                  />
                 ))}
               </div>
             )}
@@ -1289,7 +1544,12 @@ function TicketDetail({
                   Internal Notes
                 </div>
                 {internalMessages.map((msg) => (
-                  <MessageBubble key={msg.messageId} msg={msg} internal myUserId={sessionUser?.userId} />
+                  <MessageBubble
+                    key={msg.messageId}
+                    msg={msg}
+                    internal
+                    myUserId={sessionUser?.userId}
+                  />
                 ))}
               </div>
             )}
@@ -1502,13 +1762,21 @@ function parseApplicationMessage(text) {
 }
 
 const STAFF_COLORS = [
-  { bg: "bg-violet-500/10", ring: "ring-violet-500/30", name: "text-violet-300" },
+  {
+    bg: "bg-violet-500/10",
+    ring: "ring-violet-500/30",
+    name: "text-violet-300",
+  },
   { bg: "bg-teal-500/10", ring: "ring-teal-500/30", name: "text-teal-300" },
   { bg: "bg-amber-500/10", ring: "ring-amber-500/30", name: "text-amber-300" },
   { bg: "bg-pink-500/10", ring: "ring-pink-500/30", name: "text-pink-300" },
   { bg: "bg-lime-500/10", ring: "ring-lime-500/30", name: "text-lime-300" },
   { bg: "bg-sky-500/10", ring: "ring-sky-500/30", name: "text-sky-300" },
-  { bg: "bg-orange-500/10", ring: "ring-orange-500/30", name: "text-orange-300" },
+  {
+    bg: "bg-orange-500/10",
+    ring: "ring-orange-500/30",
+    name: "text-orange-300",
+  },
   { bg: "bg-rose-500/10", ring: "ring-rose-500/30", name: "text-rose-300" },
 ];
 
@@ -1520,7 +1788,11 @@ function staffColorFor(userId) {
 }
 
 function MessageBubble({ msg, internal, myUserId }) {
-  const isMe = !!(msg.userId && myUserId && String(msg.userId) === String(myUserId));
+  const isMe = !!(
+    msg.userId &&
+    myUserId &&
+    String(msg.userId) === String(myUserId)
+  );
   const isSubmitter = !msg.userId;
   const appEntries = !internal ? parseApplicationMessage(msg.message) : null;
   const color = !isMe && !isSubmitter ? staffColorFor(msg.userId) : null;
@@ -1537,14 +1809,31 @@ function MessageBubble({ msg, internal, myUserId }) {
     ringClass = internal ? "ring-brand/20" : "ring-border";
   }
 
-  const nameColor = isMe ? "text-brand" : color ? color.name : "text-foreground";
+  const nameColor = isMe
+    ? "text-brand"
+    : color
+      ? color.name
+      : "text-foreground";
 
   return (
     <div className={isMe ? "flex justify-end" : ""}>
       <div
         className={`rounded-md px-3 py-2 ring-1 text-xs ${isMe ? "max-w-[75%]" : "w-full"} ${bgClass} ${ringClass}`}
       >
-        <div className={`flex items-center gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}>
+        <div
+          className={`flex items-center gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}
+        >
+          {msg.discordAvatarUrl ? (
+            <img
+              src={msg.discordAvatarUrl}
+              alt={msg.username ?? "Unknown"}
+              className="size-4 rounded-full ring-1 ring-black/40 shrink-0"
+            />
+          ) : (
+            <div className="size-4 rounded-full ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[7px] text-background bg-brand/70 shrink-0">
+              {initials(msg.username ?? "?")}
+            </div>
+          )}
           <span className={`font-semibold text-[10px] ${nameColor}`}>
             {msg.username ?? "Unknown"}
           </span>
@@ -1552,7 +1841,9 @@ function MessageBubble({ msg, internal, myUserId }) {
             {formatRelativeTime(msg.createdAt)}
           </span>
           {internal && (
-            <span className={`text-[9px] font-mono uppercase tracking-widest text-muted-foreground ${isMe ? "" : "ml-auto"}`}>
+            <span
+              className={`text-[9px] font-mono uppercase tracking-widest text-muted-foreground ${isMe ? "" : "ml-auto"}`}
+            >
               Internal Note
             </span>
           )}
@@ -2316,9 +2607,7 @@ function RelationshipPairCard({ pair, playersById }) {
               : ""}
           </span>
         ) : (
-          <span className="text-muted-foreground">
-            Never killed each other
-          </span>
+          <span className="text-muted-foreground">Never killed each other</span>
         )}
       </div>
     </div>
