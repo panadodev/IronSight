@@ -1,4 +1,5 @@
 ﻿import { SiteNav } from "@/components/site-nav";
+import { Markdown } from "@/components/markdown";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
@@ -383,9 +384,7 @@ function MyTicketsPage() {
                             {timeAgo(msg.createdAt)}
                           </span>
                         </div>
-                        <p className="text-sm whitespace-pre-wrap break-words">
-                          {msg.message}
-                        </p>
+                        <Markdown className="text-sm">{msg.message}</Markdown>
                       </div>
                     </div>
                   );

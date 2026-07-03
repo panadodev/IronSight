@@ -1,4 +1,5 @@
 import { SiteNav } from "@/components/site-nav";
+import { Markdown } from "@/components/markdown";
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -1416,7 +1417,10 @@ function TicketDetail({
               disabled={isClosed}
               className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
             />
-            <div className="flex items-center justify-end mt-1.5">
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[9px] font-mono text-muted-foreground">
+                Markdown supported
+              </span>
               <button
                 onClick={onPostReply}
                 disabled={
@@ -1443,7 +1447,10 @@ function TicketDetail({
               disabled={isClosed}
               className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
             />
-            <div className="flex items-center justify-end mt-1.5">
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[9px] font-mono text-muted-foreground">
+                Markdown supported
+              </span>
               <button
                 onClick={onPostNote}
                 disabled={
@@ -1557,14 +1564,18 @@ function MessageBubble({ msg, internal, myUserId }) {
                 <div className="text-[10px] font-semibold text-foreground">
                   {i + 1}. {entry.question}
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-0.5 pl-3 whitespace-pre-wrap">
-                  {entry.answer || "(no answer)"}
+                <div className="text-[10px] text-muted-foreground mt-0.5 pl-3">
+                  {entry.answer ? (
+                    <Markdown>{entry.answer}</Markdown>
+                  ) : (
+                    "(no answer)"
+                  )}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="leading-relaxed">{msg.message}</p>
+          <Markdown>{msg.message}</Markdown>
         )}
       </div>
     </div>
