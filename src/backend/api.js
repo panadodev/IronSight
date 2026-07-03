@@ -13026,11 +13026,60 @@ async function getUserStorageUsed(orgId, userId) {
   return Number(rows[0].used);
 }
 
-// Streams a media object's bytes. Authorization is the HMAC signature in the
-// query string (minted by signedMediaPath inside authenticated API responses),
-// NOT the session cookie — the response carries no per-user data, so keeping
-// the cookie out of the decision lets Cloudflare edge-cache it by URL. Forwards
-// the Range header so <video> elements can seek without downloading the file.
+// Decides whether `session` may stream a given media row (handleGetMediaFile).
+// A valid signed URL only proves the link came out of one of our API responses;
+// this is what actually stops a shared link from working for anyone who isn't
+// entitled to the underlying ticket/ban/media.
+async function canViewMediaFile(session, media) {
+  if (isGlobalAdmin(session)) return true;
+  const orgId = String(media.org_id);
+  // The uploader can always see their own upload — this is what lets a public
+  // ticket submitter view the clips they attached to their own ticket.
+  if (String(media.uploaded_by) === String(session.userId)) return true;
+  // Org admins/owners can see anything in their org.
+  if (canManageOrg(session, orgId)) return true;
+
+  if (media.source === "ticket") {
+    // Staff who can view tickets, or the submitter of the ticket this media is
+    // attached to (covers a staffer attaching evidence to the submitter's ticket).
+    if (
+      orgHasPermission(session, orgId, "tickets_view") ||
+      orgHasPermission(session, orgId, "tickets_manage")
+    )
+      return true;
+    const { rows } = await pool.query(
+      `SELECT 1 FROM ticket_media_links tml
+       JOIN tickets t ON t.ticket_id = tml.ticket_id
+       WHERE tml.media_id = $1 AND t.created_by = $2 LIMIT 1`,
+      [media.media_id, session.userId],
+    );
+    return rows.length > 0;
+  }
+
+  if (media.source === "staff") {
+    // Staff-uploaded media (media library + ban evidence).
+    return (
+      orgHasPermission(session, orgId, "media_upload") ||
+      orgHasPermission(session, orgId, "players_view") ||
+      orgHasPermission(session, orgId, "bans_create") ||
+      orgHasPermission(session, orgId, "bans_manage")
+    );
+  }
+
+  // 'pending' (unattached public upload) and anything else: only the uploader,
+  // already allowed above.
+  return false;
+}
+
+// Streams a media object's bytes. Authorization is TWO-part: a valid HMAC
+// signature in the query string (minted by signedMediaPath inside authenticated
+// API responses) AND a signed-in panel session that `canViewMediaFile` clears.
+// The signature alone is deliberately NOT enough — otherwise anyone the link is
+// shared with could stream the file for its 6-12h window, turning R2 into a free
+// video host. Cookies ride along on same-origin <img>/<video> requests, so
+// in-panel playback stays transparent. Because the decision is now per-user, the
+// response is marked `private` and is no longer edge-cacheable. Forwards the
+// Range header so <video> elements can seek without downloading the whole file.
 async function handleGetMediaFile(request, mediaId) {
   const url = new URL(request.url);
   if (
@@ -13042,13 +13091,20 @@ async function handleGetMediaFile(request, mediaId) {
   )
     return json({ error: "Invalid or expired media link" }, 403);
 
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
   const { rows } = await pool.query(
-    `SELECT r2_key, mime_type, filename, file_size FROM org_media
+    `SELECT media_id, org_id, uploaded_by, source, r2_key, mime_type, filename, file_size
+     FROM org_media
      WHERE media_id = $1 AND deleted = FALSE AND confirmed = TRUE`,
     [mediaId],
   );
   if (!rows[0]?.r2_key) return json({ error: "Media not found" }, 404);
   const row = rows[0];
+
+  if (!(await canViewMediaFile(session, row)))
+    return json({ error: "Forbidden" }, 403);
 
   let obj;
   try {
@@ -13080,8 +13136,10 @@ async function handleGetMediaFile(request, mediaId) {
     // Serve the DB's vetted MIME (pinned at confirm time), never a sniffable one.
     "Content-Type": String(row.mime_type || "application/octet-stream"),
     "Content-Disposition": `inline; filename="${sanitizeFilename(row.filename)}"`,
-    // URL rotates with the signature window, so cached copies age out safely.
-    "Cache-Control": "public, max-age=3600, immutable",
+    // Per-user authorized now, so it must NOT land in any shared/edge cache —
+    // only the requesting user's own browser cache. URL still rotates with the
+    // signature window so those private copies age out safely.
+    "Cache-Control": "private, max-age=3600",
     "Accept-Ranges": "bytes",
     "X-Content-Type-Options": "nosniff",
   });
