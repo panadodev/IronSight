@@ -1257,25 +1257,25 @@ function TicketDetail({
                 <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
                   Evidence / Attachments
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                <div className="columns-2 sm:columns-3 md:columns-4 gap-2">
                   {media.map((item) => (
                     <a
                       key={item.mediaId}
                       href={item.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group relative rounded ring-1 ring-border hover:ring-brand transition-colors overflow-hidden"
+                      className="group relative mb-2 block break-inside-avoid rounded ring-1 ring-border hover:ring-brand transition-colors overflow-hidden"
                     >
                       {item.fileType === "image" && item.url ? (
                         <img
                           src={item.url}
                           alt={item.title || item.filename}
-                          className="w-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
+                          className="w-full h-auto object-contain group-hover:opacity-75 transition-opacity"
                         />
                       ) : item.fileType === "video" && item.url ? (
                         <video
                           src={item.url}
-                          className="w-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
+                          className="w-full h-auto min-h-[80px] bg-surface/40 object-contain group-hover:opacity-75 transition-opacity"
                           preload="metadata"
                         />
                       ) : (
