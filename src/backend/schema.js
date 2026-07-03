@@ -304,6 +304,14 @@ export async function ensureSchema(pool) {
     END $$
   `);
 
+  // Structured submission sections for typed tickets: an ordered JSONB array of
+  // { label, value } objects rendered as separate sections in the staff view
+  // (replaces the old single-message prefix blob for player reports and the
+  // numbered Q&A blob for staff applications).
+  await pool.query(
+    `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS form_data JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  );
+
   // Allow NULL actor_user_id in discord_mod_log for externally-synced bans
   // Guard: table may not exist yet on first migration pass
   await pool.query(`
@@ -477,6 +485,17 @@ export async function ensureSchema(pool) {
   );
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_pvp_log_server_created ON pvp_log(server_id, created_at)`,
+  );
+
+  // Victim SteamID64 when the game plugin reports it (older plugin versions
+  // only send victim_name). Used by the ticket relationship intel to match
+  // kills between reported players precisely instead of by display name.
+  await pool.query(
+    `ALTER TABLE pvp_log ADD COLUMN IF NOT EXISTS victim_steam_id TEXT`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pvp_log_victim_steam_id ON pvp_log(victim_steam_id)
+     WHERE victim_steam_id IS NOT NULL`,
   );
 
   // ── Player reports ───────────────────────────────────────────────────────────
@@ -1492,6 +1511,12 @@ export async function ensureSchema(pool) {
     `CREATE INDEX IF NOT EXISTS idx_sps_org_online
      ON server_player_sessions (org_id, server_id, steam_id)
      WHERE disconnected_at IS NULL`,
+  );
+  // Full-history lookup by player, used by the ticket relationship intel to
+  // find overlapping sessions between two reported players.
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_sps_org_steam
+     ON server_player_sessions (org_id, steam_id, connected_at)`,
   );
 
   // ── AI chat moderation ────────────────────────────────────────────────────

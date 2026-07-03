@@ -206,6 +206,9 @@ export async function handleIngestPvp(request) {
 
   const killerSteamId = String(body?.killer_steam_id ?? "").trim();
   const victimName = String(body?.victim_name ?? "").trim();
+  // Optional: newer plugin versions report the victim's SteamID64 too, which
+  // lets relationship intel match kills precisely instead of by display name.
+  const victimSteamId = String(body?.victim_steam_id ?? "").trim() || null;
   const combatlogCache = body?.combatlog_cache ?? {};
 
   if (!killerSteamId || !victimName) {
@@ -218,20 +221,26 @@ export async function handleIngestPvp(request) {
     );
   if (victimName.length > 128)
     return json({ error: "victim_name must be 128 characters or fewer" }, 400);
+  if (victimSteamId && victimSteamId.length > 64)
+    return json(
+      { error: "victim_steam_id must be 64 characters or fewer" },
+      400,
+    );
   if (typeof combatlogCache !== "object" || Array.isArray(combatlogCache))
     return json({ error: "combatlog_cache must be a JSON object" }, 400);
   if (JSON.stringify(combatlogCache).length > 65536)
     return json({ error: "combatlog_cache must be 64 KB or less" }, 400);
 
   const insertRes = await pool.query(
-    `INSERT INTO pvp_log (server_id, server_name, killer_steam_id, victim_name, combatlog_cache)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO pvp_log (server_id, server_name, killer_steam_id, victim_name, victim_steam_id, combatlog_cache)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, created_at`,
     [
       server.server_id,
       server.server_name,
       killerSteamId,
       victimName,
+      victimSteamId,
       JSON.stringify(combatlogCache),
     ],
   );
@@ -243,6 +252,7 @@ export async function handleIngestPvp(request) {
     id: String(row.id),
     killerSteamId,
     victimName,
+    victimSteamId,
     combatlogCache,
     ts: createdUnix,
   });

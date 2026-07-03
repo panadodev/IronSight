@@ -3,6 +3,7 @@ import {
   isValidSteamId,
   sanitizeNext,
   sanitizeReportedPlayers,
+  sanitizeTicketFields,
 } from "./validation.js";
 
 describe("isValidSteamId", () => {
@@ -82,5 +83,64 @@ describe("sanitizeReportedPlayers", () => {
       "76561199000000001",
     ];
     expect(sanitizeReportedPlayers(padded)).toEqual([]);
+  });
+});
+
+describe("sanitizeTicketFields", () => {
+  it("returns [] when fields are omitted", () => {
+    expect(sanitizeTicketFields(undefined)).toEqual([]);
+    expect(sanitizeTicketFields(null)).toEqual([]);
+  });
+
+  it("rejects malformed payloads with null", () => {
+    expect(sanitizeTicketFields("not-an-array")).toBeNull();
+    expect(sanitizeTicketFields({ label: "x", value: "y" })).toBeNull();
+    expect(sanitizeTicketFields([["label", "value"]])).toBeNull();
+    expect(sanitizeTicketFields([null])).toBeNull();
+  });
+
+  it("trims labels and values, dropping empty entries", () => {
+    expect(
+      sanitizeTicketFields([
+        { label: "  Server ", value: " EU Main " },
+        { label: "Empty", value: "   " },
+        { label: "", value: "orphaned" },
+      ]),
+    ).toEqual([{ label: "Server", value: "EU Main" }]);
+  });
+
+  it("coerces non-string label/value to strings", () => {
+    expect(sanitizeTicketFields([{ label: "Hours", value: 120 }])).toEqual([
+      { label: "Hours", value: "120" },
+    ]);
+  });
+
+  it("rejects payloads over the caps instead of truncating", () => {
+    const tooMany = Array.from({ length: 21 }, (_, i) => ({
+      label: `q${i}`,
+      value: "a",
+    }));
+    expect(sanitizeTicketFields(tooMany)).toBeNull();
+    expect(
+      sanitizeTicketFields([{ label: "x".repeat(121), value: "a" }]),
+    ).toBeNull();
+    expect(
+      sanitizeTicketFields([{ label: "a", value: "x".repeat(10001) }]),
+    ).toBeNull();
+  });
+
+  it("honors custom caps", () => {
+    expect(
+      sanitizeTicketFields([{ label: "ab", value: "cd" }], { maxLabel: 1 }),
+    ).toBeNull();
+    expect(
+      sanitizeTicketFields(
+        [
+          { label: "a", value: "1" },
+          { label: "b", value: "2" },
+        ],
+        { maxFields: 1 },
+      ),
+    ).toBeNull();
   });
 });

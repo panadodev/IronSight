@@ -746,7 +746,7 @@ function TicketsPage() {
     <GateRank rank={canManage ? 4 : 0} required={4}>
       <SectionHeader
         title="Tickets"
-        blurb="Enable or disable each ticket type for this org."
+        blurb="Enable or disable each ticket type and configure its custom questions."
       />
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
@@ -758,37 +758,60 @@ function TicketsPage() {
             <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
               <div className="divide-y divide-border">
                 {regularTypes.map((tt) => (
-                  <div
-                    key={tt.ticketTypeId}
-                    className="flex items-center justify-between py-2"
-                  >
-                    <span className="text-sm">{tt.name}</span>
-                    <div className="flex items-center gap-4">
-                      <OpenLimitSelect
-                        ticketType={tt}
-                        disabled={updating === tt.ticketTypeId}
-                        onChange={(v) => handleLimitChange(tt.ticketTypeId, v)}
-                      />
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">
-                          Media
-                        </span>
+                  <div key={tt.ticketTypeId} className="py-2">
+                    <div className="flex items-center justify-between">
+                      <button
+                        className="flex items-center gap-1.5 text-sm font-medium hover:text-foreground/80"
+                        onClick={() =>
+                          setExpandedId(
+                            expandedId === tt.ticketTypeId
+                              ? null
+                              : tt.ticketTypeId,
+                          )
+                        }
+                      >
+                        {expandedId === tt.ticketTypeId ? (
+                          <ChevronDown className="size-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="size-4 text-muted-foreground" />
+                        )}
+                        {tt.name}
+                      </button>
+                      <div className="flex items-center gap-4">
+                        <OpenLimitSelect
+                          ticketType={tt}
+                          disabled={updating === tt.ticketTypeId}
+                          onChange={(v) =>
+                            handleLimitChange(tt.ticketTypeId, v)
+                          }
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            Media
+                          </span>
+                          <Switch
+                            checked={tt.allowMedia !== false}
+                            disabled={updating === tt.ticketTypeId}
+                            onCheckedChange={(v) =>
+                              handleToggleMedia(tt.ticketTypeId, v)
+                            }
+                          />
+                        </div>
                         <Switch
-                          checked={tt.allowMedia !== false}
+                          checked={tt.isEnabled}
                           disabled={updating === tt.ticketTypeId}
                           onCheckedChange={(v) =>
-                            handleToggleMedia(tt.ticketTypeId, v)
+                            handleToggle(tt.ticketTypeId, v)
                           }
                         />
                       </div>
-                      <Switch
-                        checked={tt.isEnabled}
-                        disabled={updating === tt.ticketTypeId}
-                        onCheckedChange={(v) =>
-                          handleToggle(tt.ticketTypeId, v)
-                        }
-                      />
                     </div>
+                    {expandedId === tt.ticketTypeId && (
+                      <ApplicationQuestions
+                        orgId={orgId}
+                        ticketTypeId={tt.ticketTypeId}
+                      />
+                    )}
                   </div>
                 ))}
               </div>

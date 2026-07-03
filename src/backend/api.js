@@ -137,6 +137,7 @@ import {
   isValidSteamId,
   sanitizeNext,
   sanitizeReportedPlayers,
+  sanitizeTicketFields,
 } from "./validation.js";
 
 const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
@@ -6004,6 +6005,11 @@ async function handleCreateTicket(request) {
   const message = String(body?.message ?? "").trim();
   const reportedPlayers = sanitizeReportedPlayers(body?.reportedPlayers);
 
+  // Structured submission sections ({ label, value } pairs) rendered as
+  // separate sections in the staff view. Replaces the old single-message blob.
+  const fields = sanitizeTicketFields(body?.fields);
+  if (fields === null) return json({ error: "Invalid fields payload" }, 400);
+
   // Validate pending media IDs (uploaded via /api/public/ticket-media).
   const rawMediaIds = Array.isArray(body?.mediaIds)
     ? body.mediaIds.slice(0, 10)
@@ -6016,14 +6022,18 @@ async function handleCreateTicket(request) {
       ),
     );
 
-  if (!orgId || !title || !message) {
-    return json({ error: "orgId, title, and message are required" }, 400);
+  if (!orgId || !title || (!message && fields.length === 0)) {
+    return json(
+      { error: "orgId, title, and message or fields are required" },
+      400,
+    );
   }
   if (title.length > 255)
     return json({ error: "title must be 255 characters or fewer" }, 400);
   if (message.length > 10000)
     return json({ error: "message is too long" }, 400);
-  if (/\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(message))
+  const ipRe = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+  if (ipRe.test(message) || fields.some((f) => ipRe.test(f.value)))
     return json({ error: "Messages cannot contain raw IP addresses." }, 400);
 
   const orgRes = await pool.query(
@@ -6096,16 +6106,25 @@ async function handleCreateTicket(request) {
   try {
     await txClient.query(`BEGIN`);
     const result = await txClient.query(
-      `INSERT INTO tickets (org_id, ticket_type_id, created_by, title, reported_players)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO tickets (org_id, ticket_type_id, created_by, title, reported_players, form_data)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING ticket_id`,
-      [orgId, ticketTypeId, session.userId, title, reportedPlayers],
+      [
+        orgId,
+        ticketTypeId,
+        session.userId,
+        title,
+        reportedPlayers,
+        JSON.stringify(fields),
+      ],
     );
     ticketId = Number(result.rows[0].ticket_id);
-    await txClient.query(
-      `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
-      [ticketId, session.userId, message],
-    );
+    if (message) {
+      await txClient.query(
+        `INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES ($1, $2, $3)`,
+        [ticketId, session.userId, message],
+      );
+    }
     await txClient.query(
       `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
       [
@@ -6543,6 +6562,193 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
   );
 
   return json({ players });
+}
+
+// Pairwise relationship intel between a ticket's reported players: Steam
+// friendship, overlapping play sessions on the org's servers, and kills
+// between the pair. Powers the "Relationships" panel for teaming-style
+// multi-player reports. Same gate as the player-intel panel.
+async function handleGetTicketRelationships(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  let ticket = await getCachedTicket(id);
+  if (!ticket) {
+    ticket = await loadTicketFromDb(id);
+    if (!ticket) return json({ error: "Ticket not found" }, 404);
+  }
+
+  if (
+    !isGlobalAdmin(session) &&
+    !canManageOrg(session, ticket.org_id) &&
+    !orgHasPermission(session, ticket.org_id, "tickets_player_intel")
+  ) {
+    return json(
+      { error: "Forbidden: tickets_player_intel permission required" },
+      403,
+    );
+  }
+
+  const rl = await checkRateLimit(`rl:ticket-rel:${session.userId}`, 60, 60);
+  if (rl) return rl;
+
+  // Cap the pairwise fan-out: 6 players = 15 pairs.
+  const steamIds = [...new Set(ticket.reported_players ?? [])].slice(0, 6);
+  if (steamIds.length < 2) return json({ players: [], pairs: [] });
+
+  const nowUnix = Math.floor(Date.now() / 1000);
+
+  const [cacheRes, aliasRes, friendsRes, metaRes] = await Promise.all([
+    pool.query(
+      `SELECT steam_id, display_name, avatar_url FROM player_cache WHERE steam_id = ANY($1)`,
+      [steamIds],
+    ),
+    // Known in-game names, used to match pvp_log rows that predate the
+    // victim_steam_id column (older plugins only report victim_name).
+    pool.query(
+      `SELECT DISTINCT steam_id, player_name FROM server_player_sessions
+       WHERE org_id = $1 AND steam_id = ANY($2) AND player_name IS NOT NULL`,
+      [ticket.org_id, steamIds],
+    ),
+    pool.query(
+      `SELECT steam_id, friend_steam_id, first_seen FROM player_friends
+       WHERE steam_id = ANY($1) AND friend_steam_id = ANY($1)`,
+      [steamIds],
+    ),
+    pool.query(
+      `SELECT steam_id, friends_public FROM player_friends_meta WHERE steam_id = ANY($1)`,
+      [steamIds],
+    ),
+  ]);
+
+  const names = new Map(steamIds.map((sid) => [sid, new Set()]));
+  const playerInfo = new Map();
+  for (const row of cacheRes.rows) {
+    const sid = String(row.steam_id);
+    playerInfo.set(sid, {
+      displayName: row.display_name ?? null,
+      avatarUrl: row.avatar_url ?? null,
+    });
+    if (row.display_name) names.get(sid)?.add(String(row.display_name));
+  }
+  for (const row of aliasRes.rows) {
+    names.get(String(row.steam_id))?.add(String(row.player_name));
+  }
+
+  const friendPairs = new Map();
+  for (const row of friendsRes.rows) {
+    const key = [String(row.steam_id), String(row.friend_steam_id)]
+      .sort()
+      .join("|");
+    const firstSeen = Number(row.first_seen) || null;
+    const existing = friendPairs.get(key);
+    if (existing == null || (firstSeen && firstSeen < existing))
+      friendPairs.set(key, firstSeen);
+  }
+  // friends_public tells us whether a "no friendship found" is meaningful:
+  // absent row = never fetched, false = private profile — both are "unknown".
+  const friendsKnown = new Map(
+    metaRes.rows.map((r) => [String(r.steam_id), Boolean(r.friends_public)]),
+  );
+
+  const pairs = [];
+  for (let i = 0; i < steamIds.length; i++) {
+    for (let j = i + 1; j < steamIds.length; j++) {
+      pairs.push([steamIds[i], steamIds[j]]);
+    }
+  }
+
+  const results = await Promise.all(
+    pairs.map(async ([a, b]) => {
+      const aNames = [...(names.get(a) ?? [])].slice(0, 25);
+      const bNames = [...(names.get(b) ?? [])].slice(0, 25);
+
+      const [sessionsRes, killsRes] = await Promise.all([
+        pool.query(
+          `SELECT s1.server_id, srv.server_name,
+                  COUNT(*)::int AS overlap_count,
+                  COALESCE(SUM(
+                    LEAST(COALESCE(s1.disconnected_at, $4), COALESCE(s2.disconnected_at, $4)) -
+                    GREATEST(s1.connected_at, s2.connected_at)
+                  ), 0)::bigint AS overlap_seconds,
+                  MAX(LEAST(COALESCE(s1.disconnected_at, $4), COALESCE(s2.disconnected_at, $4))) AS last_together
+           FROM server_player_sessions s1
+           JOIN server_player_sessions s2
+             ON s2.org_id = s1.org_id AND s2.server_id = s1.server_id AND s2.steam_id = $3
+           JOIN servers srv ON srv.server_id = s1.server_id
+           WHERE s1.org_id = $1 AND s1.steam_id = $2
+             AND s1.connected_at < COALESCE(s2.disconnected_at, $4)
+             AND s2.connected_at < COALESCE(s1.disconnected_at, $4)
+           GROUP BY s1.server_id, srv.server_name
+           ORDER BY overlap_seconds DESC`,
+          [ticket.org_id, a, b, nowUnix],
+        ),
+        pool.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE p.killer_steam_id = $2)::int AS a_to_b,
+             COUNT(*) FILTER (WHERE p.killer_steam_id = $3)::int AS b_to_a,
+             MAX(p.created_at) AS last_kill
+           FROM pvp_log p
+           JOIN servers s ON s.server_id = p.server_id
+           WHERE s.owner_org_id = $1
+             AND (
+               (p.killer_steam_id = $2 AND (p.victim_steam_id = $3
+                  OR (p.victim_steam_id IS NULL AND p.victim_name = ANY($5::text[]))))
+               OR
+               (p.killer_steam_id = $3 AND (p.victim_steam_id = $2
+                  OR (p.victim_steam_id IS NULL AND p.victim_name = ANY($4::text[]))))
+             )`,
+          [ticket.org_id, a, b, aNames, bNames],
+        ),
+      ]);
+
+      const servers = sessionsRes.rows.map((r) => ({
+        serverId: String(r.server_id),
+        serverName: String(r.server_name),
+        count: Number(r.overlap_count),
+        seconds: Number(r.overlap_seconds),
+      }));
+      const sharedSessions = {
+        count: servers.reduce((n, s) => n + s.count, 0),
+        totalSeconds: servers.reduce((n, s) => n + s.seconds, 0),
+        lastTogether: sessionsRes.rows.length
+          ? Math.max(...sessionsRes.rows.map((r) => Number(r.last_together)))
+          : null,
+        servers,
+      };
+
+      const pairKey = [a, b].sort().join("|");
+      const areFriends = friendPairs.has(pairKey);
+      const friendsUnknown =
+        !areFriends && (!friendsKnown.get(a) || !friendsKnown.get(b));
+
+      const killRow = killsRes.rows[0] ?? {};
+      return {
+        steamIds: [a, b],
+        friends: areFriends ? true : friendsUnknown ? null : false,
+        friendsSince: areFriends ? (friendPairs.get(pairKey) ?? null) : null,
+        sharedSessions,
+        kills: {
+          aToB: Number(killRow.a_to_b ?? 0),
+          bToA: Number(killRow.b_to_a ?? 0),
+          lastKillAt: killRow.last_kill ? Number(killRow.last_kill) : null,
+        },
+      };
+    }),
+  );
+
+  return json({
+    players: steamIds.map((sid) => ({
+      steamId: sid,
+      displayName: playerInfo.get(sid)?.displayName ?? null,
+      avatarUrl: playerInfo.get(sid)?.avatarUrl ?? null,
+    })),
+    pairs: results,
+  });
 }
 
 async function handleAddTicketMessage(request, ticketIdStr) {
@@ -16790,6 +16996,13 @@ async function _handleApiRequest(request) {
     );
     if (ticketPlayerIntelMatch && request.method === "GET") {
       return handleGetTicketPlayerIntel(request, ticketPlayerIntelMatch[1]);
+    }
+
+    const ticketRelationshipsMatch = pathname.match(
+      /^\/api\/tickets\/(\d+)\/relationships$/,
+    );
+    if (ticketRelationshipsMatch && request.method === "GET") {
+      return handleGetTicketRelationships(request, ticketRelationshipsMatch[1]);
     }
 
     const ticketMessagesMatch = pathname.match(

@@ -80,6 +80,85 @@ const REPORT_CATEGORIES = [
   },
 ];
 
+// Renders the org-configured questions for a ticket type. Answers are keyed
+// by questionId in the shared `answers` map and submitted as structured
+// { label, value } fields.
+function CustomQuestions({ questions, answers, setAnswers }) {
+  return (
+    <div className="space-y-6">
+      {questions.map((q, i) => (
+        <section key={q.questionId} className="space-y-2">
+          <label className="block text-sm font-medium">
+            {i + 1}. {q.questionText}
+            {q.isRequired ? (
+              <span className="text-danger ml-1">*</span>
+            ) : (
+              <span className="text-xs text-muted-foreground ml-2 font-normal">
+                (optional)
+              </span>
+            )}
+          </label>
+          {q.questionType === "text" && (
+            <textarea
+              value={answers[q.questionId] ?? ""}
+              onChange={(e) =>
+                setAnswers((prev) => ({
+                  ...prev,
+                  [q.questionId]: e.target.value,
+                }))
+              }
+              placeholder="Your answer…"
+              maxLength={q.config?.maxLength ?? 5000}
+              className="w-full h-28 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40 resize-y"
+            />
+          )}
+          {q.questionType === "number" && (
+            <input
+              type="number"
+              value={answers[q.questionId] ?? ""}
+              min={q.config?.min ?? undefined}
+              max={q.config?.max ?? undefined}
+              onChange={(e) =>
+                setAnswers((prev) => ({
+                  ...prev,
+                  [q.questionId]: e.target.value,
+                }))
+              }
+              placeholder="Your answer…"
+              className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
+            />
+          )}
+          {q.questionType === "multiple_choice" &&
+            Array.isArray(q.config?.options) && (
+              <div className="space-y-1.5">
+                {q.config.options.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() =>
+                      setAnswers((prev) => ({
+                        ...prev,
+                        [q.questionId]: opt,
+                      }))
+                    }
+                    className={
+                      "w-full text-left px-3 py-2 rounded ring-1 text-sm transition-colors " +
+                      (answers[q.questionId] === opt
+                        ? "bg-brand/10 ring-brand/30 text-brand"
+                        : "bg-surface/40 ring-border hover:bg-surface/70")
+                    }
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function SubmitPage() {
   const { org: orgId } = Route.useSearch();
   const [session, setSession] = useState(null);
@@ -108,7 +187,7 @@ function SubmitPage() {
   // File attachments state
   const [attachments, setAttachments] = useState([]); // { file, mediaId, status, progress, error }
   const attachFileRef = useRef(null);
-  // Staff application questions
+  // Per-type custom questions (configured in Manage → Tickets)
   const [applicationQuestions, setApplicationQuestions] = useState([]);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [questionAnswers, setQuestionAnswers] = useState({});
@@ -222,7 +301,7 @@ function SubmitPage() {
   }, []);
 
   useEffect(() => {
-    if (!isStaffApplication || !selectedTypeId || !orgId) {
+    if (!selectedTypeId || !orgId) {
       setApplicationQuestions([]);
       setQuestionAnswers({});
       return;
@@ -246,7 +325,7 @@ function SubmitPage() {
     return () => {
       cancelled = true;
     };
-  }, [isStaffApplication, selectedTypeId, orgId]);
+  }, [selectedTypeId, orgId]);
 
   async function uploadAttachment(att, index) {
     const updateAtt = (patch) =>
@@ -321,42 +400,53 @@ function SubmitPage() {
   async function handleSubmit() {
     if (!selectedTypeId || !orgId) return;
     let ticketTitle = title.trim();
-    let message = body.trim();
+    let message = "";
+    const fields = [];
     const players = isMultiPlayerReport
       ? selectedPlayers
       : selectedPlayer
         ? [selectedPlayer]
         : [];
+
+    // Answers to per-type custom questions become their own sections.
+    const questionFields = applicationQuestions
+      .map((q) => ({
+        label: q.questionText,
+        value: String(questionAnswers[q.questionId] ?? "").trim(),
+      }))
+      .filter((f) => f.value);
+
     if (isPlayerReport) {
-      if (players.length === 0 || !message) return;
+      const description = body.trim();
+      if (players.length === 0 || !description) return;
       const steamIds = players.map((p) => p.steamId).join(", ");
       ticketTitle = ticketTitle || `${reportCategory} — ${steamIds}`;
-      const evidenceText = evidence.trim();
-      if (evidenceText) message = `${message}\n\nEvidence:\n${evidenceText}`;
       const serverName = selectedServerId
         ? (servers.find((s) => s.serverId === selectedServerId)?.serverName ??
           "")
         : "";
-      const prefix = [
-        serverName ? `Server: ${serverName}` : null,
-        isMultiPlayerReport
-          ? `Target Steam IDs: ${steamIds}`
-          : `Target Steam ID: ${steamIds}`,
-        `Category: ${reportCategory}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      message = `${prefix}\n\n${message}`;
+      const categoryLabel =
+        REPORT_CATEGORIES.find((c) => c.id === reportCategory)?.label ??
+        reportCategory;
+      if (serverName) fields.push({ label: "Server", value: serverName });
+      fields.push({ label: "Category", value: categoryLabel });
+      fields.push({
+        label: isMultiPlayerReport ? "Reported players" : "Reported player",
+        value: players.map((p) => `${p.name} (${p.steamId})`).join("\n"),
+      });
+      fields.push({ label: "Description", value: description });
+      const evidenceText = evidence.trim();
+      if (evidenceText)
+        fields.push({ label: "Evidence links", value: evidenceText });
+      fields.push(...questionFields);
     } else if (isStaffApplication) {
       ticketTitle = `Staff Application — ${session.username}`;
-      message = applicationQuestions
-        .map((q, i) => {
-          const ans = questionAnswers[q.questionId] ?? "";
-          return `${i + 1}. ${q.questionText}\n${ans.trim() || "(no answer)"}`;
-        })
-        .join("\n\n");
+      fields.push(...questionFields);
+      if (fields.length === 0) return;
     } else {
+      message = body.trim();
       if (!ticketTitle || !message) return;
+      fields.push(...questionFields);
     }
     setSubmitting(true);
     setSubmitError("");
@@ -399,6 +489,7 @@ function SubmitPage() {
           ticketTypeId: selectedTypeId,
           title: ticketTitle,
           message,
+          fields,
           reportedPlayers: isPlayerReport ? players.map((p) => p.steamId) : [],
           mediaIds: confirmedMediaIds,
         }),
@@ -549,6 +640,15 @@ function SubmitPage() {
     );
   }
 
+  const requiredQuestionsAnswered =
+    !questionsLoading &&
+    applicationQuestions
+      .filter((q) => q.isRequired)
+      .every((q) => {
+        const ans = questionAnswers[q.questionId];
+        return ans != null && String(ans).trim().length > 0;
+      });
+
   const canSubmit = (() => {
     if (!selectedTypeId) return false;
     if (isPlayerReport) {
@@ -556,18 +656,22 @@ function SubmitPage() {
         ? selectedPlayers.length > 0
         : !!selectedPlayer;
       const hasServer = !showServerStep || !!selectedServerId;
-      return hasPlayers && hasServer && body.trim().length > 0;
+      return (
+        hasPlayers &&
+        hasServer &&
+        body.trim().length > 0 &&
+        requiredQuestionsAnswered
+      );
     }
     if (isStaffApplication) {
       if (questionsLoading || applicationQuestions.length === 0) return false;
-      return applicationQuestions
-        .filter((q) => q.isRequired)
-        .every((q) => {
-          const ans = questionAnswers[q.questionId];
-          return ans != null && String(ans).trim().length > 0;
-        });
+      return requiredQuestionsAnswered;
     }
-    return title.trim().length > 0 && body.trim().length > 0;
+    return (
+      title.trim().length > 0 &&
+      body.trim().length > 0 &&
+      requiredQuestionsAnswered
+    );
   })();
 
   let step = 0;
@@ -995,80 +1099,30 @@ function SubmitPage() {
                   No application questions have been configured yet.
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {applicationQuestions.map((q, i) => (
-                    <section key={q.questionId} className="space-y-2">
-                      <label className="block text-sm font-medium">
-                        {i + 1}. {q.questionText}
-                        {q.isRequired ? (
-                          <span className="text-danger ml-1">*</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground ml-2 font-normal">
-                            (optional)
-                          </span>
-                        )}
-                      </label>
-                      {q.questionType === "text" && (
-                        <textarea
-                          value={questionAnswers[q.questionId] ?? ""}
-                          onChange={(e) =>
-                            setQuestionAnswers((prev) => ({
-                              ...prev,
-                              [q.questionId]: e.target.value,
-                            }))
-                          }
-                          placeholder="Your answer…"
-                          maxLength={q.config?.maxLength ?? 5000}
-                          className="w-full h-28 bg-background border border-border rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40 resize-y"
-                        />
-                      )}
-                      {q.questionType === "number" && (
-                        <input
-                          type="number"
-                          value={questionAnswers[q.questionId] ?? ""}
-                          min={q.config?.min ?? undefined}
-                          max={q.config?.max ?? undefined}
-                          onChange={(e) =>
-                            setQuestionAnswers((prev) => ({
-                              ...prev,
-                              [q.questionId]: e.target.value,
-                            }))
-                          }
-                          placeholder="Your answer…"
-                          className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
-                        />
-                      )}
-                      {q.questionType === "multiple_choice" &&
-                        Array.isArray(q.config?.options) && (
-                          <div className="space-y-1.5">
-                            {q.config.options.map((opt) => (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() =>
-                                  setQuestionAnswers((prev) => ({
-                                    ...prev,
-                                    [q.questionId]: opt,
-                                  }))
-                                }
-                                className={
-                                  "w-full text-left px-3 py-2 rounded ring-1 text-sm transition-colors " +
-                                  (questionAnswers[q.questionId] === opt
-                                    ? "bg-brand/10 ring-brand/30 text-brand"
-                                    : "bg-surface/40 ring-border hover:bg-surface/70")
-                                }
-                              >
-                                {opt}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                    </section>
-                  ))}
-                </div>
+                <CustomQuestions
+                  questions={applicationQuestions}
+                  answers={questionAnswers}
+                  setAnswers={setQuestionAnswers}
+                />
               )}
             </>
           )}
+
+          {selectedType &&
+            !isStaffApplication &&
+            !questionsLoading &&
+            applicationQuestions.length > 0 && (
+              <section className="space-y-4">
+                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  Additional questions
+                </label>
+                <CustomQuestions
+                  questions={applicationQuestions}
+                  answers={questionAnswers}
+                  setAnswers={setQuestionAnswers}
+                />
+              </section>
+            )}
 
           {selectedType && selectedType.allowMedia !== false && session?.steamId && (
             <section className="space-y-2">

@@ -340,6 +340,24 @@ function MyTicketsPage() {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {Array.isArray(ticketDetail.ticket.form_data) &&
+                  ticketDetail.ticket.form_data.length > 0 && (
+                    <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                        Your submission
+                      </p>
+                      {ticketDetail.ticket.form_data.map((f, i) => (
+                        <div key={i}>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                            {f.label}
+                          </p>
+                          <p className="text-sm whitespace-pre-wrap break-words">
+                            {f.value}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 {ticketDetail.messages.map((msg) => {
                   const isMe = msg.userId === session.userId;
                   return (

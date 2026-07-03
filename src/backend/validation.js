@@ -21,6 +21,32 @@ export function sanitizeNext(nextValue, fallback = "/todo") {
   return next;
 }
 
+// Normalizes a client-supplied structured-fields array for ticket creation:
+// each entry becomes { label, value } with trimmed strings, empty values are
+// dropped, and both count and lengths are capped (public endpoint). Returns
+// null when the payload is malformed enough to reject outright (non-array,
+// or any entry over the hard length caps) so the handler can 400 instead of
+// silently truncating user-entered evidence.
+export function sanitizeTicketFields(
+  value,
+  { maxFields = 20, maxLabel = 120, maxValue = 10000 } = {},
+) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) return null;
+  if (value.length > maxFields) return null;
+  const out = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry))
+      return null;
+    const label = String(entry.label ?? "").trim();
+    const fieldValue = String(entry.value ?? "").trim();
+    if (label.length > maxLabel || fieldValue.length > maxValue) return null;
+    if (!label || !fieldValue) continue;
+    out.push({ label, value: fieldValue });
+  }
+  return out;
+}
+
 // Normalizes a client-supplied reportedPlayers array: bounds the work before
 // validating (public endpoint), trims, keeps only valid SteamID64s, and caps
 // the result.

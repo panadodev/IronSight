@@ -223,10 +223,11 @@ function TicketsPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [selectedMedia, setSelectedMedia] = useState([]);
+  const [selectedFormData, setSelectedFormData] = useState([]);
   const [submitterSteamAccounts, setSubmitterSteamAccounts] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [replyText, setReplyText] = useState("");
-  const [composerMode, setComposerModeRaw] = useState("reply");
+  const [composerMode, setComposerModeRaw] = useState("note");
   const setComposerMode = useCallback((mode) => {
     setComposerModeRaw(mode);
     setSubmitError("");
@@ -280,6 +281,7 @@ function TicketsPage() {
     setDetailLoading(true);
     setSelectedMessages([]);
     setSelectedMedia([]);
+    setSelectedFormData([]);
     setSubmitterSteamAccounts([]);
     setSubmitError("");
     fetch(`/api/tickets/${selectedId}`, { credentials: "include" })
@@ -288,6 +290,9 @@ function TicketsPage() {
         if (!cancelled) {
           setSelectedMessages(data.messages ?? []);
           setSelectedMedia(data.media ?? []);
+          setSelectedFormData(
+            Array.isArray(data.ticket?.form_data) ? data.ticket.form_data : [],
+          );
           setSubmitterSteamAccounts(data.submitterSteamAccounts ?? []);
           setDetailLoading(false);
         }
@@ -746,6 +751,7 @@ function TicketsPage() {
               ticket={selectedTicket}
               messages={selectedMessages}
               media={selectedMedia}
+              formData={selectedFormData}
               noteText={noteText}
               onNoteChange={setNoteText}
               onPostNote={handlePostNote}
@@ -1013,10 +1019,60 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
   );
 }
 
+// Splits plain text on http(s) URLs and renders them as external links.
+// React escapes the text nodes, and only https?:// hrefs are ever emitted.
+function LinkifiedText({ text }) {
+  const parts = String(text).split(/(https?:\/\/[^\s<>"']+)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-brand hover:underline break-all"
+          >
+            {part}
+          </a>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+// The structured submission a typed ticket was created with — each field the
+// submitter filled in renders as its own labeled section.
+function SubmissionDetails({ formData }) {
+  return (
+    <div className="px-4 pt-3 pb-2">
+      <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+        Submission
+      </div>
+      <div className="bg-surface/60 ring-1 ring-border rounded-md px-3 py-2.5 space-y-2.5">
+        {formData.map((f, i) => (
+          <div key={i}>
+            <div className="text-[9px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+              {f.label}
+            </div>
+            <div className="text-xs mt-0.5 whitespace-pre-wrap break-words leading-relaxed">
+              <LinkifiedText text={f.value} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TicketDetail({
   ticket,
   messages,
   media = [],
+  formData = [],
   noteText,
   onNoteChange,
   onPostNote,
@@ -1175,13 +1231,14 @@ function TicketDetail({
           </div>
         ) : (
           <>
+            {formData.length > 0 && <SubmissionDetails formData={formData} />}
             {publicMessages.length > 0 && (
               <div className="px-4 pt-3 pb-2 space-y-2">
                 <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
                   Conversation
                 </div>
                 {publicMessages.map((msg) => (
-                  <MessageBubble key={msg.messageId} msg={msg} />
+                  <MessageBubble key={msg.messageId} msg={msg} myUserId={sessionUser?.userId} />
                 ))}
               </div>
             )}
@@ -1191,7 +1248,7 @@ function TicketDetail({
                   Internal Notes
                 </div>
                 {internalMessages.map((msg) => (
-                  <MessageBubble key={msg.messageId} msg={msg} internal />
+                  <MessageBubble key={msg.messageId} msg={msg} internal myUserId={sessionUser?.userId} />
                 ))}
               </div>
             )}
@@ -1239,11 +1296,13 @@ function TicketDetail({
                 </div>
               </div>
             )}
-            {messages.length === 0 && media.length === 0 && (
-              <div className="text-[10px] text-muted-foreground text-center py-10">
-                No messages yet
-              </div>
-            )}
+            {messages.length === 0 &&
+              media.length === 0 &&
+              formData.length === 0 && (
+                <div className="text-[10px] text-muted-foreground text-center py-10">
+                  No messages yet
+                </div>
+              )}
           </>
         )}
       </div>
@@ -1395,44 +1454,79 @@ function parseApplicationMessage(text) {
   return entries;
 }
 
-function MessageBubble({ msg, internal }) {
+const STAFF_COLORS = [
+  { bg: "bg-violet-500/10", ring: "ring-violet-500/30", name: "text-violet-300" },
+  { bg: "bg-teal-500/10", ring: "ring-teal-500/30", name: "text-teal-300" },
+  { bg: "bg-amber-500/10", ring: "ring-amber-500/30", name: "text-amber-300" },
+  { bg: "bg-pink-500/10", ring: "ring-pink-500/30", name: "text-pink-300" },
+  { bg: "bg-lime-500/10", ring: "ring-lime-500/30", name: "text-lime-300" },
+  { bg: "bg-sky-500/10", ring: "ring-sky-500/30", name: "text-sky-300" },
+  { bg: "bg-orange-500/10", ring: "ring-orange-500/30", name: "text-orange-300" },
+  { bg: "bg-rose-500/10", ring: "ring-rose-500/30", name: "text-rose-300" },
+];
+
+function staffColorFor(userId) {
+  if (!userId) return null;
+  let h = 0;
+  for (const c of String(userId)) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return STAFF_COLORS[h % STAFF_COLORS.length];
+}
+
+function MessageBubble({ msg, internal, myUserId }) {
+  const isMe = !!(msg.userId && myUserId && String(msg.userId) === String(myUserId));
+  const isSubmitter = !msg.userId;
   const appEntries = !internal ? parseApplicationMessage(msg.message) : null;
+  const color = !isMe && !isSubmitter ? staffColorFor(msg.userId) : null;
+
+  let bgClass, ringClass;
+  if (isMe) {
+    bgClass = "bg-brand/15";
+    ringClass = "ring-brand/30";
+  } else if (color) {
+    bgClass = color.bg;
+    ringClass = color.ring;
+  } else {
+    bgClass = internal ? "bg-brand/10" : "bg-surface/60";
+    ringClass = internal ? "ring-brand/20" : "ring-border";
+  }
+
+  const nameColor = isMe ? "text-brand" : color ? color.name : "text-foreground";
 
   return (
-    <div
-      className={`rounded-md px-3 py-2 ring-1 text-xs ${
-        internal ? "bg-brand/10 ring-brand/20" : "bg-surface/60 ring-border"
-      }`}
-    >
-      <div className="flex items-center gap-2 mb-0.5">
-        <span className="font-semibold text-[10px]">
-          {msg.username ?? "Unknown"}
-        </span>
-        <span className="font-mono text-[9px] text-muted-foreground">
-          {formatRelativeTime(msg.createdAt)}
-        </span>
-        {internal && (
-          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
-            Internal Note
+    <div className={isMe ? "flex justify-end" : ""}>
+      <div
+        className={`rounded-md px-3 py-2 ring-1 text-xs ${isMe ? "max-w-[75%]" : "w-full"} ${bgClass} ${ringClass}`}
+      >
+        <div className={`flex items-center gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}>
+          <span className={`font-semibold text-[10px] ${nameColor}`}>
+            {msg.username ?? "Unknown"}
           </span>
+          <span className="font-mono text-[9px] text-muted-foreground">
+            {formatRelativeTime(msg.createdAt)}
+          </span>
+          {internal && (
+            <span className={`text-[9px] font-mono uppercase tracking-widest text-muted-foreground ${isMe ? "" : "ml-auto"}`}>
+              Internal Note
+            </span>
+          )}
+        </div>
+        {appEntries ? (
+          <div className="space-y-2 mt-1.5">
+            {appEntries.map((entry, i) => (
+              <div key={i}>
+                <div className="text-[10px] font-semibold text-foreground">
+                  {i + 1}. {entry.question}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5 pl-3 whitespace-pre-wrap">
+                  {entry.answer || "(no answer)"}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="leading-relaxed">{msg.message}</p>
         )}
       </div>
-      {appEntries ? (
-        <div className="space-y-2 mt-1.5">
-          {appEntries.map((entry, i) => (
-            <div key={i}>
-              <div className="text-[10px] font-semibold text-foreground">
-                {i + 1}. {entry.question}
-              </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5 pl-3 whitespace-pre-wrap">
-                {entry.answer || "(no answer)"}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="leading-relaxed">{msg.message}</p>
-      )}
     </div>
   );
 }
@@ -1508,10 +1602,10 @@ function ExternalLinks({ steamId, size = 13 }) {
         <Gamepad2 size={size} aria-hidden />
       </a>
       <a
-        href={`https://www.battlemetrics.com/players?filter%5Bsearch%5D=${steamId}`}
+        href={`https://www.battlemetrics.com/rcon/players?filter%5Bsearch%5D=${steamId}`}
         target="_blank"
         rel="noopener noreferrer"
-        title="Open BattleMetrics profile"
+        title="Open in BattleMetrics RCON"
         className="inline-flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground p-1"
       >
         <Activity size={size} aria-hidden />
@@ -2064,6 +2158,148 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
   );
 }
 
+function formatSeconds(sec) {
+  if (!sec || sec <= 0) return "0m";
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// Pairwise relationship intel between the reported players — Steam
+// friendship, time spent on the org's servers together, and kills between
+// the pair. Shown automatically for teaming-style multi-player reports.
+function RelationshipPairCard({ pair, playersById }) {
+  const [a, b] = pair.steamIds;
+  const nameOf = (sid) => playersById.get(sid)?.displayName ?? sid.slice(-6);
+  const sessions = pair.sharedSessions;
+  const kills = pair.kills;
+  const totalKills = kills.aToB + kills.bToA;
+  const playedTogether = sessions.count > 0;
+
+  return (
+    <div className="bg-surface/40 ring-1 ring-border rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-1.5 min-w-0 text-xs font-medium">
+        <span className="truncate">{nameOf(a)}</span>
+        <span className="text-muted-foreground shrink-0">↔</span>
+        <span className="truncate">{nameOf(b)}</span>
+      </div>
+
+      <div className="flex items-center gap-1.5 text-[10px] font-mono">
+        <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-14 shrink-0">
+          Friends
+        </span>
+        {pair.friends === true ? (
+          <span className="text-danger font-bold">
+            Steam friends
+            {pair.friendsSince
+              ? ` · seen ${formatRelativeTime(pair.friendsSince)}`
+              : ""}
+          </span>
+        ) : pair.friends === false ? (
+          <span className="text-muted-foreground">Not friends</span>
+        ) : (
+          <span className="text-muted-foreground italic">
+            Unknown (private or unfetched friends list)
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-start gap-1.5 text-[10px] font-mono">
+        <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-14 shrink-0 mt-px">
+          Together
+        </span>
+        {playedTogether ? (
+          <div className="min-w-0">
+            <span className="text-warning font-bold">
+              {sessions.count} shared session
+              {sessions.count !== 1 ? "s" : ""}
+            </span>
+            <span className="text-muted-foreground">
+              {" "}
+              · {formatSeconds(sessions.totalSeconds)}
+              {sessions.lastTogether
+                ? ` · last ${formatRelativeTime(sessions.lastTogether)}`
+                : ""}
+            </span>
+            {sessions.servers.length > 0 && (
+              <p className="text-[9px] text-muted-foreground truncate">
+                {sessions.servers
+                  .slice(0, 3)
+                  .map((s) => s.serverName)
+                  .join(", ")}
+                {sessions.servers.length > 3
+                  ? ` +${sessions.servers.length - 3}`
+                  : ""}
+              </p>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">
+            No shared sessions recorded
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 text-[10px] font-mono">
+        <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-14 shrink-0">
+          Kills
+        </span>
+        {totalKills > 0 ? (
+          <span className="text-foreground">
+            {kills.aToB > 0 && (
+              <>
+                {nameOf(a)} → {nameOf(b)}:{" "}
+                <span className="font-bold">{kills.aToB}</span>
+              </>
+            )}
+            {kills.aToB > 0 && kills.bToA > 0 && " · "}
+            {kills.bToA > 0 && (
+              <>
+                {nameOf(b)} → {nameOf(a)}:{" "}
+                <span className="font-bold">{kills.bToA}</span>
+              </>
+            )}
+            {kills.lastKillAt
+              ? ` · last ${formatRelativeTime(kills.lastKillAt)}`
+              : ""}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            Never killed each other
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RelationshipSection({ data }) {
+  const playersById = useMemo(
+    () => new Map((data?.players ?? []).map((p) => [p.steamId, p])),
+    [data],
+  );
+  const pairs = data?.pairs ?? [];
+  if (pairs.length === 0) return null;
+  return (
+    <section>
+      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+        <Users className="size-3" aria-hidden />
+        Player Relationships
+      </h2>
+      <div className="space-y-2">
+        {pairs.map((pair) => (
+          <RelationshipPairCard
+            key={pair.steamIds.join("|")}
+            pair={pair}
+            playersById={playersById}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function PlayerIntelSidebar({
   ticketId,
   orgId,
@@ -2078,6 +2314,7 @@ function PlayerIntelSidebar({
   const [intelData, setIntelData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [relationshipData, setRelationshipData] = useState(null);
 
   useEffect(() => {
     if (!ticketId) return;
@@ -2104,6 +2341,26 @@ function PlayerIntelSidebar({
   const players = intelData?.players ?? [];
   const player = players[selectedIdx] ?? null;
   const hasPlayers = players.length > 0;
+  const hasMultiplePlayers = players.length >= 2;
+
+  // Pairwise relationship intel (friends / shared sessions / kills) only
+  // exists for multi-player reports such as teaming.
+  useEffect(() => {
+    setRelationshipData(null);
+    if (!ticketId || !hasMultiplePlayers) return;
+    let cancelled = false;
+    fetch(`/api/tickets/${ticketId}/relationships`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setRelationshipData(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [ticketId, hasMultiplePlayers]);
 
   return (
     <aside className="w-[28rem] shrink-0 border-l border-border bg-background overflow-y-auto hidden xl:block">
@@ -2130,6 +2387,10 @@ function PlayerIntelSidebar({
               </button>
             ))}
           </div>
+        )}
+
+        {!loading && relationshipData && (
+          <RelationshipSection data={relationshipData} />
         )}
 
         {!loading && player && !player.fetching && (
