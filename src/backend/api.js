@@ -10327,12 +10327,14 @@ async function handleListPteroPlugins(request, serverId) {
 
   // Enrich with live status from RCON if available
   let statusMap = {};
+  let rconConnected = false;
   if (rcon_host && rcon_port && rcon_password_enc) {
     try {
       const password = decryptPterodactylApiKey(String(rcon_password_enc));
       const rconUrl = `ws://${rcon_host}:${rcon_port}/${encodeURIComponent(password)}`;
       const result = await executeRconCommand(rconUrl, "oxide.plugins");
       statusMap = parseOxidePluginList(result.response);
+      rconConnected = true;
     } catch {
       // RCON unavailable — return plugins without live status
     }
@@ -10346,6 +10348,7 @@ async function handleListPteroPlugins(request, serverId) {
     })),
     rconAvailable:
       rcon_host != null && rcon_port != null && rcon_password_enc != null,
+    rconConnected,
   });
 }
 

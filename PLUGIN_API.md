@@ -120,15 +120,17 @@ Logs a PvP kill event with optional Rust combatlog data. Persisted to PostgreSQL
 {
   "killer_steam_id": "76561198000000000",
   "victim_name": "VictimName",
+  "victim_steam_id": "76561198000000001",
   "combatlog_cache": {}
 }
 ```
 
-| Field             | Type   | Required | Description                                |
-| ----------------- | ------ | -------- | ------------------------------------------ |
-| `killer_steam_id` | string | Yes      | SteamID64 of the killer (max 64 chars)     |
-| `victim_name`     | string | Yes      | Display name of the victim (max 128 chars) |
-| `combatlog_cache` | object | No       | Raw Rust combatlog JSON object (max 64 KB) |
+| Field             | Type   | Required | Description                                                                               |
+| ----------------- | ------ | -------- | ----------------------------------------------------------------------------------------- |
+| `killer_steam_id` | string | Yes      | SteamID64 of the killer (max 64 chars)                                                    |
+| `victim_name`     | string | Yes      | Display name of the victim (max 128 chars)                                                |
+| `victim_steam_id` | string | No       | SteamID64 of the victim (max 64 chars). When present, enables precise relationship intel matching instead of name-based matching. |
+| `combatlog_cache` | object | No       | Raw Rust combatlog JSON object (max 64 KB)                                                |
 
 **Response**
 
@@ -297,6 +299,90 @@ The value for each steam ID is the Unix expiry timestamp, or `null` for a perman
 
 ---
 
+## Single Mute Check
+
+**`GET /api/mute-check?steam_id=<SteamID64>`**
+
+Returns the active mute state for a single player. Use this for real-time checks on chat events — cheaper than `mute-sync` when only one player is involved.
+
+**Query parameters**
+
+| Parameter  | Type   | Required | Description             |
+| ---------- | ------ | -------- | ----------------------- |
+| `steam_id` | string | Yes      | SteamID64 of the player |
+
+**Response — not muted**
+
+```json
+{ "muted": false }
+```
+
+**Response — muted**
+
+```json
+{
+  "muted": true,
+  "permanent": false,
+  "reason": "Toxic behaviour",
+  "expiresAt": 1700000000,
+  "expiresUnix": 1700000000
+}
+```
+
+| Field        | Type         | Description                                                  |
+| ------------ | ------------ | ------------------------------------------------------------ |
+| `muted`      | boolean      | `true` if the player is currently muted                      |
+| `permanent`  | boolean      | `true` if the mute has no expiry                             |
+| `reason`     | string       | The mute reason as recorded in the panel                     |
+| `expiresAt`  | number\|null | Unix expiry timestamp, or `null` for a permanent mute        |
+| `expiresUnix`| number\|null | Alias for `expiresAt` (both fields are always returned)      |
+
+Only server-targeted mutes (or org-wide mutes) that apply to **this server** are returned.
+
+---
+
+## Blacklisted Words
+
+**`GET /api/blacklisted-words`**
+
+Returns the org's current word blacklist as a semicolon-delimited plain-text string. Intended for plugins that enforce chat filtering on the game server side. Poll periodically (e.g. on wipe or hourly) rather than on every chat message.
+
+**Response**
+
+Content-Type: `text/plain`
+
+```
+badword1;badword2;badword3
+```
+
+An empty response body means the org has no blacklisted words configured.
+
+---
+
+## Server Health Check
+
+**`GET /api/server-health-check`**
+
+Heartbeat ping. Call this on a regular interval (e.g. every 2–5 minutes) from your plugin. IronSight records the timestamp and monitors for missed pings — if no ping arrives for more than 10 minutes, subscribed staff are notified when the server comes back and sends its next successful ping.
+
+**Request body**
+
+None. No body required — authentication is via the server API key header only.
+
+**Response**
+
+```json
+{ "ok": true }
+```
+
+**Recovery behaviour**
+
+When a server resumes pinging after a gap of more than 10 minutes, IronSight automatically:
+1. Sends a Discord DM to all staff members with the **server offline** notification enabled for this org.
+2. Clears the `stale_ping` alert state so the notification fires only once per outage.
+
+---
+
 ## Rate limits
 
 All endpoints are rate-limited per server. Exceeding the limit returns `429 Too Many Requests`. The limits are intentionally generous for normal plugin traffic:
@@ -309,6 +395,9 @@ All endpoints are rate-limited per server. Exceeding the limit returns `429 Too 
 | Reports              | 60 req/min  |
 | Team events          | 120 req/min |
 | Mute sync            | 120 req/min |
+| Mute check           | 60 req/min  |
 | Server admin log     | 120 req/min |
+| Health check         | 60 req/min  |
+| Blacklisted words    | No limit    |
 
 Rate limiters fail **open** — if Redis is unavailable, requests are passed through rather than rejected.

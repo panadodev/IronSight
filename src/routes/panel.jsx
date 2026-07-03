@@ -2138,6 +2138,7 @@ function PresetsTab({ servers, orgId }) {
   const {
     plugins,
     rconAvailable,
+    rconConnected,
     loading,
     fetching,
     error: fetchError,
@@ -2297,7 +2298,12 @@ function PresetsTab({ servers, orgId }) {
               Configure RCON on this server to see active/failed status.
             </p>
           )}
-          {rconAvailable === true && (
+          {rconAvailable === true && !rconConnected && (
+            <p className="text-[11px] text-muted-foreground">
+              RCON offline — plugin status unavailable.
+            </p>
+          )}
+          {rconConnected && (
             <p className="text-[11px] text-muted-foreground flex items-center gap-3">
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
@@ -2347,7 +2353,7 @@ function PresetsTab({ servers, orgId }) {
                           title="Failed to compile"
                         />
                       )}
-                      {p.status === null && rconAvailable && (
+                      {p.status === null && rconConnected && (
                         <span
                           className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/40"
                           title="Not loaded"

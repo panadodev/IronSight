@@ -58,6 +58,7 @@ export function usePteroPlugins(serverId) {
   return {
     plugins: query.data?.plugins ?? [],
     rconAvailable: query.data?.rconAvailable ?? null,
+    rconConnected: query.data?.rconConnected ?? false,
     loading: query.isLoading,
     fetching: query.isFetching,
     error: query.error ? String(query.error.message ?? query.error) : null,
