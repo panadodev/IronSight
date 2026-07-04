@@ -239,7 +239,7 @@ function displayNameOf(a) {
 function MiniAvatar({ id, name }) {
   return (
     <div
-      className="rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0 size-7 text-[10px]"
+      className="rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0 size-7 text-[0.625rem]"
       style={{ background: colorFromId(id) }}
     >
       {String(name)
@@ -253,7 +253,7 @@ function MiniAvatar({ id, name }) {
 function IpChip({ ipHashShort, connType }) {
   const meta = IP_TYPE_META[ipTypeKey(connType)];
   return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface ring-1 ring-border text-[10px] font-mono">
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface ring-1 ring-border text-[0.625rem] font-mono">
       <span className={`uppercase ${meta.tone}`}>{meta.short}</span>
       <span className="text-muted-foreground">{ipHashShort ?? "UNKNOWN"}</span>
     </span>
@@ -265,7 +265,7 @@ function ConfidenceBadge({ tier }) {
   return (
     <Hint text={meta.hint}>
       <span
-        className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help ${meta.tone}`}
+        className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help ${meta.tone}`}
       >
         {meta.label}
       </span>
@@ -276,7 +276,7 @@ function ConfidenceBadge({ tier }) {
 function HardLinkBadge() {
   return (
     <Hint text={HARD_LINK_HINT}>
-      <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help text-danger bg-danger/15 ring-danger/50 font-bold">
+      <span className="inline-flex items-center gap-1 text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help text-danger bg-danger/15 ring-danger/50 font-bold">
         <ShieldAlert className="size-3" /> Hard Link
       </span>
     </Hint>
@@ -315,7 +315,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
 
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between gap-2">
         <span className="flex items-center gap-2">
           <Wifi className="size-3" />
           Linked Accounts
@@ -323,14 +323,14 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
         <Link
           to="/player-lookup"
           search={{ steam: subjectId }}
-          className="text-[9px] font-mono uppercase tracking-wider text-brand hover:underline inline-flex items-center gap-1"
+          className="text-[0.625rem] font-mono uppercase tracking-wider text-brand hover:underline inline-flex items-center gap-1"
         >
           Lookup <ExternalLink className="size-2.5" />
         </Link>
       </h2>
       <div className="bg-surface/40 ring-1 ring-border rounded-lg p-3 space-y-2">
         {!summary.hasData ? (
-          <p className="text-[10px] text-muted-foreground italic">
+          <p className="text-[0.625rem] text-muted-foreground italic">
             Open the full player lookup to scan for linked accounts.
           </p>
         ) : (
@@ -340,7 +340,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
                 <p className="text-lg font-mono font-bold text-foreground">
                   {summary.total}
                 </p>
-                <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                   Linked
                 </p>
               </div>
@@ -348,7 +348,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
                 <p className="text-lg font-mono font-bold text-warning">
                   {summary.highConfidence}
                 </p>
-                <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                   Likely alt
                 </p>
               </div>
@@ -356,7 +356,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
                 <p className="text-lg font-mono font-bold text-danger">
                   {summary.gameBanned + summary.serverBanned}
                 </p>
-                <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                   Bans
                 </p>
               </div>
@@ -364,7 +364,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
             {summary.hardLinked > 0 && (
               <div className="flex items-start gap-2 bg-danger/10 ring-1 ring-danger/40 rounded p-2">
                 <ShieldAlert className="size-3.5 text-danger shrink-0 mt-0.5" />
-                <p className="text-[10px] text-danger leading-snug">
+                <p className="text-[0.625rem] text-danger leading-snug">
                   <span className="font-bold">{summary.hardLinked}</span>{" "}
                   <span className="font-bold">hard-linked</span>{" "}
                   {summary.hardLinked === 1 ? "account" : "accounts"} — same
@@ -375,7 +375,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
             {summary.strongBanned > 0 ? (
               <div className="flex items-start gap-2 bg-danger/10 ring-1 ring-danger/40 rounded p-2">
                 <ShieldAlert className="size-3.5 text-danger shrink-0 mt-0.5" />
-                <p className="text-[10px] text-danger leading-snug">
+                <p className="text-[0.625rem] text-danger leading-snug">
                   <span className="font-bold">{summary.strongBanned}</span>{" "}
                   banned{" "}
                   {summary.strongBanned === 1
@@ -386,11 +386,11 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
                 </p>
               </div>
             ) : summary.total === 0 ? (
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 No linked accounts found.
               </p>
             ) : (
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 No banned account shares a non-proxy IP.
               </p>
             )}
@@ -510,7 +510,7 @@ function LinkedAccountsSection({
 
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span className="flex items-center gap-2">
           <Wifi className="size-3 shrink-0" />
           Linked Accounts
@@ -525,7 +525,7 @@ function LinkedAccountsSection({
         {/* Ignore VPN/proxy-only links (default on) */}
         <button
           onClick={() => setIgnoreProxyOnly((v) => !v)}
-          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono uppercase ring-1 transition-colors ${
+          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[0.625rem] font-mono uppercase ring-1 transition-colors ${
             ignoreProxyOnly
               ? "text-success ring-success/40 bg-success/10"
               : "text-muted-foreground ring-border/50 hover:bg-surface/50"
@@ -548,11 +548,11 @@ function LinkedAccountsSection({
         <div ref={ipRef} className="relative">
           <button
             onClick={() => setIpDropdownOpen((v) => !v)}
-            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono uppercase ring-1 transition-colors ${ipDropdownOpen ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
+            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[0.625rem] font-mono uppercase ring-1 transition-colors ${ipDropdownOpen ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
           >
             <Filter className="size-3" />
             IP type
-            <span className="inline-flex items-center justify-center rounded-full bg-brand/15 text-brand text-[9px] px-1.5 leading-4 min-w-[1.25rem]">
+            <span className="inline-flex items-center justify-center rounded-full bg-brand/15 text-brand text-[0.625rem] px-1.5 leading-4 min-w-[1.25rem]">
               {activeIpTypes.size}
             </span>
             <ChevronDown
@@ -567,7 +567,7 @@ function LinkedAccountsSection({
                 return (
                   <label
                     key={t}
-                    className="flex items-center gap-2 px-2 py-1 rounded text-[11px] font-mono cursor-pointer hover:bg-surface/60"
+                    className="flex items-center gap-2 px-2 py-1 rounded text-[0.6875rem] font-mono cursor-pointer hover:bg-surface/60"
                   >
                     <span
                       className={`inline-flex items-center justify-center size-3.5 rounded border transition-colors ${checked ? "bg-brand border-brand text-brand-foreground" : "border-border bg-transparent"}`}
@@ -592,7 +592,7 @@ function LinkedAccountsSection({
         <div ref={banRef} className="relative">
           <button
             onClick={() => setBanDropdownOpen((v) => !v)}
-            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono uppercase ring-1 transition-colors ${banDropdownOpen ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
+            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[0.625rem] font-mono uppercase ring-1 transition-colors ${banDropdownOpen ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
           >
             <Ban className="size-3" />
             {banLabelMap[banFilter]}
@@ -615,7 +615,7 @@ function LinkedAccountsSection({
                     setBanFilter(k);
                     setBanDropdownOpen(false);
                   }}
-                  className={`w-full text-left px-2 py-1.5 rounded text-[11px] font-mono transition-colors ${banFilter === k ? "bg-brand/15 text-brand" : "text-muted-foreground hover:bg-surface/60"}`}
+                  className={`w-full text-left px-2 py-1.5 rounded text-[0.6875rem] font-mono transition-colors ${banFilter === k ? "bg-brand/15 text-brand" : "text-muted-foreground hover:bg-surface/60"}`}
                 >
                   {label}
                 </button>
@@ -627,7 +627,7 @@ function LinkedAccountsSection({
         <span className="flex-1" />
 
         {/* Show amount */}
-        <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground inline-flex items-center gap-2">
+        <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground inline-flex items-center gap-2">
           Show
           <select
             value={String(pageSize)}
@@ -635,7 +635,7 @@ function LinkedAccountsSection({
               const v = e.target.value;
               setPageSize(v === "all" ? "all" : Number(v));
             }}
-            className="bg-surface border border-border rounded px-2 py-1 text-[10px] font-mono [&>option]:bg-surface [&>option]:text-foreground"
+            className="bg-surface border border-border rounded px-2 py-1 text-[0.625rem] font-mono [&>option]:bg-surface [&>option]:text-foreground"
           >
             <option value="10">10</option>
             <option value="25">25</option>
@@ -656,7 +656,7 @@ function LinkedAccountsSection({
       ) : (
         <>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Showing {visible.length} of {filtered.length}
             </span>
           </div>
@@ -678,7 +678,7 @@ function LinkedAccountsSection({
                         {name}
                       </span>
                       {a.relatedSteamId && (
-                        <span className="text-[10px] font-mono text-muted-foreground inline-flex items-center gap-1">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground inline-flex items-center gap-1">
                           {a.relatedSteamId}
                           <PlayerLinks steamId={a.relatedSteamId} size="xs" />
                         </span>
@@ -691,24 +691,24 @@ function LinkedAccountsSection({
                       {a.nameSimilarity > 0 && (
                         <Hint text="Best bigram character similarity between this account's alias history and the subject's. ≥60% is a strong naming signal; ≥35% is notable.">
                           <span
-                            className={`text-[10px] font-mono cursor-help ${a.nameSimilarity >= 60 ? "text-danger" : a.nameSimilarity >= 35 ? "text-warning" : "text-muted-foreground"}`}
+                            className={`text-[0.625rem] font-mono cursor-help ${a.nameSimilarity >= 60 ? "text-danger" : a.nameSimilarity >= 35 ? "text-warning" : "text-muted-foreground"}`}
                           >
                             name {a.nameSimilarity}%
                           </span>
                         </Hint>
                       )}
                       {a.hasEacBans && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[10px] font-mono uppercase ring-1 ring-danger/40">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[0.625rem] font-mono uppercase ring-1 ring-danger/40">
                           <AlertOctagon className="size-3" /> Game ban
                         </span>
                       )}
                       {a.hasBmBans && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning/15 text-warning text-[10px] font-mono uppercase ring-1 ring-warning/40">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning/15 text-warning text-[0.625rem] font-mono uppercase ring-1 ring-warning/40">
                           <Ban className="size-3" /> Server ban
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 flex items-center gap-2 flex-wrap text-[10px] font-mono text-muted-foreground">
+                    <div className="mt-1 flex items-center gap-2 flex-wrap text-[0.625rem] font-mono text-muted-foreground">
                       <span>
                         {ipCount} shared IP{ipCount === 1 ? "" : "s"}
                       </span>
@@ -737,7 +737,7 @@ function LinkedAccountsSection({
                   </div>
                   <button
                     onClick={() => setOpenId(a.relatedBmId)}
-                    className="px-2.5 py-1.5 rounded bg-brand text-brand-foreground text-[10px] font-mono uppercase tracking-widest hover:opacity-90 shrink-0"
+                    className="px-2.5 py-1.5 rounded bg-brand text-brand-foreground text-[0.625rem] font-mono uppercase tracking-widest hover:opacity-90 shrink-0"
                   >
                     Compare
                   </button>
@@ -752,7 +752,7 @@ function LinkedAccountsSection({
           onClick={() =>
             setPageSize((s) => (s === 10 ? 25 : s === 25 ? 50 : "all"))
           }
-          className="mt-2 w-full text-center text-[10px] font-mono uppercase tracking-widest text-brand hover:underline py-1.5 ring-1 ring-border rounded bg-surface/40"
+          className="mt-2 w-full text-center text-[0.625rem] font-mono uppercase tracking-widest text-brand hover:underline py-1.5 ring-1 ring-border rounded bg-surface/40"
         >
           + {hiddenCount} more linked account{hiddenCount === 1 ? "" : "s"}{" "}
           hidden — increase limit
@@ -795,10 +795,10 @@ function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
 
   return (
     <div className="border-t border-border pt-4 mt-2">
-      <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-2">
+      <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-2">
         <Users className="size-3" />
         Playing Partners
-        <span className="text-[9px] font-mono ml-auto">{sorted.length}</span>
+        <span className="text-[0.625rem] font-mono ml-auto">{sorted.length}</span>
       </h4>
       <ul className="space-y-1">
         {sorted.map((c) => {
@@ -814,23 +814,23 @@ function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] font-medium truncate max-w-[10rem]">
+                  <span className="text-[0.6875rem] font-medium truncate max-w-[10rem]">
                     {name}
                   </span>
                   {isFriend && (
-                    <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-brand/10 text-brand text-[8px] font-mono uppercase ring-1 ring-brand/30">
+                    <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-brand/10 text-brand text-[0.5625rem] font-mono uppercase ring-1 ring-brand/30">
                       <Heart className="size-2" />
                       Friend
                     </span>
                   )}
                   {hasBan && (
-                    <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-danger/10 text-danger text-[8px] font-mono uppercase ring-1 ring-danger/30">
+                    <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-danger/10 text-danger text-[0.5625rem] font-mono uppercase ring-1 ring-danger/30">
                       <Ban className="size-2" />
                       IP link
                     </span>
                   )}
                 </div>
-                <div className="text-[9px] font-mono text-muted-foreground">
+                <div className="text-[0.625rem] font-mono text-muted-foreground">
                   {c.overlapSessions > 0 && `${c.overlapSessions} co-play`}
                   {c.distinctDays > 0 && ` · ${c.distinctDays}d`}
                   {(c.sharedServers ?? []).length > 0 &&
@@ -841,7 +841,7 @@ function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
                 <Link
                   to="/player-lookup"
                   search={{ steam: c.relatedSteamId }}
-                  className="shrink-0 text-brand hover:underline text-[10px] font-mono inline-flex items-center gap-0.5"
+                  className="shrink-0 text-brand hover:underline text-[0.625rem] font-mono inline-flex items-center gap-0.5"
                 >
                   View <ExternalLink className="size-2.5" />
                 </Link>
@@ -850,7 +850,7 @@ function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
                   href={`https://www.battlemetrics.com/players/${c.relatedBmId}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="shrink-0 text-brand hover:underline text-[10px] font-mono inline-flex items-center gap-0.5"
+                  className="shrink-0 text-brand hover:underline text-[0.625rem] font-mono inline-flex items-center gap-0.5"
                 >
                   BM <ExternalLink className="size-2.5" />
                 </a>
@@ -953,7 +953,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                   <ConfidenceBadge tier={account.altConfidence} />
                 )}
               </span>
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-[0.625rem] font-mono text-muted-foreground">
                 {account.relatedSteamId ?? `BM ${account.relatedBmId}`}
                 {account.altScore != null && (
                   <Hint text="Numerical confidence score combining all link signals: shared IPs (weighted by type), name similarity, mutual friends, shared groups, and session co-presence. Higher = more evidence of the same person.">
@@ -964,7 +964,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
             </span>
             <button
               onClick={onCopy}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded ring-1 ring-border bg-surface hover:bg-surface/70 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground shrink-0 mr-6"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded ring-1 ring-border bg-surface hover:bg-surface/70 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground shrink-0 mr-6"
               title="Copy summary to clipboard"
             >
               {copied ? (
@@ -988,7 +988,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                 >
                   {verdict.label}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
+                <p className="mt-1 text-[0.6875rem] text-muted-foreground leading-snug">
                   {verdict.detail}
                 </p>
                 {account.hardLink &&
@@ -997,7 +997,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                       {account.hardLinkReasons.map((r) => (
                         <li
                           key={r}
-                          className="flex items-start gap-1.5 text-[11px] text-danger leading-snug"
+                          className="flex items-start gap-1.5 text-[0.6875rem] text-danger leading-snug"
                         >
                           <ShieldAlert className="size-3 shrink-0 mt-0.5" />
                           {HARD_LINK_REASON_LABELS[r] ?? r}
@@ -1013,20 +1013,20 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
           <div className="flex flex-wrap gap-2">
             {account.hasEacBans ? (
               <Hint text="This account has a Steam VAC or Game Developer ban (including EAC/Easy Anti-Cheat). Steam does not disclose which specific game issued the ban.">
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-danger/15 text-danger text-[10px] font-mono uppercase ring-1 ring-danger/40 cursor-help">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-danger/15 text-danger text-[0.625rem] font-mono uppercase ring-1 ring-danger/40 cursor-help">
                   <AlertOctagon className="size-3" /> Game banned
                 </span>
               </Hint>
             ) : (
               <Hint text="No Steam VAC or Game Developer bans found on this account.">
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-success/15 text-success text-[10px] font-mono uppercase ring-1 ring-success/40 cursor-help">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-success/15 text-success text-[0.625rem] font-mono uppercase ring-1 ring-success/40 cursor-help">
                   Game ban clean
                 </span>
               </Hint>
             )}
             {account.hasBmBans && (
               <Hint text="This account has one or more ban records in BattleMetrics, typically issued by a server admin or community ban list.">
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-warning/15 text-warning text-[10px] font-mono uppercase ring-1 ring-warning/40 cursor-help">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-warning/15 text-warning text-[0.625rem] font-mono uppercase ring-1 ring-warning/40 cursor-help">
                   <Ban className="size-3" /> Server banned
                   {account.bmBanCount > 1 && ` (${account.bmBanCount})`}
                 </span>
@@ -1034,7 +1034,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
             )}
             {lastBan && (
               <Hint text="How long ago the most recent EAC/game ban on this account was issued.">
-                <span className="px-2 py-1 rounded bg-surface ring-1 ring-border text-[10px] font-mono text-muted-foreground cursor-help">
+                <span className="px-2 py-1 rounded bg-surface ring-1 ring-border text-[0.625rem] font-mono text-muted-foreground cursor-help">
                   last ban {lastBan}
                 </span>
               </Hint>
@@ -1048,7 +1048,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
             badge="hashed"
           >
             {(account.sharedIps ?? []).length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[0.6875rem] text-muted-foreground">
                 Linked via a non-IP identifier (no shared IP recorded).
               </p>
             ) : (
@@ -1061,7 +1061,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                     >
                       <Hint text={IP_TYPE_META[t].hint}>
                         <span
-                          className={`text-[10px] font-mono uppercase cursor-help ${IP_TYPE_META[t].tone}`}
+                          className={`text-[0.625rem] font-mono uppercase cursor-help ${IP_TYPE_META[t].tone}`}
                         >
                           {IP_TYPE_META[t].label}
                         </span>
@@ -1072,7 +1072,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                     </div>
                   ))}
                 </div>
-                <ul className="text-[11px] font-mono divide-y divide-border/40 ring-1 ring-border/60 rounded">
+                <ul className="text-[0.6875rem] font-mono divide-y divide-border/40 ring-1 ring-border/60 rounded">
                   {account.sharedIps.map((ip) => (
                     <li
                       key={ip.ipHash ?? ip.ipHashShort}
@@ -1082,7 +1082,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                         ipHashShort={ip.ipHashShort}
                         connType={ip.connType}
                       />
-                      <span className="text-muted-foreground text-[10px] truncate">
+                      <span className="text-muted-foreground text-[0.625rem] truncate">
                         {ip.isp ?? "Unknown ISP"}
                         {ip.country ? ` · ${ip.country}` : ""}
                       </span>
@@ -1150,8 +1150,8 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
               title="Session co-presence"
               badge="timing"
             >
-              <p className={`text-[11px] font-mono ${co.tone}`}>{co.label}</p>
-              <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+              <p className={`text-[0.6875rem] font-mono ${co.tone}`}>{co.label}</p>
+              <p className="mt-1 text-[0.625rem] text-muted-foreground leading-snug">
                 {co.hint}
                 {account.coPresence.sharedServers > 0 &&
                   ` (${account.coPresence.overlapping}/${account.coPresence.altSessions} alt sessions overlapped across ${account.coPresence.sharedServers} shared server${account.coPresence.sharedServers === 1 ? "" : "s"})`}
@@ -1169,7 +1169,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                 {account.mutualFriends.map((f) => (
                   <span
                     key={f}
-                    className="px-2 py-0.5 rounded bg-surface ring-1 ring-border text-[11px] font-mono inline-flex items-center gap-1"
+                    className="px-2 py-0.5 rounded bg-surface ring-1 ring-border text-[0.6875rem] font-mono inline-flex items-center gap-1"
                   >
                     {f}
                     <PlayerLinks steamId={f} size="xs" />
@@ -1197,7 +1197,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                 ).map((n, i) => (
                   <span
                     key={`${n}-${i}`}
-                    className="px-2 py-0.5 rounded bg-surface ring-1 ring-border text-[11px] font-mono"
+                    className="px-2 py-0.5 rounded bg-surface ring-1 ring-border text-[0.6875rem] font-mono"
                   >
                     {n}
                   </span>
@@ -1220,7 +1220,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                 to="/player-lookup"
                 search={{ steam: account.relatedSteamId }}
                 onClick={onClose}
-                className="inline-flex items-center gap-1 text-[11px] font-mono text-brand hover:underline"
+                className="inline-flex items-center gap-1 text-[0.6875rem] font-mono text-brand hover:underline"
               >
                 Open full profile on {name}
                 <ExternalLink className="size-3" />
@@ -1230,7 +1230,7 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
                 href={`https://www.battlemetrics.com/players/${account.relatedBmId}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] font-mono text-brand hover:underline"
+                className="inline-flex items-center gap-1 text-[0.6875rem] font-mono text-brand hover:underline"
               >
                 Open on BattleMetrics
                 <ExternalLink className="size-3" />
@@ -1253,7 +1253,7 @@ const BLOCK_BADGE_HINTS = {
 function Block({ icon, title, badge, children }) {
   return (
     <div>
-      <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-2">
+      <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-2">
         {icon}
         {title}
         {badge && (
@@ -1273,7 +1273,7 @@ function SmallStat({ icon, label, value, tone, hint }) {
   return (
     <Hint text={hint}>
       <div className="px-3 py-2 rounded ring-1 ring-border bg-surface/40 cursor-help">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
           {icon} {label}
         </p>
         <p className={`text-sm font-mono mt-0.5 ${tone}`}>{value}</p>
@@ -1318,7 +1318,7 @@ function SessionRelatedSection({ sessionRelated }) {
   const list = Array.isArray(sessionRelated) ? sessionRelated : [];
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span className="flex items-center gap-2">
           <Clock className="size-3 shrink-0" />
           Session-Linked Players
@@ -1354,26 +1354,26 @@ function SessionRelatedSection({ sessionRelated }) {
                       {name}
                     </span>
                     {c.relatedSteamId && (
-                      <span className="text-[10px] font-mono text-muted-foreground inline-flex items-center gap-1">
+                      <span className="text-[0.625rem] font-mono text-muted-foreground inline-flex items-center gap-1">
                         <PlayerLinks steamId={c.relatedSteamId} size="xs" />
                       </span>
                     )}
                     <Hint text={meta.hint}>
                       <span
-                        className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help ${meta.tone}`}
+                        className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 cursor-help ${meta.tone}`}
                       >
                         {meta.label}
                       </span>
                     </Hint>
                     {c.alsoIpLinked && (
                       <Hint text="This player ALSO shares an IP identifier with the subject (see Linked Accounts). Two independent detection methods agreeing is very strong evidence.">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[9px] font-mono uppercase ring-1 ring-danger/40 cursor-help">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[0.625rem] font-mono uppercase ring-1 ring-danger/40 cursor-help">
                           <Wifi className="size-2.5" /> IP match
                         </span>
                       </Hint>
                     )}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 flex-wrap text-[10px] font-mono text-muted-foreground">
+                  <div className="mt-1 flex items-center gap-2 flex-wrap text-[0.625rem] font-mono text-muted-foreground">
                     <Hint text="Times this player connected within 15 minutes of the subject disconnecting (or disconnected within 15 minutes of the subject connecting) on the same server.">
                       <span className="cursor-help text-foreground">
                         {c.adjacencyEvents} switch event
@@ -1406,7 +1406,7 @@ function SessionRelatedSection({ sessionRelated }) {
                       {c.sharedServers.map((s) => (
                         <span
                           key={s.bmServerId}
-                          className="px-1.5 py-0.5 rounded bg-surface ring-1 ring-border text-[9px] font-mono text-muted-foreground truncate max-w-[11rem]"
+                          className="px-1.5 py-0.5 rounded bg-surface ring-1 ring-border text-[0.625rem] font-mono text-muted-foreground truncate max-w-[11rem]"
                         >
                           {s.serverName ?? `BM ${s.bmServerId}`}
                           {s.events > 1 ? ` ×${s.events}` : ""}
@@ -1419,7 +1419,7 @@ function SessionRelatedSection({ sessionRelated }) {
                   <Link
                     to="/player-lookup"
                     search={{ steam: c.relatedSteamId }}
-                    className="self-center shrink-0 text-brand hover:underline text-[10px] font-mono uppercase tracking-widest inline-flex items-center gap-1"
+                    className="self-center shrink-0 text-brand hover:underline text-[0.625rem] font-mono uppercase tracking-widest inline-flex items-center gap-1"
                   >
                     View <ExternalLink className="size-2.5" />
                   </Link>
@@ -1428,7 +1428,7 @@ function SessionRelatedSection({ sessionRelated }) {
                     href={`https://www.battlemetrics.com/players/${c.relatedBmId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="self-center shrink-0 text-brand hover:underline text-[10px] font-mono uppercase tracking-widest inline-flex items-center gap-1"
+                    className="self-center shrink-0 text-brand hover:underline text-[0.625rem] font-mono uppercase tracking-widest inline-flex items-center gap-1"
                   >
                     BM <ExternalLink className="size-2.5" />
                   </a>

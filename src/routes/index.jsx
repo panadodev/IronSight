@@ -677,7 +677,7 @@ function StaffDashboard() {
         <SiteNav />
         <div className="flex-1 grid place-items-center p-6">
           <div className="text-center max-w-md">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-3">
               IronSight Panel
             </p>
             <h1 className="text-2xl font-semibold mb-2">
@@ -709,7 +709,7 @@ function StaffDashboard() {
         <SiteNav />
         <div className="flex-1 grid place-items-center p-6">
           <div className="text-center max-w-md">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-3">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-danger mb-3">
               Access denied
             </p>
             <h1 className="text-2xl font-semibold mb-2">Staff console</h1>
@@ -745,11 +745,11 @@ function StaffDashboard() {
                     ? "Waiting Response"
                     : "Active Queue"}
               </h2>
-              <span className="text-[10px] font-mono bg-surface px-1.5 py-0.5 rounded text-muted-foreground">
+              <span className="text-[0.625rem] font-mono bg-surface px-1.5 py-0.5 rounded text-muted-foreground">
                 {visible.length}
               </span>
             </div>
-            <div className="flex rounded ring-1 ring-border overflow-hidden text-[10px] font-bold uppercase tracking-wider">
+            <div className="flex rounded ring-1 ring-border overflow-hidden text-[0.625rem] font-bold uppercase tracking-wider">
               {["active", "waiting", "closed"].map((v) => (
                 <button
                   key={v}
@@ -773,19 +773,19 @@ function StaffDashboard() {
                 value={playerQuery}
                 onChange={(e) => setPlayerQuery(e.target.value)}
                 placeholder="Search player name or Steam ID…"
-                className="w-full bg-surface border border-border rounded px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-brand"
+                className="w-full bg-surface border border-border rounded px-2 py-1 text-[0.6875rem] text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-brand"
               />
               {playerQuery && (
                 <button
                   onClick={() => setPlayerQuery("")}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground px-1"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[0.625rem] text-muted-foreground hover:text-foreground px-1"
                   title="Clear search"
                 >
                   ×
                 </button>
               )}
               {playerQuery.trim() && (
-                <p className="mt-1 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                <p className="mt-1 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Searching all tickets · active + closed
                 </p>
               )}
@@ -808,7 +808,7 @@ function StaffDashboard() {
                 </Chip>
               ))}
             </div>
-            <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+            <div className="flex items-center justify-between gap-2 text-[0.625rem] uppercase tracking-widest text-muted-foreground">
               <span>Team</span>
               <select
                 value={teamFilter}
@@ -823,7 +823,7 @@ function StaffDashboard() {
                 ))}
               </select>
             </div>
-            <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground">
+            <div className="flex items-center justify-between text-[0.625rem] uppercase tracking-widest text-muted-foreground">
               <span>Sort</span>
               <select
                 value={sortBy}
@@ -891,12 +891,12 @@ function StaffDashboard() {
                         <span>{nameForRow}</span>
                       </h3>
                       {t.type === "player_report" && reportCount > 1 && (
-                        <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                           ×{reportCount}
                         </span>
                       )}
                       <span
-                        className="text-[9px] font-bold font-mono shrink-0 hidden xl:inline"
+                        className="text-[0.625rem] font-bold font-mono shrink-0 hidden xl:inline"
                         style={{ color: TYPE_COLOR[t.type] }}
                       >
                         {TEAM_META[t.team].short}
@@ -904,7 +904,7 @@ function StaffDashboard() {
                       {t.restrictedRank !== null && (
                         <Lock size={10} className="shrink-0 text-warning" />
                       )}
-                      <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                      <span className="text-[0.625rem] text-muted-foreground shrink-0 tabular-nums">
                         {t.createdLabel}
                       </span>
                     </div>
@@ -916,10 +916,10 @@ function StaffDashboard() {
                   {assignedToMe.length > 0 && (
                     <div>
                       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm px-3 py-1.5 border-y border-border flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-brand">
+                        <span className="text-[0.625rem] font-bold uppercase tracking-widest text-brand">
                           Assigned to You
                         </span>
-                        <span className="text-[10px] font-mono bg-brand/10 text-brand px-1.5 py-0.5 rounded">
+                        <span className="text-[0.625rem] font-mono bg-brand/10 text-brand px-1.5 py-0.5 rounded">
                           {assignedToMe.length}
                         </span>
                       </div>
@@ -932,10 +932,10 @@ function StaffDashboard() {
                     <div>
                       {assignedToMe.length > 0 && (
                         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm px-3 py-1.5 border-y border-border flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                          <span className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">
                             All Tickets
                           </span>
-                          <span className="text-[10px] font-mono bg-surface px-1.5 py-0.5 rounded text-muted-foreground">
+                          <span className="text-[0.625rem] font-mono bg-surface px-1.5 py-0.5 rounded text-muted-foreground">
                             {allOther.length}
                           </span>
                         </div>
@@ -975,7 +975,7 @@ function StaffDashboard() {
                   }
                   title={selected.status}
                 />
-                <span className="text-[10px] font-mono text-muted-foreground">
+                <span className="text-[0.625rem] font-mono text-muted-foreground">
                   #{selected.number}
                 </span>
                 <h1 className="text-lg font-semibold tracking-tight truncate">
@@ -985,7 +985,7 @@ function StaffDashboard() {
                 </h1>
 
                 {selected.restrictedRank !== null && (
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded ring-1 ring-warning/30 bg-warning/10 text-warning uppercase tracking-wider">
+                  <span className="px-2 py-0.5 text-[0.625rem] font-bold rounded ring-1 ring-warning/30 bg-warning/10 text-warning uppercase tracking-wider">
                     ◈ Hidden ≤ {selected.restrictedRank - 1}
                   </span>
                 )}
@@ -1025,7 +1025,7 @@ function StaffDashboard() {
                     {!selected.assigneeId && activeStaff && (
                       <button
                         onClick={assignToMe}
-                        className="text-[10px] font-semibold uppercase tracking-wider text-brand hover:text-brand/80 px-1.5 h-6 border-l border-border"
+                        className="text-[0.625rem] font-semibold uppercase tracking-wider text-brand hover:text-brand/80 px-1.5 h-6 border-l border-border"
                         title="Assign this ticket to yourself"
                       >
                         Claim
@@ -1136,11 +1136,11 @@ function StaffDashboard() {
               {!isReport && (
                 <div className="max-w-[60ch] bg-surface/40 ring-1 ring-border rounded-lg p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       Original ticket
                     </span>
                     <span className="h-px flex-1 bg-border" />
-                    <span className="text-[10px] text-muted-foreground font-mono">
+                    <span className="text-[0.625rem] text-muted-foreground font-mono">
                       {selected.createdLabel}
                     </span>
                   </div>
@@ -1176,7 +1176,7 @@ function StaffDashboard() {
                       <div className="flex items-center gap-2 mb-2">
                         <span
                           className={
-                            "text-[10px] font-mono uppercase tracking-widest " +
+                            "text-[0.625rem] font-mono uppercase tracking-widest " +
                             (m.pinned ? "text-warning" : "text-brand")
                           }
                         >
@@ -1192,14 +1192,14 @@ function StaffDashboard() {
                             (m.pinned ? "bg-warning/20" : "bg-brand/10")
                           }
                         />
-                        <span className="text-[10px] text-muted-foreground font-mono">
+                        <span className="text-[0.625rem] text-muted-foreground font-mono">
                           {m.timestamp}
                         </span>
                         {m.authorName !== "System" && (
                           <button
                             onClick={() => togglePin(i)}
                             className={
-                              "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 " +
+                              "text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 " +
                               (m.pinned
                                 ? "text-warning ring-warning/30 hover:bg-warning/20"
                                 : "text-muted-foreground ring-border hover:text-foreground")
@@ -1243,7 +1243,7 @@ function StaffDashboard() {
                               {m.timestamp}
                             </span>
                             {m.authorKind === "staff" && (
-                              <span className="text-[9px] uppercase font-bold tracking-widest text-brand">
+                              <span className="text-[0.625rem] uppercase font-bold tracking-widest text-brand">
                                 Staff
                               </span>
                             )}
@@ -1265,7 +1265,7 @@ function StaffDashboard() {
                     <button
                       onClick={() => setComposerMode("reply")}
                       className={
-                        "text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded " +
+                        "text-[0.625rem] font-semibold uppercase tracking-wider px-2 py-1 rounded " +
                         (composerMode === "reply"
                           ? "bg-surface text-foreground"
                           : "text-muted-foreground hover:text-foreground")
@@ -1276,7 +1276,7 @@ function StaffDashboard() {
                     <button
                       onClick={() => setComposerMode("note")}
                       className={
-                        "text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded " +
+                        "text-[0.625rem] font-semibold uppercase tracking-wider px-2 py-1 rounded " +
                         (composerMode === "note"
                           ? "bg-brand/10 text-brand"
                           : "text-muted-foreground hover:text-foreground")
@@ -1309,7 +1309,7 @@ function StaffDashboard() {
                   />
                   <div className="flex items-center justify-between mt-2 gap-3">
                     {composerMode === "note" ? (
-                      <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer">
+                      <label className="flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer">
                         <input
                           type="checkbox"
                           checked={pinNote}
@@ -1319,7 +1319,7 @@ function StaffDashboard() {
                         📌 Pin to bottom of thread
                       </label>
                     ) : (
-                      <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer">
+                      <label className="flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer">
                         <input
                           type="checkbox"
                           checked={waitForResponse}
@@ -1343,10 +1343,10 @@ function StaffDashboard() {
               <div className="p-6 border-t border-border bg-background">
                 <div className="max-w-[60ch] mx-auto">
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded bg-brand/10 text-brand">
+                    <span className="text-[0.625rem] font-semibold uppercase tracking-wider px-2 py-1 rounded bg-brand/10 text-brand">
                       Internal Note
                     </span>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[0.625rem] text-muted-foreground">
                       Staff-only discussion. Reporters never see these.
                     </span>
                   </div>
@@ -1357,7 +1357,7 @@ function StaffDashboard() {
                     placeholder="Discuss this case with other staff — evidence checks, second opinions, decisions..."
                   />
                   <div className="flex items-center justify-between mt-2 gap-3">
-                    <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer">
                       <input
                         type="checkbox"
                         checked={pinNote}
@@ -1455,7 +1455,7 @@ function StaffDashboard() {
             className="bg-background ring-1 ring-border rounded-lg max-w-md w-full p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-[10px] font-mono uppercase tracking-widest text-warning mb-2">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-warning mb-2">
               Heads up
             </p>
             <h3 className="text-lg font-semibold mb-2">
@@ -1511,7 +1511,7 @@ function ReportsList({ reports, proofOnly, recencyDays }) {
             : "all time";
   return (
     <div className="max-w-[60ch] space-y-3">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-[0.625rem] font-semibold uppercase tracking-widest text-muted-foreground">
         Reporter submissions ({shown.length} · {recencyLabel}
         {hiddenCount > 0 ? ` \xB7 ${hiddenCount} hidden` : ""})
       </p>
@@ -1536,7 +1536,7 @@ function ReportsList({ reports, proofOnly, recencyDays }) {
             <div className="flex items-center justify-between mb-3 gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <div
-                  className="size-6 rounded-sm grid place-items-center font-mono text-[10px] font-bold text-background shrink-0"
+                  className="size-6 rounded-sm grid place-items-center font-mono text-[0.625rem] font-bold text-background shrink-0"
                   style={{ background: p.avatarColor }}
                 >
                   {p.name
@@ -1545,19 +1545,19 @@ function ReportsList({ reports, proofOnly, recencyDays }) {
                     .toUpperCase()}
                 </div>
                 <span className="text-sm font-semibold truncate">{p.name}</span>
-                <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                <span className="text-[0.625rem] text-muted-foreground font-mono shrink-0">
                   {r.submittedLabel}
                 </span>
               </div>
               <span
-                className={`text-[9px] font-bold uppercase tracking-wider ring-1 rounded px-1.5 py-0.5 ${tone}`}
+                className={`text-[0.625rem] font-bold uppercase tracking-wider ring-1 rounded px-1.5 py-0.5 ${tone}`}
               >
                 {r.status === "case_closed" ? "case closed" : r.status}
               </span>
             </div>
             {!proofOnly && (
               <div className="mb-3">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+                <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1">
                   Description
                 </p>
                 <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-line">
@@ -1566,7 +1566,7 @@ function ReportsList({ reports, proofOnly, recencyDays }) {
               </div>
             )}
             <div>
-              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+              <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1">
                 Evidence
               </p>
               {hasEvidence ? (
@@ -1609,7 +1609,7 @@ function Chip({ active, onClick, children, color }) {
       onClick={onClick}
       style={style}
       className={
-        "px-2 py-1 text-[10px] font-semibold rounded uppercase transition-colors " +
+        "px-2 py-1 text-[0.625rem] font-semibold rounded uppercase transition-colors " +
         (color
           ? "hover:brightness-125"
           : active
@@ -1632,7 +1632,7 @@ function TypeBadge({ type }) {
           : "bg-surface text-muted-foreground ring-border";
   return (
     <span
-      className={`text-[9px] px-1.5 py-0.5 rounded ring-1 uppercase font-bold tracking-wider ${tone}`}
+      className={`text-[0.625rem] px-1.5 py-0.5 rounded ring-1 uppercase font-bold tracking-wider ${tone}`}
     >
       {TICKET_TYPE_LABEL[type]}
     </span>
@@ -1651,7 +1651,7 @@ function StatusBadge({ status }) {
             : "bg-surface text-muted-foreground ring-border";
   return (
     <span
-      className={`px-2 py-0.5 ring-1 text-[10px] font-bold rounded uppercase tracking-wider ${tone}`}
+      className={`px-2 py-0.5 ring-1 text-[0.625rem] font-bold rounded uppercase tracking-wider ${tone}`}
     >
       {STATUS_LABEL[status]}
     </span>

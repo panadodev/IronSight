@@ -91,7 +91,7 @@ function SysFeedbackPage() {
       <SiteNav />
       <div className="flex-1 max-w-[1100px] mx-auto w-full px-4 py-6 space-y-6">
         <div>
-          <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-1">
+          <p className="text-[0.625rem] font-mono uppercase tracking-widest text-danger mb-1">
             Sysadmin Only
           </p>
           <h1 className="text-xl font-semibold">Ticket Feedback</h1>
@@ -109,13 +109,13 @@ function SysFeedbackPage() {
         {!loading && feedback.length > 0 && (
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4">
-              <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+              <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1">
                 Total responses
               </p>
               <p className="text-3xl font-semibold tabular-nums">{total}</p>
             </div>
             <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4">
-              <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+              <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1">
                 Average rating
               </p>
               <p className="text-3xl font-semibold tabular-nums text-amber-400">
@@ -127,7 +127,7 @@ function SysFeedbackPage() {
 
         {!loading && feedback.length > 0 && (
           <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2">
-            <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Rating distribution (this page)
             </p>
             {[5, 4, 3, 2, 1].map(({ rating: r, count: c }) => {
@@ -143,7 +143,7 @@ function SysFeedbackPage() {
                       style={{ width: `${(c2 / maxCount) * 100}%` }}
                     />
                   </div>
-                  <span className="text-[10px] font-mono text-muted-foreground w-5 text-right">
+                  <span className="text-[0.625rem] font-mono text-muted-foreground w-5 text-right">
                     {c2}
                   </span>
                 </div>
@@ -162,7 +162,7 @@ function SysFeedbackPage() {
           </div>
         ) : (
           <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-            <div className="grid grid-cols-[60px_100px_120px_1fr_160px] gap-3 px-4 py-2 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="grid grid-cols-[60px_100px_120px_1fr_160px] gap-3 px-4 py-2 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Ticket</div>
               <div>Rating</div>
               <div>Org</div>
@@ -174,7 +174,7 @@ function SysFeedbackPage() {
                 key={f.feedbackId}
                 className="grid grid-cols-[60px_100px_120px_1fr_160px] gap-3 px-4 py-3 border-b border-border last:border-0 text-sm items-start"
               >
-                <div className="font-mono text-[11px] text-brand">
+                <div className="font-mono text-[0.6875rem] text-brand">
                   #{f.ticketId}
                 </div>
                 <div>
@@ -190,7 +190,7 @@ function SysFeedbackPage() {
                     </span>
                   )}
                 </div>
-                <div className="text-[10px] font-mono text-muted-foreground text-right">
+                <div className="text-[0.625rem] font-mono text-muted-foreground text-right">
                   {fmtDate(f.createdAt)}
                 </div>
               </div>

@@ -282,7 +282,7 @@ function LogNotificationPrefs({ orgId }) {
 
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Bell className="size-3.5" />
         Discord DM alerts
       </h2>
@@ -323,7 +323,7 @@ function LogNotificationPrefs({ orgId }) {
                   >
                     {opt.label}
                   </span>
-                  <span className="block text-[10px] text-muted-foreground/70 leading-snug mt-0.5">
+                  <span className="block text-[0.625rem] text-muted-foreground/70 leading-snug mt-0.5">
                     {opt.hint}
                   </span>
                 </span>
@@ -331,7 +331,7 @@ function LogNotificationPrefs({ orgId }) {
             );
           })}
         </div>
-        {error && <p className="text-[11px] text-danger">{error}</p>}
+        {error && <p className="text-[0.6875rem] text-danger">{error}</p>}
       </div>
     </section>
   );
@@ -449,7 +449,7 @@ function ServerLogsPage() {
               <Link
                 to="/manage/staff"
                 search={orgId ? { org: orgId } : undefined}
-                className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
               >
                 <ArrowLeft className="size-3" /> Staff
               </Link>
@@ -477,7 +477,7 @@ function ServerLogsPage() {
                 <LogNotificationPrefs orgId={orgId} />
 
                 <section>
-                  <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3">
+                  <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3">
                     Activity · last 30 days
                     {!loading && (
                       <span className="ml-2 normal-case tracking-normal font-mono font-normal">
@@ -497,7 +497,7 @@ function ServerLogsPage() {
                 </section>
 
                 <section>
-                  <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+                  <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
                     <span>Full server log</span>
                     {!loading && (
                       <span className="font-mono normal-case tracking-normal text-muted-foreground">
@@ -520,7 +520,7 @@ function ServerLogsPage() {
                           setTypeFilter(k);
                           setVisibleCount(PAGE_SIZE);
                         }}
-                        className={`px-2 py-1 rounded text-[10px] font-mono uppercase ring-1 transition-colors ${typeFilter === k ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
+                        className={`px-2 py-1 rounded text-[0.625rem] font-mono uppercase ring-1 transition-colors ${typeFilter === k ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
                       >
                         {label}
                       </button>
@@ -537,7 +537,7 @@ function ServerLogsPage() {
                               setServerFilter(id);
                               setVisibleCount(PAGE_SIZE);
                             }}
-                            className={`px-2 py-1 rounded text-[10px] font-mono ring-1 transition-colors ${serverFilter === id ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
+                            className={`px-2 py-1 rounded text-[0.625rem] font-mono ring-1 transition-colors ${serverFilter === id ? "text-foreground ring-border bg-surface" : "text-muted-foreground ring-border/50 hover:bg-surface/50"}`}
                           >
                             {name}
                           </button>
@@ -561,9 +561,9 @@ function ServerLogsPage() {
                   ) : (
                     <>
                       <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
-                        <table className="w-full text-[11px] font-mono">
+                        <table className="w-full text-[0.6875rem] font-mono">
                           <thead>
-                            <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
+                            <tr className="text-[0.625rem] uppercase tracking-wider text-muted-foreground bg-surface/60">
                               {[
                                 {
                                   key: "createdAt",
@@ -624,7 +624,7 @@ function ServerLogsPage() {
                                   </td>
                                   <td className="px-2 py-1">
                                     <span
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded ring-1 ring-border bg-surface text-[10px] uppercase"
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded ring-1 ring-border bg-surface text-[0.625rem] uppercase"
                                       style={{ color: m.color }}
                                     >
                                       <span
@@ -653,7 +653,7 @@ function ServerLogsPage() {
                                     {formatTarget(log)}
                                   </td>
                                   <td
-                                    className="px-2 py-1 text-muted-foreground/70 font-mono whitespace-nowrap text-[10px]"
+                                    className="px-2 py-1 text-muted-foreground/70 font-mono whitespace-nowrap text-[0.625rem]"
                                     title={log.coordinates ?? ""}
                                   >
                                     {log.coordinates ?? "—"}
@@ -671,7 +671,7 @@ function ServerLogsPage() {
                       {visibleCount < sortedLogs.length && (
                         <button
                           onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
-                          className="mt-3 flex items-center gap-1 text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
+                          className="mt-3 flex items-center gap-1 text-[0.625rem] font-mono uppercase text-muted-foreground hover:text-foreground"
                         >
                           <ChevronDown className="size-3" />
                           Load more ({sortedLogs.length - visibleCount}{" "}
@@ -680,7 +680,7 @@ function ServerLogsPage() {
                       )}
 
                       {total > logs.length && (
-                        <p className="mt-2 text-[10px] text-muted-foreground font-mono">
+                        <p className="mt-2 text-[0.625rem] text-muted-foreground font-mono">
                           Showing {logs.length} of {total} total entries
                         </p>
                       )}

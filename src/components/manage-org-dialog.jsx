@@ -35,16 +35,16 @@ function ToxicityPanel({ orgId, config, onSave }) {
     <div className="space-y-4">
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-[11px] font-mono uppercase tracking-widest text-warning">
+          <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-warning">
             Yellow phrases
           </Label>
           {saved === "yellow" && (
-            <span className="text-[10px] font-mono uppercase tracking-widest text-success">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-success">
               Saved
             </span>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           Highlighted yellow in toxicity chat logs. Separate with commas — exact
           match only.
         </p>
@@ -59,16 +59,16 @@ function ToxicityPanel({ orgId, config, onSave }) {
 
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-[11px] font-mono uppercase tracking-widest text-danger">
+          <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-danger">
             Red phrases
           </Label>
           {saved === "red" && (
-            <span className="text-[10px] font-mono uppercase tracking-widest text-success">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-success">
               Saved
             </span>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           Highlighted red. If one of these appears in a player's chat log, any
           cleared toxicity report for them is automatically re-opened by the
           system — even with no new player report.
@@ -82,7 +82,7 @@ function ToxicityPanel({ orgId, config, onSave }) {
         />
       </div>
 
-      <p className="text-[10px] text-muted-foreground font-mono">
+      <p className="text-[0.625rem] text-muted-foreground font-mono">
         Changes save automatically when the field loses focus.
       </p>
     </div>
@@ -92,7 +92,7 @@ function TicketTypeToggle({ ticketTypes, selected, onChange }) {
   if (!ticketTypes.length) return null;
   return (
     <div>
-      <p className="text-[10px] font-mono text-muted-foreground mb-1.5">
+      <p className="text-[0.625rem] font-mono text-muted-foreground mb-1.5">
         Ticket types (leave all off = applies to every type)
       </p>
       <div className="flex flex-wrap gap-1">
@@ -109,7 +109,7 @@ function TicketTypeToggle({ ticketTypes, selected, onChange }) {
                     : [...selected, tt.ticketTypeId],
                 )
               }
-              className={`text-[10px] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
+              className={`text-[0.625rem] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
                 active
                   ? "bg-brand text-brand-foreground ring-brand"
                   : "text-muted-foreground ring-border hover:text-foreground"
@@ -244,7 +244,7 @@ function PredefinesPanel({
 
       {adding && (
         <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
-          <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+          <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
             New pre-define
           </Label>
           <Input
@@ -276,7 +276,7 @@ function PredefinesPanel({
             selected={draft.ticketTypeIds}
             onChange={(ids) => setDraft((d) => ({ ...d, ticketTypeIds: ids }))}
           />
-          {err && <p className="text-[11px] text-danger">{err}</p>}
+          {err && <p className="text-[0.6875rem] text-danger">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
@@ -333,7 +333,7 @@ function PredefinesPanel({
                     setEditDraft((d) => ({ ...d, ticketTypeIds: ids }))
                   }
                 />
-                {err && <p className="text-[11px] text-danger">{err}</p>}
+                {err && <p className="text-[0.6875rem] text-danger">{err}</p>}
                 <div className="flex justify-end gap-2">
                   <Button
                     size="sm"
@@ -360,7 +360,7 @@ function PredefinesPanel({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold font-mono">{p.keyword}</p>
                 {p.extraKeywords.length > 0 && (
-                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                     aka {p.extraKeywords.join(", ")}
                   </p>
                 )}
@@ -373,7 +373,7 @@ function PredefinesPanel({
                       ttById[id] ? (
                         <span
                           key={id}
-                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-brand/10 text-brand ring-1 ring-brand/20"
+                          className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded bg-brand/10 text-brand ring-1 ring-brand/20"
                         >
                           {ttById[id].name}
                         </span>
@@ -471,7 +471,7 @@ function BanConfigsPanel({
   const noun = isMuteTab ? "mute" : "ban";
   return (
     <div className="space-y-4">
-      <div className="flex rounded ring-1 ring-border overflow-hidden text-[10px] font-bold uppercase tracking-wider">
+      <div className="flex rounded ring-1 ring-border overflow-hidden text-[0.625rem] font-bold uppercase tracking-wider">
         {ALL_TABS.map((t) => (
           <button
             key={t}
@@ -489,7 +489,7 @@ function BanConfigsPanel({
       </div>
 
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
-        <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+        <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
           {TAB_LABEL[tab]} {noun} reasons
         </Label>
         <div className="flex gap-2">
@@ -578,7 +578,7 @@ function BanConfigsPanel({
             ),
           )}
           {cfg.reasons.length === 0 && (
-            <p className="text-[11px] text-muted-foreground italic">
+            <p className="text-[0.6875rem] text-muted-foreground italic">
               No reasons yet. Staff will only have "Custom {noun} reason"
               available.
             </p>
@@ -588,11 +588,11 @@ function BanConfigsPanel({
 
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+          <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
             {TAB_LABEL[tab]} {noun} note format
           </Label>
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           Pre-fills the "{isMuteTab ? "Mute" : "Ban"} note" textarea when staff
           issue a {tab === "mute" ? "mute" : `${tab} ban`}. Saves on blur.
         </p>
@@ -604,8 +604,8 @@ function BanConfigsPanel({
         />
       </div>
 
-      {saveError && <p className="text-[11px] text-destructive">{saveError}</p>}
-      <p className="text-[10px] text-muted-foreground font-mono">
+      {saveError && <p className="text-[0.6875rem] text-destructive">{saveError}</p>}
+      <p className="text-[0.625rem] text-muted-foreground font-mono">
         "Other" reports always use a custom reason and have no note template.
       </p>
     </div>
@@ -615,10 +615,10 @@ function TicketTypesPanel({ enabled, onToggle }) {
   return (
     <div className="space-y-3">
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
-        <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+        <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
           Ticket types
         </Label>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           Disabled types are hidden from the public submit form and from staff
           queues for this org.
         </p>

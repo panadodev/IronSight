@@ -218,7 +218,7 @@ function CacheStamp({ playerData, refreshing }) {
 
   if (refreshing) {
     return (
-      <span className="text-[10px] text-muted-foreground/70 font-mono">
+      <span className="text-[0.625rem] text-muted-foreground/70 font-mono">
         refreshing…
       </span>
     );
@@ -226,13 +226,13 @@ function CacheStamp({ playerData, refreshing }) {
 
   if (!newest) {
     return (
-      <span className="text-[10px] text-warning/80 font-mono">not cached</span>
+      <span className="text-[0.625rem] text-warning/80 font-mono">not cached</span>
     );
   }
 
   return (
     <span
-      className={`text-[10px] font-mono ${stale ? "text-warning/80" : "text-muted-foreground/60"}`}
+      className={`text-[0.625rem] font-mono ${stale ? "text-warning/80" : "text-muted-foreground/60"}`}
       title={`Steam: ${steamAt ? new Date(steamAt * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {}) : "—"}\nBM: ${bmAt ? new Date(bmAt * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {}) : "—"}`}
     >
       cached {cacheAge(newest)}
@@ -924,7 +924,7 @@ function PlayerLookupPage() {
       >
         <div className="flex items-start gap-2">
           {line.teamMessage && (
-            <span className="text-[8px] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
+            <span className="text-[0.5625rem] font-mono uppercase tracking-widest text-brand shrink-0 mt-0.5">
               team
             </span>
           )}
@@ -932,7 +932,7 @@ function PlayerLookupPage() {
             {line.message}
           </p>
         </div>
-        <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-muted-foreground flex-wrap">
+        <div className="flex items-center gap-2 mt-1 text-[0.625rem] font-mono text-muted-foreground flex-wrap">
           <span>
             {new Date(line.ts * 1000).toLocaleDateString(undefined, {
               month: "short",
@@ -949,7 +949,7 @@ function PlayerLookupPage() {
           {confirmedFlags.map((f) => (
             <span
               key={`c-${f.category}`}
-              className="px-1 py-0.5 rounded bg-danger/20 text-danger uppercase tracking-wider text-[8px]"
+              className="px-1 py-0.5 rounded bg-danger/20 text-danger uppercase tracking-wider text-[0.5625rem]"
             >
               {f.category} · toxic
             </span>
@@ -957,7 +957,7 @@ function PlayerLookupPage() {
           {pendingFlags.map((f) => (
             <span
               key={`p-${f.category}`}
-              className="px-1 py-0.5 rounded bg-warning/15 text-warning uppercase tracking-wider text-[8px]"
+              className="px-1 py-0.5 rounded bg-warning/15 text-warning uppercase tracking-wider text-[0.5625rem]"
             >
               {f.category}
             </span>
@@ -1299,14 +1299,14 @@ function PlayerLookupPage() {
                     <button
                       type="button"
                       onClick={() => setRecentOpen((o) => !o)}
-                      className="inline-flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-mono bg-surface text-muted-foreground ring-1 ring-border rounded-md hover:bg-surface-bright hover:text-foreground transition-colors"
+                      className="inline-flex items-center gap-1.5 h-7 px-2.5 text-[0.6875rem] font-mono bg-surface text-muted-foreground ring-1 ring-border rounded-md hover:bg-surface-bright hover:text-foreground transition-colors"
                     >
                       <Clock className="size-3 shrink-0" />
                       Recent
                     </button>
                     {recentOpen && (
                       <div className="absolute right-0 top-full mt-1 w-72 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-                        <p className="px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60 border-b border-border">
+                        <p className="px-3 py-2 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground/60 border-b border-border">
                           Recent Searches
                         </p>
                         <ul className="py-1 max-h-80 overflow-y-auto">
@@ -1333,7 +1333,7 @@ function PlayerLookupPage() {
                                   />
                                 ) : (
                                   <div
-                                    className="size-7 rounded ring-1 ring-black/30 grid place-items-center font-mono font-bold text-background shrink-0 text-[10px]"
+                                    className="size-7 rounded ring-1 ring-black/30 grid place-items-center font-mono font-bold text-background shrink-0 text-[0.625rem]"
                                     style={{
                                       background: steamIdColor(entry.steamId),
                                     }}
@@ -1348,7 +1348,7 @@ function PlayerLookupPage() {
                                   <p className="text-xs font-medium text-foreground truncate">
                                     {entry.displayName}
                                   </p>
-                                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                                  <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                                     {entry.steamId}
                                   </p>
                                 </div>
@@ -1381,7 +1381,7 @@ function PlayerLookupPage() {
                 </button>
               </form>
               {bmResolveError && (
-                <p className="mt-2 text-[11px] text-destructive">
+                <p className="mt-2 text-[0.6875rem] text-destructive">
                   {bmResolveError}
                 </p>
               )}
@@ -1389,7 +1389,7 @@ function PlayerLookupPage() {
                 !/^\d{17}$/.test(input.trim()) &&
                 !normalizePlayerLookupIpQuery(input.trim()) &&
                 input.trim().length < 2 && (
-                  <p className="mt-2 text-[11px] text-warning">
+                  <p className="mt-2 text-[0.6875rem] text-warning">
                     Enter at least 2 characters for name search, or use a Steam
                     ID / IP / IP hash.
                   </p>
@@ -1486,7 +1486,7 @@ function PlayerLookupPage() {
                     {/* Chat History */}
                     {chatOrgId && (
                       <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-                        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+                        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
                           <MessageSquare className="size-3 shrink-0" />
                           Chat History
                           <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
@@ -1531,7 +1531,7 @@ function PlayerLookupPage() {
                           >
                             {!chatQuery && confirmedLines.length > 0 && (
                               <div className="mb-2">
-                                <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-danger mb-1">
+                                <p className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-danger mb-1">
                                   Confirmed toxic ({confirmedLines.length})
                                 </p>
                                 <ul className="space-y-1">
@@ -1539,7 +1539,7 @@ function PlayerLookupPage() {
                                     renderChatLine(line, "confirmed-"),
                                   )}
                                 </ul>
-                                <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mt-3 mb-1">
+                                <p className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mt-3 mb-1">
                                   All messages
                                 </p>
                               </div>
@@ -1552,11 +1552,11 @@ function PlayerLookupPage() {
                               className="py-2 flex items-center justify-center"
                             >
                               {chatLoadingMore ? (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-[0.625rem] text-muted-foreground">
                                   Loading…
                                 </span>
                               ) : !chatHasMore && chatLines.length > 0 ? (
-                                <span className="text-[10px] text-muted-foreground/40">
+                                <span className="text-[0.625rem] text-muted-foreground/40">
                                   All messages loaded
                                 </span>
                               ) : null}
@@ -1604,13 +1604,13 @@ function PlayerLookupPage() {
                                   {playerData.displayName ?? playerData.steamId}
                                 </h2>
                                 {playerData.bm?.rustBansBanned && (
-                                  <span className="text-[9px] font-mono uppercase tracking-widest text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0">
+                                  <span className="text-[0.625rem] font-mono uppercase tracking-widest text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0">
                                     BM Banned
                                   </span>
                                 )}
                                 {(playerData.bm?.rustBansCount ?? 0) > 0 &&
                                   !playerData.bm?.rustBansBanned && (
-                                    <span className="text-[9px] font-mono uppercase tracking-widest text-warning bg-warning/10 ring-1 ring-warning/30 px-1.5 py-0.5 rounded shrink-0">
+                                    <span className="text-[0.625rem] font-mono uppercase tracking-widest text-warning bg-warning/10 ring-1 ring-warning/30 px-1.5 py-0.5 rounded shrink-0">
                                       {playerData.bm.rustBansCount} prior BM ban
                                       {playerData.bm.rustBansCount !== 1
                                         ? "s"
@@ -1618,7 +1618,7 @@ function PlayerLookupPage() {
                                     </span>
                                   )}
                               </div>
-                              <p className="text-[11px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1.5">
+                              <p className="text-[0.6875rem] font-mono text-muted-foreground uppercase truncate flex items-center gap-1.5">
                                 {playerData.steamId}
                                 <PlayerLinks
                                   steamId={playerData.steamId}
@@ -1757,7 +1757,7 @@ function PlayerLookupPage() {
                           <div className="space-y-4">
                             {/* Steam */}
                             <div>
-                              <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">
+                              <p className="text-[0.625rem] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">
                                 Steam
                               </p>
                               <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
@@ -1834,7 +1834,7 @@ function PlayerLookupPage() {
                             {/* BattleMetrics */}
                             {playerData.bm && (
                               <div>
-                                <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">
+                                <p className="text-[0.625rem] font-mono uppercase tracking-[0.2em] text-muted-foreground/50 mb-2">
                                   BattleMetrics
                                 </p>
                                 <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6">
@@ -1965,7 +1965,7 @@ function PlayerLookupPage() {
 
                     {/* Previous Offenses (real bans / mutes from our orgs) */}
                     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-                      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+                      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
                         <span>Previous Offenses</span>
                         <span className="font-mono normal-case tracking-normal text-muted-foreground">
                           {offensesLoading ? "…" : visibleOffenseRows.length}
@@ -2148,7 +2148,7 @@ function ProtectedStaffProfile({ playerData, steamId }) {
           <h2 className="text-lg font-semibold">
             {playerData.displayName ?? steamId}
           </h2>
-          <p className="text-[11px] font-mono text-muted-foreground uppercase">
+          <p className="text-[0.6875rem] font-mono text-muted-foreground uppercase">
             {steamId}
           </p>
         </div>
@@ -2186,7 +2186,7 @@ function PlayerAlertsBanner({ alerts }) {
         <span
           key={a.key}
           title={a.detail ?? undefined}
-          className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-1 rounded ring-1 ${ALERT_TONE[a.tone] ?? ALERT_TONE.warning}`}
+          className={`inline-flex items-center gap-1 text-[0.625rem] font-mono font-semibold uppercase tracking-wider px-2 py-1 rounded ring-1 ${ALERT_TONE[a.tone] ?? ALERT_TONE.warning}`}
         >
           {a.label}
         </span>
@@ -2235,17 +2235,17 @@ function BodypartBreakdown({ label, total, bodyparts, barClass }) {
   const entries = mergeBodyparts(bodyparts);
   return (
     <div className="rounded-md ring-1 ring-border bg-background/60 p-3">
-      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
+      <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center justify-between">
         <span>{label}</span>
         <span>{total}</span>
       </p>
       {entries.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground italic">No data.</p>
+        <p className="text-[0.6875rem] text-muted-foreground italic">No data.</p>
       ) : (
         <ul className="space-y-1.5">
           {entries.map(([part, count]) => (
             <li key={part} className="flex items-center gap-2">
-              <span className="w-16 shrink-0 text-[10px] font-mono text-muted-foreground truncate">
+              <span className="w-16 shrink-0 text-[0.625rem] font-mono text-muted-foreground truncate">
                 {bodypartLabel(part)}
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-surface overflow-hidden">
@@ -2256,7 +2256,7 @@ function BodypartBreakdown({ label, total, bodyparts, barClass }) {
                   }}
                 />
               </div>
-              <span className="w-10 shrink-0 text-right text-[10px] font-mono text-muted-foreground">
+              <span className="w-10 shrink-0 text-right text-[0.625rem] font-mono text-muted-foreground">
                 {count}
                 <span className="text-muted-foreground/50">
                   {" "}
@@ -2281,7 +2281,7 @@ function PlayerPvpSection({ pvp, loading, subjectSteamId }) {
 
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span className="flex items-center gap-2">
           <Crosshair className="size-3 shrink-0" />
           PVP Activity
@@ -2320,22 +2320,22 @@ function PlayerPvpSection({ pvp, loading, subjectSteamId }) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-surface/60">
-                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                       Event
                     </th>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                       Player
                     </th>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">
+                    <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">
                       Weapon
                     </th>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                       Hit
                     </th>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden md:table-cell">
+                    <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground hidden md:table-cell">
                       Distance
                     </th>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                       When
                     </th>
                   </tr>
@@ -2355,7 +2355,7 @@ function PlayerPvpSection({ pvp, loading, subjectSteamId }) {
                       >
                         <td className="px-3 py-2 shrink-0">
                           <span
-                            className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${isKill ? "text-success bg-success/10 ring-success/30" : "text-danger bg-danger/10 ring-danger/30"}`}
+                            className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${isKill ? "text-success bg-success/10 ring-success/30" : "text-danger bg-danger/10 ring-danger/30"}`}
                           >
                             {isKill ? "Kill" : "Death"}
                           </span>
@@ -2415,7 +2415,7 @@ function PlayerPvpSection({ pvp, loading, subjectSteamId }) {
 function PlayerReportsSection({ reports, loading, tz }) {
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>In-Game Reports</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {loading ? "…" : reports.length}
@@ -2432,19 +2432,19 @@ function PlayerReportsSection({ reports, loading, tz }) {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border bg-surface/60">
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                   Type
                 </th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                   Reason
                 </th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">
+                <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground hidden sm:table-cell">
                   Server
                 </th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hidden md:table-cell">
+                <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground hidden md:table-cell">
                   Reporter
                 </th>
-                <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <th className="text-left px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-muted-foreground">
                   When
                 </th>
               </tr>
@@ -2457,7 +2457,7 @@ function PlayerReportsSection({ reports, loading, tz }) {
                 >
                   <td className="px-3 py-2 shrink-0">
                     <span
-                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${REPORT_TYPE_TONE[r.reportType.toLowerCase()] ?? "text-muted-foreground bg-surface ring-border"}`}
+                      className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${REPORT_TYPE_TONE[r.reportType.toLowerCase()] ?? "text-muted-foreground bg-surface ring-border"}`}
                     >
                       {r.reportType}
                     </span>
@@ -2468,7 +2468,7 @@ function PlayerReportsSection({ reports, loading, tz }) {
                     </p>
                     {r.reportDescription && (
                       <p
-                        className="text-[10px] text-muted-foreground truncate"
+                        className="text-[0.625rem] text-muted-foreground truncate"
                         title={r.reportDescription}
                       >
                         {r.reportDescription}
@@ -2636,7 +2636,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{r.reason}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">
+                      <p className="text-[0.625rem] font-mono text-muted-foreground">
                         {new Date(r.issuedAt * 1000).toLocaleDateString(
                           undefined,
                           tz ? { timeZone: tz } : {},
@@ -2646,7 +2646,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
                       </p>
                     </div>
                     <span
-                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${BAN_STATUS_TONE[st.tone]}`}
+                      className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${BAN_STATUS_TONE[st.tone]}`}
                     >
                       {st.label}
                     </span>
@@ -2707,7 +2707,7 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
         <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+          <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
             {isRawIpSearch ? "Raw IP Search" : "Hashed IP Search"}
           </h2>
           <p className="text-xs text-muted-foreground font-mono">
@@ -2734,7 +2734,7 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
                   <p className="text-sm font-semibold truncate">
                     {m.displayName ?? m.steamId}
                   </p>
-                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                     {m.steamId}
                     {m.lastSeen
                       ? ` · last seen ${new Date(m.lastSeen * 1000).toLocaleDateString()}`
@@ -2765,7 +2765,7 @@ function NameSearchResults({ query, loading, error, matches, onOpenPlayer }) {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
         <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+          <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
             Name Search
           </h2>
           <p className="text-xs text-muted-foreground font-mono">
@@ -2794,12 +2794,12 @@ function NameSearchResults({ query, loading, error, matches, onOpenPlayer }) {
                       {m.name ?? m.steamId}
                     </p>
                     {m.matchType === "previous_name" && (
-                      <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-warning bg-warning/10 ring-warning/30">
+                      <span className="text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-warning bg-warning/10 ring-warning/30">
                         Previous Name Match
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] font-mono text-muted-foreground truncate">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                     {m.steamId}
                     {m.matchType === "previous_name" && m.matchedAlias
                       ? ` · matched alias: ${m.matchedAlias}`
@@ -2933,7 +2933,7 @@ function ConnectionPointsSection({
 
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Previous Connection Points</span>
         <span className="font-mono normal-case tracking-normal">
           {entries.length}
@@ -3059,19 +3059,19 @@ function ConnectionPointsSection({
                 </span>
                 <div className="flex items-center gap-2 shrink-0 ml-auto pl-1">
                   {(entry.isProxy || entry.isVpn) && (
-                    <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-danger bg-danger/10 ring-danger/30">
+                    <span className="text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 text-danger bg-danger/10 ring-danger/30">
                       {entry.isVpn ? "VPN" : "Proxy"}
                     </span>
                   )}
                   {connMeta && (
                     <span
-                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${connMeta.cls}`}
+                      className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${connMeta.cls}`}
                     >
                       {connMeta.label}
                     </span>
                   )}
                   <span
-                    className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${
+                    className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${
                       isSharedWithOthers
                         ? "text-warning bg-warning/10 ring-warning/30"
                         : "text-muted-foreground bg-surface ring-border"
@@ -3082,7 +3082,7 @@ function ConnectionPointsSection({
                       : "Not Shared"}
                   </span>
                   {lastSeenDate && (
-                    <span className="text-[10px] text-muted-foreground font-mono w-20 text-right">
+                    <span className="text-[0.625rem] text-muted-foreground font-mono w-20 text-right">
                       {lastSeenDate}
                     </span>
                   )}
@@ -3107,7 +3107,7 @@ function ConnectionPointsSection({
                   <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
                     {connectionHistory.length > 0 && (
                       <div className="col-span-2 sm:col-span-3 md:col-span-4">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-1">
                           Connection Times ({connectionHistory.length})
                         </dt>
                         <dd>
@@ -3117,7 +3117,7 @@ function ConnectionPointsSection({
                                 key={`${entry.ipHash}-${event.seenAt}-${idx}`}
                                 className="px-2.5 py-1.5 flex items-center justify-between gap-2"
                               >
-                                <span className="font-mono text-[11px] text-foreground">
+                                <span className="font-mono text-[0.6875rem] text-foreground">
                                   {new Date(event.seenAt * 1000).toLocaleString(
                                     undefined,
                                     tz ? { timeZone: tz } : {},
@@ -3125,7 +3125,7 @@ function ConnectionPointsSection({
                                 </span>
                                 {event.serverName && (
                                   <span
-                                    className="text-[10px] text-muted-foreground truncate"
+                                    className="text-[0.625rem] text-muted-foreground truncate"
                                     title={event.serverName}
                                   >
                                     {event.serverName}
@@ -3140,7 +3140,7 @@ function ConnectionPointsSection({
                               onClick={() =>
                                 toggleConnectionHistory(entry.ipHash)
                               }
-                              className="mt-1.5 text-[10px] font-mono uppercase tracking-wider text-brand hover:underline"
+                              className="mt-1.5 text-[0.625rem] font-mono uppercase tracking-wider text-brand hover:underline"
                             >
                               {historyExpanded
                                 ? "Show Less"
@@ -3152,7 +3152,7 @@ function ConnectionPointsSection({
                     )}
                     {det && (
                       <div className="col-span-2 sm:col-span-3 md:col-span-4">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-1">
                           Specific Detections
                         </dt>
                         <dd className="flex flex-wrap gap-1.5">
@@ -3167,7 +3167,7 @@ function ConnectionPointsSection({
                           ].map(([label, active]) => (
                             <span
                               key={label}
-                              className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${
+                              className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${
                                 active
                                   ? "text-success bg-success/10 ring-success/30"
                                   : "text-muted-foreground bg-surface ring-border"
@@ -3181,7 +3181,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.riskScore != null && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Risk Score
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3191,7 +3191,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.riskConfidence && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Confidence
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3201,7 +3201,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.estimate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Device Estimate
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3211,7 +3211,7 @@ function ConnectionPointsSection({
                     )}
                     {detectionFirstSeen && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Detection First Seen
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3221,7 +3221,7 @@ function ConnectionPointsSection({
                     )}
                     {detectionLastSeen && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Detection Last Seen
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3231,7 +3231,7 @@ function ConnectionPointsSection({
                     )}
                     {delistAt && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           To Be Delisted
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3241,7 +3241,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.lastUpdate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Last Update
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3251,7 +3251,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.asn && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           ASN
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3261,7 +3261,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.hostname && (
                       <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Hostname
                         </dt>
                         <dd
@@ -3274,7 +3274,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.isp && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           ISP / Provider
                         </dt>
                         <dd
@@ -3287,7 +3287,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.company && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Company
                         </dt>
                         <dd
@@ -3300,7 +3300,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.organization && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Organisation
                         </dt>
                         <dd
@@ -3312,7 +3312,7 @@ function ConnectionPointsSection({
                       </div>
                     )}
                     <div>
-                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                      <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                         Type
                       </dt>
                       <dd className="font-mono text-foreground">
@@ -3321,7 +3321,7 @@ function ConnectionPointsSection({
                     </div>
                     {entry.city && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           City
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3331,7 +3331,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.region && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Region
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3341,7 +3341,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.continent && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Continent
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3351,7 +3351,7 @@ function ConnectionPointsSection({
                     )}
                     {localTime && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Local Time
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3361,7 +3361,7 @@ function ConnectionPointsSection({
                     )}
                     {operator?.name && (
                       <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Operator
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3382,7 +3382,7 @@ function ConnectionPointsSection({
                     )}
                     {operator?.anonymity && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Operator Anonymity
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3392,7 +3392,7 @@ function ConnectionPointsSection({
                     )}
                     {operator?.popularity && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Operator Popularity
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3402,7 +3402,7 @@ function ConnectionPointsSection({
                     )}
                     {firstSeenDate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           First Seen
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3412,7 +3412,7 @@ function ConnectionPointsSection({
                     )}
                     {lastSeenDate && (
                       <div>
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Last Seen
                         </dt>
                         <dd className="font-mono text-foreground">
@@ -3422,7 +3422,7 @@ function ConnectionPointsSection({
                     )}
                     {entry.serverName && (
                       <div className="col-span-2">
-                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                           Server
                         </dt>
                         <dd
@@ -3434,7 +3434,7 @@ function ConnectionPointsSection({
                       </div>
                     )}
                     <div>
-                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                      <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                         Flagged
                       </dt>
                       <dd
@@ -3448,7 +3448,7 @@ function ConnectionPointsSection({
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                      <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                         Shared
                       </dt>
                       <dd
@@ -3468,14 +3468,14 @@ function ConnectionPointsSection({
                     <button
                       type="button"
                       onClick={() => copyHash(entry.ipHash)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded ring-1 ring-border bg-surface/50 text-foreground text-[10px] font-mono uppercase tracking-widest hover:bg-surface"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded ring-1 ring-border bg-surface/50 text-foreground text-[0.625rem] font-mono uppercase tracking-widest hover:bg-surface"
                     >
                       {copiedHash === entry.ipHash ? "Copied" : "Copy Hash"}
                     </button>
                     <button
                       type="button"
                       onClick={() => onSearchHash?.(entry.ipHash)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand text-brand-foreground text-[10px] font-mono uppercase tracking-widest hover:opacity-90"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand text-brand-foreground text-[0.625rem] font-mono uppercase tracking-widest hover:opacity-90"
                     >
                       Search This Hash
                     </button>

@@ -361,7 +361,7 @@ function PermCheckbox({ checked, onClick, label, desc, disabled }) {
       </span>
       <div className="min-w-0">
         <p className="text-xs font-medium leading-tight">{label}</p>
-        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+        <p className="text-[0.625rem] text-muted-foreground leading-tight mt-0.5">
           {desc}
         </p>
       </div>
@@ -414,7 +414,7 @@ function ParentPermCheckbox({
       </span>
       <div className="min-w-0">
         <p className="text-xs font-medium leading-tight">{label}</p>
-        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+        <p className="text-[0.625rem] text-muted-foreground leading-tight mt-0.5">
           {desc}
         </p>
       </div>
@@ -750,7 +750,7 @@ function RolesPage() {
       />
 
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
-        <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+        <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
           New role
         </Label>
         <div className="flex gap-2">
@@ -769,7 +769,7 @@ function RolesPage() {
             {creating ? "Creating…" : "Create"}
           </Button>
         </div>
-        {createErr && <p className="text-[11px] text-danger">{createErr}</p>}
+        {createErr && <p className="text-[0.6875rem] text-danger">{createErr}</p>}
       </div>
 
       <div className="space-y-2">
@@ -844,12 +844,12 @@ function RolesPage() {
                       <span className="text-sm font-medium truncate">
                         {role.roleName}
                       </span>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                      <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                         {role.permissions.length}{" "}
                         {role.permissions.length === 1 ? "perm" : "perms"}
                       </span>
                       {(role.discordRoleIds ?? []).length > 0 && (
-                        <span className="text-[10px] font-mono text-[#5865F2] shrink-0">
+                        <span className="text-[0.625rem] font-mono text-[#5865F2] shrink-0">
                           {role.discordRoleIds.length} Discord{" "}
                           {role.discordRoleIds.length === 1 ? "role" : "roles"}
                         </span>
@@ -860,7 +860,7 @@ function RolesPage() {
                       {isExpanded && isDirty && (
                         <Button
                           size="sm"
-                          className="h-7 text-[10px] font-mono uppercase tracking-widest"
+                          className="h-7 text-[0.625rem] font-mono uppercase tracking-widest"
                           onClick={() => handleSave(role.roleId)}
                           disabled={savingId === role.roleId}
                         >
@@ -868,7 +868,7 @@ function RolesPage() {
                         </Button>
                       )}
                       {deleteErr && expandedId === role.roleId && (
-                        <p className="text-[11px] text-danger">{deleteErr}</p>
+                        <p className="text-[0.6875rem] text-danger">{deleteErr}</p>
                       )}
                       {editable && (
                         <div className="flex flex-col">
@@ -933,7 +933,7 @@ function RolesPage() {
                     <div className="border-t border-border p-3 space-y-4">
                       {PERMISSION_GROUPS.map((group) => (
                         <div key={group.label}>
-                          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                          <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
                             {group.label}
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
@@ -998,10 +998,10 @@ function RolesPage() {
                                     {ticketsActive &&
                                       ticketTypes.length > 0 && (
                                         <div className="ml-6 border-l border-border/40 pl-2 mt-2">
-                                          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-0.5 px-2">
+                                          <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-0.5 px-2">
                                             Ticket type access
                                           </p>
-                                          <p className="text-[10px] text-muted-foreground mb-1 px-2">
+                                          <p className="text-[0.625rem] text-muted-foreground mb-1 px-2">
                                             Restrict to specific types, or keep
                                             "All types" for no restriction.
                                           </p>
@@ -1058,7 +1058,7 @@ function RolesPage() {
                       ))}
 
                       <div>
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
                           Server Admin (in-game)
                         </p>
                         <PermCheckbox
@@ -1086,7 +1086,7 @@ function RolesPage() {
                             />
                             {!draftSAAll &&
                               (servers.length === 0 ? (
-                                <p className="text-[11px] text-muted-foreground italic px-2 py-1">
+                                <p className="text-[0.6875rem] text-muted-foreground italic px-2 py-1">
                                   No servers imported yet.
                                 </p>
                               ) : (
@@ -1119,11 +1119,11 @@ function RolesPage() {
                       </div>
 
                       <div>
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
+                        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">
                           Discord Roles
                         </p>
                         {guildRoles.length === 0 ? (
-                          <p className="text-[11px] text-muted-foreground italic px-2">
+                          <p className="text-[0.6875rem] text-muted-foreground italic px-2">
                             No Discord roles found. Make sure the bot is in your
                             server and the guild ID is set.
                           </p>
@@ -1148,7 +1148,7 @@ function RolesPage() {
                               ))}
                           </div>
                         )}
-                        <p className="text-[10px] text-muted-foreground mt-1.5 px-2">
+                        <p className="text-[0.625rem] text-muted-foreground mt-1.5 px-2">
                           Members assigned this role will receive these Discord
                           roles. They are removed automatically when staff is
                           removed or reassigned.
@@ -1158,7 +1158,7 @@ function RolesPage() {
                       {isDirty && (
                         <div className="flex flex-col gap-1 pt-1 border-t border-border">
                           {saveErr && expandedId === role.roleId && (
-                            <p className="text-[11px] text-danger">{saveErr}</p>
+                            <p className="text-[0.6875rem] text-danger">{saveErr}</p>
                           )}
                           <div className="flex justify-end">
                             <Button

@@ -27,7 +27,7 @@ function FriendAvatar({ steamId, displayName, avatarUrl }) {
   }
   return (
     <div
-      className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0 text-[10px]"
+      className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0 text-[0.625rem]"
       style={{ background: steamIdColor(steamId) }}
     >
       {(displayName ?? steamId)
@@ -57,7 +57,7 @@ function PlayerFriendsSection({ friends }) {
   if (friends?.public === false && !friends?.wasPublic) {
     return (
       <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
           <Users className="size-3 shrink-0" />
           Steam Friends
         </h2>
@@ -72,7 +72,7 @@ function PlayerFriendsSection({ friends }) {
   if (!enriched || enriched.length === 0) {
     return (
       <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
           <Users className="size-3 shrink-0" />
           Steam Friends
         </h2>
@@ -88,11 +88,11 @@ function PlayerFriendsSection({ friends }) {
 
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Users className="size-3 shrink-0" />
         Steam Friends
         {bannedCount > 0 && (
-          <span className="text-[9px] font-mono normal-case tracking-normal text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded">
+          <span className="text-[0.625rem] font-mono normal-case tracking-normal text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded">
             {bannedCount} banned
           </span>
         )}
@@ -102,7 +102,7 @@ function PlayerFriendsSection({ friends }) {
       </h2>
 
       {bannedCount > 0 && (
-        <label className="flex items-center gap-1.5 mb-2 text-[10px] font-mono text-muted-foreground cursor-pointer select-none">
+        <label className="flex items-center gap-1.5 mb-2 text-[0.625rem] font-mono text-muted-foreground cursor-pointer select-none">
           <input
             type="checkbox"
             checked={bannedOnly}
@@ -126,19 +126,19 @@ function PlayerFriendsSection({ friends }) {
             />
             <div className="min-w-0 flex-1">
               <p
-                className="text-[11px] font-medium truncate"
+                className="text-[0.6875rem] font-medium truncate"
                 title={f.displayName ?? f.steamId}
               >
                 {f.displayName ?? f.steamId}
               </p>
-              <p className="text-[9px] font-mono text-muted-foreground truncate flex items-center gap-1">
+              <p className="text-[0.625rem] font-mono text-muted-foreground truncate flex items-center gap-1">
                 {f.steamId}
                 <PlayerLinks steamId={f.steamId} size="sm" />
               </p>
             </div>
             {f.banned && (
               <span
-                className="inline-flex items-center gap-0.5 text-[9px] font-mono uppercase tracking-wider text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0"
+                className="inline-flex items-center gap-0.5 text-[0.625rem] font-mono uppercase tracking-wider text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0"
                 title={`Banned: ${f.banSources.map((s) => BAN_SOURCE_LABEL[s] ?? s).join(", ")}`}
               >
                 <Ban className="size-2.5" />
@@ -152,7 +152,7 @@ function PlayerFriendsSection({ friends }) {
       {filtered.length > 18 && (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="mt-2 text-[10px] font-mono text-brand hover:underline"
+          className="mt-2 text-[0.625rem] font-mono text-brand hover:underline"
         >
           {expanded ? "Show less" : `Show all ${filtered.length}`}
         </button>

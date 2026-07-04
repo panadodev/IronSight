@@ -136,7 +136,7 @@ function PlayerSidebar({
                   <h3 className="text-sm font-semibold truncate">
                     {subject.name}
                   </h3>
-                  <p className="text-[10px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground uppercase truncate flex items-center gap-1">
                     {subject.steamId}
                     <CopyBtn text={subject.steamId} />
                     <PlayerLinks steamId={subject.steamId} size="sm" />
@@ -174,7 +174,7 @@ function PlayerSidebar({
                         hint={HINTS.proxy}
                       />
                       <div>
-                        <p className="text-[10px] text-muted-foreground uppercase">
+                        <p className="text-[0.625rem] text-muted-foreground uppercase">
                           Location
                         </p>
                         <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
@@ -183,7 +183,7 @@ function PlayerSidebar({
                             className={`inline-block size-1.5 rounded-full ${pingTone(d.pingMs).color}`}
                             title={`${d.pingMs}ms ping`}
                           />
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[0.625rem] text-muted-foreground">
                             {d.pingMs}ms
                           </span>
                         </p>
@@ -221,7 +221,7 @@ function PlayerSidebar({
                         hint={HINTS.proxy}
                       />
                       <div>
-                        <p className="text-[10px] text-muted-foreground uppercase">
+                        <p className="text-[0.625rem] text-muted-foreground uppercase">
                           Location
                         </p>
                         <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
@@ -230,7 +230,7 @@ function PlayerSidebar({
                             className={`inline-block size-1.5 rounded-full ${pingTone(d.pingMs).color}`}
                             title={`${d.pingMs}ms ping`}
                           />
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[0.625rem] text-muted-foreground">
                             {d.pingMs}ms
                           </span>
                         </p>
@@ -260,7 +260,7 @@ function PlayerSidebar({
 
         {subject && d && (
           <section>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+            <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
               <span>Previous Offenses</span>
               <span className="font-mono normal-case tracking-normal text-muted-foreground">
                 {visibleOffenses.length}
@@ -330,14 +330,14 @@ function PlayerSidebar({
           <ReportersSection reports={reports} />
         ) : (
           <section>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
+            <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
               Reporter
             </h2>
             <div className="flex items-center gap-3">
               <Avatar player={reporter} size={28} />
               <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
                 <p className="text-sm font-medium truncate">{reporter.name}</p>
-                <p className="text-[10px] font-mono text-muted-foreground shrink-0">
+                <p className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                   {fmtNum(reporter.playtimeHours)}h
                 </p>
               </div>
@@ -358,7 +358,7 @@ function ReportersSection({ reports }) {
   const pending = reports.filter((r) => r.status === "pending").length;
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
         <span>Reporters · {reports.length}</span>
         <span className="text-warning font-mono normal-case tracking-normal">
           {pending} pending
@@ -381,12 +381,12 @@ function ReportersSection({ reports }) {
               <Avatar player={p} size={20} />
               <div className="min-w-0 flex-1 flex items-center gap-2">
                 <p className="text-xs font-medium truncate">{p.name}</p>
-                <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                   {r.submittedLabel}
                 </span>
               </div>
               <span
-                className={`text-[9px] font-mono uppercase font-bold tracking-wider ${tone}`}
+                className={`text-[0.625rem] font-mono uppercase font-bold tracking-wider ${tone}`}
               >
                 {r.status === "case_closed" ? "closed" : r.status}
               </span>
@@ -397,7 +397,7 @@ function ReportersSection({ reports }) {
       {reports.length > 3 && (
         <button
           onClick={() => setOpen((v) => !v)}
-          className="mt-2 text-[10px] font-mono uppercase tracking-widest text-brand hover:underline"
+          className="mt-2 text-[0.625rem] font-mono uppercase tracking-widest text-brand hover:underline"
         >
           {open ? "Collapse" : `Show ${reports.length - 3} more`}
         </button>
@@ -415,7 +415,7 @@ function TeammatesSection({ subjectId, category, only }) {
     <section className="space-y-4">
       {showCurrentBlock && (
         <div>
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+          <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
             <span>
               {showPrevious ? "Current team" : "Team"} · {mates.length}
             </span>
@@ -433,16 +433,16 @@ function TeammatesSection({ subjectId, category, only }) {
                     className={`size-1.5 rounded-full shrink-0 ${t.online ? "bg-success" : "bg-danger"}`}
                     title={t.online ? "Online" : "Offline"}
                   />
-                  <span className="text-[10px] font-medium truncate min-w-0">
+                  <span className="text-[0.625rem] font-medium truncate min-w-0">
                     {t.player.name}
                   </span>
-                  <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1 shrink-0">
+                  <span className="text-[0.625rem] font-mono text-muted-foreground flex items-center gap-1 shrink-0">
                     <CopyBtn text={t.player.steamId} />
                     <PlayerLinks steamId={t.player.steamId} />
                   </span>
 
                   <span
-                    className="text-[9px] font-mono text-muted-foreground shrink-0 ml-auto"
+                    className="text-[0.625rem] font-mono text-muted-foreground shrink-0 ml-auto"
                     title={`Joined ${t.joinedLabel}`}
                   >
                     joined {t.joinedLabel}
@@ -456,7 +456,7 @@ function TeammatesSection({ subjectId, category, only }) {
 
       {showPreviousBlock && (
         <div>
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+          <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
             <span>Previous team members · {previous.length}</span>
           </h2>
           {previous.length === 0 ? (
@@ -474,16 +474,16 @@ function TeammatesSection({ subjectId, category, only }) {
                     className="size-1.5 rounded-full shrink-0 bg-muted-foreground/50"
                     title="Left team"
                   />
-                  <span className="text-[10px] font-medium truncate min-w-0">
+                  <span className="text-[0.625rem] font-medium truncate min-w-0">
                     {t.player.name}
                   </span>
-                  <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1 shrink-0">
+                  <span className="text-[0.625rem] font-mono text-muted-foreground flex items-center gap-1 shrink-0">
                     <CopyBtn text={t.player.steamId} />
                     <PlayerLinks steamId={t.player.steamId} />
                   </span>
 
                   <span
-                    className="text-[9px] font-mono text-muted-foreground shrink-0 ml-auto"
+                    className="text-[0.625rem] font-mono text-muted-foreground shrink-0 ml-auto"
                     title={`Left ${t.leftLabel}`}
                   >
                     left {t.leftLabel}
@@ -503,9 +503,9 @@ function OffensesTable({ offenses }) {
   return (
     <>
       <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
-        <table className="w-full text-[10px] font-mono">
+        <table className="w-full text-[0.625rem] font-mono">
           <thead>
-            <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
+            <tr className="text-[0.625rem] uppercase tracking-wider text-muted-foreground bg-surface/60">
               <th className="px-1.5 py-1 text-left font-medium">Type</th>
               <th className="px-1.5 py-1 text-left font-medium">Status</th>
               <th className="px-1.5 py-1 text-left font-medium">Reason</th>
@@ -571,12 +571,12 @@ function OffensesTable({ offenses }) {
               </h3>
               <button
                 onClick={() => setOpenId(null)}
-                className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
               >
                 close
               </button>
             </div>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase mb-2">
+            <p className="text-[0.625rem] font-mono text-muted-foreground uppercase mb-2">
               by {open.by} · {open.when} · {open.status}
             </p>
             <p className="text-sm text-foreground leading-relaxed">
@@ -614,7 +614,7 @@ function AlertCategoryGroup({ kind, label, items, toneClass }) {
         <span className="text-xs text-muted-foreground flex items-center gap-1.5">
           <span
             className={
-              "inline-block text-[8px] font-mono transition-transform " +
+              "inline-block text-[0.5625rem] font-mono transition-transform " +
               (open ? "rotate-90" : "")
             }
           >
@@ -642,23 +642,23 @@ function AlertCategoryGroup({ kind, label, items, toneClass }) {
                 >
                   <span
                     className={
-                      "text-[8px] font-mono mt-1 transition-transform " +
+                      "text-[0.5625rem] font-mono mt-1 transition-transform " +
                       (expanded ? "rotate-90" : "")
                     }
                   >
                     ▶
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium truncate">
+                    <div className="text-[0.6875rem] font-medium truncate">
                       {title}
                     </div>
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       {m.timestamp}
                     </div>
                   </div>
                 </button>
                 {expanded && (
-                  <div className="px-3 pb-2 pt-1 text-[11px] font-mono whitespace-pre-wrap break-words text-foreground/90 bg-surface/40">
+                  <div className="px-3 pb-2 pt-1 text-[0.6875rem] font-mono whitespace-pre-wrap break-words text-foreground/90 bg-surface/40">
                     {m.body}
                   </div>
                 )}
@@ -675,7 +675,7 @@ function AlertsSection({ messages }) {
   const f7 = messages.filter((m) => m.body.startsWith("[F7 REPORT"));
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center gap-2">
         <span className="size-1 bg-danger rounded-full" />
         Alerts
       </h2>
@@ -730,14 +730,14 @@ function HitDistanceSection({ subjectId }) {
   });
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center gap-2">
         <span className="size-1 bg-danger rounded-full" />
         Hit % by Distance
       </h2>
       <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
-        <table className="w-full text-[10px] font-mono">
+        <table className="w-full text-[0.625rem] font-mono">
           <thead>
-            <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
+            <tr className="text-[0.625rem] uppercase tracking-wider text-muted-foreground bg-surface/60">
               <th className="px-2 py-1 text-left font-medium">Dist</th>
               {parts.map((p) => (
                 <th
@@ -753,7 +753,7 @@ function HitDistanceSection({ subjectId }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.label} className="border-t border-border">
-                <td className="px-2 py-1.5 text-muted-foreground uppercase text-[10px]">
+                <td className="px-2 py-1.5 text-muted-foreground uppercase text-[0.625rem]">
                   {r.label}
                 </td>
                 {r.cells.map((c) => (
@@ -847,13 +847,13 @@ function BmPlaytimeList({ sessions }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+        <span className="text-[0.625rem] font-mono text-muted-foreground uppercase tracking-widest">
           Highest playtime
         </span>
         <select
           value={showCount}
           onChange={(e) => setShowCount(e.target.value)}
-          className="text-[9px] font-mono bg-surface ring-1 ring-border rounded px-1 py-0.5 text-muted-foreground"
+          className="text-[0.625rem] font-mono bg-surface ring-1 ring-border rounded px-1 py-0.5 text-muted-foreground"
         >
           {["5", "10", "25", "50", "all"].map((v) => (
             <option key={v} value={v}>
@@ -877,13 +877,13 @@ function BmPlaytimeList({ sessions }) {
             >
               <div className="flex items-baseline justify-between gap-2 mb-0.5">
                 <span
-                  className="text-[10px] font-medium truncate min-w-0 flex-1"
+                  className="text-[0.625rem] font-medium truncate min-w-0 flex-1"
                   title={s.serverName}
                 >
                   {s.serverName}
                 </span>
                 <span
-                  className="text-[10px] font-mono shrink-0"
+                  className="text-[0.625rem] font-mono shrink-0"
                   style={{ color }}
                 >
                   {played}
@@ -906,7 +906,7 @@ function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
   if (bmSessions) {
     return (
       <section>
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
           <span>Server History (BM)</span>
           <span className="font-mono normal-case tracking-normal text-muted-foreground">
             {bmSessions.length}
@@ -951,7 +951,7 @@ function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
   });
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
         <span>Server History · 7d</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {servers.length}
@@ -965,20 +965,20 @@ function ServerHistorySection({ subjectId, isOnline, recipients, bmSessions }) {
           >
             {s.overlaps.length > 0 && (
               <span
-                className="inline-flex items-center gap-0.5 text-[9px] font-mono font-bold text-warning shrink-0"
+                className="inline-flex items-center gap-0.5 text-[0.625rem] font-mono font-bold text-warning shrink-0"
                 title={`Overlapped with: ${s.overlaps.join(", ")}`}
               >
                 <span className="size-1.5 rounded-full bg-warning" />
                 {s.overlaps.length}
               </span>
             )}
-            <span className="text-[10px] font-medium truncate min-w-0 flex-1">
+            <span className="text-[0.625rem] font-medium truncate min-w-0 flex-1">
               {s.name}
             </span>
-            <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+            <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
               {s.played}
             </span>
-            <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+            <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
               {s.label}
             </span>
           </li>
@@ -1051,14 +1051,14 @@ function FriendlyActionsSection({ subjectId }) {
   };
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
         <span>Friendly Actions</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {events.length}
         </span>
       </h2>
       <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
-        <table className="w-full text-[10px] font-mono">
+        <table className="w-full text-[0.625rem] font-mono">
           <tbody>
             {visible.map((e) => (
               <tr key={e.key} className="border-t border-border first:border-0">
@@ -1091,7 +1091,7 @@ function FriendlyActionsSection({ subjectId }) {
       {events.length > 5 && (
         <button
           onClick={() => setOpen((v) => !v)}
-          className="mt-2 text-[10px] font-mono uppercase tracking-widest text-brand hover:underline"
+          className="mt-2 text-[0.625rem] font-mono uppercase tracking-widest text-brand hover:underline"
         >
           {open ? "Collapse" : `Show ${events.length - 5} more`}
         </button>
@@ -1413,7 +1413,7 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
   return (
     <section>
       <div className="flex items-center justify-between mb-2 gap-2">
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-1.5">
+        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-1.5">
           <span>Associated Players</span>
           <span className="font-mono normal-case tracking-normal text-muted-foreground">
             {visible.length}
@@ -1424,7 +1424,7 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
             <button
               key={m}
               onClick={() => setSortMode(m)}
-              className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${sortMode === m ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
+              className={`text-[0.625rem] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${sortMode === m ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
               title={
                 m === "most"
                   ? "Sort by most associations"
@@ -1436,14 +1436,14 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
           ))}
           <button
             onClick={() => setIgnoreTeamUi((v) => !v)}
-            className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${ignoreTeamUi ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
+            className={`text-[0.625rem] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${ignoreTeamUi ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
             title="Hide players already in the subject's team UI"
           >
             Ignore TeamUI: {ignoreTeamUi ? "true" : "false"}
           </button>
           <button
             onClick={() => setShowHidden((v) => !v)}
-            className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${showHidden ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
+            className={`text-[0.625rem] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${showHidden ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
             title="Include players that have been manually unassociated"
           >
             Show hidden
@@ -1458,7 +1458,7 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search server roster by name or Steam ID..."
-            className="w-full bg-background border border-border rounded px-2 py-1.5 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            className="w-full bg-background border border-border rounded px-2 py-1.5 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           />
           {matches.length > 0 && (
             <ul className="absolute z-10 left-0 right-0 mt-1 bg-background ring-1 ring-border rounded shadow-lg max-h-56 overflow-y-auto">
@@ -1472,10 +1472,10 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
                     }}
                     className="w-full text-left px-2 py-1.5 hover:bg-surface/60 flex items-center gap-2"
                   >
-                    <span className="text-[10px] font-medium truncate flex-1">
+                    <span className="text-[0.625rem] font-medium truncate flex-1">
                       {p.name}
                     </span>
-                    <span className="text-[9px] font-mono text-muted-foreground truncate">
+                    <span className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       {p.steamId}
                     </span>
                   </button>
@@ -1484,7 +1484,7 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
             </ul>
           )}
           {trimmed && matches.length === 0 && (
-            <p className="absolute z-10 left-0 right-0 mt-1 bg-background ring-1 ring-border rounded p-2 text-[10px] text-muted-foreground italic">
+            <p className="absolute z-10 left-0 right-0 mt-1 bg-background ring-1 ring-border rounded p-2 text-[0.625rem] text-muted-foreground italic">
               No players on this server match.
             </p>
           )}
@@ -1502,18 +1502,18 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
                 setSearchedId(null);
                 setOpenId(r.steamId);
               }}
-              className={`text-[10px] font-medium truncate text-left hover:underline shrink-0 max-w-[100px] ${r.hidden ? "text-muted-foreground line-through" : "text-brand"}`}
+              className={`text-[0.625rem] font-medium truncate text-left hover:underline shrink-0 max-w-[100px] ${r.hidden ? "text-muted-foreground line-through" : "text-brand"}`}
               title="View breakdown"
             >
               {r.name}
             </button>
-            <span className="text-[9px] font-mono text-muted-foreground min-w-0 flex-1 flex items-center gap-1">
+            <span className="text-[0.625rem] font-mono text-muted-foreground min-w-0 flex-1 flex items-center gap-1">
               <CopyBtn text={r.steamId} />
               <PlayerLinks steamId={r.steamId} />
             </span>
 
             <span
-              className="text-[9px] text-muted-foreground shrink-0 tabular-nums"
+              className="text-[0.625rem] text-muted-foreground shrink-0 tabular-nums"
               title={
                 r.associationReports > 0
                   ? `Last reported as associated ${secAgoLabel(r.assocLastSec)} \xB7 ${r.associationReports} report${r.associationReports === 1 ? "" : "s"}`
@@ -1525,7 +1525,7 @@ function FriendlyRecipientsSection({ subjectId, subjectName, serverId }) {
               )}
             </span>
             <span
-              className="text-[9px] font-mono text-foreground/80 shrink-0 px-1.5 py-0.5 rounded bg-surface/80 ring-1 ring-border"
+              className="text-[0.625rem] font-mono text-foreground/80 shrink-0 px-1.5 py-0.5 rounded bg-surface/80 ring-1 ring-border"
               title={`${r.signalCount} unique association signal${r.signalCount === 1 ? "" : "s"}`}
             >
               ×{r.signalCount}
@@ -1672,7 +1672,7 @@ function RecipientBreakdownModal({
                 <ServerIcon size={12} className="text-warning" />
               )}
             </h3>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase mt-0.5 flex items-center gap-1">
+            <p className="text-[0.625rem] font-mono text-muted-foreground uppercase mt-0.5 flex items-center gap-1">
               {recipient.steamId}
               <CopyBtn text={recipient.steamId} />
               <PlayerLinks steamId={recipient.steamId} size="sm" />
@@ -1689,13 +1689,13 @@ function RecipientBreakdownModal({
         {recipient.hidden && onReassociate && (
           <div className="mb-4 px-3 py-2 rounded ring-1 ring-amber-400/30 bg-amber-400/5 flex items-center gap-3">
             <Trash2 size={12} className="text-amber-400 shrink-0" />
-            <p className="text-[11px] text-foreground flex-1">
+            <p className="text-[0.6875rem] text-foreground flex-1">
               These players were previously associated but were manually
               unassociated.
             </p>
             <button
               onClick={onReassociate}
-              className="text-[10px] font-mono uppercase px-2 py-1 rounded ring-1 ring-amber-400 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 inline-flex items-center gap-1"
+              className="text-[0.625rem] font-mono uppercase px-2 py-1 rounded ring-1 ring-amber-400 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 inline-flex items-center gap-1"
             >
               <RotateCcw size={11} /> Re-associate
             </button>
@@ -1704,12 +1704,12 @@ function RecipientBreakdownModal({
 
         {canAddAssociated && onAddAssociated && (
           <div className="mb-4 px-3 py-2 rounded ring-1 ring-brand/30 bg-brand/5 flex items-center gap-3">
-            <p className="text-[11px] text-foreground flex-1">
+            <p className="text-[0.6875rem] text-foreground flex-1">
               {recipient.name} isn't yet listed as an associated player.
             </p>
             <button
               onClick={onAddAssociated}
-              className="text-[10px] font-mono uppercase px-2 py-1 rounded ring-1 ring-brand bg-brand text-brand-foreground hover:opacity-90"
+              className="text-[0.625rem] font-mono uppercase px-2 py-1 rounded ring-1 ring-brand bg-brand text-brand-foreground hover:opacity-90"
             >
               Add as associated
             </button>
@@ -1719,7 +1719,7 @@ function RecipientBreakdownModal({
         {recipient.steamFriend && (
           <div className="mb-3 px-3 py-2 rounded ring-1 ring-success/30 bg-success/5 flex items-center gap-2">
             <UsersRound size={12} className="text-success shrink-0" />
-            <p className="text-[11px] text-foreground">
+            <p className="text-[0.6875rem] text-foreground">
               <span className="font-semibold text-success">
                 Friends on Steam
               </span>{" "}
@@ -1731,7 +1731,7 @@ function RecipientBreakdownModal({
         {recipient.associationReports > 0 && (
           <div className="mb-4 px-3 py-2 rounded ring-1 ring-rose-400/30 bg-rose-400/5 flex items-center gap-2">
             <Flag size={12} className="text-rose-400 shrink-0" />
-            <p className="text-[11px] text-foreground">
+            <p className="text-[0.6875rem] text-foreground">
               Reported as associated with this player{" "}
               <span className="font-mono font-semibold text-rose-400">
                 ×{recipient.associationReports}
@@ -1744,7 +1744,7 @@ function RecipientBreakdownModal({
 
         {/* FRIENDLY ACTIONS */}
         <div className="flex items-center justify-between mb-2 gap-2">
-          <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Friendly Actions · {filteredEvents.length}
           </h4>
           <div className="flex gap-1">
@@ -1752,7 +1752,7 @@ function RecipientBreakdownModal({
               <button
                 key={r.label}
                 onClick={() => setRangeIdx(i)}
-                className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${i === rangeIdx ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
+                className={`text-[0.625rem] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${i === rangeIdx ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
               >
                 {r.label}
               </button>
@@ -1767,7 +1767,7 @@ function RecipientBreakdownModal({
               .map(([action, count]) => (
                 <span
                   key={action}
-                  className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface/60 ring-1 ring-border text-foreground"
+                  className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded bg-surface/60 ring-1 ring-border text-foreground"
                 >
                   {action}{" "}
                   <span className="text-muted-foreground">×{count}</span>
@@ -1778,11 +1778,11 @@ function RecipientBreakdownModal({
 
         <div className="bg-surface/40 ring-1 ring-border rounded mb-5 overflow-hidden max-h-48 overflow-y-auto">
           {filteredEvents.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground italic p-2">
+            <p className="text-[0.625rem] text-muted-foreground italic p-2">
               No actions in this range.
             </p>
           ) : (
-            <table className="w-full text-[10px] font-mono">
+            <table className="w-full text-[0.625rem] font-mono">
               <tbody>
                 {filteredEvents.map((e, i) => (
                   <tr
@@ -1804,7 +1804,7 @@ function RecipientBreakdownModal({
 
         {/* SERVER HISTORY TIMELINE */}
         <div className="flex items-center justify-between mb-2 gap-2">
-          <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Server History · {serverWin.label}
           </h4>
           <div className="flex gap-1">
@@ -1812,7 +1812,7 @@ function RecipientBreakdownModal({
               <button
                 key={w.label}
                 onClick={() => setServerWinIdx(i)}
-                className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${i === serverWinIdx ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
+                className={`text-[0.625rem] font-mono uppercase px-1.5 py-0.5 rounded ring-1 transition-colors ${i === serverWinIdx ? "ring-brand bg-brand/10 text-brand" : "ring-border text-muted-foreground hover:text-foreground"}`}
               >
                 {w.label}
               </button>
@@ -1820,7 +1820,7 @@ function RecipientBreakdownModal({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mb-2 text-[9px] font-mono text-muted-foreground">
+        <div className="flex items-center gap-3 mb-2 text-[0.625rem] font-mono text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <span className="size-2 rounded-sm bg-brand" /> Subject
           </span>
@@ -1834,11 +1834,11 @@ function RecipientBreakdownModal({
           {rows.map((row) => (
             <div key={row.name}>
               <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-[10px] font-medium truncate flex-1">
+                <span className="text-[0.625rem] font-medium truncate flex-1">
                   {row.name}
                 </span>
                 {row.hasOverlap && (
-                  <span className="text-[9px] font-mono text-warning font-bold uppercase tracking-wider">
+                  <span className="text-[0.625rem] font-mono text-warning font-bold uppercase tracking-wider">
                     overlap
                   </span>
                 )}
@@ -1887,19 +1887,19 @@ function RecipientBreakdownModal({
             </div>
           ))}
         </div>
-        <div className="flex justify-between text-[9px] font-mono text-muted-foreground mt-1">
+        <div className="flex justify-between text-[0.625rem] font-mono text-muted-foreground mt-1">
           <span>{serverWin.days}d ago</span>
           <span>now</span>
         </div>
 
         {/* MUTUAL STEAM FRIENDS */}
         <div className="mt-5">
-          <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-1.5">
+          <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-1.5">
             <Handshake size={11} className="text-fuchsia-400" />
             Mutual Steam Friends · {recipient.mutualFriends.length}
           </h4>
           {recipient.mutualFriends.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground italic">
+            <p className="text-[0.625rem] text-muted-foreground italic">
               No friends in common on Steam.
             </p>
           ) : (
@@ -1909,10 +1909,10 @@ function RecipientBreakdownModal({
                   key={f.steamId}
                   className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1"
                 >
-                  <span className="text-[10px] font-medium truncate shrink-0 max-w-[120px]">
+                  <span className="text-[0.625rem] font-medium truncate shrink-0 max-w-[120px]">
                     {f.name}
                   </span>
-                  <span className="text-[9px] font-mono text-muted-foreground truncate min-w-0 flex-1 flex items-center gap-1">
+                  <span className="text-[0.625rem] font-mono text-muted-foreground truncate min-w-0 flex-1 flex items-center gap-1">
                     {f.steamId}
                     <CopyBtn text={f.steamId} />
                     <PlayerLinks steamId={f.steamId} />
@@ -1974,7 +1974,7 @@ function FriendlyNotes({ subjectId, recipientId, recipientName }) {
   };
   return (
     <div className="mt-5">
-      <h4 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center justify-between">
+      <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center justify-between">
         <span>Pair Notes</span>
         <span
           className="font-mono normal-case tracking-normal text-muted-foreground"
@@ -1994,18 +1994,18 @@ function FriendlyNotes({ subjectId, recipientId, recipientName }) {
             }
           }}
           placeholder={`Note about interaction with ${recipientName}\u2026`}
-          className="flex-1 text-[10px] bg-surface/40 ring-1 ring-border rounded px-2 py-1 placeholder:text-muted-foreground focus:outline-none focus:ring-brand"
+          className="flex-1 text-[0.625rem] bg-surface/40 ring-1 ring-border rounded px-2 py-1 placeholder:text-muted-foreground focus:outline-none focus:ring-brand"
         />
         <button
           onClick={add}
           disabled={!draft.trim()}
-          className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded ring-1 ring-brand text-brand hover:bg-brand/10 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-[0.625rem] font-mono uppercase tracking-wider px-2 py-1 rounded ring-1 ring-brand text-brand hover:bg-brand/10 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Add
         </button>
       </div>
       {notes.length === 0 ? (
-        <p className="text-[10px] text-muted-foreground italic">
+        <p className="text-[0.625rem] text-muted-foreground italic">
           No notes yet for this pair.
         </p>
       ) : (
@@ -2016,10 +2016,10 @@ function FriendlyNotes({ subjectId, recipientId, recipientName }) {
               className="bg-surface/40 ring-1 ring-border rounded px-2 py-1.5 flex gap-2 items-start"
             >
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] text-foreground whitespace-pre-wrap break-words">
+                <p className="text-[0.6875rem] text-foreground whitespace-pre-wrap break-words">
                   {n.text}
                 </p>
-                <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+                <p className="text-[0.625rem] font-mono text-muted-foreground mt-0.5">
                   {fmt(n.createdAt)}
                 </p>
               </div>
@@ -2155,7 +2155,7 @@ function ChatLogSection({ subjectId, ticketStatus, onAutoReopen }) {
   }, [onAutoReopen, ticketStatus, firstRed, subjectId]);
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Chat Log · {log.length}</span>
         {flaggedCount > 0 && (
           <span className="font-mono normal-case tracking-normal text-danger">
@@ -2182,11 +2182,11 @@ function ChatLogSection({ subjectId, ticketStatus, onAutoReopen }) {
               key={i}
               className={`text-xs rounded-md px-2 py-1.5 flex gap-2 items-start ${bgRing}`}
             >
-              <span className="font-mono text-[10px] text-muted-foreground shrink-0 mt-0.5">
+              <span className="font-mono text-[0.625rem] text-muted-foreground shrink-0 mt-0.5">
                 {line.ts}
               </span>
               <span
-                className={`font-mono text-[9px] uppercase tracking-wider shrink-0 mt-0.5 ${line.channel === "global" ? "text-foreground/70" : line.channel === "team" ? "text-success" : "text-warning"}`}
+                className={`font-mono text-[0.625rem] uppercase tracking-wider shrink-0 mt-0.5 ${line.channel === "global" ? "text-foreground/70" : line.channel === "team" ? "text-success" : "text-warning"}`}
               >
                 {line.channel}
               </span>
@@ -2320,7 +2320,7 @@ function KillFeedSection({ subjectId }) {
   const kd = deaths === 0 ? kills.toFixed(2) : (kills / deaths).toFixed(2);
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Kill / Death Feed · {feed.length}</span>
         <span className="font-mono normal-case tracking-normal text-foreground/70">
           <span className="text-success">{kills}K</span>
@@ -2351,11 +2351,11 @@ function KillFeedSection({ subjectId }) {
               key={i}
               className={`text-xs rounded-md px-2 py-1.5 flex gap-2 items-start ${ringBg}`}
             >
-              <span className="font-mono text-[10px] text-muted-foreground shrink-0 mt-0.5">
+              <span className="font-mono text-[0.625rem] text-muted-foreground shrink-0 mt-0.5">
                 {e.ts}
               </span>
               <span
-                className={`font-mono text-[9px] uppercase tracking-wider shrink-0 mt-0.5 w-9 ${tag.color}`}
+                className={`font-mono text-[0.625rem] uppercase tracking-wider shrink-0 mt-0.5 w-9 ${tag.color}`}
               >
                 {tag.label}
               </span>
@@ -2368,7 +2368,7 @@ function KillFeedSection({ subjectId }) {
                       · {e.weapon} · {e.distance}m
                     </span>
                     {e.headshot && (
-                      <span className="ml-1 font-mono text-[9px] uppercase text-warning">
+                      <span className="ml-1 font-mono text-[0.625rem] uppercase text-warning">
                         headshot
                       </span>
                     )}
@@ -2382,7 +2382,7 @@ function KillFeedSection({ subjectId }) {
                       · {e.weapon} · {e.distance}m
                     </span>
                     {e.headshot && (
-                      <span className="ml-1 font-mono text-[9px] uppercase text-warning">
+                      <span className="ml-1 font-mono text-[0.625rem] uppercase text-warning">
                         headshot
                       </span>
                     )}

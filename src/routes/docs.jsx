@@ -188,12 +188,12 @@ function DocsPage() {
         <div className="w-72 border-r border-border bg-surface/30 flex flex-col">
           <div className="p-3 border-b border-border space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 Docs · Wiki
               </span>
               {selectedOrgIds.length > 1 && (
                 <Select value={effectiveOrgId} onValueChange={setOrgId}>
-                  <SelectTrigger className="h-6 w-28 text-[10px]">
+                  <SelectTrigger className="h-6 w-28 text-[0.625rem]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -222,14 +222,14 @@ function DocsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 text-[10px] flex-1"
+                  className="h-7 text-[0.625rem] flex-1"
                   onClick={() => setCreatingCatParent(null)}
                 >
                   <FolderPlus className="size-3 mr-1" /> Category
                 </Button>
                 <Button
                   size="sm"
-                  className="h-7 text-[10px] flex-1"
+                  className="h-7 text-[0.625rem] flex-1"
                   onClick={() => startNewArticle(null)}
                 >
                   <Plus className="size-3 mr-1" /> Article
@@ -398,7 +398,7 @@ function Tree({
       ))}
       {uncategorized.length > 0 && (
         <div className="mt-3 pt-2 border-t border-border">
-          <div className="px-2 text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+          <div className="px-2 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1">
             Uncategorized
           </div>
           {uncategorized.map((a) => (
@@ -560,7 +560,7 @@ function ArticleRow({ article, depth, selected, onSelect }) {
 function SearchResults({ results, selectedId, onSelect }) {
   if (results.length === 0) {
     return (
-      <p className="px-2 py-3 text-[11px] text-muted-foreground">
+      <p className="px-2 py-3 text-[0.6875rem] text-muted-foreground">
         No matches in articles you can view.
       </p>
     );
@@ -610,14 +610,14 @@ function Viewer({
     <article className="max-w-3xl mx-auto px-8 py-8">
       <header className="mb-6 pb-4 border-b border-border flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-2">
+          <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-2">
             <Lock className="size-3" />{" "}
             {minPositionLabel(article.minPosition, roles)}
           </div>
           <h1 className="text-2xl font-bold text-foreground truncate">
             {article.title}
           </h1>
-          <p className="text-[11px] text-muted-foreground mt-1">
+          <p className="text-[0.6875rem] text-muted-foreground mt-1">
             Updated {timeAgo(article.updatedAt)} by {article.updatedByName} ·{" "}
             {article.versions.length} previous version
             {article.versions.length === 1 ? "" : "s"}
@@ -741,7 +741,7 @@ function TiptapToolbar({ editor }) {
           }
           title="Heading 2"
         >
-          <span className="text-[11px] font-bold">H2</span>
+          <span className="text-[0.6875rem] font-bold">H2</span>
         </ToolbarBtn>
         <ToolbarBtn
           active={editor.isActive("heading", { level: 3 })}
@@ -750,7 +750,7 @@ function TiptapToolbar({ editor }) {
           }
           title="Heading 3"
         >
-          <span className="text-[11px] font-bold">H3</span>
+          <span className="text-[0.6875rem] font-bold">H3</span>
         </ToolbarBtn>
 
         <div className="w-px h-5 bg-border mx-0.5" />
@@ -781,7 +781,7 @@ function TiptapToolbar({ editor }) {
           onClick={() => editor.chain().focus().toggleCodeBlock().run()}
           title="Code block"
         >
-          <span className="text-[10px] font-mono font-bold">{"{}"}</span>
+          <span className="text-[0.625rem] font-mono font-bold">{"{}"}</span>
         </ToolbarBtn>
 
         <div className="w-px h-5 bg-border mx-0.5" />
@@ -853,7 +853,7 @@ function TiptapToolbar({ editor }) {
 
       {linkOpen && (
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface/30">
-          <span className="text-[10px] text-muted-foreground shrink-0">
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">
             URL
           </span>
           <Input
@@ -869,7 +869,7 @@ function TiptapToolbar({ editor }) {
           />
           <Button
             size="sm"
-            className="h-6 text-[10px] px-2"
+            className="h-6 text-[0.625rem] px-2"
             onClick={applyLink}
           >
             Apply
@@ -878,7 +878,7 @@ function TiptapToolbar({ editor }) {
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 text-[10px] px-2 text-danger"
+              className="h-6 text-[0.625rem] px-2 text-danger"
               onClick={() => {
                 editor.chain().focus().unsetLink().run();
                 setLinkOpen(false);
@@ -892,7 +892,7 @@ function TiptapToolbar({ editor }) {
 
       {imageOpen && (
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface/30">
-          <span className="text-[10px] text-muted-foreground shrink-0">
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">
             Image URL
           </span>
           <Input
@@ -908,7 +908,7 @@ function TiptapToolbar({ editor }) {
           />
           <Button
             size="sm"
-            className="h-6 text-[10px] px-2"
+            className="h-6 text-[0.625rem] px-2"
             onClick={insertImage}
           >
             Insert
@@ -918,7 +918,7 @@ function TiptapToolbar({ editor }) {
 
       {ytOpen && (
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface/30">
-          <span className="text-[10px] text-muted-foreground shrink-0">
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">
             YouTube URL
           </span>
           <Input
@@ -932,7 +932,7 @@ function TiptapToolbar({ editor }) {
             placeholder="https://youtube.com/watch?v=..."
             className="h-6 text-xs flex-1"
           />
-          <Button size="sm" className="h-6 text-[10px] px-2" onClick={insertYt}>
+          <Button size="sm" className="h-6 text-[0.625rem] px-2" onClick={insertYt}>
             Embed
           </Button>
         </div>
@@ -1010,7 +1010,7 @@ function Editor({ article, cats, roles, onCancel, onSave }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Category
           </Label>
           <Select
@@ -1031,7 +1031,7 @@ function Editor({ article, cats, roles, onCancel, onSave }) {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Visibility
           </Label>
           <Select
@@ -1061,7 +1061,7 @@ function Editor({ article, cats, roles, onCancel, onSave }) {
       >
         <EditorContent editor={editor} />
       </div>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-[0.625rem] text-muted-foreground">
         Ctrl+S to save · Paste images directly with Ctrl+V
       </p>
     </div>
@@ -1157,7 +1157,7 @@ function HistoryDialog({
         <div className="grid grid-cols-[260px_1fr] gap-4 max-h-[60vh]">
           <div className="overflow-y-auto border-r border-border pr-3 space-y-1">
             {article.versions.length === 0 && (
-              <p className="text-[11px] text-muted-foreground py-4">
+              <p className="text-[0.6875rem] text-muted-foreground py-4">
                 No previous versions yet.
               </p>
             )}
@@ -1173,7 +1173,7 @@ function HistoryDialog({
                 onClick={() => setPreviewing(vv.id)}
               >
                 <div className="font-semibold truncate">{vv.title}</div>
-                <div className="text-[10px] text-muted-foreground">
+                <div className="text-[0.625rem] text-muted-foreground">
                   {timeAgo(vv.savedAt)} · {vv.savedByName}
                 </div>
                 <div className="hidden group-hover:flex items-center gap-1 mt-1">
@@ -1181,7 +1181,7 @@ function HistoryDialog({
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-6 text-[10px]"
+                      className="h-6 text-[0.625rem]"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRestore(vv.id);
@@ -1194,7 +1194,7 @@ function HistoryDialog({
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-6 text-[10px] text-danger hover:text-danger"
+                      className="h-6 text-[0.625rem] text-danger hover:text-danger"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDeleteVersion(vv.id);

@@ -202,12 +202,12 @@ function SysLinkedAccountsPage() {
                           <div className="text-sm font-semibold truncate">
                             {u.username}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground">
+                          <div className="flex items-center gap-2 text-[0.625rem] font-mono text-muted-foreground">
                             {u.discordId && <span>{u.discordId}</span>}
                           </div>
                         </div>
                         {u.accountCount > 1 && (
-                          <span className="shrink-0 inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded ring-1 bg-warning/10 text-warning ring-warning/30">
+                          <span className="shrink-0 inline-flex items-center gap-1 text-[0.625rem] font-mono px-1.5 py-0.5 rounded ring-1 bg-warning/10 text-warning ring-warning/30">
                             <AlertTriangle className="size-2.5" />
                             {u.accountCount} Steam accounts
                           </span>
@@ -223,7 +223,7 @@ function SysLinkedAccountsPage() {
 
                     {isExpanded && (
                       <div className="border-t border-border px-4 pb-4 pt-3 space-y-2">
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                           Steam accounts
                         </p>
                         {u.steamAccounts.map((acct) => (
@@ -233,7 +233,7 @@ function SysLinkedAccountsPage() {
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               {acct.isPrimary && (
-                                <span className="shrink-0 text-[9px] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
+                                <span className="shrink-0 text-[0.625rem] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
                                   PRIMARY
                                 </span>
                               )}
@@ -241,7 +241,7 @@ function SysLinkedAccountsPage() {
                                 <div className="text-xs font-medium truncate">
                                   {acct.steamName ?? acct.steamId}
                                 </div>
-                                <div className="text-[10px] font-mono text-muted-foreground truncate">
+                                <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                                   {acct.steamId}
                                 </div>
                               </div>

@@ -66,7 +66,7 @@ function TimeAxisLabels({ earliestSec, spanSec, tz }) {
       {labels.map(({ pct, label }) => (
         <span
           key={pct}
-          className="absolute text-[8px] font-mono text-muted-foreground/60 -translate-x-1/2 whitespace-nowrap"
+          className="absolute text-[0.5625rem] font-mono text-muted-foreground/60 -translate-x-1/2 whitespace-nowrap"
           style={{ left: `${pct}%` }}
         >
           {label}
@@ -178,7 +178,7 @@ function SessionTimeline({ sessionWindows }) {
 
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Clock className="size-3 shrink-0" />
         Session Timeline
         <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
@@ -227,7 +227,7 @@ function SessionTimeline({ sessionWindows }) {
 
           {tooltip && (
             <div
-              className="pointer-events-none fixed z-50 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[10px] font-mono max-w-52"
+              className="pointer-events-none fixed z-50 bg-background ring-1 ring-border rounded shadow-lg px-2 py-1.5 text-[0.625rem] font-mono max-w-52"
               style={{
                 left: tooltip.x + 12,
                 top: tooltip.y - 8,

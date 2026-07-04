@@ -65,7 +65,7 @@ function PlayerCombobox({
                   }
                 >
                   <div
-                    className="size-8 rounded-sm shrink-0 grid place-items-center font-mono text-[10px] font-bold text-background"
+                    className="size-8 rounded-sm shrink-0 grid place-items-center font-mono text-[0.625rem] font-bold text-background"
                     style={{ background: p.avatarColor }}
                   >
                     {p.name
@@ -82,7 +82,7 @@ function PlayerCombobox({
                     >
                       {p.name}
                     </p>
-                    <p className="text-[10px] font-mono text-muted-foreground truncate">
+                    <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       Last seen {p.lastSeen}
                     </p>
                   </div>

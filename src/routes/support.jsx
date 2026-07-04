@@ -62,7 +62,7 @@ function StepIndicator({ step }) {
             <div className="flex flex-col items-center gap-1">
               <span
                 className={
-                  "size-6 rounded-full ring-1 flex items-center justify-center font-bold text-[10px] " +
+                  "size-6 rounded-full ring-1 flex items-center justify-center font-bold text-[0.625rem] " +
                   (done
                     ? "bg-brand/10 ring-brand/40 text-brand"
                     : active
@@ -212,7 +212,7 @@ function SupportLanding() {
         <div className="flex-1 grid place-items-center p-6">
           <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 space-y-6">
             <div className="text-center">
-              <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+              <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-2">
                 IronSight / support
               </p>
               <h1 className="text-2xl font-semibold tracking-tight">
@@ -249,7 +249,7 @@ function SupportLanding() {
               </button>
             </div>
 
-            <p className="text-[10px] text-center text-muted-foreground">
+            <p className="text-[0.625rem] text-center text-muted-foreground">
               Already submitted a ticket?{" "}
               <Link to="/my-reports" className="text-brand hover:underline">
                 View your tickets
@@ -270,7 +270,7 @@ function SupportLanding() {
         <div className="flex-1 grid place-items-center p-6">
           <div className="w-full max-w-md bg-surface/60 ring-1 ring-border rounded-xl p-8 space-y-6">
             <div className="text-center">
-              <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+              <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-2">
                 IronSight / support
               </p>
               <h1 className="text-2xl font-semibold tracking-tight">
@@ -307,7 +307,7 @@ function SupportLanding() {
               </button>
             </div>
 
-            <p className="text-[10px] text-center text-muted-foreground">
+            <p className="text-[0.625rem] text-center text-muted-foreground">
               Wrong Discord account?{" "}
               <button
                 onClick={async () => {
@@ -336,7 +336,7 @@ function SupportLanding() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto p-8 space-y-8">
           <header>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-2">
               IronSight / support
             </p>
             <h1 className="text-3xl font-semibold tracking-tight">
@@ -387,12 +387,12 @@ function SupportLanding() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold truncate">{o.name}</p>
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                         {o.short}
                       </p>
                     </div>
                   </div>
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground group-hover:text-brand">
+                  <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground group-hover:text-brand">
                     Continue →
                   </span>
                 </Link>

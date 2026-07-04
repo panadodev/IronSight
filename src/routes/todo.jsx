@@ -578,7 +578,7 @@ function TodoPage() {
               <div className="flex items-center gap-0.5 bg-surface/60 ring-1 ring-border rounded-md p-0.5">
                 <button
                   onClick={() => setView("board")}
-                  className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors ${
+                  className={`px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors ${
                     view === "board"
                       ? "bg-brand text-brand-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -588,7 +588,7 @@ function TodoPage() {
                 </button>
                 <button
                   onClick={() => setView("completed")}
-                  className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors ${
+                  className={`px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors ${
                     view === "completed"
                       ? "bg-brand text-brand-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -674,13 +674,13 @@ function TodoPage() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>New task</DialogTitle>
-            <DialogDescription className="font-mono text-[10px]">
+            <DialogDescription className="font-mono text-[0.625rem]">
               Assign a card to a staff member.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateTask} className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 Title
               </label>
               <Input
@@ -692,7 +692,7 @@ function TodoPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 Details
               </label>
               <Textarea
@@ -706,7 +706,7 @@ function TodoPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Org
                 </label>
                 <Select
@@ -730,7 +730,7 @@ function TodoPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Assignee
                 </label>
                 <Select
@@ -765,7 +765,7 @@ function TodoPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Priority
                 </label>
                 <Select
@@ -784,7 +784,7 @@ function TodoPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Visible to
                 </label>
                 <Select
@@ -826,14 +826,14 @@ function TodoPage() {
                 <span className="flex items-center gap-1.5 text-xs font-semibold">
                   <Lock className="size-3" aria-hidden="true" /> Personal card
                 </span>
-                <span className="block text-[10px] text-muted-foreground mt-0.5">
+                <span className="block text-[0.625rem] text-muted-foreground mt-0.5">
                   Only the assignee can see this card. Overrides the visibility
                   tier — nobody else, including management, will see it.
                 </span>
               </span>
             </button>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 Status
               </label>
               <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
@@ -847,7 +847,7 @@ function TodoPage() {
                     type="button"
                     onClick={() => setCreateTaskStatus(s.value)}
                     disabled={isCreatingTask}
-                    className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors ${
+                    className={`px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors ${
                       createTaskStatus === s.value
                         ? "bg-brand text-brand-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -1067,7 +1067,7 @@ function OrgFilterPopover({ orgs, effectiveIds, label, onToggle, onSetAll }) {
         <button className="flex items-center gap-2 px-2.5 py-1.5 rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface transition-colors">
           <Building2 className="size-3.5 text-brand shrink-0" />
           <div className="flex flex-col items-start leading-tight min-w-0">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Board orgs
             </span>
             <span className="text-xs font-semibold truncate max-w-[200px]">
@@ -1079,12 +1079,12 @@ function OrgFilterPopover({ orgs, effectiveIds, label, onToggle, onSetAll }) {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-2">
         <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Filter orgs
           </span>
           <button
             onClick={() => onSetAll(!allSelected)}
-            className="text-[10px] font-semibold text-brand hover:underline"
+            className="text-[0.625rem] font-semibold text-brand hover:underline"
           >
             {allSelected ? "Clear" : "Select all"}
           </button>
@@ -1158,7 +1158,7 @@ function BoardView({
                 <div className="text-sm font-semibold truncate">
                   {staff.username}
                 </div>
-                <div className="text-[9px] font-mono uppercase tracking-widest text-brand">
+                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-brand">
                   {cards.length} task{cards.length !== 1 ? "s" : ""}
                 </div>
               </div>
@@ -1184,7 +1184,7 @@ function BoardView({
 
             <div className="p-2 space-y-2 overflow-y-auto min-h-[60px]">
               {cards.length === 0 ? (
-                <div className="text-[10px] text-muted-foreground text-center py-8">
+                <div className="text-[0.625rem] text-muted-foreground text-center py-8">
                   No active tasks
                 </div>
               ) : (
@@ -1265,13 +1265,13 @@ function TaskCard({
         )}
       </div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-mono text-muted-foreground truncate">
+        <span className="text-[0.625rem] font-mono text-muted-foreground truncate">
           {orgName}
         </span>
         <div className="flex items-center gap-1 shrink-0">
           <Badge
             variant="outline"
-            className={`text-[9px] font-mono h-4 px-1.5 ${pMeta.badge}`}
+            className={`text-[0.625rem] font-mono h-4 px-1.5 ${pMeta.badge}`}
           >
             <span
               className={`size-1.5 rounded-full mr-1 inline-block ${pMeta.dot}`}
@@ -1281,7 +1281,7 @@ function TaskCard({
           {todo.status !== "todo" && (
             <Badge
               variant="outline"
-              className={`text-[9px] font-mono h-4 px-1.5 ${meta.badge}`}
+              className={`text-[0.625rem] font-mono h-4 px-1.5 ${meta.badge}`}
             >
               {meta.label}
             </Badge>
@@ -1289,7 +1289,7 @@ function TaskCard({
         </div>
       </div>
       {todo.details && (
-        <p className="text-[10px] text-muted-foreground line-clamp-2">
+        <p className="text-[0.625rem] text-muted-foreground line-clamp-2">
           {todo.details}
         </p>
       )}
@@ -1329,7 +1329,7 @@ function AddStaffPopover({ staff, onAdd }) {
         </div>
         <div className="space-y-0.5 max-h-60 overflow-y-auto">
           {filtered.length === 0 ? (
-            <div className="text-[11px] text-muted-foreground text-center py-3">
+            <div className="text-[0.6875rem] text-muted-foreground text-center py-3">
               No results
             </div>
           ) : (
@@ -1343,7 +1343,7 @@ function AddStaffPopover({ staff, onAdd }) {
                 }}
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-surface text-xs flex items-center gap-2"
               >
-                <span className="size-6 rounded-full bg-brand/15 text-brand grid place-items-center text-[10px] font-bold shrink-0">
+                <span className="size-6 rounded-full bg-brand/15 text-brand grid place-items-center text-[0.625rem] font-bold shrink-0">
                   {m.username[0]?.toUpperCase() ?? "?"}
                 </span>
                 <span className="truncate">{m.username}</span>
@@ -1385,7 +1385,7 @@ function CompletedView({
         </div>
       ) : (
         <div className="ring-1 ring-border rounded-md overflow-x-auto">
-          <div className="min-w-[560px] grid grid-cols-[1fr_160px_160px_80px] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="min-w-[560px] grid grid-cols-[1fr_160px_160px_80px] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             <div>Task</div>
             <div>Assignee</div>
             <div>Org</div>
@@ -1402,7 +1402,7 @@ function CompletedView({
                 <div className="min-w-0">
                   <p className="text-xs font-medium truncate">{todo.title}</p>
                   {todo.details && (
-                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                    <p className="text-[0.625rem] text-muted-foreground truncate mt-0.5">
                       {todo.details}
                     </p>
                   )}
@@ -1413,7 +1413,7 @@ function CompletedView({
                 <div className="text-xs text-muted-foreground truncate">
                   {orgNameById.get(todo.orgId) ?? todo.orgId}
                 </div>
-                <div className="text-[10px] font-mono text-muted-foreground">
+                <div className="text-[0.625rem] font-mono text-muted-foreground">
                   {fmtDate(todo.completedUnix)}
                 </div>
               </button>

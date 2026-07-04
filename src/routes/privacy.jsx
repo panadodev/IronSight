@@ -33,7 +33,7 @@ function PrivacyPage() {
       <SiteNav />
       <main className="flex-1 px-6 py-10 max-w-3xl mx-auto w-full">
         <header className="mb-10">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+          <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-2">
             Legal
           </p>
           <h1 className="text-3xl font-bold tracking-tight mb-3">
@@ -61,7 +61,7 @@ function PrivacyPage() {
           </Section>
 
           <Section title="Information we collect">
-            <p className="font-medium text-foreground text-[13px]">
+            <p className="font-medium text-foreground text-[0.8125rem]">
               Account &amp; identity
             </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
@@ -79,7 +79,7 @@ function PrivacyPage() {
               </li>
             </ul>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">
+            <p className="font-medium text-foreground text-[0.8125rem] pt-2">
               Support &amp; moderation data
             </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
@@ -101,7 +101,7 @@ function PrivacyPage() {
               </li>
             </ul>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">
+            <p className="font-medium text-foreground text-[0.8125rem] pt-2">
               Discord data
             </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
@@ -145,7 +145,7 @@ function PrivacyPage() {
               purposes by that server's staff team.
             </p>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">
+            <p className="font-medium text-foreground text-[0.8125rem] pt-2">
               Network &amp; device intelligence
             </p>
             <ul className="list-disc list-inside space-y-1 pl-2">
@@ -180,7 +180,7 @@ function PrivacyPage() {
               </li>
             </ul>
 
-            <p className="font-medium text-foreground text-[13px] pt-2">
+            <p className="font-medium text-foreground text-[0.8125rem] pt-2">
               Technical &amp; session data
             </p>
             <ul className="list-disc list-inside space-y-1 pl-2">

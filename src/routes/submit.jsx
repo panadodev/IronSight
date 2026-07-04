@@ -775,7 +775,7 @@ function SubmitPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-8 space-y-8">
           <header>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-2">
               {org.name} · Player Portal
             </p>
             <h1 className="text-3xl font-semibold tracking-tight">
@@ -786,7 +786,7 @@ function SubmitPage() {
                 ? "Reports require you to choose the server you saw the player on, then pick them from the list."
                 : "Pick a ticket type and provide as much detail as possible."}
             </p>
-            <p className="text-[10px] font-mono text-muted-foreground mt-1">
+            <p className="text-[0.625rem] font-mono text-muted-foreground mt-1">
               Signed in as{" "}
               <span className="text-foreground">{session.username}</span>
               {session.steamId && <> · Steam {session.steamId}</>}
@@ -794,7 +794,7 @@ function SubmitPage() {
           </header>
 
           <section className="space-y-3">
-            <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+            <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
               Ticket type
             </label>
             {ticketTypes.length === 0 ? (
@@ -837,7 +837,7 @@ function SubmitPage() {
                           <span className="size-1.5 rounded-full bg-brand" />
                         )}
                       </div>
-                      <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+                      <p className="text-[0.625rem] font-mono text-muted-foreground leading-relaxed">
                         {t.description}
                       </p>
                     </button>
@@ -850,7 +850,7 @@ function SubmitPage() {
           {selectedType && isPlayerReport && (
             <>
               <section className="space-y-3">
-                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                   Step {nextStep()} · What did they do?
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -875,7 +875,7 @@ function SubmitPage() {
                         >
                           {c.label}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-[0.625rem] text-muted-foreground">
                           {c.blurb}
                         </p>
                       </button>
@@ -886,7 +886,7 @@ function SubmitPage() {
 
               {showServerStep && (
                 <section className="space-y-3">
-                  <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                     Step {nextStep()} · Server
                   </label>
                   <div className="grid grid-cols-1 gap-2">
@@ -922,7 +922,7 @@ function SubmitPage() {
               )}
 
               <section className="space-y-3">
-                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                   Step {nextStep()} · Reported player
                   {isMultiPlayerReport ? "s" : ""}
                 </label>
@@ -968,7 +968,7 @@ function SubmitPage() {
                         className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
                       />
                       {playerSearching && (
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[0.625rem] text-muted-foreground">
                           Searching…
                         </span>
                       )}
@@ -994,11 +994,11 @@ function SubmitPage() {
                             >
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium">{p.name}</p>
-                                <p className="text-[10px] font-mono text-muted-foreground">
+                                <p className="text-[0.625rem] font-mono text-muted-foreground">
                                   {p.steamId}
                                 </p>
                               </div>
-                              <span className="text-[10px] text-muted-foreground shrink-0">
+                              <span className="text-[0.625rem] text-muted-foreground shrink-0">
                                 {new Date(
                                   p.lastSeenAt * 1000,
                                 ).toLocaleDateString()}
@@ -1017,7 +1017,7 @@ function SubmitPage() {
                           </div>
                         )}
                     </div>
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[0.625rem] text-muted-foreground">
                       Search by in-game name or Steam64 ID. Add as many as
                       needed.
                     </p>
@@ -1030,7 +1030,7 @@ function SubmitPage() {
                           <p className="text-sm font-medium">
                             {selectedPlayer.name}
                           </p>
-                          <p className="text-[10px] font-mono text-muted-foreground">
+                          <p className="text-[0.625rem] font-mono text-muted-foreground">
                             {selectedPlayer.steamId}
                           </p>
                         </div>
@@ -1065,7 +1065,7 @@ function SubmitPage() {
                           className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
                         />
                         {playerSearching && (
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[0.625rem] text-muted-foreground">
                             Searching…
                           </span>
                         )}
@@ -1088,11 +1088,11 @@ function SubmitPage() {
                                   <p className="text-sm font-medium">
                                     {p.name}
                                   </p>
-                                  <p className="text-[10px] font-mono text-muted-foreground">
+                                  <p className="text-[0.625rem] font-mono text-muted-foreground">
                                     {p.steamId}
                                   </p>
                                 </div>
-                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                <span className="text-[0.625rem] text-muted-foreground shrink-0">
                                   {new Date(
                                     p.lastSeenAt * 1000,
                                   ).toLocaleDateString()}
@@ -1113,7 +1113,7 @@ function SubmitPage() {
                           )}
                       </div>
                     )}
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[0.625rem] text-muted-foreground">
                       Search for the player by their in-game name or Steam64 ID.
                     </p>
                   </>
@@ -1121,7 +1121,7 @@ function SubmitPage() {
               </section>
 
               <section className="space-y-3">
-                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                   Step {nextStep()} · Description
                 </label>
                 <textarea
@@ -1133,7 +1133,7 @@ function SubmitPage() {
               </section>
 
               <section className="space-y-3">
-                <label className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                <label className="flex items-center justify-between text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                   <span>Step {nextStep()} · Evidence links</span>
                   <span className="text-muted-foreground/70 normal-case tracking-normal font-mono">
                     optional
@@ -1152,7 +1152,7 @@ function SubmitPage() {
           {selectedType && !isPlayerReport && !isStaffApplication && (
             <>
               <section className="space-y-3">
-                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                   Title
                 </label>
                 <input
@@ -1166,7 +1166,7 @@ function SubmitPage() {
               </section>
               {title.trim() && (
                 <section className="space-y-3">
-                  <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                  <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                     Details
                   </label>
                   <textarea
@@ -1205,7 +1205,7 @@ function SubmitPage() {
             !questionsLoading &&
             applicationQuestions.length > 0 && (
               <section className="space-y-4">
-                <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                   Additional questions
                 </label>
                 <CustomQuestions
@@ -1218,7 +1218,7 @@ function SubmitPage() {
 
           {selectedType && selectedType.allowMedia !== false && session?.steamId && (
             <section className="space-y-2">
-              <label className="block text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+              <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
                 Attachments{" "}
                 <span className="normal-case font-normal text-muted-foreground/60">
                   (optional — images &amp; videos only)
@@ -1234,18 +1234,18 @@ function SubmitPage() {
                       <span className="flex-1 truncate text-xs">
                         {att.file.name}
                       </span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">
+                      <span className="text-[0.625rem] text-muted-foreground shrink-0">
                         {formatBytes(att.file.size)}
                       </span>
                       {att.status === "pending" && (
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[0.625rem] text-muted-foreground">
                           Pending
                         </span>
                       )}
                       {(att.status === "preparing" ||
                         att.status === "uploading" ||
                         att.status === "confirming") && (
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[0.625rem] text-muted-foreground">
                           {att.status === "preparing"
                             ? "Preparing…"
                             : att.status === "confirming"
@@ -1254,11 +1254,11 @@ function SubmitPage() {
                         </span>
                       )}
                       {att.status === "done" && (
-                        <span className="text-[10px] text-emerald-500">✓</span>
+                        <span className="text-[0.625rem] text-emerald-500">✓</span>
                       )}
                       {att.status === "error" && (
                         <span
-                          className="text-[10px] text-danger truncate max-w-[120px]"
+                          className="text-[0.625rem] text-danger truncate max-w-[120px]"
                           title={att.error}
                         >
                           {att.error}
@@ -1301,7 +1301,7 @@ function SubmitPage() {
                   e.target.value = "";
                 }}
               />
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 Supported: jpg, png, gif, webp, mp4, webm, mov · Max 100 MB each
                 · Up to 5 files · Uploaded securely to cloud storage
               </p>

@@ -137,7 +137,7 @@ function MessageAttachments({ attachments }) {
             )}
             <span className="truncate">{att.filename ?? "file"}</span>
             {att.size != null && (
-              <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60">
+              <span className="shrink-0 text-[0.625rem] font-mono text-muted-foreground/60">
                 {att.size < 1024 * 1024
                   ? `${Math.round(att.size / 1024)}KB`
                   : `${(att.size / 1024 / 1024).toFixed(1)}MB`}
@@ -162,7 +162,7 @@ function MemberAvatar({ avatar, username, size = 7 }) {
   }
   return (
     <div
-      className={`size-${size} rounded-full bg-[#5865F2]/20 text-[#5865F2] flex items-center justify-center shrink-0 text-[10px] font-bold uppercase`}
+      className={`size-${size} rounded-full bg-[#5865F2]/20 text-[#5865F2] flex items-center justify-center shrink-0 text-[0.625rem] font-bold uppercase`}
     >
       {username?.[0] ?? "?"}
     </div>
@@ -837,7 +837,7 @@ function DiscordModPage() {
     return (
       <div className="flex min-h-screen bg-background">
         <SiteNav />
-        <main className="ml-56 flex-1 flex items-center justify-center">
+        <main className="ml-[224px] flex-1 flex items-center justify-center">
           <p className="text-muted-foreground text-sm">
             Discord Moderation permission required.
           </p>
@@ -849,7 +849,7 @@ function DiscordModPage() {
   return (
     <div className="flex min-h-screen bg-background">
       <SiteNav />
-      <main className="ml-56 flex-1 flex flex-col min-h-0">
+      <main className="ml-[224px] flex-1 flex flex-col min-h-0">
         {/* Header */}
         <div className="border-b border-border px-4 sm:px-6 py-4 flex items-center gap-4 flex-wrap shrink-0">
           <div className="flex-1 min-w-0">
@@ -925,7 +925,7 @@ function DiscordModPage() {
                 <Icon className="size-3.5" />
                 {label}
                 {id === "bans" && bansTotal > 0 && (
-                  <span className="ml-0.5 px-1 py-0 rounded text-[9px] font-mono bg-danger/15 text-danger">
+                  <span className="ml-0.5 px-1 py-0 rounded text-[0.625rem] font-mono bg-danger/15 text-danger">
                     {bansTotal}
                   </span>
                 )}
@@ -939,7 +939,7 @@ function DiscordModPage() {
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <div className="w-48 shrink-0 border-r border-border overflow-y-auto py-2">
               <div className="px-3 mb-1">
-                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Channels
                 </span>
               </div>
@@ -992,25 +992,25 @@ function DiscordModPage() {
                             <span className="text-sm font-semibold text-foreground">
                               {msg.authorUsername}
                             </span>
-                            <span className="text-[10px] font-mono text-muted-foreground">
+                            <span className="text-[0.625rem] font-mono text-muted-foreground">
                               {msg.authorDiscordId}
                             </span>
                             {msg.deleted && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">
+                              <span className="inline-flex items-center gap-1 text-[0.625rem] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">
                                 <Trash2 className="size-2.5" />
                                 Deleted
                               </span>
                             )}
                             {msg.editedAt && !msg.deleted && (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400"
+                                className="inline-flex items-center gap-1 text-[0.625rem] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400"
                                 title={`Edited ${fmtTs(msg.editedAt, tz)}`}
                               >
                                 <Edit2 className="size-2.5" />
                                 Edited {fmtAgo(msg.editedAt)}
                               </span>
                             )}
-                            <span className="text-[10px] text-muted-foreground ml-auto">
+                            <span className="text-[0.625rem] text-muted-foreground ml-auto">
                               {fmtAgo(msg.createdAt)}
                             </span>
                           </div>
@@ -1027,10 +1027,10 @@ function DiscordModPage() {
                             msg.originalContent &&
                             msg.originalContent !== msg.content && (
                               <details className="mt-1">
-                                <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground select-none">
+                                <summary className="text-[0.625rem] text-muted-foreground cursor-pointer hover:text-foreground select-none">
                                   Original message
                                 </summary>
-                                <p className="text-[11px] text-muted-foreground mt-1 break-words whitespace-pre-wrap line-through pl-2 border-l border-border">
+                                <p className="text-[0.6875rem] text-muted-foreground mt-1 break-words whitespace-pre-wrap line-through pl-2 border-l border-border">
                                   {msg.originalContent}
                                 </p>
                               </details>
@@ -1067,7 +1067,7 @@ function DiscordModPage() {
                         Load older messages
                       </button>
                     ) : messages.length > 0 ? (
-                      <span className="text-[10px] text-muted-foreground/40">
+                      <span className="text-[0.625rem] text-muted-foreground/40">
                         All messages loaded
                       </span>
                     ) : null}
@@ -1115,7 +1115,7 @@ function DiscordModPage() {
 
             {members.length > 0 && (
               <div className="rounded-md ring-1 ring-border overflow-x-auto">
-                <div className="min-w-[480px] grid grid-cols-[1fr_160px_auto] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
+                <div className="min-w-[480px] grid grid-cols-[1fr_160px_auto] gap-3 px-4 py-2 bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
                   <span>Member</span>
                   <span>Discord ID</span>
                   <span>Actions</span>
@@ -1136,18 +1136,18 @@ function DiscordModPage() {
                           {m.username}
                         </div>
                         {m.nickname && m.nickname !== m.username && (
-                          <div className="text-[10px] text-muted-foreground truncate">
+                          <div className="text-[0.625rem] text-muted-foreground truncate">
                             aka {m.nickname}
                           </div>
                         )}
                       </div>
                     </div>
-                    <div className="text-[11px] font-mono text-muted-foreground">
+                    <div className="text-[0.6875rem] font-mono text-muted-foreground">
                       {m.discordId}
                     </div>
                     <div className="flex items-center gap-1.5">
                       {m.isStaff && (
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-brand/15 text-brand uppercase tracking-wide">
+                        <span className="text-[0.625rem] font-semibold px-1.5 py-0.5 rounded bg-brand/15 text-brand uppercase tracking-wide">
                           Staff
                         </span>
                       )}
@@ -1216,7 +1216,7 @@ function DiscordModPage() {
                 ref={bansScrollRef}
                 className="rounded-md ring-1 ring-border overflow-x-auto overflow-y-auto flex-1"
               >
-                <div className="min-w-[640px] grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border sticky top-0">
+                <div className="min-w-[640px] grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2 bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground border-b border-border sticky top-0">
                   <span>User</span>
                   <span>Discord ID</span>
                   <span>Reason</span>
@@ -1229,14 +1229,14 @@ function DiscordModPage() {
                     className="min-w-[640px] grid grid-cols-[1fr_160px_1fr_90px_80px] gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-surface/30 transition-colors items-center"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="size-6 rounded-full bg-danger/10 text-danger flex items-center justify-center shrink-0 text-[10px] font-bold uppercase">
+                      <div className="size-6 rounded-full bg-danger/10 text-danger flex items-center justify-center shrink-0 text-[0.625rem] font-bold uppercase">
                         {b.username?.[0] ?? "?"}
                       </div>
                       <span className="text-sm font-medium text-foreground truncate">
                         {b.username}
                       </span>
                     </div>
-                    <div className="text-[11px] font-mono text-muted-foreground">
+                    <div className="text-[0.6875rem] font-mono text-muted-foreground">
                       {b.discordUserId}
                     </div>
                     <div className="text-xs text-muted-foreground truncate">
@@ -1244,11 +1244,11 @@ function DiscordModPage() {
                     </div>
                     <div>
                       {b.source === "panel" ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">
+                        <span className="text-[0.625rem] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">
                           Panel
                         </span>
                       ) : (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
+                        <span className="text-[0.625rem] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
                           External
                         </span>
                       )}
@@ -1258,7 +1258,7 @@ function DiscordModPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-[10px] text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60 disabled:opacity-50"
+                          className="h-7 text-[0.625rem] text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60 disabled:opacity-50"
                           onClick={() => doUnban(b.discordUserId, b.username)}
                           disabled={!!unbanBusy[b.discordUserId]}
                         >
@@ -1285,7 +1285,7 @@ function DiscordModPage() {
             {unbanError && <p className="text-xs text-danger">{unbanError}</p>}
 
             {!bansLoading && bansTotal > 0 && (
-              <p className="text-[11px] text-muted-foreground shrink-0">
+              <p className="text-[0.6875rem] text-muted-foreground shrink-0">
                 {`${bans.length} of ${bansTotal} ban${bansTotal !== 1 ? "s" : ""} shown`}
                 {" · "}
                 Use "Sync from Discord" to import bans not made through this
@@ -1310,7 +1310,7 @@ function DiscordModPage() {
               </div>
             ) : (
               <div className="space-y-0 rounded-md ring-1 ring-border overflow-x-auto">
-                <div className="min-w-[700px] grid grid-cols-[1fr_80px_1fr_100px_90px_140px] gap-3 px-4 py-2 bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
+                <div className="min-w-[700px] grid grid-cols-[1fr_80px_1fr_100px_90px_140px] gap-3 px-4 py-2 bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
                   <span>Target</span>
                   <span>Action</span>
                   <span>Reason</span>
@@ -1327,7 +1327,7 @@ function DiscordModPage() {
                       <div className="text-sm font-medium text-foreground truncate">
                         {entry.targetUsername || entry.targetDiscordId}
                       </div>
-                      <div className="text-[10px] font-mono text-muted-foreground truncate">
+                      <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                         {entry.targetDiscordId}
                       </div>
                     </div>
@@ -1337,7 +1337,7 @@ function DiscordModPage() {
                     <div className="text-xs text-muted-foreground truncate">
                       {entry.reason || <span className="italic">—</span>}
                       {entry.durationSeconds && (
-                        <span className="ml-1 text-[10px] font-mono">
+                        <span className="ml-1 text-[0.625rem] font-mono">
                           ({Math.round(entry.durationSeconds / 3600)}h)
                         </span>
                       )}
@@ -1349,11 +1349,11 @@ function DiscordModPage() {
                     </div>
                     <div>
                       {entry.actorUsername ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">
+                        <span className="text-[0.625rem] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">
                           Panel
                         </span>
                       ) : (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
+                        <span className="text-[0.625rem] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
                           External
                         </span>
                       )}
@@ -1375,7 +1375,7 @@ function DiscordModPage() {
                       Loading more…
                     </span>
                   ) : !modLogHasMore && modLog.length > 0 ? (
-                    <span className="text-[10px] text-muted-foreground/40">
+                    <span className="text-[0.625rem] text-muted-foreground/40">
                       All entries loaded
                     </span>
                   ) : null}
@@ -1497,7 +1497,7 @@ function DiscordModPage() {
                 className="text-sm resize-none"
               />
               {actionType === "warn" && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   The bot DMs this to the player. If they have DMs disabled
                   we'll tell you it couldn't be delivered.
                 </p>

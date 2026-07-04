@@ -135,7 +135,7 @@ function StatCard({ label, value, icon: Icon, colorClass, bgClass }) {
       />
       <div className="relative flex items-start justify-between">
         <div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             {label}
           </div>
           <div className="text-2xl font-bold mt-1 tabular-nums">{value}</div>
@@ -187,7 +187,7 @@ function SortTh({
   const active = sortCol === colKey;
   return (
     <th
-      className={`bg-surface/60 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest sticky top-0 ${className}`}
+      className={`bg-surface/60 px-3 py-2 border-b border-border text-[0.625rem] font-mono uppercase tracking-widest sticky top-0 ${className}`}
     >
       <button
         title={title}
@@ -562,7 +562,7 @@ function StaffPage() {
               title="When enabled, in-game admin permissions (moderatorid + usergroup admin) are automatically granted via RCON whenever a staff member joins a server."
               className="flex items-center gap-2 rounded-md ring-1 ring-border bg-background px-2.5 py-1 text-left transition-colors hover:bg-surface/60 disabled:opacity-50"
             >
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
                 Sync Perms on Join
               </span>
               <span
@@ -583,7 +583,7 @@ function StaffPage() {
               size="sm"
               variant="outline"
               asChild
-              className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+              className="h-7 px-2 text-[0.625rem] font-mono uppercase tracking-widest gap-1"
               title="View server admin action logs"
             >
               <Link to="/server-logs" search={{ org: orgId }}>
@@ -597,7 +597,7 @@ function StaffPage() {
 
       {/* Add staff */}
       <div className="rounded-md ring-1 ring-border bg-surface/40 p-3 space-y-2">
-        <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+        <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
           Add staff
         </Label>
         <div className="flex flex-wrap gap-2">
@@ -616,11 +616,11 @@ function StaffPage() {
             {adding ? "Adding…" : "Add"}
           </Button>
         </div>
-        {addErr && <p className="text-[11px] text-danger">{addErr}</p>}
+        {addErr && <p className="text-[0.6875rem] text-danger">{addErr}</p>}
       </div>
 
-      {removeErr && <p className="text-[11px] text-danger px-1">{removeErr}</p>}
-      {viewAsErr && <p className="text-[11px] text-danger px-1">{viewAsErr}</p>}
+      {removeErr && <p className="text-[0.6875rem] text-danger px-1">{removeErr}</p>}
+      {viewAsErr && <p className="text-[0.6875rem] text-danger px-1">{viewAsErr}</p>}
 
       {/* Roster */}
       <div className="space-y-1.5">
@@ -661,7 +661,7 @@ function StaffPage() {
                       className="size-7 rounded shrink-0 object-cover"
                     />
                   ) : (
-                    <div className="size-7 rounded bg-brand/20 text-brand text-[10px] font-mono font-bold grid place-items-center shrink-0">
+                    <div className="size-7 rounded bg-brand/20 text-brand text-[0.625rem] font-mono font-bold grid place-items-center shrink-0">
                       {(m.username ?? "?")[0].toUpperCase()}
                     </div>
                   )}
@@ -675,12 +675,12 @@ function StaffPage() {
                         />
                       )}
                       {isMe && (
-                        <span className="text-[9px] font-mono uppercase tracking-widest text-brand bg-brand/10 px-1 py-0.5 rounded">
+                        <span className="text-[0.625rem] font-mono uppercase tracking-widest text-brand bg-brand/10 px-1 py-0.5 rounded">
                           You
                         </span>
                       )}
                     </p>
-                    <p className="text-[10px] font-mono text-muted-foreground truncate">
+                    <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       {m.steamId ? `steam:${m.steamId}` : "no steam"} ·{" "}
                       {m.discordId ? `discord:${m.discordId}` : "no discord"}
                     </p>
@@ -695,7 +695,7 @@ function StaffPage() {
                     size="sm"
                     variant="outline"
                     asChild
-                    className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                    className="h-7 px-2 text-[0.625rem] font-mono uppercase tracking-widest gap-1"
                     title="View audit log"
                   >
                     <Link
@@ -716,7 +716,7 @@ function StaffPage() {
                       size="sm"
                       variant="outline"
                       onClick={() => handleViewAs(m.userId)}
-                      className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                      className="h-7 px-2 text-[0.625rem] font-mono uppercase tracking-widest gap-1"
                       title="View the panel as this member sees it (read-only)"
                     >
                       <Eye className="size-3" />
@@ -731,7 +731,7 @@ function StaffPage() {
                           size="sm"
                           variant="outline"
                           disabled={revokingSessionId === m.userId}
-                          className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1 text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10"
+                          className="h-7 px-2 text-[0.625rem] font-mono uppercase tracking-widest gap-1 text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10"
                           title="Force logout — invalidates all active panel sessions"
                         >
                           <LogOut className="size-3" />
@@ -776,7 +776,7 @@ function StaffPage() {
                     <Button
                       size="sm"
                       disabled
-                      className="h-7 px-2 text-[10px] font-mono uppercase tracking-widest gap-1"
+                      className="h-7 px-2 text-[0.625rem] font-mono uppercase tracking-widest gap-1"
                       title="You"
                     >
                       <ShieldCheck className="size-3" />
@@ -877,7 +877,7 @@ function StaffPage() {
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => setRoleFilter("ALL")}
-            className={`h-8 px-2.5 rounded-md ring-1 inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest transition ${
+            className={`h-8 px-2.5 rounded-md ring-1 inline-flex items-center gap-1.5 text-[0.625rem] font-mono uppercase tracking-widest transition ${
               roleFilter === "ALL"
                 ? "bg-foreground/10 text-foreground ring-foreground/20"
                 : "bg-transparent text-muted-foreground ring-border hover:text-foreground"
@@ -892,7 +892,7 @@ function StaffPage() {
               <button
                 key={r.roleId}
                 onClick={() => setRoleFilter(active ? "ALL" : r.roleId)}
-                className={`h-8 px-2.5 rounded-md ring-1 inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest transition ${
+                className={`h-8 px-2.5 rounded-md ring-1 inline-flex items-center gap-1.5 text-[0.625rem] font-mono uppercase tracking-widest transition ${
                   active
                     ? `${c.bg} ${c.text} ring-current/40`
                     : "bg-transparent text-muted-foreground ring-border hover:text-foreground"
@@ -907,7 +907,7 @@ function StaffPage() {
           })}
         </div>
 
-        <div className="ml-auto text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        <div className="ml-auto text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
           {filteredMembers.length} results
         </div>
       </div>
@@ -917,7 +917,7 @@ function StaffPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-separate border-spacing-0 min-w-[900px]">
             <thead>
-              <tr className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">
+              <tr className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground/70">
                 <th
                   className="bg-surface/60 px-3 py-1.5 text-left border-b border-border"
                   colSpan={2}
@@ -1037,7 +1037,7 @@ function StaffPage() {
                 <tr>
                   <td
                     colSpan={9}
-                    className="px-4 py-6 text-center text-[11px] text-muted-foreground border-t border-border/40"
+                    className="px-4 py-6 text-center text-[0.6875rem] text-muted-foreground border-t border-border/40"
                   >
                     {membersLoading
                       ? "Loading…"
@@ -1058,16 +1058,16 @@ function StaffPage() {
                       <td className="px-3 py-2.5 pl-4 border-t border-border/40">
                         <div className="flex items-center gap-3 min-w-0">
                           <div
-                            className={`size-8 rounded-md grid place-items-center font-bold text-[11px] ring-1 ${c.bg} ${c.text} ${c.ring}`}
+                            className={`size-8 rounded-md grid place-items-center font-bold text-[0.6875rem] ring-1 ${c.bg} ${c.text} ${c.ring}`}
                           >
                             {(m.username ?? "?")[0].toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <div className="font-semibold truncate text-[13px]">
+                            <div className="font-semibold truncate text-[0.8125rem]">
                               {m.username ?? "Unknown"}
                             </div>
                             {m.steamId && (
-                              <div className="text-[10px] font-mono text-muted-foreground truncate">
+                              <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                                 {m.steamId}
                               </div>
                             )}
@@ -1076,7 +1076,7 @@ function StaffPage() {
                       </td>
                       <td className="px-3 py-2.5 border-t border-border/40">
                         <span
-                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-widest ring-1 ${c.bg} ${c.text} ${c.ring}`}
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold uppercase tracking-widest ring-1 ${c.bg} ${c.text} ${c.ring}`}
                         >
                           {roleShort(m.roleId, customRoles)}
                         </span>
@@ -1123,13 +1123,13 @@ function StaffPage() {
 
       {/* Built-in role legend */}
       <div className="rounded-md ring-1 ring-border/50 bg-surface/20 p-3 space-y-1.5">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
           Built-in roles
         </p>
         <div className="space-y-1">
           <div className="flex items-start gap-2">
             <Crown className="size-3 text-brand mt-0.5 shrink-0" />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               <span className="text-foreground font-medium">Owner</span> — full
               access to this org; can assign any role, manage other owners, and
               configure role permissions. Cannot be removed by management.
@@ -1137,7 +1137,7 @@ function StaffPage() {
           </div>
           <div className="flex items-start gap-2">
             <ShieldCheck className="size-3 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               <span className="text-foreground font-medium">Management</span> —
               can add/remove non-owner staff and assign custom roles to them.
             </p>
@@ -1173,7 +1173,7 @@ function StaffPage() {
                   <div className="text-sm font-medium truncate">
                     {acct.steamName ?? acct.steamId}
                   </div>
-                  <div className="text-[10px] font-mono text-muted-foreground truncate">
+                  <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                     {acct.steamId}
                   </div>
                 </div>
@@ -1228,7 +1228,7 @@ function GuildList({ guilds }) {
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+        className="flex items-center gap-1 text-[0.625rem] font-mono text-muted-foreground/70 hover:text-muted-foreground transition-colors"
       >
         <Server className="size-2.5 shrink-0" />
         {guilds.length} Discord server{guilds.length !== 1 ? "s" : ""}
@@ -1247,7 +1247,7 @@ function GuildList({ guilds }) {
               ) : (
                 <div className="size-3 rounded-full bg-muted shrink-0" />
               )}
-              <span className="text-[10px] text-muted-foreground truncate">
+              <span className="text-[0.625rem] text-muted-foreground truncate">
                 {g.name}
               </span>
             </div>
@@ -1262,7 +1262,7 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
   return (
     <Select value={value} onValueChange={onValueChange} disabled={disabled}>
       <SelectTrigger
-        className="h-7 w-[130px] text-[11px] font-mono disabled:opacity-50"
+        className="h-7 w-[130px] text-[0.6875rem] font-mono disabled:opacity-50"
         title="Change role"
       >
         <SelectValue />
@@ -1271,7 +1271,7 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
         {isOwner ? (
           <>
             <SelectGroup>
-              <SelectLabel className="text-[10px] font-mono uppercase tracking-widest px-2 py-1">
+              <SelectLabel className="text-[0.625rem] font-mono uppercase tracking-widest px-2 py-1">
                 Built-in
               </SelectLabel>
               <SelectItem value="org_admin">Management</SelectItem>
@@ -1281,7 +1281,7 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
               <>
                 <SelectSeparator />
                 <SelectGroup>
-                  <SelectLabel className="text-[10px] font-mono uppercase tracking-widest px-2 py-1">
+                  <SelectLabel className="text-[0.625rem] font-mono uppercase tracking-widest px-2 py-1">
                     Custom
                   </SelectLabel>
                   {customRoles.map((r) => (
@@ -1307,7 +1307,7 @@ function RoleSelect({ value, isOwner, customRoles, disabled, onValueChange }) {
             {customRoles.length > 0 && (
               <>
                 <SelectGroup>
-                  <SelectLabel className="text-[10px] font-mono uppercase tracking-widest px-2 py-1">
+                  <SelectLabel className="text-[0.625rem] font-mono uppercase tracking-widest px-2 py-1">
                     Custom
                   </SelectLabel>
                   {customRoles.map((r) => (

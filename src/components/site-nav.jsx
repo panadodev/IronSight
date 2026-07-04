@@ -645,7 +645,7 @@ function SiteNav() {
   return (
     <>
       {/* Mobile header — visible only on small screens */}
-      <header className="md:hidden fixed top-0 left-0 right-0 h-14 z-40 flex items-center gap-3 px-4 border-b border-border bg-background">
+      <header className="nav-no-scale md:hidden fixed top-0 left-0 right-0 h-14 z-40 flex items-center gap-3 px-4 border-b border-border bg-background">
         <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
           <SheetTrigger asChild>
             <button
@@ -655,7 +655,7 @@ function SiteNav() {
               <Menu className="size-4" />
             </button>
           </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-56">
+          <SheetContent side="left" className="nav-no-scale p-0 w-56">
             <aside className="flex flex-col h-full bg-background overflow-y-auto">
               <MobileSidebarContent
                 groups={groups}
@@ -674,14 +674,14 @@ function SiteNav() {
         </Link>
         <div className="ml-auto flex items-center gap-2">
           {selectedOrgsLabel && (
-            <span className="text-[10px] font-mono text-muted-foreground truncate max-w-32">
+            <span className="text-[0.625rem] font-mono text-muted-foreground truncate max-w-32">
               {selectedOrgsLabel}
             </span>
           )}
         </div>
       </header>
 
-      <aside className="fixed inset-y-0 left-0 z-30 w-56 border-r border-border bg-background hidden md:flex flex-col">
+      <aside className="nav-no-scale fixed inset-y-0 left-0 z-30 w-56 border-r border-border bg-background hidden md:flex flex-col">
         {/* Brand */}
         <div className="h-14 px-4 flex items-center gap-2 border-b border-border shrink-0">
           <svg
@@ -859,7 +859,7 @@ function SiteNav() {
           <span className="text-sm font-bold tracking-tight text-foreground">
             IRONSIGHT
           </span>
-          <span className="ml-auto text-[9px] font-mono uppercase tracking-widest text-brand">
+          <span className="ml-auto text-[0.625rem] font-mono uppercase tracking-widest text-brand">
             {effectiveView}
           </span>
           {effectiveView === "staff" && canStaffOnline && (
@@ -879,7 +879,7 @@ function SiteNav() {
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" side="bottom" className="w-52 p-2">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-1 pb-1.5 border-b border-border mb-1.5">
+                <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-1 pb-1.5 border-b border-border mb-1.5">
                   Online Staff
                 </p>
                 {onlineStaffLoading ? (
@@ -918,7 +918,7 @@ function SiteNav() {
                 <button className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md ring-1 ring-border bg-surface/40 hover:bg-surface transition-colors">
                   <Building2 className="size-3.5 text-brand shrink-0" />
                   <div className="flex flex-col items-start leading-tight min-w-0 flex-1">
-                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       Selected Orgs
                     </span>
                     <span className="text-xs font-semibold text-foreground truncate w-full text-left">
@@ -930,7 +930,7 @@ function SiteNav() {
               </PopoverTrigger>
               <PopoverContent align="start" side="right" className="w-64 p-2">
                 <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Organizations
                   </span>
                   <button
@@ -941,7 +941,7 @@ function SiteNav() {
                           : allOrgs.map((o) => o.id),
                       )
                     }
-                    className="text-[10px] font-semibold text-brand hover:underline"
+                    className="text-[0.625rem] font-semibold text-brand hover:underline"
                   >
                     {selectedOrgIds.length === allOrgs.length
                       ? "Clear"
@@ -970,7 +970,7 @@ function SiteNav() {
                         <span className="text-xs font-medium flex-1">
                           {o.name}
                         </span>
-                        <span className="text-[9px] font-mono font-bold text-muted-foreground">
+                        <span className="text-[0.625rem] font-mono font-bold text-muted-foreground">
                           {o.short}
                         </span>
                       </button>
@@ -995,7 +995,7 @@ function SiteNav() {
           {groups.map((group) => (
             <div key={group.label}>
               <div className="px-2 mb-1 flex items-center gap-2">
-                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   {group.label}
                 </span>
                 {group.label === "Manage Org" &&
@@ -1050,7 +1050,7 @@ function SiteNav() {
           {effectiveView === "staff" && isImpersonating && (
             <button
               onClick={stopImpersonating}
-              className="w-full flex items-center gap-1.5 px-2.5 py-1.5 ring-1 ring-warning/40 bg-warning/10 text-warning rounded-md hover:bg-warning/20 transition-colors text-[10px] font-mono uppercase tracking-widest"
+              className="w-full flex items-center gap-1.5 px-2.5 py-1.5 ring-1 ring-warning/40 bg-warning/10 text-warning rounded-md hover:bg-warning/20 transition-colors text-[0.625rem] font-mono uppercase tracking-widest"
               title="Stop viewing as this member"
             >
               Stop viewing as {viewingAs?.member?.username ?? "member"}
@@ -1067,7 +1067,7 @@ function SiteNav() {
               <span className="text-xs font-mono truncate flex-1 text-left">
                 {sessionUser?.username ?? activeStaff?.name}
               </span>
-              <span className="text-[9px] font-bold text-brand uppercase tracking-widest shrink-0">
+              <span className="text-[0.625rem] font-bold text-brand uppercase tracking-widest shrink-0">
                 {activeStaff ? TEAM_META[activeStaff.team].short : "LIVE"}
               </span>
             </button>
@@ -1098,7 +1098,7 @@ function SiteNav() {
               title="Staff login"
             >
               <Lock className="size-3.5 shrink-0" />
-              <span className="text-[10px] font-mono uppercase tracking-widest">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest">
                 Staff Login
               </span>
             </Link>
@@ -1107,14 +1107,14 @@ function SiteNav() {
           <div className="flex gap-3 justify-center px-2.5 py-1">
             <Link
               to="/privacy"
-              className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors"
             >
               Privacy
             </Link>
-            <span className="text-[9px] text-muted-foreground/30">·</span>
+            <span className="text-[0.625rem] text-muted-foreground/30">·</span>
             <Link
               to="/tos"
-              className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors"
             >
               Terms
             </Link>
@@ -1145,7 +1145,7 @@ function SiteNav() {
                     }
                     onClick={() => switchView(v)}
                     className={
-                      "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
+                      "px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors " +
                       (view === v
                         ? "bg-brand text-brand-foreground"
                         : "text-muted-foreground hover:text-foreground")
@@ -1155,7 +1155,7 @@ function SiteNav() {
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 Toggle between the public player-facing site and the staff
                 panel.
               </p>
@@ -1169,7 +1169,7 @@ function SiteNav() {
                     key={size}
                     onClick={() => textSizeStore.set(size)}
                     className={
-                      "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
+                      "px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors " +
                       (textSize === size
                         ? "bg-brand text-brand-foreground"
                         : "text-muted-foreground hover:text-foreground")
@@ -1179,7 +1179,7 @@ function SiteNav() {
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 Scale text across the panel for easier reading. Saved on this
                 device.
               </p>
@@ -1201,7 +1201,7 @@ function SiteNav() {
                         <p className="text-sm font-semibold truncate">
                           {sessionUser.username}
                         </p>
-                        <p className="text-[10px] font-mono text-muted-foreground truncate">
+                        <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                           {sessionUser.steamId ?? "No Steam linked"} ·{" "}
                           {sessionUser.discordId}
                         </p>
@@ -1243,7 +1243,7 @@ function SiteNav() {
                   maxLength={64}
                   disabled={profileSaving}
                 />
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   How your name appears to players and other staff in this org.
                 </p>
               </div>
@@ -1314,7 +1314,7 @@ function SiteNav() {
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[0.6875rem] text-muted-foreground">
                 Timestamps throughout the panel will display in this timezone.
               </p>
             </div>
@@ -1334,7 +1334,7 @@ function SiteNav() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Enable hints</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[0.6875rem] text-muted-foreground">
                       Show explanatory tooltips when hovering data like BM hours
                       or Steam hours across the panel.
                     </p>
@@ -1373,7 +1373,7 @@ function SiteNav() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Private profile</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[0.6875rem] text-muted-foreground">
                       Stop other staff from looking up your player profile. Your
                       online status stays visible to the team.
                     </p>
@@ -1408,7 +1408,7 @@ function SiteNav() {
 
               {/* Steam accounts — multi-account */}
               <div className="space-y-1.5">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Steam
                 </div>
                 {steamAccountsLoading ? (
@@ -1428,7 +1428,7 @@ function SiteNav() {
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           {acct.isPrimary && (
-                            <span className="shrink-0 text-[9px] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
+                            <span className="shrink-0 text-[0.625rem] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
                               PRIMARY
                             </span>
                           )}
@@ -1436,7 +1436,7 @@ function SiteNav() {
                             <div className="text-sm font-medium truncate">
                               {acct.steamName ?? acct.steamId}
                             </div>
-                            <div className="text-[10px] font-mono text-muted-foreground truncate">
+                            <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                               {acct.steamId}
                             </div>
                           </div>
@@ -1445,7 +1445,7 @@ function SiteNav() {
                           {!acct.isPrimary && (
                             <button
                               onClick={() => handleSetPrimarySteam(acct.linkId)}
-                              className="text-[10px] font-mono text-brand hover:underline px-1"
+                              className="text-[0.625rem] font-mono text-brand hover:underline px-1"
                             >
                               Set primary
                             </button>
@@ -1573,13 +1573,13 @@ function LinkedAccountRow({
   return (
     <div className="flex items-center justify-between px-3 py-2 rounded-md ring-1 ring-border bg-surface/40">
       <div className="flex items-center gap-3 min-w-0">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground w-14">
+        <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground w-14">
           {provider}
         </span>
         {linked ? (
           <div className="min-w-0">
             <div className="text-sm font-medium truncate">{linked.name}</div>
-            <div className="text-[10px] font-mono text-muted-foreground truncate">
+            <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
               {linked.id}
             </div>
           </div>
@@ -1588,7 +1588,7 @@ function LinkedAccountRow({
         )}
       </div>
       {readOnly ? (
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
           Provider-managed
         </span>
       ) : linked ? (
@@ -1642,14 +1642,14 @@ function ManageOrgInlineSwitcher({ orgs }) {
               : "Editing configs for"
           }
         >
-          <span className="text-[9px] font-mono font-bold text-brand">
+          <span className="text-[0.625rem] font-mono font-bold text-brand">
             {active ? active.short : "--"}
           </span>
           <ChevronDown className="size-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" side="right" className="w-56 p-2">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
+        <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
           Editing configs for
         </div>
         <div className="space-y-0.5">
@@ -1672,7 +1672,7 @@ function ManageOrgInlineSwitcher({ orgs }) {
                   <Check className="size-3" />
                 </span>
                 <span className="text-xs font-medium flex-1">{o.name}</span>
-                <span className="text-[9px] font-mono font-bold text-muted-foreground">
+                <span className="text-[0.625rem] font-mono font-bold text-muted-foreground">
                   {o.short}
                 </span>
               </button>
@@ -1699,7 +1699,7 @@ function MobileSidebarContent({
         {groups.map((group) => (
           <div key={group.label}>
             <div className="px-2 mb-1">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 {group.label}
               </span>
             </div>

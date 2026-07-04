@@ -43,24 +43,24 @@ function StatusBadge({ relay }) {
     relay.rateLimitedUntil && relay.rateLimitedUntil > Date.now() / 1000;
   if (!relay.enabled)
     return (
-      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+      <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
         disabled
       </span>
     );
   if (cooling)
     return (
-      <span className="text-[10px] font-mono uppercase tracking-widest text-warning">
+      <span className="text-[0.625rem] font-mono uppercase tracking-widest text-warning">
         cooling
       </span>
     );
   if (relay.online)
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-success">
+      <span className="inline-flex items-center gap-1 text-[0.625rem] font-mono uppercase tracking-widest text-success">
         <span className="size-1.5 rounded-full bg-success" /> online
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-danger">
+    <span className="inline-flex items-center gap-1 text-[0.625rem] font-mono uppercase tracking-widest text-danger">
       <span className="size-1.5 rounded-full bg-danger" /> offline
     </span>
   );
@@ -80,18 +80,18 @@ function KeyReveal({ value }) {
         Copy this now — it is shown only once.
       </p>
       <div className="flex items-center gap-2">
-        <code className="flex-1 text-[11px] font-mono break-all bg-background/60 rounded px-2 py-1.5 ring-1 ring-border">
+        <code className="flex-1 text-[0.6875rem] font-mono break-all bg-background/60 rounded px-2 py-1.5 ring-1 ring-border">
           {value}
         </code>
         <button
           onClick={copy}
-          className="shrink-0 flex items-center gap-1 text-[11px] font-mono px-2 py-1.5 rounded ring-1 ring-border bg-surface hover:bg-surface-bright"
+          className="shrink-0 flex items-center gap-1 text-[0.6875rem] font-mono px-2 py-1.5 rounded ring-1 ring-border bg-surface hover:bg-surface-bright"
         >
           {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
           {copied ? "copied" : "copy"}
         </button>
       </div>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[0.6875rem] text-muted-foreground">
         Set this as <code className="font-mono">API_ENCRYPTION_KEY</code> on the
         relay container, then run a health check — it will come online.
       </p>
@@ -226,7 +226,7 @@ function SysRelaysPage() {
       <div className="flex-1 flex flex-col max-w-[1400px] mx-auto w-full px-4 py-6 gap-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-1">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-danger mb-1">
               Sysadmin Only
             </p>
             <h1 className="text-xl font-semibold flex items-center gap-2">
@@ -241,7 +241,7 @@ function SysRelaysPage() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setAutoRefresh((v) => !v)}
-              className={`text-[10px] font-mono px-2 py-1 rounded ring-1 transition-colors ${
+              className={`text-[0.625rem] font-mono px-2 py-1 rounded ring-1 transition-colors ${
                 autoRefresh
                   ? "ring-brand/40 bg-brand/10 text-brand"
                   : "ring-border bg-surface text-muted-foreground"
@@ -251,7 +251,7 @@ function SysRelaysPage() {
             </button>
             <button
               onClick={load}
-              className="flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright transition-colors"
+              className="flex items-center gap-1 text-[0.625rem] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright transition-colors"
             >
               <RefreshCw className="size-3" />
               refresh
@@ -274,7 +274,7 @@ function SysRelaysPage() {
             <KeyReveal value={revealedKey} />
             <button
               onClick={() => setRevealedKey("")}
-              className="text-[11px] font-mono text-muted-foreground hover:text-foreground"
+              className="text-[0.6875rem] font-mono text-muted-foreground hover:text-foreground"
             >
               dismiss
             </button>
@@ -295,7 +295,7 @@ function SysRelaysPage() {
 
         {/* Relay table */}
         <div className="rounded-lg ring-1 ring-border bg-surface overflow-hidden">
-          <div className="grid grid-cols-[1.5fr_1fr_repeat(4,0.7fr)_auto] gap-2 px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
+          <div className="grid grid-cols-[1.5fr_1fr_repeat(4,0.7fr)_auto] gap-2 px-4 py-2 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground border-b border-border">
             <div>Relay</div>
             <div>Status</div>
             <div>Latency</div>
@@ -323,7 +323,7 @@ function SysRelaysPage() {
                   <div className="font-medium truncate">
                     {r.label || "Untitled relay"}
                   </div>
-                  <div className="text-[11px] font-mono text-muted-foreground truncate">
+                  <div className="text-[0.6875rem] font-mono text-muted-foreground truncate">
                     {r.baseUrl}
                   </div>
                 </div>
@@ -367,7 +367,7 @@ function SysRelaysPage() {
                     onClick={() =>
                       relayAction(r.relayId, { enabled: !r.enabled })
                     }
-                    className="text-[10px] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright disabled:opacity-50"
+                    className="text-[0.625rem] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright disabled:opacity-50"
                   >
                     {r.enabled ? "disable" : "enable"}
                   </button>
@@ -381,7 +381,7 @@ function SysRelaysPage() {
                       )
                         relayAction(r.relayId, "rotate");
                     }}
-                    className="text-[10px] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright disabled:opacity-50"
+                    className="text-[0.625rem] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright disabled:opacity-50"
                   >
                     rotate key
                   </button>
@@ -449,7 +449,7 @@ function SysRelaysPage() {
 function Stat({ label, value, accent }) {
   return (
     <div className="rounded-lg ring-1 ring-border bg-surface px-4 py-3">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+      <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
         {label}
       </div>
       <div className={`text-lg font-semibold tabular-nums ${accent ?? ""}`}>

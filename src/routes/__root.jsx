@@ -19,7 +19,7 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-3">
+        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-3">
           Error 404
         </p>
         <h1 className="text-3xl font-semibold text-foreground">Signal lost</h1>
@@ -44,7 +44,7 @@ function ErrorComponent({ error, reset }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-3">
+        <p className="text-[0.625rem] font-mono uppercase tracking-widest text-danger mb-3">
           System fault
         </p>
         <h1 className="text-xl font-semibold text-foreground">
@@ -205,7 +205,7 @@ function ServerHealthBanner() {
   if (!sessionUser || !staleServers.length) return null;
 
   return (
-    <div className="fixed top-14 md:top-0 left-0 md:left-56 right-0 z-20 bg-destructive/15 border-b-2 border-destructive/50 px-4 md:px-5 py-2.5 flex items-center gap-3">
+    <div className="fixed top-[56px] md:top-0 left-0 md:left-[224px] right-0 z-20 bg-destructive/15 border-b-2 border-destructive/50 px-4 md:px-5 py-2.5 flex items-center gap-3">
       <AlertTriangle className="size-4 text-destructive shrink-0" />
       <p className="text-xs text-destructive leading-snug">
         <span className="font-bold">Server heartbeat lost —</span>{" "}

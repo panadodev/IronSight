@@ -95,13 +95,25 @@
   html[data-text-size="large"] {
     font-size: 125%;
   }
+  /* The navbar is deliberately excluded from text scaling. Elements marked
+     .nav-no-scale counter the root font-size bump with an inverse zoom so they
+     render at their base size at every text-size setting. */
+  html[data-text-size="normal"] .nav-no-scale {
+    zoom: 0.888889; /* 1 / 1.125 */
+  }
+  html[data-text-size="large"] .nav-no-scale {
+    zoom: 0.8; /* 1 / 1.25 */
+  }
+  /* Content offset from the fixed sidebar / mobile header is pinned in px so it
+     stays aligned with the (un-scaled) navbar instead of growing with the text
+     size. 224px = w-56 (14rem) sidebar, 56px = h-14 (3.5rem) header. */
   body {
-    padding-left: 14rem;
+    padding-left: 224px;
   }
   @media (max-width: 767px) {
     body {
       padding-left: 0;
-      padding-top: 3.5rem; /* mobile header height */
+      padding-top: 56px; /* mobile header height */
     }
   }
   ::selection {

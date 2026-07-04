@@ -196,7 +196,7 @@ function NoteCard({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-2 text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
         <span>{note.authorName ?? "unknown"}</span>
         <span>·</span>
         <span>{timeAgo(note.createdAt)}</span>
@@ -284,7 +284,7 @@ function PlayerNotesSection({ subjectId, orgId }) {
 
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <StickyNote className="size-3 shrink-0" />
         Notes
         <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
@@ -377,7 +377,7 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
   if (!orgId || visible.length === 0) return null;
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Pin className="size-3 shrink-0 text-warning" />
         Pinned Notes
         <span className="font-mono normal-case tracking-normal text-muted-foreground ml-auto">
@@ -393,7 +393,7 @@ function PinnedPlayerNotesSection({ subjectId, orgId }) {
             <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words">
               {n.body}
             </p>
-            <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+            <div className="flex items-center gap-2 text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
               <span>{n.authorName ?? "unknown"}</span>
               <span>·</span>
               <span>{timeAgo(n.createdAt)}</span>

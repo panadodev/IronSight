@@ -101,7 +101,7 @@ function PingBadge({ lastHealthPing, className = "" }) {
   if (!lastHealthPing) {
     return (
       <span
-        className={`inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.5 rounded ring-1 bg-muted/20 text-muted-foreground ring-border ${className}`}
+        className={`inline-flex items-center gap-1 text-[0.625rem] font-mono px-1 py-0.5 rounded ring-1 bg-muted/20 text-muted-foreground ring-border ${className}`}
         title="Plugin has never pinged"
       >
         <Activity className="size-2.5" /> never
@@ -124,7 +124,7 @@ function PingBadge({ lastHealthPing, className = "" }) {
   }
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.5 rounded ring-1 ${cls} ${className}`}
+      className={`inline-flex items-center gap-1 text-[0.625rem] font-mono px-1 py-0.5 rounded ring-1 ${cls} ${className}`}
       title={`Last plugin ping: ${new Date(lastHealthPing * 1000).toLocaleString(undefined, tz ? { timeZone: tz } : {})}`}
     >
       <Activity className="size-2.5" /> {label}
@@ -305,7 +305,7 @@ function OrgSwitcher({ orgs, value, onChange }) {
         <button className="flex items-center gap-2 px-3 py-2 rounded-md ring-1 ring-border bg-surface/60 hover:bg-surface transition-colors">
           <Building2 className="size-4 text-brand" />
           <div className="flex flex-col items-start leading-tight">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Panel for
             </span>
             <span className="text-sm font-semibold">{current?.name}</span>
@@ -314,7 +314,7 @@ function OrgSwitcher({ orgs, value, onChange }) {
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-2">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
+        <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
           Your manageable orgs
         </div>
         <div className="space-y-0.5">
@@ -337,7 +337,7 @@ function OrgSwitcher({ orgs, value, onChange }) {
                   <Check className="size-3" />
                 </span>
                 <span className="text-xs font-medium flex-1">{o.name}</span>
-                <span className="text-[9px] font-mono font-bold text-muted-foreground">
+                <span className="text-[0.625rem] font-mono font-bold text-muted-foreground">
                   {o.short}
                 </span>
               </button>
@@ -517,7 +517,7 @@ function RconTab({ servers, orgId }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
       <div className="space-y-1 ring-1 ring-border rounded-md bg-surface/40 p-2 h-fit">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
+        <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Servers
         </div>
         {servers.map((s) => (
@@ -543,7 +543,7 @@ function RconTab({ servers, orgId }) {
             />
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate">{s.name}</div>
-              <div className="text-[10px] font-mono text-muted-foreground truncate">
+              <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                 {s.rconConfigured ? `${s.ip}:${s.rconPort}` : "No RCON"}
               </div>
             </div>
@@ -559,14 +559,14 @@ function RconTab({ servers, orgId }) {
             {server?.rconConfigured ? (
               <Badge
                 variant="outline"
-                className="text-[9px] font-mono shrink-0"
+                className="text-[0.625rem] font-mono shrink-0"
               >
                 RCON · {server.ip}:{server.rconPort}
               </Badge>
             ) : (
               <Badge
                 variant="outline"
-                className="text-[9px] font-mono shrink-0 border-warning/40 text-warning"
+                className="text-[0.625rem] font-mono shrink-0 border-warning/40 text-warning"
               >
                 RCON not configured
               </Badge>
@@ -575,7 +575,7 @@ function RconTab({ servers, orgId }) {
               <Badge
                 variant="outline"
                 className={
-                  "text-[9px] font-mono shrink-0 flex items-center gap-1 " +
+                  "text-[0.625rem] font-mono shrink-0 flex items-center gap-1 " +
                   (live
                     ? "border-success/40 text-success"
                     : "border-muted-foreground/30 text-muted-foreground")
@@ -611,7 +611,7 @@ function RconTab({ servers, orgId }) {
         </div>
         <div
           ref={scrollRef}
-          className="h-[420px] overflow-y-auto p-3 font-mono text-[11px] leading-relaxed bg-black/40"
+          className="h-[420px] overflow-y-auto p-3 font-mono text-[0.6875rem] leading-relaxed bg-black/40"
         >
           {lines.length === 0 && (
             <div className="text-muted-foreground/40">
@@ -712,7 +712,7 @@ function ScriptPickerButton({ scripts, onPick, disabled }) {
         </div>
         <div className="space-y-0.5 max-h-72 overflow-y-auto">
           {filtered.length === 0 && (
-            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+            <div className="px-2 py-3 text-center text-[0.6875rem] text-muted-foreground">
               No scripts found
             </div>
           )}
@@ -734,21 +734,21 @@ function ScriptPickerButton({ scripts, onPick, disabled }) {
                   <span className="text-xs font-medium truncate">{s.name}</span>
                   <Badge
                     variant="outline"
-                    className="text-[9px] font-mono h-4 px-1 ml-auto"
+                    className="text-[0.625rem] font-mono h-4 px-1 ml-auto"
                   >
                     {lc} cmd
                   </Badge>
                   {vars.length > 0 && (
                     <Badge
                       variant="outline"
-                      className="text-[9px] font-mono h-4 px-1 border-warning/40 text-warning bg-warning/5"
+                      className="text-[0.625rem] font-mono h-4 px-1 border-warning/40 text-warning bg-warning/5"
                     >
                       {vars.length} var
                     </Badge>
                   )}
                 </div>
                 {s.description && (
-                  <span className="text-[10px] text-muted-foreground line-clamp-1 pl-4.5">
+                  <span className="text-[0.625rem] text-muted-foreground line-clamp-1 pl-4.5">
                     {s.description}
                   </span>
                 )}
@@ -982,14 +982,14 @@ function ScriptsTab({ servers, orgId }) {
                     </div>
                     <Badge
                       variant="outline"
-                      className="text-[9px] font-mono h-4 px-1.5"
+                      className="text-[0.625rem] font-mono h-4 px-1.5"
                     >
                       {lines.length} cmd{lines.length === 1 ? "" : "s"}
                     </Badge>
                     <Badge
                       variant="outline"
                       className={
-                        "text-[9px] font-mono h-4 px-1.5 " +
+                        "text-[0.625rem] font-mono h-4 px-1.5 " +
                         (allowed
                           ? "border-brand/40 text-brand bg-brand/5"
                           : "border-destructive/40 text-destructive bg-destructive/5")
@@ -1006,14 +1006,14 @@ function ScriptsTab({ servers, orgId }) {
                       <Badge
                         key={v}
                         variant="outline"
-                        className="text-[9px] font-mono h-4 px-1.5 border-warning/40 text-warning bg-warning/5"
+                        className="text-[0.625rem] font-mono h-4 px-1.5 border-warning/40 text-warning bg-warning/5"
                       >
                         {`{${v}}`}
                       </Badge>
                     ))}
                   </div>
                   {s.description && (
-                    <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                    <p className="text-[0.6875rem] text-muted-foreground mt-1 line-clamp-2">
                       {s.description}
                     </p>
                   )}
@@ -1040,18 +1040,18 @@ function ScriptsTab({ servers, orgId }) {
                 )}
               </div>
 
-              <pre className="text-[10px] font-mono text-brand bg-black/30 ring-1 ring-border rounded p-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
+              <pre className="text-[0.625rem] font-mono text-brand bg-black/30 ring-1 ring-border rounded p-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
                 {s.command}
               </pre>
 
               {canRcon && !allowed && (
-                <div className="text-[10px] font-mono text-destructive bg-destructive/5 ring-1 ring-destructive/30 rounded px-2 py-1">
+                <div className="text-[0.625rem] font-mono text-destructive bg-destructive/5 ring-1 ring-destructive/30 rounded px-2 py-1">
                   Requires {rankLabel(s.minRank, customRoles)} or higher to
                   execute.
                 </div>
               )}
               {!canRcon && (
-                <div className="text-[10px] font-mono text-muted-foreground bg-muted/10 ring-1 ring-border rounded px-2 py-1">
+                <div className="text-[0.625rem] font-mono text-muted-foreground bg-muted/10 ring-1 ring-border rounded px-2 py-1">
                   You don't have RCON access.
                 </div>
               )}
@@ -1158,7 +1158,7 @@ function RunOnGroupButton({ tags, onPick, disabled }) {
       </PopoverTrigger>
 
       <PopoverContent align="end" className="w-52 p-1.5">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
+        <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Pick a tag
         </div>
         <div className="space-y-0.5 max-h-60 overflow-y-auto">
@@ -1194,7 +1194,7 @@ function RunOnServerButton({ servers, onPick, disabled }) {
       </PopoverTrigger>
 
       <PopoverContent align="end" className="w-64 p-1.5">
-        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
+        <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Pick a server
         </div>
         <div className="space-y-0.5 max-h-60 overflow-y-auto">
@@ -1264,7 +1264,7 @@ function RunResultsDialog({ results, onClose }) {
                   {r.serverName}
                 </span>
                 <span
-                  className={`text-[10px] font-mono ml-auto ${
+                  className={`text-[0.625rem] font-mono ml-auto ${
                     r.status === "running"
                       ? "text-brand"
                       : r.status === "ok"
@@ -1287,12 +1287,12 @@ function RunResultsDialog({ results, onClose }) {
                 <div className="space-y-1">
                   {r.outputs.map((o, i) => (
                     <div key={i}>
-                      <div className="text-[9px] font-mono text-muted-foreground truncate">
+                      <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                         $ {o.cmd}
                       </div>
                       {o.response && (
                         <pre
-                          className={`text-[10px] font-mono rounded p-1.5 whitespace-pre-wrap break-all ${
+                          className={`text-[0.625rem] font-mono rounded p-1.5 whitespace-pre-wrap break-all ${
                             o.ok
                               ? "text-foreground bg-black/20"
                               : "text-destructive bg-destructive/5"
@@ -1362,10 +1362,10 @@ function RunVarsDialog({ pending, onClose, onRun }) {
           ))}
 
           <div className="space-y-1">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Preview
             </div>
-            <pre className="text-[11px] font-mono text-brand bg-black/40 ring-1 ring-border rounded p-2 whitespace-pre-wrap max-h-40 overflow-y-auto">
+            <pre className="text-[0.6875rem] font-mono text-brand bg-black/40 ring-1 ring-border rounded p-2 whitespace-pre-wrap max-h-40 overflow-y-auto">
               {preview}
             </pre>
           </div>
@@ -1442,14 +1442,14 @@ function ScriptEditDialog({ open, initial, onClose, onSave, roles }) {
             />
             {vars.length > 0 && (
               <div className="flex flex-wrap gap-1 pt-1">
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[0.625rem] text-muted-foreground">
                   Detected variables:
                 </span>
                 {vars.map((v) => (
                   <Badge
                     key={v}
                     variant="outline"
-                    className="text-[9px] font-mono h-4 px-1.5 border-warning/40 text-warning bg-warning/5"
+                    className="text-[0.625rem] font-mono h-4 px-1.5 border-warning/40 text-warning bg-warning/5"
                   >
                     {`{${v}}`}
                   </Badge>
@@ -1460,7 +1460,7 @@ function ScriptEditDialog({ open, initial, onClose, onSave, roles }) {
           <div className="space-y-1.5">
             <Label>Minimum role required</Label>
             {roles.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[0.6875rem] text-muted-foreground">
                 No custom roles defined for this org yet. Create roles in Manage
                 › Roles first.
               </p>
@@ -1483,7 +1483,7 @@ function ScriptEditDialog({ open, initial, onClose, onSave, roles }) {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   Staff at this role or above in the hierarchy can execute this
                   script.
                 </p>
@@ -1721,7 +1721,7 @@ function OrgPluginsTab({ orgId }) {
       {!loading && !error && plugins.length > 0 && (
         <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
           <div
-            className={`${COLS} px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground`}
+            className={`${COLS} px-3 py-2 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground`}
           >
             <div>Plugin</div>
             <div>Version</div>
@@ -1753,7 +1753,7 @@ function OrgPluginsTab({ orgId }) {
                     </span>
                     <span
                       className={
-                        "inline-flex items-center rounded-md border py-0.5 px-1.5 font-semibold text-[9px] font-mono h-4 " +
+                        "inline-flex items-center rounded-md border py-0.5 px-1.5 font-semibold text-[0.625rem] font-mono h-4 " +
                         (p.source === "custom"
                           ? "border-brand/40 text-brand bg-brand/5"
                           : "border-border text-muted-foreground")
@@ -1767,13 +1767,13 @@ function OrgPluginsTab({ orgId }) {
                       href={`https://umod.org/plugins/${encodeURIComponent(p.umodSlug)}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[10px] font-mono text-muted-foreground truncate hover:text-foreground inline-flex items-center gap-0.5"
+                      className="text-[0.625rem] font-mono text-muted-foreground truncate hover:text-foreground inline-flex items-center gap-0.5"
                     >
                       umod.org/{p.umodSlug}
                       <ExternalLink className="size-2.5" />
                     </a>
                   ) : (
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       custom upload
                     </div>
                   )}
@@ -1792,7 +1792,7 @@ function OrgPluginsTab({ orgId }) {
                     )}
                   </div>
                   {fmtDate(p.latestUpdatedAt) && (
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-[0.625rem] text-muted-foreground">
                       {fmtDate(p.latestUpdatedAt)}
                     </div>
                   )}
@@ -1809,7 +1809,7 @@ function OrgPluginsTab({ orgId }) {
                       }
                       title={RISK_META[r].title}
                       className={
-                        "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                        "px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
                         (p.risk === r
                           ? RISK_META[r].on
                           : "bg-surface ring-border text-muted-foreground hover:text-foreground")
@@ -1833,7 +1833,7 @@ function OrgPluginsTab({ orgId }) {
                         )
                       }
                       title={`Remove ${t}`}
-                      className="group inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 bg-brand/15 ring-brand/40 text-brand hover:bg-destructive/15 hover:ring-destructive/40 hover:text-destructive transition-colors"
+                      className="group inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 bg-brand/15 ring-brand/40 text-brand hover:bg-destructive/15 hover:ring-destructive/40 hover:text-destructive transition-colors"
                     >
                       {t}
                       <X className="size-2.5 opacity-0 group-hover:opacity-100" />
@@ -1844,7 +1844,7 @@ function OrgPluginsTab({ orgId }) {
                       <PopoverTrigger asChild>
                         <button
                           disabled={isBusy}
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono ring-1 ring-dashed ring-border text-muted-foreground hover:text-foreground hover:ring-brand/40"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.625rem] font-mono ring-1 ring-dashed ring-border text-muted-foreground hover:text-foreground hover:ring-brand/40"
                           title="Add group tag"
                         >
                           <Plus className="size-2.5" /> tag
@@ -1865,7 +1865,7 @@ function OrgPluginsTab({ orgId }) {
                   )}
                   {p.assignedTags.length === 0 &&
                     unassignedTags.length === 0 && (
-                      <span className="text-[10px] text-muted-foreground italic">
+                      <span className="text-[0.625rem] text-muted-foreground italic">
                         no server tags
                       </span>
                     )}
@@ -1874,7 +1874,7 @@ function OrgPluginsTab({ orgId }) {
                 {/* Servers */}
                 <div className="min-w-0">
                   {serverCount === 0 ? (
-                    <span className="text-[10px] text-muted-foreground italic">
+                    <span className="text-[0.625rem] text-muted-foreground italic">
                       none
                     </span>
                   ) : (
@@ -1885,13 +1885,13 @@ function OrgPluginsTab({ orgId }) {
                       {p.servers.slice(0, 3).map((s) => (
                         <span
                           key={s.id}
-                          className="text-[10px] font-mono px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground truncate max-w-[90px]"
+                          className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground truncate max-w-[90px]"
                         >
                           {s.name}
                         </span>
                       ))}
                       {serverCount > 3 && (
-                        <span className="text-[10px] font-mono text-muted-foreground">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground">
                           +{serverCount - 3}
                         </span>
                       )}
@@ -2067,7 +2067,7 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
                 placeholder="admin-menu"
                 className="font-mono"
               />
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 The slug from umod.org/plugins/&lt;slug&gt; — used to look up
                 the latest version.
               </p>
@@ -2096,7 +2096,7 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
                         setTags(on ? tags.filter((x) => x !== t) : [...tags, t])
                       }
                       className={
-                        "px-2 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                        "px-2 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
                         (on
                           ? "bg-brand/15 ring-brand/40 text-brand"
                           : "bg-surface ring-border text-muted-foreground hover:text-foreground")
@@ -2294,17 +2294,17 @@ function PresetsTab({ servers, orgId }) {
       {!loading && !fetchError && plugins.length > 0 && (
         <>
           {rconAvailable === false && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               Configure RCON on this server to see active/failed status.
             </p>
           )}
           {rconAvailable === true && !rconConnected && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               RCON offline — plugin status unavailable.
             </p>
           )}
           {rconConnected && (
-            <p className="text-[11px] text-muted-foreground flex items-center gap-3">
+            <p className="text-[0.6875rem] text-muted-foreground flex items-center gap-3">
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
                 Active
@@ -2320,7 +2320,7 @@ function PresetsTab({ servers, orgId }) {
             </p>
           )}
           <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
-            <div className="min-w-[560px] grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="min-w-[560px] grid grid-cols-[2fr_0.7fr_2.5fr_auto] gap-3 px-3 py-2 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Plugin</div>
               <div>Version</div>
               <div>Description</div>
@@ -2364,13 +2364,13 @@ function PresetsTab({ servers, orgId }) {
                       </span>
                     </div>
                     {p.author && (
-                      <div className="text-[10px] font-mono text-muted-foreground truncate">
+                      <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                         {p.author}
                       </div>
                     )}
                     {p.status === "failed" && p.compileError && (
                       <div
-                        className="text-[10px] text-destructive truncate"
+                        className="text-[0.625rem] text-destructive truncate"
                         title={p.compileError}
                       >
                         {p.compileError}
@@ -2548,7 +2548,7 @@ function BulkOpResults({ results }) {
           )}
           <span className="truncate">{r.serverName}</span>
           {r.error && (
-            <span className="text-[10px] text-destructive truncate ml-auto">
+            <span className="text-[0.625rem] text-destructive truncate ml-auto">
               {r.error}
             </span>
           )}
@@ -3211,7 +3211,7 @@ function WorldPlayerMap({ players }) {
         })}
       </svg>
       {unknownCount > 0 && (
-        <div className="absolute bottom-2 right-2 text-[9px] font-mono text-muted-foreground bg-surface/80 px-1.5 py-0.5 rounded ring-1 ring-border">
+        <div className="absolute bottom-2 right-2 text-[0.625rem] font-mono text-muted-foreground bg-surface/80 px-1.5 py-0.5 rounded ring-1 ring-border">
           +{unknownCount} · unknown location
         </div>
       )}
@@ -3347,7 +3347,7 @@ function GlobalpingSection({ orgId }) {
       <div className="ring-1 ring-border rounded-md bg-surface/40 p-4 flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold">Network Reachability</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
+          <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
             Globalping monitoring is not configured for this org. Enable it in
             Manage → Details.
           </p>
@@ -3362,7 +3362,7 @@ function GlobalpingSection({ orgId }) {
     return (
       <div className="ring-1 ring-border rounded-md bg-surface/40 p-4">
         <p className="text-xs font-semibold mb-1">Network Reachability</p>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           No servers with RCON/IP configured. Set an RCON host on your servers
           to enable network monitoring.
         </p>
@@ -3392,19 +3392,19 @@ function GlobalpingSection({ orgId }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        <h4 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
           Network reachability · Globalping
         </h4>
         <div className="flex items-center gap-3">
           {pendingCount > 0 && (
-            <span className="text-[10px] font-mono text-amber-500 flex items-center gap-1">
+            <span className="text-[0.625rem] font-mono text-amber-500 flex items-center gap-1">
               <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
               {pendingCount} measurement{pendingCount === 1 ? "" : "s"} in
               progress
             </span>
           )}
           {updatedAt && (
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-[0.625rem] font-mono text-muted-foreground">
               {new Date(updatedAt).toLocaleTimeString()}
             </span>
           )}
@@ -3412,7 +3412,7 @@ function GlobalpingSection({ orgId }) {
             value={mapServerId || servers[0]?.serverId || ""}
             onChange={(e) => setMapServerId(e.target.value)}
             title="Server to plot on the map"
-            className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
+            className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
             {(playerMode ? (playerData?.servers ?? servers) : servers).map(
               (s) => (
@@ -3423,26 +3423,26 @@ function GlobalpingSection({ orgId }) {
             )}
           </select>
           {triggering ? (
-            <span className="text-[10px] font-mono uppercase tracking-widest text-amber-500 flex items-center gap-1">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-amber-500 flex items-center gap-1">
               <span className="size-1.5 rounded-full bg-amber-500 animate-pulse inline-block" />
               Running…
             </span>
           ) : secsLeft !== null ? (
-            <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
+            <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">
               next in {Math.floor(secsLeft / 60)}:
               {String(secsLeft % 60).padStart(2, "0")}
             </span>
           ) : null}
           <button
             onClick={load}
-            className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
+            className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
           >
             <RefreshCw className="size-3" /> Refresh
           </button>
           <div className="inline-flex items-center gap-0.5 ring-1 ring-border rounded bg-surface/40 p-0.5">
             <button
               onClick={() => setPlayerMode(false)}
-              className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+              className={`text-[0.625rem] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
                 !playerMode
                   ? "bg-surface text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -3456,7 +3456,7 @@ function GlobalpingSection({ orgId }) {
                   if (!playerMode) loadPlayers();
                   setPlayerMode(true);
                 }}
-                className={`text-[10px] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                className={`text-[0.625rem] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
                   playerMode
                     ? "bg-surface text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -3481,7 +3481,7 @@ function GlobalpingSection({ orgId }) {
                 )}
               />
               {playerLoading && (
-                <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
+                <div className="absolute inset-0 grid place-items-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40">
                   Loading players…
                 </div>
               )}
@@ -3493,12 +3493,12 @@ function GlobalpingSection({ orgId }) {
                 countries={mapCountries}
               />
               {historyLoading && !snaps.length && (
-                <div className="absolute inset-0 grid place-items-center text-[11px] font-mono text-muted-foreground bg-background/40">
+                <div className="absolute inset-0 grid place-items-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40">
                   Loading history…
                 </div>
               )}
               {!historyLoading && !snaps.length && (
-                <div className="absolute inset-0 grid place-items-center text-center text-[11px] font-mono text-muted-foreground bg-background/40 px-4">
+                <div className="absolute inset-0 grid place-items-center text-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40 px-4">
                   No measurement history yet for{" "}
                   {mapServerName || "this server"}. Measurements run every few
                   minutes — check back shortly.
@@ -3509,7 +3509,7 @@ function GlobalpingSection({ orgId }) {
         </div>
         {!playerMode && snaps.length > 1 && (
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
+            <span className="text-[0.625rem] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
               {currentSnap
                 ? new Date(currentSnap.measuredAt * 1000).toLocaleString()
                 : "—"}
@@ -3523,7 +3523,7 @@ function GlobalpingSection({ orgId }) {
               aria-label="Latency history time"
               className="flex-1 accent-emerald-500"
             />
-            <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+            <span className="text-[0.625rem] font-mono text-muted-foreground whitespace-nowrap">
               {safeIndex >= snaps.length - 1
                 ? "Latest"
                 : `${snaps.length - 1 - safeIndex} step${snaps.length - 1 - safeIndex === 1 ? "" : "s"} back`}
@@ -3533,13 +3533,13 @@ function GlobalpingSection({ orgId }) {
       </div>
 
       {!hasAnyResult && !pendingCount ? (
-        <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[11px] text-muted-foreground">
+        <div className="ring-1 ring-border rounded-md bg-surface/40 px-4 py-3 text-[0.6875rem] text-muted-foreground">
           Waiting for first measurement results. Measurements run every 5
           minutes — check back shortly.
         </div>
       ) : (
         <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
-          <table className="w-full text-[10px]">
+          <table className="w-full text-[0.625rem]">
             <thead>
               <tr className="border-b border-border bg-surface/60">
                 <th className="text-left px-3 py-2 font-mono uppercase tracking-widest text-muted-foreground whitespace-nowrap">
@@ -3567,7 +3567,7 @@ function GlobalpingSection({ orgId }) {
                   <td className="px-3 py-2 font-medium whitespace-nowrap">
                     <div className="flex flex-col gap-0.5">
                       <span>{s.serverName}</span>
-                      <span className="text-[9px] font-mono text-muted-foreground">
+                      <span className="text-[0.625rem] font-mono text-muted-foreground">
                         {s.rconHost}
                       </span>
                     </div>
@@ -3586,7 +3586,7 @@ function GlobalpingSection({ orgId }) {
         </div>
       )}
 
-      <div className="flex items-center gap-4 text-[10px] text-muted-foreground font-mono">
+      <div className="flex items-center gap-4 text-[0.625rem] text-muted-foreground font-mono">
         <span className="flex items-center gap-1">
           <span className="inline-block w-3 h-3 rounded bg-emerald-500/25 ring-1 ring-emerald-500/30" />
           &lt;50 ms
@@ -3612,7 +3612,7 @@ function GlobalpingSection({ orgId }) {
           no data
         </span>
       </div>
-      <p className="text-[10px] text-muted-foreground/70 font-mono">
+      <p className="text-[0.625rem] text-muted-foreground/70 font-mono">
         Results are averaged across {data.probesPerCountry ?? "multiple"} probe
         {(data.probesPerCountry ?? 2) === 1 ? "" : "s"} per country.
         Measurements run periodically via the Globalping network. Hover a cell
@@ -3888,13 +3888,13 @@ function StatusTab({ orgId }) {
         <div className="flex items-center gap-3">
           <NotificationToggle orgId={orgId} />
           {updatedAt && (
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-[0.625rem] font-mono text-muted-foreground">
               Updated {new Date(updatedAt).toLocaleTimeString()}
             </span>
           )}
           <button
             onClick={() => load()}
-            className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
+            className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground flex items-center gap-1"
             title="Refresh now"
           >
             <RefreshCw className="size-3" /> Refresh
@@ -3903,13 +3903,13 @@ function StatusTab({ orgId }) {
       </div>
 
       {error && (
-        <p className="text-[11px] text-warning font-mono">
+        <p className="text-[0.6875rem] text-warning font-mono">
           {error} (showing last known data)
         </p>
       )}
 
       {data && data.liveSupported === false && (
-        <div className="ring-1 ring-border rounded-md bg-surface/40 px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="ring-1 ring-border rounded-md bg-surface/40 px-3 py-2 text-[0.6875rem] text-muted-foreground">
           Live utilization is unavailable — the stored Pterodactyl key is an
           application key, so only configured limits are shown. Provide a client
           API key to enable live CPU/RAM/uptime.
@@ -3918,7 +3918,7 @@ function StatusTab({ orgId }) {
 
       {/* Nodes */}
       <div>
-        <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+        <h4 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-2">
           Nodes
         </h4>
         {nodes.length === 0 ? (
@@ -3960,10 +3960,10 @@ function StatusTab({ orgId }) {
                       variant="outline"
                       className={
                         n.maintenanceMode
-                          ? "border-warning/40 text-warning bg-warning/10 text-[9px]"
+                          ? "border-warning/40 text-warning bg-warning/10 text-[0.625rem]"
                           : n.online === false
-                            ? "border-destructive/40 text-destructive bg-destructive/10 text-[9px]"
-                            : "border-success/40 text-success bg-success/10 text-[9px]"
+                            ? "border-destructive/40 text-destructive bg-destructive/10 text-[0.625rem]"
+                            : "border-success/40 text-success bg-success/10 text-[0.625rem]"
                       }
                     >
                       {n.maintenanceMode
@@ -3975,14 +3975,14 @@ function StatusTab({ orgId }) {
                   </div>
 
                   {n.fqdn && (
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       {n.fqdn}
                     </div>
                   )}
 
                   {agg.hasUsage && (
                     <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] font-mono">
+                      <div className="flex items-center justify-between text-[0.625rem] font-mono">
                         <span className="text-muted-foreground uppercase tracking-widest">
                           CPU used
                         </span>
@@ -4007,7 +4007,7 @@ function StatusTab({ orgId }) {
                   )}
 
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] font-mono">
+                    <div className="flex items-center justify-between text-[0.625rem] font-mono">
                       <span className="text-muted-foreground uppercase tracking-widest">
                         {agg.hasUsage ? "Memory used" : "Memory allocated"}
                       </span>
@@ -4024,7 +4024,7 @@ function StatusTab({ orgId }) {
                   </div>
 
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] font-mono">
+                    <div className="flex items-center justify-between text-[0.625rem] font-mono">
                       <span className="text-muted-foreground uppercase tracking-widest">
                         {agg.hasUsage ? "Disk used" : "Disk allocated"}
                       </span>
@@ -4042,7 +4042,7 @@ function StatusTab({ orgId }) {
                   </div>
 
                   {agg.hasUsage && (
-                    <div className="flex items-center justify-between text-[10px] font-mono">
+                    <div className="flex items-center justify-between text-[0.625rem] font-mono">
                       <span className="text-muted-foreground uppercase tracking-widest">
                         Network
                       </span>
@@ -4052,7 +4052,7 @@ function StatusTab({ orgId }) {
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground pt-1 border-t border-border">
+                  <div className="flex items-center justify-between text-[0.625rem] font-mono text-muted-foreground pt-1 border-t border-border">
                     <span>
                       HOSTING{" "}
                       <span className="text-foreground">{agg.count}</span>{" "}
@@ -4075,10 +4075,10 @@ function StatusTab({ orgId }) {
       {/* Game servers */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <h4 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Game servers ({servers.length})
           </h4>
-          <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-3">
+          <div className="text-[0.625rem] font-mono text-muted-foreground flex items-center gap-3">
             <span className="flex items-center gap-1">
               <span className="size-1.5 rounded-full bg-success" /> running
             </span>
@@ -4099,7 +4099,7 @@ function StatusTab({ orgId }) {
           </p>
         ) : (
           <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-x-auto">
-            <div className="min-w-[760px] grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="min-w-[760px] grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Server</div>
               <div>Node</div>
               <div>CPU</div>
@@ -4125,12 +4125,12 @@ function StatusTab({ orgId }) {
 
               return (
                 <Fragment key={s.uuid ?? s.identifier ?? s.pteroId}>
-                  <div className="min-w-[760px] grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[11px] hover:bg-surface/40">
+                  <div className="min-w-[760px] grid grid-cols-[1.5fr_0.7fr_1fr_1.1fr_0.8fr_0.9fr_0.6fr_auto] gap-2 px-3 py-2 border-b border-border items-center text-[0.6875rem] hover:bg-surface/40">
                     <div className="flex items-center gap-2 min-w-0">
                       <StateDot state={state} />
                       <span className="font-medium truncate">{s.name}</span>
                       {s.suspended && (
-                        <span className="text-[8px] font-mono uppercase tracking-widest text-destructive bg-destructive/10 px-1 rounded shrink-0">
+                        <span className="text-[0.5625rem] font-mono uppercase tracking-widest text-destructive bg-destructive/10 px-1 rounded shrink-0">
                           suspended
                         </span>
                       )}
@@ -4138,12 +4138,12 @@ function StatusTab({ orgId }) {
                         lastHealthPing={s.lastHealthPing}
                         className="shrink-0"
                       />
-                      <span className="text-[9px] font-mono text-muted-foreground truncate">
+                      <span className="text-[0.625rem] font-mono text-muted-foreground truncate">
                         {s.ip ? `${s.ip}:${s.port ?? ""}` : ""}
                       </span>
                     </div>
 
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">
+                    <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                       {s.nodeName ?? "—"}
                     </div>
 
@@ -4154,7 +4154,7 @@ function StatusTab({ orgId }) {
                           <span className="font-mono tabular-nums">
                             {(cpu ?? 0).toFixed(1)}%
                           </span>
-                          <span className="text-[9px] font-mono text-muted-foreground">
+                          <span className="text-[0.625rem] font-mono text-muted-foreground">
                             / {s.limits?.cpu ? `${s.limits.cpu}%` : "∞"}
                           </span>
                           <div className="flex-1 min-w-[28px]">
@@ -4166,7 +4166,7 @@ function StatusTab({ orgId }) {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-[10px] font-mono text-muted-foreground">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground">
                           limit {s.limits?.cpu ? `${s.limits.cpu}%` : "∞"}
                         </span>
                       )}
@@ -4180,14 +4180,14 @@ function StatusTab({ orgId }) {
                             <span className="font-mono tabular-nums">
                               {fmtBytes(memBytes ?? 0)}
                             </span>
-                            <span className="text-[9px] font-mono text-muted-foreground">
+                            <span className="text-[0.625rem] font-mono text-muted-foreground">
                               / {fmtMB(s.limits?.memory ?? 0)}
                             </span>
                           </div>
                           <UsageBar value={memBytes ?? 0} max={memLimitBytes} />
                         </>
                       ) : (
-                        <span className="text-[10px] font-mono text-muted-foreground">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground">
                           limit {fmtMB(s.limits?.memory ?? 0)}
                         </span>
                       )}
@@ -4199,12 +4199,12 @@ function StatusTab({ orgId }) {
                           <span className="font-mono tabular-nums">
                             {fmtBytes(diskBytes ?? 0)}
                           </span>
-                          <span className="text-[9px] font-mono text-muted-foreground">
+                          <span className="text-[0.625rem] font-mono text-muted-foreground">
                             / {fmtMB(s.limits?.disk ?? 0)}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-[10px] font-mono text-muted-foreground">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground">
                           limit {fmtMB(s.limits?.disk ?? 0)}
                         </span>
                       )}
@@ -4212,7 +4212,7 @@ function StatusTab({ orgId }) {
 
                     <div className="min-w-0">
                       {hasStats ? (
-                        <div className="flex flex-col gap-0.5 font-mono text-[10px] tabular-nums leading-tight">
+                        <div className="flex flex-col gap-0.5 font-mono text-[0.625rem] tabular-nums leading-tight">
                           <span
                             className="text-muted-foreground"
                             title="Inbound (download)"
@@ -4227,13 +4227,13 @@ function StatusTab({ orgId }) {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-[10px] font-mono text-muted-foreground">
+                        <span className="text-[0.625rem] font-mono text-muted-foreground">
                           —
                         </span>
                       )}
                     </div>
 
-                    <div className="text-right font-mono text-[10px] text-muted-foreground">
+                    <div className="text-right font-mono text-[0.625rem] text-muted-foreground">
                       {hasStats ? fmtUptime(uptime) : "—"}
                     </div>
 
@@ -4244,7 +4244,7 @@ function StatusTab({ orgId }) {
             })}
           </div>
         )}
-        <div className="text-[10px] text-muted-foreground/70 font-mono mt-1.5">
+        <div className="text-[0.625rem] text-muted-foreground/70 font-mono mt-1.5">
           CPU, memory, disk, network and uptime come from the Pterodactyl client
           API and refresh every 8s. Memory and disk are shown against each
           server's configured limit; network is the live in/out rate derived
@@ -4559,7 +4559,7 @@ function ServersTab({ orgId, onServerUpdate }) {
           <Layers className="size-4 text-brand" />
           <span className="text-sm font-semibold">Pterodactyl Connection</span>
           {pteroStatus?.connected && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
+            <span className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
               Connected
             </span>
           )}
@@ -4593,7 +4593,7 @@ function ServersTab({ orgId, onServerUpdate }) {
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Panel URL
                 </Label>
                 <Input
@@ -4606,7 +4606,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Application API Key
                 </Label>
                 <Input
@@ -4639,11 +4639,11 @@ function ServersTab({ orgId, onServerUpdate }) {
         <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div>
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 Pterodactyl Containers
               </span>
               {pteroServers !== null && (
-                <span className="ml-2 text-[10px] font-mono text-muted-foreground/60">
+                <span className="ml-2 text-[0.625rem] font-mono text-muted-foreground/60">
                   {pteroServers.length} server
                   {pteroServers.length === 1 ? "" : "s"}
                 </span>
@@ -4681,7 +4681,7 @@ function ServersTab({ orgId, onServerUpdate }) {
           )}
           {pteroServers !== null && pteroServers.length > 0 && (
             <div className="divide-y divide-border overflow-x-auto">
-              <div className="min-w-[640px] grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div className="min-w-[640px] grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 <div>Status</div>
                 <div>Name</div>
                 <div>Allocation</div>
@@ -4723,7 +4723,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                     className={`min-w-[640px] grid grid-cols-[auto_2fr_1.2fr_1fr_1.4fr_auto] gap-3 px-4 py-2.5 items-center ${s.suspended ? "opacity-60" : ""}`}
                   >
                     <span
-                      className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ${statusCls}`}
+                      className={`text-[0.625rem] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded ring-1 ${statusCls}`}
                     >
                       {statusLabel}
                     </span>
@@ -4744,7 +4744,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                           </a>
                         )}
                       </div>
-                      <div className="text-[10px] font-mono text-muted-foreground truncate">
+                      <div className="text-[0.625rem] font-mono text-muted-foreground truncate">
                         {s.identifier}
                       </div>
                     </div>
@@ -4754,7 +4754,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                     <div className="text-xs font-mono text-muted-foreground truncate">
                       {s.nodeName ?? "—"}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground">
+                    <div className="flex items-center gap-1.5 text-[0.625rem] font-mono text-muted-foreground">
                       <Cpu className="size-3 shrink-0" />
                       <span>{fmtCpu(s.limits?.cpu ?? 0)}</span>
                       <span className="opacity-40">·</span>
@@ -4765,7 +4765,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                     </div>
                     <div>
                       {alreadyImported ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-success px-2 py-1 rounded bg-success/10 ring-1 ring-success/20">
+                        <span className="inline-flex items-center gap-1 text-[0.625rem] font-mono text-success px-2 py-1 rounded bg-success/10 ring-1 ring-success/20">
                           <Check className="size-2.5" /> Imported
                         </span>
                       ) : (
@@ -4792,7 +4792,7 @@ function ServersTab({ orgId, onServerUpdate }) {
             </div>
           )}
           {pteroServers !== null && (
-            <div className="px-4 py-2 border-t border-border bg-surface/30 text-[10px] text-muted-foreground/60 font-mono">
+            <div className="px-4 py-2 border-t border-border bg-surface/30 text-[0.625rem] text-muted-foreground/60 font-mono">
               Limits shown are configured maximums from Pterodactyl (CPU % · RAM
               · Disk). Real-time usage requires a Pterodactyl Client API key.
             </div>
@@ -4831,7 +4831,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                   Copy
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[0.6875rem] text-muted-foreground">
                 Set this as the <code className="font-mono">x-api-key</code>{" "}
                 header when POSTing to{" "}
                 <code className="font-mono">/api/ingest/chat</code>.
@@ -4912,7 +4912,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                   Copy
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[0.6875rem] text-muted-foreground">
                 Update the <code className="font-mono">x-api-key</code> header
                 in your chat ingest plugin immediately.
               </p>
@@ -4973,11 +4973,11 @@ function ServersTab({ orgId, onServerUpdate }) {
       <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Registered IronSight Servers
             </span>
             {registeredServers.length > 0 && (
-              <span className="ml-2 text-[10px] font-mono text-muted-foreground/60">
+              <span className="ml-2 text-[0.625rem] font-mono text-muted-foreground/60">
                 {registeredServers.length} server
                 {registeredServers.length === 1 ? "" : "s"}
               </span>
@@ -5006,7 +5006,7 @@ function ServersTab({ orgId, onServerUpdate }) {
           </p>
         ) : (
           <div className="divide-y divide-border overflow-x-auto">
-            <div className="min-w-[560px] grid grid-cols-[2fr_1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="min-w-[560px] grid grid-cols-[2fr_1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               <div>Server</div>
               <div>Pterodactyl</div>
               <div>Last Ping</div>
@@ -5038,21 +5038,21 @@ function ServersTab({ orgId, onServerUpdate }) {
                       </div>
                       {s.rconConfigured ? (
                         s.rconWorking === false ? (
-                          <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-destructive/10 text-destructive ring-1 ring-destructive/30">
+                          <span className="text-[0.625rem] font-mono px-1 py-0.5 rounded bg-destructive/10 text-destructive ring-1 ring-destructive/30">
                             RCON
                           </span>
                         ) : (
-                          <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
+                          <span className="text-[0.625rem] font-mono px-1 py-0.5 rounded bg-success/10 text-success ring-1 ring-success/30">
                             RCON
                           </span>
                         )
                       ) : (
-                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-warning/10 text-warning ring-1 ring-warning/30">
+                        <span className="text-[0.625rem] font-mono px-1 py-0.5 rounded bg-warning/10 text-warning ring-1 ring-warning/30">
                           No RCON
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] font-mono text-muted-foreground">
+                    <div className="text-[0.625rem] font-mono text-muted-foreground">
                       {s.serverId.slice(0, 8)}…
                     </div>
                   </div>
@@ -5062,18 +5062,18 @@ function ServersTab({ orgId, onServerUpdate }) {
                         href={panelLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] font-mono text-brand hover:underline truncate"
+                        className="inline-flex items-center gap-1 text-[0.6875rem] font-mono text-brand hover:underline truncate"
                         title={s.pteroIdentifier}
                       >
                         <ExternalLink className="size-3 shrink-0" />
                         {s.pteroIdentifier}
                       </a>
                     ) : s.pteroIdentifier ? (
-                      <span className="text-[11px] font-mono text-muted-foreground truncate">
+                      <span className="text-[0.6875rem] font-mono text-muted-foreground truncate">
                         {s.pteroIdentifier}
                       </span>
                     ) : (
-                      <span className="text-[11px] font-mono text-muted-foreground/40">
+                      <span className="text-[0.6875rem] font-mono text-muted-foreground/40">
                         —
                       </span>
                     )}
@@ -5081,7 +5081,7 @@ function ServersTab({ orgId, onServerUpdate }) {
                   <div>
                     <PingBadge lastHealthPing={s.lastHealthPing} />
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[0.6875rem] text-muted-foreground">
                     {addedDate}
                   </div>
                   <div className="flex items-center gap-1 justify-end w-24">
@@ -5191,7 +5191,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
         <div className="space-y-3 py-2">
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 RCON Host
               </Label>
               <Input
@@ -5202,7 +5202,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 RCON Port
               </Label>
               <Input
@@ -5217,7 +5217,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 RCON Password
               </Label>
               <Input
@@ -5231,7 +5231,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 Game Port
               </Label>
               <Input
@@ -5245,7 +5245,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Tags (comma-separated)
             </Label>
             <Input
@@ -5386,7 +5386,7 @@ function ServerEditDialog({ open, initial, tags, nodes, onClose, onSave }) {
                     key={t}
                     onClick={() => toggle(t)}
                     className={
-                      "px-2 py-0.5 rounded text-[11px] font-mono font-bold ring-1 transition-colors " +
+                      "px-2 py-0.5 rounded text-[0.6875rem] font-mono font-bold ring-1 transition-colors " +
                       (on
                         ? "bg-brand/15 ring-brand/40 text-brand"
                         : "bg-surface ring-border text-muted-foreground hover:text-foreground")

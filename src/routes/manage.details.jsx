@@ -137,7 +137,7 @@ function BmKeyGraph({ keyData }) {
 
   return (
     <div className="mt-2 space-y-1">
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-[0.625rem] text-muted-foreground">
         Rate limit usage — peak per hour, last 48h (
         <span className="text-amber-500">amber = 80%</span>)
       </p>
@@ -200,7 +200,7 @@ function UsageDayBar({ queriesDay, dailyLimit, label }) {
   const pct = Math.min(Math.round((queriesDay / dailyLimit) * 100), 100);
   return (
     <div className="mt-2 space-y-1">
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-[0.625rem] text-muted-foreground">
         {label}: {queriesDay.toLocaleString()} / {dailyLimit.toLocaleString()} (
         {pct}%)
       </p>
@@ -385,7 +385,7 @@ function ApiKeysSection({ orgId }) {
     <div className="space-y-4 border-t border-border pt-6">
       <div>
         <h2 className="text-sm font-semibold">API Keys</h2>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
+        <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
           Manage per-org API keys for player lookup integrations. Keys are
           stored encrypted and rotated automatically on rate-limit errors.
         </p>
@@ -413,24 +413,24 @@ function ApiKeysSection({ orgId }) {
                     href={SERVICE_LINKS[svc]}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-foreground transition-colors"
                   >
                     New token
                     <ExternalLink className="size-2.5" />
                   </a>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   {SERVICE_HINTS[svc]}
                 </p>
                 {SERVICE_PERMISSIONS[svc] && (
                   <div className="mt-1.5 space-y-0.5">
-                    <p className="text-[10px] font-medium text-muted-foreground">
+                    <p className="text-[0.625rem] font-medium text-muted-foreground">
                       Required permissions:
                     </p>
                     {SERVICE_PERMISSIONS[svc].map(({ group, items }) => (
                       <p
                         key={group}
-                        className="text-[10px] text-muted-foreground"
+                        className="text-[0.625rem] text-muted-foreground"
                       >
                         <span className="text-foreground/60 font-medium">
                           {group}:
@@ -461,12 +461,12 @@ function ApiKeysSection({ orgId }) {
                         {k.rateLimitedUntil &&
                           k.rateLimitedUntil >
                             Math.floor(Date.now() / 1000) && (
-                            <span className="text-[10px] text-amber-500 font-mono shrink-0">
+                            <span className="text-[0.625rem] text-amber-500 font-mono shrink-0">
                               rate-limited
                             </span>
                           )}
                         <span
-                          className={`text-[10px] font-mono shrink-0 ${k.enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                          className={`text-[0.625rem] font-mono shrink-0 ${k.enabled ? "text-emerald-500" : "text-muted-foreground"}`}
                         >
                           {k.enabled ? "enabled" : "disabled"}
                         </span>
@@ -527,7 +527,7 @@ function ApiKeysSection({ orgId }) {
               href={SERVICE_LINKS[addService]}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-foreground transition-colors"
             >
               New token
               <ExternalLink className="size-2.5" />
@@ -558,11 +558,11 @@ function ApiKeysSection({ orgId }) {
           />
           {SERVICE_PERMISSIONS[addService] && (
             <div className="space-y-0.5 pt-0.5">
-              <p className="text-[10px] font-medium text-muted-foreground">
+              <p className="text-[0.625rem] font-medium text-muted-foreground">
                 Required permissions:
               </p>
               {SERVICE_PERMISSIONS[addService].map(({ group, items }) => (
-                <p key={group} className="text-[10px] text-muted-foreground">
+                <p key={group} className="text-[0.625rem] text-muted-foreground">
                   <span className="text-foreground/60 font-medium">
                     {group}:
                   </span>{" "}
@@ -641,7 +641,7 @@ function RateLimitBadge({ limit }) {
   const resetMins = reset != null && reset > 0 ? Math.ceil(reset / 60) : null;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono ring-1 ${color}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.625rem] font-mono ring-1 ${color}`}
       title={
         resetMins != null
           ? `Resets in ~${resetMins}m · ${type === "token" ? "authenticated" : "anonymous"}`
@@ -1422,7 +1422,7 @@ function ManageDetailsPage() {
                   disabled={loading || saving}
                   placeholder="12345"
                 />
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   {bmOrgsError
                     ? "Could not load organizations — enter ID manually. "
                     : "Add a BattleMetrics API key below to auto-load organizations. "}
@@ -1437,7 +1437,7 @@ function ManageDetailsPage() {
             <div className="space-y-1">
               <Label htmlFor="bm-ban-list">BattleMetrics ban list</Label>
               {bmBanListsLoading ? (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   Loading ban lists…
                 </p>
               ) : bmBanLists.length > 0 ? (
@@ -1469,7 +1469,7 @@ function ManageDetailsPage() {
                     placeholder="Ban list UUID (e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)"
                     disabled={loading || saving}
                   />
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[0.6875rem] text-muted-foreground">
                     {bmBanListsError
                       ? "Could not load ban lists — enter the UUID manually."
                       : "No ban lists found — enter the UUID manually."}
@@ -1477,7 +1477,7 @@ function ManageDetailsPage() {
                 </>
               )}
               {!bmBanListsLoading && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   Bans sync into this list. Leave empty to sync org-wide.
                 </p>
               )}
@@ -1496,7 +1496,7 @@ function ManageDetailsPage() {
                 <Label htmlFor="bm-auto-sync" className="cursor-pointer">
                   Auto-sync bans to BattleMetrics
                 </Label>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   Mirror every new ban to BattleMetrics as a record-only entry.{" "}
                   <a
                     href="https://learn.battlemetrics.com/article/12-ban-sync"
@@ -1517,7 +1517,7 @@ function ManageDetailsPage() {
           <div className="space-y-3 rounded-lg ring-1 ring-border bg-surface/20 p-4">
             <div>
               <p className="text-sm font-medium">Media Storage (R2 / S3)</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
+              <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
                 Files go directly from the browser to Cloudflare R2 — single PUT
                 under 300 MB, presigned multipart above. Storage credentials are
                 configured via server environment variables (R2_ACCOUNT_ID,
@@ -1539,7 +1539,7 @@ function ManageDetailsPage() {
                   placeholder="Never"
                   className="w-full"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   Objects not accessed in this many months are purged. A daily
                   job checks and deletes expired media automatically.
                 </p>
@@ -1559,7 +1559,7 @@ function ManageDetailsPage() {
                   placeholder="Unlimited"
                   className="w-full"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   Max total staff-gallery storage for this org. Leave blank for
                   no limit.
                 </p>
@@ -1577,7 +1577,7 @@ function ManageDetailsPage() {
                   placeholder="Unlimited"
                   className="w-full"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   Max storage per staff member. Leave blank for no limit.
                 </p>
               </div>
@@ -1596,7 +1596,7 @@ function ManageDetailsPage() {
                   placeholder="100"
                   className="w-full"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   Max size per file that public ticket submitters can upload.
                   Default: 100 MB.
                 </p>
@@ -1617,7 +1617,7 @@ function ManageDetailsPage() {
                   placeholder="5"
                   className="w-full"
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   Max files a public user can attach to a single ticket.
                   Default: 5.
                 </p>

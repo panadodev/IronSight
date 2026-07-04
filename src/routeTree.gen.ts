@@ -13,8 +13,10 @@ import { Route as TosRouteImport } from './routes/tos'
 import { Route as TodoRouteImport } from './routes/todo'
 import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as ThreatTriggersRouteImport } from './routes/threat-triggers'
+import { Route as SysRelaysRouteImport } from './routes/sys-relays'
 import { Route as SysMetricsRouteImport } from './routes/sys-metrics'
 import { Route as SysLinkedAccountsRouteImport } from './routes/sys-linked-accounts'
+import { Route as SysFeedbackRouteImport } from './routes/sys-feedback'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as SubmitRouteImport } from './routes/submit'
 import { Route as StaffAuditRouteImport } from './routes/staff-audit'
@@ -63,6 +65,11 @@ const ThreatTriggersRoute = ThreatTriggersRouteImport.update({
   path: '/threat-triggers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SysRelaysRoute = SysRelaysRouteImport.update({
+  id: '/sys-relays',
+  path: '/sys-relays',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SysMetricsRoute = SysMetricsRouteImport.update({
   id: '/sys-metrics',
   path: '/sys-metrics',
@@ -71,6 +78,11 @@ const SysMetricsRoute = SysMetricsRouteImport.update({
 const SysLinkedAccountsRoute = SysLinkedAccountsRouteImport.update({
   id: '/sys-linked-accounts',
   path: '/sys-linked-accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SysFeedbackRoute = SysFeedbackRouteImport.update({
+  id: '/sys-feedback',
+  path: '/sys-feedback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SupportRoute = SupportRouteImport.update({
@@ -228,8 +240,10 @@ export interface FileRoutesByFullPath {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-feedback': typeof SysFeedbackRoute
   '/sys-linked-accounts': typeof SysLinkedAccountsRoute
   '/sys-metrics': typeof SysMetricsRoute
+  '/sys-relays': typeof SysRelaysRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
@@ -263,8 +277,10 @@ export interface FileRoutesByTo {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-feedback': typeof SysFeedbackRoute
   '/sys-linked-accounts': typeof SysLinkedAccountsRoute
   '/sys-metrics': typeof SysMetricsRoute
+  '/sys-relays': typeof SysRelaysRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
@@ -299,8 +315,10 @@ export interface FileRoutesById {
   '/staff-audit': typeof StaffAuditRoute
   '/submit': typeof SubmitRoute
   '/support': typeof SupportRoute
+  '/sys-feedback': typeof SysFeedbackRoute
   '/sys-linked-accounts': typeof SysLinkedAccountsRoute
   '/sys-metrics': typeof SysMetricsRoute
+  '/sys-relays': typeof SysRelaysRoute
   '/threat-triggers': typeof ThreatTriggersRoute
   '/tickets': typeof TicketsRoute
   '/todo': typeof TodoRoute
@@ -336,8 +354,10 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-feedback'
     | '/sys-linked-accounts'
     | '/sys-metrics'
+    | '/sys-relays'
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
@@ -371,8 +391,10 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-feedback'
     | '/sys-linked-accounts'
     | '/sys-metrics'
+    | '/sys-relays'
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
@@ -406,8 +428,10 @@ export interface FileRouteTypes {
     | '/staff-audit'
     | '/submit'
     | '/support'
+    | '/sys-feedback'
     | '/sys-linked-accounts'
     | '/sys-metrics'
+    | '/sys-relays'
     | '/threat-triggers'
     | '/tickets'
     | '/todo'
@@ -442,8 +466,10 @@ export interface RootRouteChildren {
   StaffAuditRoute: typeof StaffAuditRoute
   SubmitRoute: typeof SubmitRoute
   SupportRoute: typeof SupportRoute
+  SysFeedbackRoute: typeof SysFeedbackRoute
   SysLinkedAccountsRoute: typeof SysLinkedAccountsRoute
   SysMetricsRoute: typeof SysMetricsRoute
+  SysRelaysRoute: typeof SysRelaysRoute
   ThreatTriggersRoute: typeof ThreatTriggersRoute
   TicketsRoute: typeof TicketsRoute
   TodoRoute: typeof TodoRoute
@@ -481,6 +507,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ThreatTriggersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sys-relays': {
+      id: '/sys-relays'
+      path: '/sys-relays'
+      fullPath: '/sys-relays'
+      preLoaderRoute: typeof SysRelaysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sys-metrics': {
       id: '/sys-metrics'
       path: '/sys-metrics'
@@ -493,6 +526,13 @@ declare module '@tanstack/react-router' {
       path: '/sys-linked-accounts'
       fullPath: '/sys-linked-accounts'
       preLoaderRoute: typeof SysLinkedAccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sys-feedback': {
+      id: '/sys-feedback'
+      path: '/sys-feedback'
+      fullPath: '/sys-feedback'
+      preLoaderRoute: typeof SysFeedbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/support': {
@@ -731,8 +771,10 @@ const rootRouteChildren: RootRouteChildren = {
   StaffAuditRoute: StaffAuditRoute,
   SubmitRoute: SubmitRoute,
   SupportRoute: SupportRoute,
+  SysFeedbackRoute: SysFeedbackRoute,
   SysLinkedAccountsRoute: SysLinkedAccountsRoute,
   SysMetricsRoute: SysMetricsRoute,
+  SysRelaysRoute: SysRelaysRoute,
   ThreatTriggersRoute: ThreatTriggersRoute,
   TicketsRoute: TicketsRoute,
   TodoRoute: TodoRoute,

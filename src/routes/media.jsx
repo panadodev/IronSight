@@ -263,7 +263,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
                   className="size-4 text-muted-foreground shrink-0"
                 />
                 <span className="text-xs flex-1 truncate">{file.name}</span>
-                <span className="text-[10px] text-muted-foreground shrink-0">
+                <span className="text-[0.625rem] text-muted-foreground shrink-0">
                   {formatBytes(file.size)}
                 </span>
                 <button
@@ -285,7 +285,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
               >
                 <Upload className="size-6" />
                 <span className="text-sm">Click to select a file</span>
-                <span className="text-[11px]">
+                <span className="text-[0.6875rem]">
                   Images &amp; videos · up to 5 GB
                 </span>
               </button>
@@ -525,7 +525,7 @@ function MediaTable({
                   {item.title || item.filename}
                 </p>
                 {item.title && (
-                  <p className="text-[10px] text-muted-foreground truncate">
+                  <p className="text-[0.625rem] text-muted-foreground truncate">
                     {item.filename}
                   </p>
                 )}
@@ -819,7 +819,7 @@ function MediaPage() {
                   <button
                     key={t}
                     onClick={() => setTypeFilter(t)}
-                    className={`px-2.5 py-1 text-[11px] rounded-md ring-1 transition-colors capitalize ${
+                    className={`px-2.5 py-1 text-[0.6875rem] rounded-md ring-1 transition-colors capitalize ${
                       typeFilter === t
                         ? "ring-brand/60 bg-brand/15 text-brand font-medium"
                         : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
@@ -892,11 +892,11 @@ function MediaPage() {
                 return (
                   <div key={q.orgId} className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-medium text-muted-foreground truncate">
+                      <span className="text-[0.6875rem] font-medium text-muted-foreground truncate">
                         {q.orgName ?? q.orgId}
                       </span>
                       <span
-                        className={`text-[11px] tabular-nums shrink-0 ${
+                        className={`text-[0.6875rem] tabular-nums shrink-0 ${
                           atLimit
                             ? "text-danger"
                             : nearLimit

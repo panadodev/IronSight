@@ -674,10 +674,10 @@ function TicketsPage() {
         >
           <div className="px-3 py-2 border-b border-border shrink-0">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-foreground">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest font-bold text-foreground">
                 Ticket Queue
               </span>
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-[0.625rem] font-mono text-muted-foreground">
                 {totalNonClosed}
               </span>
             </div>
@@ -686,7 +686,7 @@ function TicketsPage() {
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`flex-1 py-1 text-[10px] font-mono capitalize transition-colors ${
+                  className={`flex-1 py-1 text-[0.625rem] font-mono capitalize transition-colors ${
                     tab === t
                       ? "bg-brand text-brand-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -703,7 +703,7 @@ function TicketsPage() {
             <div className="flex ring-1 ring-border rounded overflow-hidden mt-1.5">
               <button
                 onClick={() => setAssignee("all")}
-                className={`flex-1 py-1 text-[10px] font-mono transition-colors ${
+                className={`flex-1 py-1 text-[0.625rem] font-mono transition-colors ${
                   assignee === "all"
                     ? "bg-brand text-brand-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -713,7 +713,7 @@ function TicketsPage() {
               </button>
               <button
                 onClick={() => setAssignee("mine")}
-                className={`flex-1 py-1 text-[10px] font-mono transition-colors ${
+                className={`flex-1 py-1 text-[0.625rem] font-mono transition-colors ${
                   assignee === "mine"
                     ? "bg-brand text-brand-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -730,7 +730,7 @@ function TicketsPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search player name or Steam ID..."
-                className="w-full bg-background border border-border rounded pl-6 pr-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+                className="w-full bg-background border border-border rounded pl-6 pr-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
               />
             </div>
           </div>
@@ -748,7 +748,7 @@ function TicketsPage() {
                 <button
                   key={f.key}
                   onClick={() => setTypeFilter(f.key)}
-                  className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors ${
+                  className={`flex items-center gap-1 text-[0.625rem] font-mono px-1.5 py-0.5 rounded transition-colors ${
                     active
                       ? "bg-brand text-brand-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-surface/60"
@@ -773,11 +773,11 @@ function TicketsPage() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {loading ? (
-              <div className="text-[10px] text-muted-foreground text-center py-10">
+              <div className="text-[0.625rem] text-muted-foreground text-center py-10">
                 Loading...
               </div>
             ) : filtered.length === 0 ? (
-              <div className="text-[10px] text-muted-foreground text-center py-10">
+              <div className="text-[0.625rem] text-muted-foreground text-center py-10">
                 {assignee === "mine"
                   ? "No tickets assigned to you"
                   : "No tickets"}
@@ -802,7 +802,7 @@ function TicketsPage() {
           <main className="flex-1 flex flex-col min-w-0 overflow-hidden border-r border-border">
             <button
               onClick={() => setSelectedId(null)}
-              className="md:hidden flex items-center gap-1.5 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground shrink-0"
+              className="md:hidden flex items-center gap-1.5 px-3 py-2 border-b border-border text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground shrink-0"
             >
               ← Back to queue
             </button>
@@ -889,42 +889,42 @@ function TicketListItem({ ticket, orgs, selected, onClick, myUserId }) {
         selected ? "bg-brand/10" : "hover:bg-surface/60"
       }`}
     >
-      <span className="text-[9px] font-mono font-bold text-muted-foreground shrink-0 mt-0.5 w-4 text-center">
+      <span className="text-[0.625rem] font-mono font-bold text-muted-foreground shrink-0 mt-0.5 w-4 text-center">
         {prefix}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 min-w-0">
           <span
-            className={`text-[10px] font-mono font-bold shrink-0 truncate max-w-[7rem] ${kind.color}`}
+            className={`text-[0.625rem] font-mono font-bold shrink-0 truncate max-w-[7rem] ${kind.color}`}
             title={kind.label}
           >
             {kind.label}
           </span>
           {isAuto && (
-            <span className="text-[8px] font-mono uppercase tracking-widest text-orange-400/70 bg-orange-400/10 px-1 rounded shrink-0">
+            <span className="text-[0.5625rem] font-mono uppercase tracking-widest text-orange-400/70 bg-orange-400/10 px-1 rounded shrink-0">
               auto
             </span>
           )}
           {isCase && (
-            <span className="text-[8px] font-mono uppercase tracking-widest text-sky-400/70 bg-sky-400/10 px-1 rounded shrink-0">
+            <span className="text-[0.5625rem] font-mono uppercase tracking-widest text-sky-400/70 bg-sky-400/10 px-1 rounded shrink-0">
               staff
             </span>
           )}
-          <span className="text-[9px] text-muted-foreground shrink-0">·</span>
-          <span className="text-[10px] font-medium truncate min-w-0">
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">·</span>
+          <span className="text-[0.625rem] font-medium truncate min-w-0">
             {isAuto || isCase
               ? (ticket.title ?? "—")
               : (ticket.created_by_username ?? "Unknown")}
           </span>
         </div>
         <div className="flex items-center gap-1 mt-0.5">
-          <span className="text-[9px] font-mono text-muted-foreground capitalize">
+          <span className="text-[0.625rem] font-mono text-muted-foreground capitalize">
             {ticket.priority}
           </span>
           {claimed && (
             <span
               title={`Claimed by ${claimedByMe ? "you" : (ticket.assigned_to_username ?? "staff")}`}
-              className={`flex items-center gap-0.5 text-[8px] font-mono uppercase tracking-wider px-1 rounded shrink-0 max-w-[6rem] ${
+              className={`flex items-center gap-0.5 text-[0.5625rem] font-mono uppercase tracking-wider px-1 rounded shrink-0 max-w-[6rem] ${
                 claimedByMe
                   ? "text-brand bg-brand/10"
                   : "text-emerald-400 bg-emerald-400/10"
@@ -938,7 +938,7 @@ function TicketListItem({ ticket, orgs, selected, onClick, myUserId }) {
               </span>
             </span>
           )}
-          <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
+          <span className="text-[0.625rem] font-mono text-muted-foreground ml-auto shrink-0">
             {formatRelativeTime(ticket.created_at)}
           </span>
         </div>
@@ -988,7 +988,7 @@ function PredefinesPicker({ predefines, ticketTypeId, onSelect }) {
           setQuery("");
         }}
         title="Insert pre-define"
-        className={`flex items-center gap-1 text-[10px] font-mono rounded px-2 py-0.5 ring-1 transition-colors ${
+        className={`flex items-center gap-1 text-[0.625rem] font-mono rounded px-2 py-0.5 ring-1 transition-colors ${
           open
             ? "bg-brand text-brand-foreground ring-brand"
             : "bg-surface/60 ring-border text-muted-foreground hover:text-foreground"
@@ -1005,12 +1005,12 @@ function PredefinesPicker({ predefines, ticketTypeId, onSelect }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search pre-defines..."
-              className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+              className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
             />
           </div>
           <div className="max-h-52 overflow-y-auto">
             {relevant.length === 0 ? (
-              <div className="px-3 py-3 text-[10px] font-mono text-muted-foreground">
+              <div className="px-3 py-3 text-[0.625rem] font-mono text-muted-foreground">
                 No pre-defines
                 {query ? " match your search" : " for this ticket type"}.
               </div>
@@ -1025,10 +1025,10 @@ function PredefinesPicker({ predefines, ticketTypeId, onSelect }) {
                   }}
                   className="w-full text-left px-3 py-2 hover:bg-surface-bright transition-colors border-b border-border last:border-0"
                 >
-                  <p className="text-[10px] font-mono font-bold text-foreground">
+                  <p className="text-[0.625rem] font-mono font-bold text-foreground">
                     {p.keyword}
                   </p>
-                  <p className="text-[9px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
+                  <p className="text-[0.625rem] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
                     {p.content}
                   </p>
                 </button>
@@ -1058,7 +1058,7 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors"
+        className="flex items-center gap-1 text-[0.625rem] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5 hover:bg-surface transition-colors"
       >
         {ticket.assigned_to_username ?? "Assign"}
         <ChevronDown size={9} className="text-muted-foreground" />
@@ -1066,7 +1066,7 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
       {open && (
         <div className="absolute top-full left-0 mt-1 z-20 min-w-[160px] bg-surface border border-border rounded-md shadow-lg overflow-hidden">
           {orgStaff.length === 0 ? (
-            <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground">
+            <div className="px-3 py-2 text-[0.625rem] font-mono text-muted-foreground">
               No staff
             </div>
           ) : (
@@ -1077,7 +1077,7 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
                     onAssign(null, null);
                     setOpen(false);
                   }}
-                  className="w-full text-left px-3 py-1.5 text-[10px] font-mono text-muted-foreground hover:bg-surface-bright transition-colors"
+                  className="w-full text-left px-3 py-1.5 text-[0.625rem] font-mono text-muted-foreground hover:bg-surface-bright transition-colors"
                 >
                   Unassign
                 </button>
@@ -1089,7 +1089,7 @@ function AssignDropdown({ ticket, orgStaff, onAssign }) {
                     onAssign(m.userId, m.username);
                     setOpen(false);
                   }}
-                  className={`w-full text-left px-3 py-1.5 text-[10px] font-mono hover:bg-surface-bright transition-colors ${
+                  className={`w-full text-left px-3 py-1.5 text-[0.625rem] font-mono hover:bg-surface-bright transition-colors ${
                     ticket.assigned_to === m.userId
                       ? "text-brand"
                       : "text-foreground"
@@ -1137,13 +1137,13 @@ function LinkifiedText({ text }) {
 function SubmissionDetails({ formData }) {
   return (
     <div className="px-4 pt-3 pb-2">
-      <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+      <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-2">
         Submission
       </div>
       <div className="bg-surface/60 ring-1 ring-border rounded-md px-3 py-2.5 space-y-2.5">
         {formData.map((f, i) => (
           <div key={i}>
-            <div className="text-[9px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="text-[0.625rem] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
               {f.label}
             </div>
             <div className="text-xs mt-0.5 whitespace-pre-wrap break-words leading-relaxed">
@@ -1250,26 +1250,26 @@ function BlacklistManager({ orgId, prefill, onClose }) {
           </div>
           <button
             onClick={onClose}
-            className="text-[10px] font-mono text-muted-foreground hover:text-foreground"
+            className="text-[0.625rem] font-mono text-muted-foreground hover:text-foreground"
           >
             Close
           </button>
         </div>
 
         <div className="px-4 py-3 border-b border-border shrink-0 space-y-2">
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Add entry
           </div>
           <input
             value={steamId}
             onChange={(e) => setSteamId(e.target.value)}
             placeholder="SteamID64 (17 digits)"
-            className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[0.6875rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           />
           <select
             value={typeId}
             onChange={(e) => setTypeId(e.target.value)}
-            className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[0.6875rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           >
             <option value="ALL">All ticket types</option>
             {ticketTypes.map((t) => (
@@ -1283,15 +1283,15 @@ function BlacklistManager({ orgId, prefill, onClose }) {
             onChange={(e) => setReason(e.target.value)}
             placeholder="Reason (optional)"
             maxLength={500}
-            className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[0.6875rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           />
           {error && (
-            <p className="text-[10px] font-mono text-danger">{error}</p>
+            <p className="text-[0.625rem] font-mono text-danger">{error}</p>
           )}
           <button
             onClick={handleAdd}
             disabled={saving}
-            className="text-[10px] font-mono bg-danger text-white rounded px-3 py-1 hover:opacity-90 disabled:opacity-40"
+            className="text-[0.625rem] font-mono bg-danger text-white rounded px-3 py-1 hover:opacity-90 disabled:opacity-40"
           >
             {saving ? "Adding..." : "Add to blacklist"}
           </button>
@@ -1299,11 +1299,11 @@ function BlacklistManager({ orgId, prefill, onClose }) {
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="text-[10px] text-muted-foreground text-center py-8">
+            <div className="text-[0.625rem] text-muted-foreground text-center py-8">
               Loading...
             </div>
           ) : entries.length === 0 ? (
-            <div className="text-[10px] text-muted-foreground text-center py-8">
+            <div className="text-[0.625rem] text-muted-foreground text-center py-8">
               No blacklisted users
             </div>
           ) : (
@@ -1315,26 +1315,26 @@ function BlacklistManager({ orgId, prefill, onClose }) {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-mono truncate">
+                      <span className="text-[0.6875rem] font-mono truncate">
                         {e.steamId}
                       </span>
-                      <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground shrink-0">
+                      <span className="text-[0.5625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground shrink-0">
                         {e.ticketTypeName ?? "All types"}
                       </span>
                     </div>
                     {e.reason && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5 break-words">
+                      <p className="text-[0.625rem] text-muted-foreground mt-0.5 break-words">
                         {e.reason}
                       </p>
                     )}
-                    <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">
+                    <p className="text-[0.625rem] font-mono text-muted-foreground/60 mt-0.5">
                       {e.createdBy ? `by ${e.createdBy} · ` : ""}
                       {formatRelativeTime(e.createdAt)}
                     </p>
                   </div>
                   <button
                     onClick={() => handleRemove(e.blacklistId)}
-                    className="text-[10px] font-mono text-muted-foreground hover:text-danger shrink-0"
+                    className="text-[0.625rem] font-mono text-muted-foreground hover:text-danger shrink-0"
                   >
                     Remove
                   </button>
@@ -1391,23 +1391,23 @@ function TicketDetail({
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border shrink-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] font-mono text-brand shrink-0">
+          <span className="text-[0.625rem] font-mono text-brand shrink-0">
             #{ticket.ticket_id}
           </span>
           <h2 className="text-sm font-bold truncate">{ticket.title}</h2>
           {isAuto && (
-            <span className="text-[8px] font-mono uppercase tracking-widest text-orange-400 bg-orange-400/10 ring-1 ring-orange-400/30 px-1.5 py-0.5 rounded shrink-0">
+            <span className="text-[0.5625rem] font-mono uppercase tracking-widest text-orange-400 bg-orange-400/10 ring-1 ring-orange-400/30 px-1.5 py-0.5 rounded shrink-0">
               Auto-opened
             </span>
           )}
           {isCase && (
-            <span className="text-[8px] font-mono uppercase tracking-widest text-sky-400 bg-sky-400/10 ring-1 ring-sky-400/30 px-1.5 py-0.5 rounded shrink-0">
+            <span className="text-[0.5625rem] font-mono uppercase tracking-widest text-sky-400 bg-sky-400/10 ring-1 ring-sky-400/30 px-1.5 py-0.5 rounded shrink-0">
               Staff Case
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5">
+          <span className="text-[0.625rem] font-mono bg-surface/60 ring-1 ring-border rounded px-2 py-0.5">
             {ticket.ticket_type_name ?? "Unknown type"}
           </span>
           <AssignDropdown
@@ -1417,7 +1417,7 @@ function TicketDetail({
           />
           <button
             onClick={onClaim}
-            className={`text-[10px] font-mono rounded px-2 py-0.5 hover:opacity-90 transition-colors ${
+            className={`text-[0.625rem] font-mono rounded px-2 py-0.5 hover:opacity-90 transition-colors ${
               isClaimed
                 ? "bg-surface/60 ring-1 ring-border text-muted-foreground"
                 : "bg-brand text-brand-foreground"
@@ -1426,7 +1426,7 @@ function TicketDetail({
             {isClaimed ? "CLAIMED" : "CLAIM"}
           </button>
           <span
-            className={`text-[9px] font-mono uppercase font-bold tracking-wider ml-auto ${
+            className={`text-[0.625rem] font-mono uppercase font-bold tracking-wider ml-auto ${
               ticket.priority === "urgent"
                 ? "text-danger"
                 : ticket.priority === "high"
@@ -1444,13 +1444,13 @@ function TicketDetail({
           <>
             <button
               onClick={() => onUpdateStatus("waiting_response")}
-              className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
+              className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
             >
               Wait for response
             </button>
             <button
               onClick={() => onUpdateStatus("closed")}
-              className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
+              className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
             >
               Close
             </button>
@@ -1458,7 +1458,7 @@ function TicketDetail({
         ) : (
           <button
             onClick={() => onUpdateStatus("open")}
-            className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
+            className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
           >
             Reopen
           </button>
@@ -1466,7 +1466,7 @@ function TicketDetail({
         {ticket.status === "waiting_response" && (
           <button
             onClick={() => onUpdateStatus("open")}
-            className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
+            className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
           >
             Mark Active
           </button>
@@ -1475,7 +1475,7 @@ function TicketDetail({
           <button
             onClick={onOpenBlacklist}
             title="Blacklist this submitter from ticket types"
-            className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-danger transition-colors"
+            className="flex items-center gap-1 text-[0.625rem] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-danger transition-colors"
           >
             <Ban size={10} className="shrink-0" />
             Blacklist
@@ -1485,7 +1485,7 @@ function TicketDetail({
           <div className="ml-auto flex items-center gap-1">
             {confirmDelete ? (
               <>
-                <span className="text-[10px] font-mono text-danger">
+                <span className="text-[0.625rem] font-mono text-danger">
                   Delete?
                 </span>
                 <button
@@ -1493,13 +1493,13 @@ function TicketDetail({
                     onDelete();
                     setConfirmDelete(false);
                   }}
-                  className="text-[10px] font-mono px-2 py-0.5 rounded bg-danger text-white hover:bg-danger/80 transition-colors"
+                  className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-danger text-white hover:bg-danger/80 transition-colors"
                 >
                   Yes
                 </button>
                 <button
                   onClick={() => setConfirmDelete(false)}
-                  className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Cancel
                 </button>
@@ -1507,7 +1507,7 @@ function TicketDetail({
             ) : (
               <button
                 onClick={() => setConfirmDelete(true)}
-                className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-danger/80 hover:text-danger transition-colors"
+                className="text-[0.625rem] font-mono px-2 py-0.5 rounded bg-surface/60 ring-1 ring-border text-danger/80 hover:text-danger transition-colors"
               >
                 Delete
               </button>
@@ -1518,7 +1518,7 @@ function TicketDetail({
 
       <div className="flex-1 overflow-y-auto">
         {detailLoading ? (
-          <div className="text-[10px] text-muted-foreground text-center py-10">
+          <div className="text-[0.625rem] text-muted-foreground text-center py-10">
             Loading...
           </div>
         ) : (
@@ -1526,7 +1526,7 @@ function TicketDetail({
             {formData.length > 0 && <SubmissionDetails formData={formData} />}
             {publicMessages.length > 0 && (
               <div className="px-4 pt-3 pb-2 space-y-2">
-                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-2">
                   Conversation
                 </div>
                 {publicMessages.map((msg) => (
@@ -1540,7 +1540,7 @@ function TicketDetail({
             )}
             {internalMessages.length > 0 && (
               <div className="px-4 py-2 space-y-2">
-                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-1">
                   Internal Notes
                 </div>
                 {internalMessages.map((msg) => (
@@ -1555,7 +1555,7 @@ function TicketDetail({
             )}
             {media.length > 0 && (
               <div className="px-4 py-2 space-y-2">
-                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-2">
                   Evidence / Attachments
                 </div>
                 <div className="columns-2 sm:columns-3 md:columns-4 gap-2">
@@ -1587,7 +1587,7 @@ function TicketDetail({
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                       {(item.title || item.filename) && (
                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <p className="text-[9px] text-white truncate">
+                          <p className="text-[0.625rem] text-white truncate">
                             {item.title || item.filename}
                           </p>
                         </div>
@@ -1600,7 +1600,7 @@ function TicketDetail({
             {messages.length === 0 &&
               media.length === 0 &&
               formData.length === 0 && (
-                <div className="text-[10px] text-muted-foreground text-center py-10">
+                <div className="text-[0.625rem] text-muted-foreground text-center py-10">
                   No messages yet
                 </div>
               )}
@@ -1613,7 +1613,7 @@ function TicketDetail({
           {!isInternalOnly && (
             <button
               onClick={() => onComposerModeChange("reply")}
-              className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+              className={`text-[0.625rem] font-mono px-2 py-0.5 rounded transition-colors ${
                 composerMode === "reply"
                   ? "bg-brand text-brand-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -1624,7 +1624,7 @@ function TicketDetail({
           )}
           <button
             onClick={() => onComposerModeChange("note")}
-            className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+            className={`text-[0.625rem] font-mono px-2 py-0.5 rounded transition-colors ${
               composerMode === "note" || isInternalOnly
                 ? "bg-brand text-brand-foreground"
                 : "text-muted-foreground hover:text-foreground"
@@ -1633,7 +1633,7 @@ function TicketDetail({
             Internal Note
           </button>
           {(composerMode === "note" || isInternalOnly) && (
-            <span className="text-[9px] font-mono text-muted-foreground/50 ml-1">
+            <span className="text-[0.625rem] font-mono text-muted-foreground/50 ml-1">
               {isInternalOnly
                 ? "· No external recipient — internal notes only."
                 : "· Staff-only. Reporters never see these."}
@@ -1658,14 +1658,14 @@ function TicketDetail({
           </div>
         </div>
         {submitError && (
-          <p className="text-[10px] font-mono text-danger mb-2">
+          <p className="text-[0.625rem] font-mono text-danger mb-2">
             {submitError}
           </p>
         )}
         {composerMode === "reply" && !isInternalOnly ? (
           <>
             {replyHasIp && (
-              <p className="text-[10px] font-mono text-warning mb-2 flex items-center gap-1">
+              <p className="text-[0.625rem] font-mono text-warning mb-2 flex items-center gap-1">
                 <AlertTriangle size={10} className="shrink-0" />
                 Raw IP addresses are not permitted in ticket messages.
               </p>
@@ -1678,7 +1678,7 @@ function TicketDetail({
               className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
             />
             <div className="flex items-center justify-between mt-1.5">
-              <span className="text-[9px] font-mono text-muted-foreground">
+              <span className="text-[0.625rem] font-mono text-muted-foreground">
                 Markdown supported
               </span>
               <button
@@ -1686,7 +1686,7 @@ function TicketDetail({
                 disabled={
                   !replyText.trim() || submitting || isClosed || replyHasIp
                 }
-                className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-[0.625rem] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? "Sending..." : "Send Reply"}
               </button>
@@ -1695,7 +1695,7 @@ function TicketDetail({
         ) : (
           <>
             {noteHasIp && (
-              <p className="text-[10px] font-mono text-warning mb-2 flex items-center gap-1">
+              <p className="text-[0.625rem] font-mono text-warning mb-2 flex items-center gap-1">
                 <AlertTriangle size={10} className="shrink-0" />
                 Raw IP addresses are not permitted in ticket messages.
               </p>
@@ -1708,7 +1708,7 @@ function TicketDetail({
               className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
             />
             <div className="flex items-center justify-between mt-1.5">
-              <span className="text-[9px] font-mono text-muted-foreground">
+              <span className="text-[0.625rem] font-mono text-muted-foreground">
                 Markdown supported
               </span>
               <button
@@ -1716,7 +1716,7 @@ function TicketDetail({
                 disabled={
                   !noteText.trim() || submitting || isClosed || noteHasIp
                 }
-                className="text-[10px] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-[0.625rem] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? "Posting..." : "Post Note"}
               </button>
@@ -1830,19 +1830,19 @@ function MessageBubble({ msg, internal, myUserId }) {
               className="size-4 rounded-full ring-1 ring-black/40 shrink-0"
             />
           ) : (
-            <div className="size-4 rounded-full ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[7px] text-background bg-brand/70 shrink-0">
+            <div className="size-4 rounded-full ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[0.5625rem] text-background bg-brand/70 shrink-0">
               {initials(msg.username ?? "?")}
             </div>
           )}
-          <span className={`font-semibold text-[10px] ${nameColor}`}>
+          <span className={`font-semibold text-[0.625rem] ${nameColor}`}>
             {msg.username ?? "Unknown"}
           </span>
-          <span className="font-mono text-[9px] text-muted-foreground">
+          <span className="font-mono text-[0.625rem] text-muted-foreground">
             {formatRelativeTime(msg.createdAt)}
           </span>
           {internal && (
             <span
-              className={`text-[9px] font-mono uppercase tracking-widest text-muted-foreground ${isMe ? "" : "ml-auto"}`}
+              className={`text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground ${isMe ? "" : "ml-auto"}`}
             >
               Internal Note
             </span>
@@ -1852,10 +1852,10 @@ function MessageBubble({ msg, internal, myUserId }) {
           <div className="space-y-2 mt-1.5">
             {appEntries.map((entry, i) => (
               <div key={i}>
-                <div className="text-[10px] font-semibold text-foreground">
+                <div className="text-[0.625rem] font-semibold text-foreground">
                   {i + 1}. {entry.question}
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-0.5 pl-3">
+                <div className="text-[0.625rem] text-muted-foreground mt-0.5 pl-3">
                   {entry.answer ? (
                     <Markdown>{entry.answer}</Markdown>
                   ) : (
@@ -1896,8 +1896,8 @@ function CopyButton({ text, className = "" }) {
 // A single labeled identifier row (Steam / Discord) with copy-to-clipboard.
 function SubmitterIdRow({ label, value, href = null }) {
   return (
-    <div className="flex items-center gap-1.5 text-[10px] font-mono min-w-0">
-      <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-12 shrink-0">
+    <div className="flex items-center gap-1.5 text-[0.625rem] font-mono min-w-0">
+      <span className="uppercase tracking-wider text-[0.625rem] text-muted-foreground w-12 shrink-0">
         {label}
       </span>
       {value ? (
@@ -1988,7 +1988,7 @@ function PlayerCard({ player }) {
         )}
         <div className="min-w-0">
           <h3 className="text-sm font-semibold truncate">{name}</h3>
-          <p className="text-[10px] font-mono text-muted-foreground uppercase truncate flex items-center gap-0.5">
+          <p className="text-[0.625rem] font-mono text-muted-foreground uppercase truncate flex items-center gap-0.5">
             <span className="truncate">{player.steamId}</span>
             <CopyButton text={player.steamId} />
             <ExternalLinks steamId={player.steamId} />
@@ -1997,13 +1997,13 @@ function PlayerCard({ player }) {
       </div>
       <div className="grid grid-cols-2 gap-y-3">
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">S-Hours</p>
+          <p className="text-[0.625rem] text-muted-foreground uppercase">S-Hours</p>
           <p className="text-sm font-mono text-foreground">
             {formatHours(player.steam?.rustHours)}
           </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">
+          <p className="text-[0.625rem] text-muted-foreground uppercase">
             BM-Hours
           </p>
           <p className="text-sm font-mono text-foreground">
@@ -2011,7 +2011,7 @@ function PlayerCard({ player }) {
           </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">
+          <p className="text-[0.625rem] text-muted-foreground uppercase">
             AIM-TRAIN Hours
           </p>
           <p className="text-sm font-mono text-foreground">
@@ -2019,11 +2019,11 @@ function PlayerCard({ player }) {
           </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">K.D</p>
+          <p className="text-[0.625rem] text-muted-foreground uppercase">K.D</p>
           <p className="text-sm font-mono text-foreground">{kd}</p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">Proxy</p>
+          <p className="text-[0.625rem] text-muted-foreground uppercase">Proxy</p>
           <p
             className={`text-sm font-mono ${isProxy === null ? "text-muted-foreground" : isProxy ? "text-danger" : "text-success"}`}
           >
@@ -2031,14 +2031,14 @@ function PlayerCard({ player }) {
           </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase">
+          <p className="text-[0.625rem] text-muted-foreground uppercase">
             Location
           </p>
           <p className="text-sm font-mono text-foreground">{country ?? "—"}</p>
         </div>
       </div>
       <div className="mt-3 pt-3 border-t border-border">
-        <p className="text-[10px] text-muted-foreground uppercase">
+        <p className="text-[0.625rem] text-muted-foreground uppercase">
           Last Server
         </p>
         {lastSession ? (
@@ -2046,7 +2046,7 @@ function PlayerCard({ player }) {
             <p className="text-xs font-medium truncate min-w-0">
               {lastSession.serverName ?? lastSession.bmServerId}
             </p>
-            <span className="text-[10px] font-mono text-muted-foreground ml-auto shrink-0">
+            <span className="text-[0.625rem] font-mono text-muted-foreground ml-auto shrink-0">
               {formatRelativeTime(lastSession.lastSeen)}
             </span>
           </div>
@@ -2062,7 +2062,7 @@ function OrgBansSection({ orgBans }) {
   const now = Math.floor(Date.now() / 1000);
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>Previous Offenses</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {orgBans.length}
@@ -2074,9 +2074,9 @@ function OrgBansSection({ orgBans }) {
         </p>
       ) : (
         <div className="bg-surface/40 ring-1 ring-border rounded-lg overflow-hidden">
-          <table className="w-full text-[10px] font-mono">
+          <table className="w-full text-[0.625rem] font-mono">
             <thead>
-              <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
+              <tr className="text-[0.625rem] uppercase tracking-wider text-muted-foreground bg-surface/60">
                 <th className="px-1.5 py-1 text-left font-medium">Type</th>
                 <th className="px-1.5 py-1 text-left font-medium">Status</th>
                 <th className="px-1.5 py-1 text-left font-medium">Reason</th>
@@ -2142,10 +2142,10 @@ function BmBansSection({ bmBans }) {
   const now = Math.floor(Date.now() / 1000);
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>
           Bans on Other Orgs
-          <span className="ml-2 normal-case tracking-normal text-[9px] text-muted-foreground/70">
+          <span className="ml-2 normal-case tracking-normal text-[0.625rem] text-muted-foreground/70">
             (read-only · BattleMetrics)
           </span>
         </span>
@@ -2167,15 +2167,15 @@ function BmBansSection({ bmBans }) {
                 className="bg-surface/40 ring-1 ring-border rounded px-2 py-1.5 flex items-start gap-2"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-medium truncate">
+                  <p className="text-[0.625rem] font-medium truncate">
                     {b.bmOrgName ?? "Unknown org"}
                   </p>
-                  <p className="text-[9px] font-mono text-muted-foreground truncate">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                     {b.reason ?? "No reason"}
                   </p>
                 </div>
                 <span
-                  className={`text-[9px] font-mono font-bold uppercase shrink-0 ${expired ? "text-muted-foreground" : "text-danger"}`}
+                  className={`text-[0.625rem] font-mono font-bold uppercase shrink-0 ${expired ? "text-muted-foreground" : "text-danger"}`}
                 >
                   {b.permanent ? "Perm" : expired ? "Exp" : "Active"}
                 </span>
@@ -2183,7 +2183,7 @@ function BmBansSection({ bmBans }) {
             );
           })}
           {bmBans.length > 5 && (
-            <p className="text-[9px] font-mono text-muted-foreground text-center">
+            <p className="text-[0.625rem] font-mono text-muted-foreground text-center">
               +{bmBans.length - 5} more
             </p>
           )}
@@ -2202,7 +2202,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
 
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between gap-2">
         <span className="flex items-center gap-2">
           <Wifi className="size-3" aria-hidden />
           IP-Linked Accounts
@@ -2210,7 +2210,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
         <Link
           to="/player-lookup"
           search={{ steam: steamId }}
-          className="text-[9px] font-mono uppercase tracking-wider text-brand hover:underline inline-flex items-center gap-1"
+          className="text-[0.625rem] font-mono uppercase tracking-wider text-brand hover:underline inline-flex items-center gap-1"
         >
           Lookup <ExternalLink className="size-2.5" aria-hidden />
         </Link>
@@ -2226,7 +2226,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
               <p className="text-lg font-mono font-bold text-foreground">
                 {linked}
               </p>
-              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+              <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                 Linked
               </p>
             </div>
@@ -2236,7 +2236,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
               >
                 {withBmBans}
               </p>
-              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+              <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                 BM Bans
               </p>
             </div>
@@ -2246,7 +2246,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
               >
                 {withEacBans}
               </p>
-              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+              <p className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground">
                 EAC Bans
               </p>
             </div>
@@ -2257,7 +2257,7 @@ function IpLinkedSection({ relatedAccounts, ipHistory, steamId }) {
                 className="size-3.5 text-danger shrink-0 mt-0.5"
                 aria-hidden
               />
-              <p className="text-[10px] text-danger leading-snug">
+              <p className="text-[0.625rem] text-danger leading-snug">
                 <span className="font-bold">{withBmBans + withEacBans}</span>{" "}
                 linked account
                 {withBmBans + withEacBans !== 1 ? "s" : ""} share a{" "}
@@ -2288,7 +2288,7 @@ function ServerHistorySection({ bmSessions }) {
 
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
         <span>Server History</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {sessions.length}
@@ -2305,13 +2305,13 @@ function ServerHistorySection({ bmSessions }) {
               key={s.bmServerId}
               className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1"
             >
-              <span className="text-[10px] font-medium truncate min-w-0 flex-1">
+              <span className="text-[0.625rem] font-medium truncate min-w-0 flex-1">
                 {s.serverName ?? s.bmServerId}
               </span>
-              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+              <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                 {fmtDuration(s.hoursPlayed)}
               </span>
-              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+              <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                 {s.lastSeen ? formatRelativeTime(s.lastSeen) : "—"}
               </span>
             </li>
@@ -2413,7 +2413,7 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
 
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Users className="size-3" aria-hidden />
         RCON Team Lookup
       </h2>
@@ -2424,13 +2424,13 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
           onKeyDown={(e) => e.key === "Enter" && handleLookup()}
           placeholder="Steam ID..."
           disabled={loading}
-          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
+          className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
         />
         {servers.length > 1 && (
           <select
             value={serverId}
             onChange={(e) => setServerId(e.target.value)}
-            className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           >
             {servers.map((s) => (
               <option key={s.serverId} value={s.serverId}>
@@ -2440,7 +2440,7 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
           </select>
         )}
         {servers.length === 0 && (
-          <p className="text-[10px] font-mono text-muted-foreground">
+          <p className="text-[0.625rem] font-mono text-muted-foreground">
             No RCON servers configured.
           </p>
         )}
@@ -2449,18 +2449,18 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
           disabled={
             !steamId.trim() || !serverId || loading || servers.length === 0
           }
-          className="w-full text-[10px] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+          className="w-full text-[0.625rem] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
         >
           {loading ? "Looking up..." : "Lookup"}
         </button>
         {error && (
-          <p className="text-[10px] font-mono text-danger leading-snug">
+          <p className="text-[0.625rem] font-mono text-danger leading-snug">
             {error}
           </p>
         )}
         {result && (
           <div>
-            <div className="text-[9px] font-mono text-muted-foreground mb-1.5">
+            <div className="text-[0.625rem] font-mono text-muted-foreground mb-1.5">
               Team #{result.teamId} · {result.members.length} member
               {result.members.length !== 1 ? "s" : ""}
             </div>
@@ -2472,21 +2472,21 @@ function RconTeamSection({ servers, initialSteamId = "" }) {
                 >
                   <div className="flex items-center gap-1 min-w-0">
                     {member.online && (
-                      <span className="text-[8px] text-green-400 shrink-0">
+                      <span className="text-[0.5625rem] text-green-400 shrink-0">
                         ●
                       </span>
                     )}
                     {member.leader && (
-                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">
+                      <span className="text-[0.5625rem] font-mono font-bold text-amber-400 shrink-0 uppercase">
                         Lead
                       </span>
                     )}
-                    <span className="text-[10px] font-medium truncate">
+                    <span className="text-[0.625rem] font-medium truncate">
                       {member.username}
                     </span>
                     <ExternalLinks steamId={member.steamId} size={9} />
                   </div>
-                  <div className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate flex items-center gap-1">
+                  <div className="text-[0.625rem] font-mono text-muted-foreground mt-0.5 truncate flex items-center gap-1">
                     {member.steamId}
                     <CopyButton text={member.steamId} />
                   </div>
@@ -2537,8 +2537,8 @@ function RelationshipPairCard({ pair, playersById, onSelectPlayer }) {
         </button>
       </div>
 
-      <div className="flex items-center gap-1.5 text-[10px] font-mono">
-        <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-14 shrink-0">
+      <div className="flex items-center gap-1.5 text-[0.625rem] font-mono">
+        <span className="uppercase tracking-wider text-[0.625rem] text-muted-foreground w-14 shrink-0">
           Friends
         </span>
         {pair.friends === true ? (
@@ -2557,8 +2557,8 @@ function RelationshipPairCard({ pair, playersById, onSelectPlayer }) {
         )}
       </div>
 
-      <div className="flex items-start gap-1.5 text-[10px] font-mono">
-        <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-14 shrink-0 mt-px">
+      <div className="flex items-start gap-1.5 text-[0.625rem] font-mono">
+        <span className="uppercase tracking-wider text-[0.625rem] text-muted-foreground w-14 shrink-0 mt-px">
           Together
         </span>
         {playedTogether ? (
@@ -2575,7 +2575,7 @@ function RelationshipPairCard({ pair, playersById, onSelectPlayer }) {
                 : ""}
             </span>
             {sessions.servers.length > 0 && (
-              <p className="text-[9px] text-muted-foreground truncate">
+              <p className="text-[0.625rem] text-muted-foreground truncate">
                 {sessions.servers
                   .slice(0, 3)
                   .map((s) => s.serverName)
@@ -2593,8 +2593,8 @@ function RelationshipPairCard({ pair, playersById, onSelectPlayer }) {
         )}
       </div>
 
-      <div className="flex items-center gap-1.5 text-[10px] font-mono">
-        <span className="uppercase tracking-wider text-[9px] text-muted-foreground w-14 shrink-0">
+      <div className="flex items-center gap-1.5 text-[0.625rem] font-mono">
+        <span className="uppercase tracking-wider text-[0.625rem] text-muted-foreground w-14 shrink-0">
           Kills
         </span>
         {totalKills > 0 ? (
@@ -2633,7 +2633,7 @@ function RelationshipSection({ data, onSelectPlayer }) {
   if (pairs.length === 0) return null;
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Users className="size-3" aria-hidden />
         Player Relationships
       </h2>
@@ -2725,7 +2725,7 @@ function PlayerIntelSidebar({
     <aside className="w-[28rem] shrink-0 border-l border-border bg-background overflow-y-auto hidden xl:block">
       <div className="p-6 space-y-8">
         {loading && (
-          <div className="text-[10px] font-mono text-muted-foreground text-center py-10">
+          <div className="text-[0.625rem] font-mono text-muted-foreground text-center py-10">
             Loading player intel...
           </div>
         )}
@@ -2736,7 +2736,7 @@ function PlayerIntelSidebar({
               <button
                 key={p.steamId}
                 onClick={() => setSelectedIdx(i)}
-                className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ring-1 ${
+                className={`text-[0.625rem] font-mono px-2 py-0.5 rounded transition-colors ring-1 ${
                   i === selectedIdx
                     ? "bg-brand text-brand-foreground ring-brand"
                     : "text-muted-foreground ring-border hover:text-foreground"
@@ -2777,10 +2777,10 @@ function PlayerIntelSidebar({
 
         {!loading && player?.fetching && (
           <div className="bg-surface/40 ring-1 ring-border rounded-lg p-4 text-center space-y-2">
-            <p className="text-[10px] font-mono text-muted-foreground">
+            <p className="text-[0.625rem] font-mono text-muted-foreground">
               Player data is being fetched from Steam & BattleMetrics.
             </p>
-            <p className="text-[10px] font-mono text-muted-foreground">
+            <p className="text-[0.625rem] font-mono text-muted-foreground">
               Refresh in a moment to see their profile.
             </p>
           </div>
@@ -2795,7 +2795,7 @@ function PlayerIntelSidebar({
 
         {submitterUsername && (
           <section>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+            <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
               <span>{submitterLabel}</span>
               <span className="font-mono normal-case tracking-normal text-muted-foreground">
                 {formatRelativeTime(ticketCreatedAt)}
@@ -2803,7 +2803,7 @@ function PlayerIntelSidebar({
             </h2>
             <div className="bg-surface/40 ring-1 ring-border rounded px-2 py-2 mb-2 space-y-2">
               <div className="flex items-center gap-2">
-                <div className="size-5 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background bg-muted-foreground/40 shrink-0 text-[8px]">
+                <div className="size-5 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background bg-muted-foreground/40 shrink-0 text-[0.5625rem]">
                   {initials(submitterUsername)}
                 </div>
                 <p className="text-xs font-medium truncate min-w-0 flex-1">
@@ -2828,7 +2828,7 @@ function PlayerIntelSidebar({
             </div>
             {submitterSteamAccounts && submitterSteamAccounts.length > 1 && (
               <div className="space-y-1">
-                <p className="text-[10px] font-mono text-warning uppercase tracking-widest">
+                <p className="text-[0.625rem] font-mono text-warning uppercase tracking-widest">
                   Multiple Steam accounts linked
                 </p>
                 {submitterSteamAccounts.map((acct) => (
@@ -2837,7 +2837,7 @@ function PlayerIntelSidebar({
                     className="flex items-center gap-2 bg-surface/40 ring-1 ring-border rounded px-2 py-1.5"
                   >
                     {acct.isPrimary && (
-                      <span className="shrink-0 text-[8px] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
+                      <span className="shrink-0 text-[0.5625rem] font-mono px-1 py-0.5 rounded bg-brand/15 text-brand ring-1 ring-brand/30">
                         PRIMARY
                       </span>
                     )}
@@ -2912,7 +2912,7 @@ function TeamInfoPanel({ servers }) {
     <aside className="w-[220px] shrink-0 hidden lg:flex flex-col bg-background overflow-hidden">
       <div className="px-3 py-2 border-b border-border shrink-0 flex items-center gap-1.5">
         <Users size={10} className="text-muted-foreground shrink-0" />
-        <span className="text-[10px] font-mono uppercase tracking-widest font-bold">
+        <span className="text-[0.625rem] font-mono uppercase tracking-widest font-bold">
           Team Info
         </span>
       </div>
@@ -2923,13 +2923,13 @@ function TeamInfoPanel({ servers }) {
           onKeyDown={(e) => e.key === "Enter" && handleLookup()}
           placeholder="Steam ID..."
           disabled={loading}
-          className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
+          className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
         />
         {servers.length > 1 && (
           <select
             value={serverId}
             onChange={(e) => setServerId(e.target.value)}
-            className="w-full bg-background border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
           >
             {servers.map((s) => (
               <option key={s.serverId} value={s.serverId}>
@@ -2939,7 +2939,7 @@ function TeamInfoPanel({ servers }) {
           </select>
         )}
         {servers.length === 0 && (
-          <p className="text-[10px] font-mono text-muted-foreground">
+          <p className="text-[0.625rem] font-mono text-muted-foreground">
             No RCON servers configured for this org.
           </p>
         )}
@@ -2948,18 +2948,18 @@ function TeamInfoPanel({ servers }) {
           disabled={
             !steamId.trim() || !serverId || loading || servers.length === 0
           }
-          className="w-full text-[10px] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+          className="w-full text-[0.625rem] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
         >
           {loading ? "Looking up..." : "Lookup"}
         </button>
         {error && (
-          <p className="text-[10px] font-mono text-danger leading-snug">
+          <p className="text-[0.625rem] font-mono text-danger leading-snug">
             {error}
           </p>
         )}
         {result && (
           <div>
-            <div className="text-[9px] font-mono text-muted-foreground mb-1.5">
+            <div className="text-[0.625rem] font-mono text-muted-foreground mb-1.5">
               Team #{result.teamId} · {result.members.length} member
               {result.members.length !== 1 ? "s" : ""}
             </div>
@@ -2971,20 +2971,20 @@ function TeamInfoPanel({ servers }) {
                 >
                   <div className="flex items-center gap-1 min-w-0">
                     {member.online && (
-                      <span className="text-[8px] text-green-400 shrink-0">
+                      <span className="text-[0.5625rem] text-green-400 shrink-0">
                         ●
                       </span>
                     )}
                     {member.leader && (
-                      <span className="text-[8px] font-mono font-bold text-amber-400 shrink-0 uppercase">
+                      <span className="text-[0.5625rem] font-mono font-bold text-amber-400 shrink-0 uppercase">
                         Lead
                       </span>
                     )}
-                    <span className="text-[10px] font-medium truncate">
+                    <span className="text-[0.625rem] font-medium truncate">
                       {member.username}
                     </span>
                   </div>
-                  <div className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate">
+                  <div className="text-[0.625rem] font-mono text-muted-foreground mt-0.5 truncate">
                     {member.steamId}
                   </div>
                 </div>

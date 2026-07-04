@@ -237,7 +237,7 @@ function SharingPage() {
                 </option>
               ))}
             </select>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[0.625rem] text-muted-foreground">
               Role-restricted notes are never shared.
             </span>
           </div>
@@ -245,7 +245,7 @@ function SharingPage() {
         {createError && (
           <p className="text-xs text-destructive">{createError}</p>
         )}
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           The partner org must accept the offer before any data is shared. Ask
           them for their organization ID.
         </p>
@@ -315,7 +315,7 @@ function GrantList({
                   <Badge
                     variant="outline"
                     className={
-                      "text-[9px] " +
+                      "text-[0.625rem] " +
                       (g.status === "active"
                         ? "border-success/40 text-success"
                         : "border-warning/40 text-warning")
@@ -328,7 +328,7 @@ function GrantList({
                   {g.categories.map((c) => (
                     <span
                       key={c}
-                      className="text-[10px] font-mono px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground"
+                      className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded ring-1 ring-border text-muted-foreground"
                     >
                       {CATEGORY_LABELS[c] ?? c}
                       {c === "notes" &&

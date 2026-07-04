@@ -125,10 +125,10 @@ function ExternalBansSection({ bans: rawBans }) {
   const open = bans.find((b) => b.id === openId) ?? null;
   return (
     <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
         <span>
           All Bans
-          <span className="ml-2 normal-case tracking-normal text-[9px] text-muted-foreground/70">
+          <span className="ml-2 normal-case tracking-normal text-[0.625rem] text-muted-foreground/70">
             (read-only · from BattleMetrics)
           </span>
         </span>
@@ -142,9 +142,9 @@ function ExternalBansSection({ bans: rawBans }) {
         </p>
       ) : (
         <div className="bg-background/60 ring-1 ring-border rounded-lg overflow-hidden">
-          <table className="w-full text-[10px] font-mono">
+          <table className="w-full text-[0.625rem] font-mono">
             <thead>
-              <tr className="text-[9px] uppercase tracking-wider text-muted-foreground bg-surface/60">
+              <tr className="text-[0.625rem] uppercase tracking-wider text-muted-foreground bg-surface/60">
                 <th className="px-1.5 py-1 text-left font-medium">Org</th>
                 <th className="px-1.5 py-1 text-left font-medium">Status</th>
                 <th className="px-1.5 py-1 text-left font-medium">Reason</th>
@@ -207,16 +207,16 @@ function ExternalBansSection({ bans: rawBans }) {
               </h3>
               <button
                 onClick={() => setOpenId(null)}
-                className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
               >
                 close
               </button>
             </div>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase mb-3">
+            <p className="text-[0.625rem] font-mono text-muted-foreground uppercase mb-3">
               {open.orgName} · by {open.by} · {open.when} · {open.status}
             </p>
             <BanNoteContent note={open.note} />
-            <p className="mt-4 text-[10px] font-mono text-muted-foreground uppercase tracking-wider border-t border-border pt-3">
+            <p className="mt-4 text-[0.625rem] font-mono text-muted-foreground uppercase tracking-wider border-t border-border pt-3">
               Read-only · shared from {open.orgName}'s banlist. Cannot be edited
               or removed here.
             </p>

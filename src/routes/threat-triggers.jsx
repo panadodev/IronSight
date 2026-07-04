@@ -283,7 +283,7 @@ function ThreatTriggersPage() {
                 <h1 className="text-xl font-bold tracking-tight">
                   Threat Triggers
                 </h1>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   {org.name} · {org.short}
                 </span>
               </div>
@@ -330,7 +330,7 @@ function ThreatTriggersPage() {
             </div>
           </div>
 
-          {saveErr && <p className="text-[11px] text-danger">{saveErr}</p>}
+          {saveErr && <p className="text-[0.6875rem] text-danger">{saveErr}</p>}
 
           {loading || !cur ? (
             <p className="text-sm text-muted-foreground">Loading triggers…</p>
@@ -341,7 +341,7 @@ function ThreatTriggersPage() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <div>
                     <h2 className="text-sm font-semibold">Signal weights</h2>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[0.6875rem] text-muted-foreground">
                       Each matched signal adds its weight to the player's threat
                       score. A ticket opens when the score reaches the
                       threshold.
@@ -349,7 +349,7 @@ function ThreatTriggersPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                         Threshold
                       </span>
                       <Input
@@ -366,7 +366,7 @@ function ThreatTriggersPage() {
                         className="h-8 w-16 text-xs font-mono"
                       />
                     </div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       Sum if all
                     </div>
                     <span
@@ -407,7 +407,7 @@ function ThreatTriggersPage() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <div>
                     <h2 className="text-sm font-semibold">Trigger blocks</h2>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[0.6875rem] text-muted-foreground">
                       Sets of conditions joined with{" "}
                       <span className="font-mono">AND</span>. If <em>every</em>{" "}
                       condition matches, a ticket opens immediately — no weight
@@ -452,7 +452,7 @@ function ThreatTriggersPage() {
                 dirty={dirty}
               />
 
-              <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-surface/40 ring-1 ring-border rounded-md px-3 py-2">
+              <div className="flex items-start gap-2 text-[0.6875rem] text-muted-foreground bg-surface/40 ring-1 ring-border rounded-md px-3 py-2">
                 <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
                 <span>
                   Auto-opened tickets are filed under the{" "}
@@ -512,7 +512,7 @@ function FactValueEditor({ fact, op, value, onChange }) {
             className="h-8 w-20 text-xs font-mono"
           />
           {fact.unit && (
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-[0.625rem] font-mono text-muted-foreground">
               {fact.unit}
             </span>
           )}
@@ -620,7 +620,7 @@ function BlockCard({
           onChange={(e) => onRename(e.target.value)}
           className="h-8 text-sm font-semibold border-0 bg-transparent px-1 focus-visible:ring-1"
         />
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground px-2 py-0.5 rounded bg-surface ring-1 ring-border shrink-0">
+        <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-0.5 rounded bg-surface ring-1 ring-border shrink-0">
           → open ticket
         </span>
         <Button
@@ -638,7 +638,7 @@ function BlockCard({
           if (!fact) return null;
           return (
             <div key={c.id} className="flex items-center gap-2">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground w-8 shrink-0">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground w-8 shrink-0">
                 {i === 0 ? "if" : "and"}
               </span>
               <div className="flex-1 min-w-0">
@@ -679,7 +679,7 @@ function BlockCard({
           );
         })}
         {block.conditions.length === 0 && (
-          <p className="text-[11px] text-muted-foreground px-2 py-2">
+          <p className="text-[0.6875rem] text-muted-foreground px-2 py-2">
             No conditions yet — add at least one.
           </p>
         )}
@@ -762,7 +762,7 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
           <ShoppingCart className="size-4 text-amber-400" />
           <div>
             <h2 className="text-sm font-semibold">Bought account triggers</h2>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               Tag resold / botted accounts on player lookup by playtime
               mismatch, known names, or Steam group membership. Display-only —
               these never open a ticket.
@@ -793,7 +793,7 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold">Playtime mismatch</p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 Flag when Steam Rust hours are far higher than BattleMetrics
                 hours (e.g. 4000h on Steam, 40h tracked on BM).
               </p>
@@ -812,7 +812,7 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
               suffix="×"
             />
           </div>
-          <p className="text-[10px] font-mono text-muted-foreground">
+          <p className="text-[0.625rem] font-mono text-muted-foreground">
             Triggers when (Steam ÷ BM) ≥ {hoursRule.ratio}×.
           </p>
         </div>
@@ -822,7 +822,7 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold">Known name match</p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 Flag if a current or past name contains any of these terms
                 (case-insensitive substring).
               </p>
@@ -847,14 +847,14 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {nameRule.terms.length === 0 ? (
-              <span className="text-[11px] text-muted-foreground italic">
+              <span className="text-[0.6875rem] text-muted-foreground italic">
                 No terms yet.
               </span>
             ) : (
               nameRule.terms.map((t) => (
                 <span
                   key={t}
-                  className="inline-flex items-center gap-1 text-[11px] font-mono bg-surface ring-1 ring-border rounded px-2 py-0.5"
+                  className="inline-flex items-center gap-1 text-[0.6875rem] font-mono bg-surface ring-1 ring-border rounded px-2 py-0.5"
                 >
                   {t}
                   <button
@@ -876,7 +876,7 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold">Steam group membership</p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 Flag if the player is a member of any of these Steam groups
                 (e.g. known account-farming / botting groups).
               </p>
@@ -909,18 +909,18 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
             </Button>
           </div>
           {groupError && (
-            <p className="text-[10px] text-danger">{groupError}</p>
+            <p className="text-[0.625rem] text-danger">{groupError}</p>
           )}
           <div className="flex flex-wrap gap-1.5">
             {groupRule.groups.length === 0 ? (
-              <span className="text-[11px] text-muted-foreground italic">
+              <span className="text-[0.6875rem] text-muted-foreground italic">
                 No groups yet.
               </span>
             ) : (
               groupRule.groups.map((g) => (
                 <span
                   key={g.gid}
-                  className="inline-flex items-center gap-1 text-[11px] bg-surface ring-1 ring-border rounded px-2 py-0.5"
+                  className="inline-flex items-center gap-1 text-[0.6875rem] bg-surface ring-1 ring-border rounded px-2 py-0.5"
                   title={g.gid}
                 >
                   {g.label}
@@ -949,7 +949,7 @@ function Toggle({ checked, onClick, label }) {
     <button
       onClick={onClick}
       className={
-        "inline-flex items-center gap-2 h-7 px-2.5 rounded-md ring-1 text-[10px] font-mono uppercase tracking-widest transition " +
+        "inline-flex items-center gap-2 h-7 px-2.5 rounded-md ring-1 text-[0.625rem] font-mono uppercase tracking-widest transition " +
         (checked
           ? "bg-brand/15 text-brand ring-brand/40"
           : "bg-transparent text-muted-foreground ring-border hover:text-foreground")
@@ -969,7 +969,7 @@ function Toggle({ checked, onClick, label }) {
 function NumField({ label, value, onChange, suffix }) {
   return (
     <div className="space-y-1">
-      <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+      <label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
         {label}
       </label>
       <div className="flex items-center gap-1">
@@ -980,7 +980,7 @@ function NumField({ label, value, onChange, suffix }) {
           className="h-8 text-xs font-mono"
         />
         {suffix && (
-          <span className="text-[10px] font-mono text-muted-foreground">
+          <span className="text-[0.625rem] font-mono text-muted-foreground">
             {suffix}
           </span>
         )}

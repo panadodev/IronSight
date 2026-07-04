@@ -119,12 +119,12 @@ function ManageDialog({ kind, offenses, trigger }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{o.reason}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">
+                      <p className="text-[0.625rem] font-mono text-muted-foreground">
                         {o.when} · by {o.by}
                       </p>
                     </div>
                     <span
-                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${TONE_CLASS[st.tone]}`}
+                      className={`text-[0.625rem] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 shrink-0 ${TONE_CLASS[st.tone]}`}
                     >
                       {st.label}
                     </span>
@@ -201,7 +201,7 @@ function AppealModerationActions({ appellant }) {
             <Ban className="size-3.5" />
             Manage Bans
             {activeBans > 0 && (
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-[0.625rem] text-muted-foreground">
                 {activeBans}
               </span>
             )}
@@ -216,7 +216,7 @@ function AppealModerationActions({ appellant }) {
             <MicOff className="size-3.5" />
             Manage Mutes
             {activeMutes > 0 && (
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-[0.625rem] text-muted-foreground">
                 {activeMutes}
               </span>
             )}
@@ -296,7 +296,7 @@ function InGamePermissionsSection({ steamId }) {
   const perms = buildPermissions(steamId);
   return (
     <section>
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4 flex items-center justify-between">
         <span>In-Game Permissions · 30d</span>
         <span className="font-mono normal-case tracking-normal text-muted-foreground">
           {perms.length}
@@ -309,10 +309,10 @@ function InGamePermissionsSection({ steamId }) {
             className="bg-surface/40 ring-1 ring-border rounded px-2.5 py-2 space-y-1.5"
           >
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium truncate min-w-0 flex-1">
+              <span className="text-[0.6875rem] font-medium truncate min-w-0 flex-1">
                 {p.server}
               </span>
-              <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+              <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                 {p.hours}h · {p.daysAgo === 0 ? "today" : `${p.daysAgo}d ago`}
               </span>
             </div>
@@ -320,7 +320,7 @@ function InGamePermissionsSection({ steamId }) {
               {p.groups.map((g) => (
                 <span
                   key={g}
-                  className={`text-[9px] font-mono uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ring-1 ${GROUP_TONE[g] ?? GROUP_TONE.default}`}
+                  className={`text-[0.625rem] font-mono uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ring-1 ${GROUP_TONE[g] ?? GROUP_TONE.default}`}
                 >
                   {g}
                 </span>
@@ -361,7 +361,7 @@ function AppealSidebar({ ticket, team }) {
                   <h3 className="text-sm font-semibold truncate">
                     {appellant.name}
                   </h3>
-                  <p className="text-[10px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground uppercase truncate flex items-center gap-1">
                     {appellant.steamId}
                     <PlayerLinks steamId={appellant.steamId} size="sm" />
                   </p>
@@ -380,7 +380,7 @@ function AppealSidebar({ ticket, team }) {
                   <h3 className="text-sm font-semibold truncate">
                     {appellant.name}
                   </h3>
-                  <p className="text-[10px] font-mono text-muted-foreground uppercase truncate flex items-center gap-1">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground uppercase truncate flex items-center gap-1">
                     {appellant.steamId}
                     <PlayerLinks steamId={appellant.steamId} size="sm" />
                   </p>
@@ -405,7 +405,7 @@ function AppealSidebar({ ticket, team }) {
                   tone={stats.proxy ? "danger" : "success"}
                 />
                 <div className="col-span-2">
-                  <p className="text-[10px] text-muted-foreground uppercase">
+                  <p className="text-[0.625rem] text-muted-foreground uppercase">
                     Location
                   </p>
                   <p className="text-sm font-mono text-foreground flex items-center gap-1.5">
@@ -414,7 +414,7 @@ function AppealSidebar({ ticket, team }) {
                       className={`inline-block size-1.5 rounded-full ${pingTone(stats.pingMs).color}`}
                       title={`${stats.pingMs}ms ping`}
                     />
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[0.625rem] text-muted-foreground">
                       {stats.pingMs}ms
                     </span>
                   </p>
@@ -426,7 +426,7 @@ function AppealSidebar({ ticket, team }) {
 
         {!isVip && !isSupport && !isAppeal && (
           <section>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
+            <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
               Ticket Details
             </h2>
 
@@ -443,7 +443,7 @@ function AppealSidebar({ ticket, team }) {
 
         {!isVip && !isSupport && !isAppeal && (
           <section>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3">
+            <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3">
               Summary
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed bg-surface/40 ring-1 ring-border rounded p-3">
@@ -456,7 +456,7 @@ function AppealSidebar({ ticket, team }) {
 
         {(isSupport || isAppeal) && stats && (
           <section>
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+            <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
               <span>Previous Offenses</span>
               <span className="font-mono normal-case tracking-normal text-muted-foreground">
                 {stats.offenses.length}

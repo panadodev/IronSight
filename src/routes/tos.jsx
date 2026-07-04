@@ -33,7 +33,7 @@ function TosPage() {
       <SiteNav />
       <main className="flex-1 px-6 py-10 max-w-3xl mx-auto w-full">
         <header className="mb-10">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
+          <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-2">
             Legal
           </p>
           <h1 className="text-3xl font-bold tracking-tight mb-3">

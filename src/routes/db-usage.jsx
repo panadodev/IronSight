@@ -52,7 +52,7 @@ const SORTS = {
 function StatCard({ icon: Icon, label, value, sub }) {
   return (
     <div className="rounded-lg ring-1 ring-border bg-surface/40 p-3">
-      <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+      <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
         {Icon && <Icon className="size-3" />}
         {label}
       </p>
@@ -60,7 +60,7 @@ function StatCard({ icon: Icon, label, value, sub }) {
         {value}
       </p>
       {sub != null && (
-        <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
+        <p className="text-[0.625rem] text-muted-foreground mt-0.5">{sub}</p>
       )}
     </div>
   );
@@ -151,7 +151,7 @@ function DbUsagePage() {
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-1">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-danger mb-1">
               Sysadmin Only
             </p>
             <h1 className="text-xl font-semibold flex items-center gap-2">
@@ -165,13 +165,13 @@ function DbUsagePage() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {lastRefreshed && (
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-[0.625rem] font-mono text-muted-foreground">
                 updated {Math.floor((Date.now() - lastRefreshed) / 1000)}s ago
               </span>
             )}
             <button
               onClick={() => setAutoRefresh((v) => !v)}
-              className={`text-[10px] font-mono px-2 py-1 rounded ring-1 transition-colors ${
+              className={`text-[0.625rem] font-mono px-2 py-1 rounded ring-1 transition-colors ${
                 autoRefresh
                   ? "ring-brand/40 bg-brand/10 text-brand"
                   : "ring-border bg-surface text-muted-foreground"
@@ -181,7 +181,7 @@ function DbUsagePage() {
             </button>
             <button
               onClick={load}
-              className="flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright transition-colors"
+              className="flex items-center gap-1 text-[0.625rem] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright transition-colors"
             >
               <RefreshCw className="size-3" />
               refresh
@@ -241,7 +241,7 @@ function DbUsagePage() {
             {/* Connection pool */}
             {pool && (
               <div className="rounded-md ring-1 ring-border bg-surface/40 px-4 py-2.5 flex flex-wrap items-center gap-x-8 gap-y-1">
-                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   PG Pool
                 </span>
                 {[
@@ -269,7 +269,7 @@ function DbUsagePage() {
             {/* Table list */}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Tables ({visibleTables.length})
                 </h2>
                 <div className="flex items-center gap-2">
@@ -288,7 +288,7 @@ function DbUsagePage() {
                       <button
                         key={v}
                         onClick={() => setSort(v)}
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
+                        className={`text-[0.625rem] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
                           sort === v
                             ? "ring-brand/50 bg-brand/10 text-brand"
                             : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
@@ -302,7 +302,7 @@ function DbUsagePage() {
               </div>
 
               <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                <div className="grid grid-cols-[2fr_90px_1.6fr_90px_90px_90px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                <div className="grid grid-cols-[2fr_90px_1.6fr_90px_90px_90px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   <div>Table</div>
                   <div className="text-right">Rows</div>
                   <div>Size (table / index)</div>
@@ -316,9 +316,9 @@ function DbUsagePage() {
                   return (
                     <div
                       key={t.name}
-                      className="grid grid-cols-[2fr_90px_1.6fr_90px_90px_90px] gap-2 px-3 py-2 border-b border-border last:border-0 text-[11px] items-center"
+                      className="grid grid-cols-[2fr_90px_1.6fr_90px_90px_90px] gap-2 px-3 py-2 border-b border-border last:border-0 text-[0.6875rem] items-center"
                     >
-                      <div className="font-mono text-[11px] truncate text-foreground/90">
+                      <div className="font-mono text-[0.6875rem] truncate text-foreground/90">
                         {t.name}
                       </div>
                       <div className="text-right font-mono tabular-nums text-muted-foreground">
@@ -337,7 +337,7 @@ function DbUsagePage() {
                             title={`Indexes: ${fmtBytes(t.indexBytes)}`}
                           />
                         </div>
-                        <span className="font-mono text-[9px] text-muted-foreground tabular-nums w-20 text-right shrink-0">
+                        <span className="font-mono text-[0.625rem] text-muted-foreground tabular-nums w-20 text-right shrink-0">
                           {fmtBytes(t.tableBytes)} / {fmtBytes(t.indexBytes)}
                         </span>
                       </div>
@@ -353,7 +353,7 @@ function DbUsagePage() {
                       >
                         {fmtNum(t.deadTuples)}
                       </div>
-                      <div className="text-right font-mono text-[10px] text-muted-foreground">
+                      <div className="text-right font-mono text-[0.625rem] text-muted-foreground">
                         {fmtAgo(t.lastVacuumUnix)}
                       </div>
                     </div>
@@ -367,7 +367,7 @@ function DbUsagePage() {
                   </div>
                 )}
               </div>
-              <p className="text-[10px] text-muted-foreground/70 flex items-center gap-3">
+              <p className="text-[0.625rem] text-muted-foreground/70 flex items-center gap-3">
                 <span className="inline-flex items-center gap-1">
                   <span className="size-2 rounded-sm bg-brand/60" /> table data
                 </span>

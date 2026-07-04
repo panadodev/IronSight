@@ -273,7 +273,7 @@ function BansMutesPage() {
                         setQuery("");
                       }}
                       className={
-                        "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
+                        "px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors " +
                         (tab === t
                           ? "bg-brand text-brand-foreground"
                           : "text-muted-foreground hover:text-foreground")
@@ -304,14 +304,14 @@ function BansMutesPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 className="h-9 max-w-xs"
               />
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
+              <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
                 {loading ? "Loading…" : `${rows.length} records`}
               </div>
             </div>
 
             {/* Table */}
             <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-x-auto">
-              <div className="min-w-[820px] grid grid-cols-[minmax(200px,2fr)_90px_1fr_120px_130px_110px_100px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+              <div className="min-w-[820px] grid grid-cols-[minmax(200px,2fr)_90px_1fr_120px_130px_110px_100px] gap-2 px-3 py-2 border-b border-border text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
                 <div>Identifier</div>
                 <div>Category</div>
                 <div>Reason</div>
@@ -339,7 +339,7 @@ function BansMutesPage() {
                         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                           <span
                             className={
-                              "px-1 rounded text-[9px] font-bold ring-1 " +
+                              "px-1 rounded text-[0.625rem] font-bold ring-1 " +
                               (r.identifierType === "ip"
                                 ? "bg-warning/15 text-warning ring-warning/40"
                                 : "bg-brand/15 text-brand ring-brand/40")
@@ -349,19 +349,19 @@ function BansMutesPage() {
                           </span>
                           {r.sourceIpBanId && (
                             <Hint text={HINTS.banEvasion}>
-                              <span className="px-1 rounded text-[9px] font-bold ring-1 bg-danger/15 text-danger ring-danger/40 cursor-help">
+                              <span className="px-1 rounded text-[0.625rem] font-bold ring-1 bg-danger/15 text-danger ring-danger/40 cursor-help">
                                 IP-EVADE
                               </span>
                             </Hint>
                           )}
                           {org && (
-                            <span className="text-[10px] font-mono text-muted-foreground">
+                            <span className="text-[0.625rem] font-mono text-muted-foreground">
                               {org.short}
                             </span>
                           )}
                         </div>
                         {r.identifierType === "ip" && r.playerSteamId && (
-                          <div className="mt-1 text-[10px] font-mono text-muted-foreground truncate">
+                          <div className="mt-1 text-[0.625rem] font-mono text-muted-foreground truncate">
                             {r.playerSteamId}
                           </div>
                         )}
@@ -371,9 +371,9 @@ function BansMutesPage() {
                               {r.linkedBans.map((lb) => (
                                 <div
                                   key={lb.steamId}
-                                  className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1"
+                                  className="text-[0.625rem] font-mono text-muted-foreground truncate flex items-center gap-1"
                                 >
-                                  <span className="px-1 rounded text-[9px] font-bold ring-1 bg-danger/10 text-danger ring-danger/30">
+                                  <span className="px-1 rounded text-[0.625rem] font-bold ring-1 bg-danger/10 text-danger ring-danger/30">
                                     auto-banned
                                   </span>
                                   <span className="truncate">
@@ -385,7 +385,7 @@ function BansMutesPage() {
                           )}
                       </div>
                       <div>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 ring-border bg-surface capitalize">
+                        <span className="px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 ring-border bg-surface capitalize">
                           {r.category?.replace("_", " ") ?? "—"}
                         </span>
                       </div>
@@ -398,7 +398,7 @@ function BansMutesPage() {
                       <div>
                         <span
                           className={
-                            "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                            "px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
                             (r.revoked
                               ? "bg-muted text-muted-foreground ring-border"
                               : !r.expiresAt
@@ -414,7 +414,7 @@ function BansMutesPage() {
                       <div className="truncate text-muted-foreground">
                         {r.issuedByName ?? "—"}
                       </div>
-                      <div className="font-mono text-[10px] text-muted-foreground">
+                      <div className="font-mono text-[0.625rem] text-muted-foreground">
                         {fmtAgo(r.issuedAt)}
                       </div>
                       <div className="flex items-center justify-end gap-1">
@@ -640,7 +640,7 @@ function EditDialog({ record, onClose, onSaved }) {
             Edit {record.actionType === "mute" ? "mute" : "ban"} —{" "}
             {record.identifier}
           </DialogTitle>
-          <DialogDescription className="font-mono text-[10px]">
+          <DialogDescription className="font-mono text-[0.625rem]">
             {record.identifierType === "ip" ? "IP" : "Steam ID"} · issued{" "}
             {fmtAgo(record.issuedAt)}
             {record.issuedByName ? ` by ${record.issuedByName}` : ""}
@@ -648,13 +648,13 @@ function EditDialog({ record, onClose, onSaved }) {
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Reason
             </Label>
             <Input value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Duration
             </Label>
             <Select value={duration} onValueChange={setDuration}>
@@ -670,14 +670,14 @@ function EditDialog({ record, onClose, onSaved }) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[0.625rem] text-muted-foreground">
               {duration === "keep"
                 ? `Currently: ${fmtRemaining(record.expiresAt, record.revoked)}`
                 : `New expiry: ${fmtRemaining(computeExpiresAt(duration, record.issuedAt), false)} (from issue date)`}
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
               Note
             </Label>
             <Textarea
@@ -696,7 +696,7 @@ function EditDialog({ record, onClose, onSaved }) {
 
         {/* History */}
         <div className="border-t border-border pt-4">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
+          <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground mb-3">
             History
           </p>
           {logsLoading ? (
@@ -731,7 +731,7 @@ function EditDialog({ record, onClose, onSaved }) {
                             metadata={entry.metadata}
                           />
                         </div>
-                        <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                        <div className="text-[0.625rem] font-mono text-muted-foreground mt-0.5">
                           {fmtLogDate(entry.createdAt)}
                         </div>
                       </div>

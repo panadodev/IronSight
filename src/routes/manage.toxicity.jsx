@@ -199,7 +199,7 @@ function AIModerationSection({ orgId }) {
           <Bot className="size-4 text-muted-foreground shrink-0" />
           <div>
             <h2 className="text-sm font-semibold">AI Moderation Triggers</h2>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               OpenAI scores each ingested chat message. Triggers fire when a
               score exceeds the threshold.
             </p>
@@ -326,13 +326,13 @@ function RateLimitBar({ rateInfo }) {
     <div className="px-4 py-2 border-b border-border bg-surface/20 flex flex-wrap items-center gap-x-5 gap-y-1">
       <div className="flex items-center gap-1.5">
         <Activity className="size-3 text-muted-foreground shrink-0" />
-        <span className="text-[10px] font-mono font-medium text-muted-foreground uppercase tracking-wide">
+        <span className="text-[0.625rem] font-mono font-medium text-muted-foreground uppercase tracking-wide">
           Rate limits
         </span>
       </div>
 
       {internal && (
-        <div className="flex items-center gap-1 text-[11px] font-mono">
+        <div className="flex items-center gap-1 text-[0.6875rem] font-mono">
           <span className="text-muted-foreground">Org budget:</span>
           <span className={internalColor}>
             {internal.used.toLocaleString()} / {internal.limit.toLocaleString()}
@@ -347,7 +347,7 @@ function RateLimitBar({ rateInfo }) {
       )}
 
       {openai ? (
-        <div className="flex items-center gap-1 text-[11px] font-mono">
+        <div className="flex items-center gap-1 text-[0.6875rem] font-mono">
           <span className="text-muted-foreground">OpenAI requests:</span>
           <span className={openaiColor}>
             {fmtNum(openai.remainingRequests)} remaining
@@ -381,7 +381,7 @@ function RateLimitBar({ rateInfo }) {
           )}
         </div>
       ) : (
-        <span className="text-[11px] font-mono text-muted-foreground">
+        <span className="text-[0.6875rem] font-mono text-muted-foreground">
           OpenAI limits: no data yet — updates after first moderation call
         </span>
       )}
@@ -408,12 +408,12 @@ function TriggerRow({ trigger, onEdit, onDelete, onToggle }) {
           <span className="text-xs font-mono font-medium">
             {meta?.label ?? trigger.category}
           </span>
-          <span className="text-[10px] text-muted-foreground font-mono">
+          <span className="text-[0.625rem] text-muted-foreground font-mono">
             {trigger.category}
           </span>
           <Badge
             variant="outline"
-            className={`text-[10px] font-mono ${actionColor}`}
+            className={`text-[0.625rem] font-mono ${actionColor}`}
           >
             {trigger.action === "automute"
               ? trigger.muteDurationMinutes
@@ -421,12 +421,12 @@ function TriggerRow({ trigger, onEdit, onDelete, onToggle }) {
                 : "automute (permanent)"
               : "highlight"}
           </Badge>
-          <span className="text-[10px] text-muted-foreground font-mono">
+          <span className="text-[0.625rem] text-muted-foreground font-mono">
             ≥ {Math.round(trigger.threshold * 100)}%
           </span>
         </div>
         {meta?.note && (
-          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+          <p className="text-[0.625rem] text-muted-foreground mt-0.5 truncate">
             {meta.note}
           </p>
         )}
@@ -515,14 +515,14 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
 
   return (
     <div className="px-4 py-3 bg-surface/60 space-y-3">
-      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+      <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
         {isEdit ? "Edit Trigger" : "New Trigger"}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {!isEdit && (
           <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">
+            <Label className="text-[0.6875rem] text-muted-foreground">
               Category
             </Label>
             <Select value={category} onValueChange={handleCategoryChange}>
@@ -535,7 +535,7 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
                     <span className="font-medium">
                       {CATEGORY_META[cat].label}
                     </span>
-                    <span className="ml-2 text-muted-foreground font-mono text-[10px]">
+                    <span className="ml-2 text-muted-foreground font-mono text-[0.625rem]">
                       {cat}
                     </span>
                   </SelectItem>
@@ -546,12 +546,12 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
         )}
 
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground">
+          <Label className="text-[0.6875rem] text-muted-foreground">
             Threshold —{" "}
             <span className="font-mono text-foreground">{threshold}%</span>
           </Label>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-muted-foreground w-6">
+            <span className="text-[0.625rem] font-mono text-muted-foreground w-6">
               1%
             </span>
             <input
@@ -562,14 +562,14 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
               onChange={(e) => setThreshold(Number(e.target.value))}
               className="flex-1 accent-primary h-1.5 cursor-pointer"
             />
-            <span className="text-[10px] font-mono text-muted-foreground w-6">
+            <span className="text-[0.625rem] font-mono text-muted-foreground w-6">
               99%
             </span>
           </div>
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Action</Label>
+          <Label className="text-[0.6875rem] text-muted-foreground">Action</Label>
           <Select value={action} onValueChange={setAction}>
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
@@ -587,7 +587,7 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
 
         {action === "automute" && (
           <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">
+            <Label className="text-[0.6875rem] text-muted-foreground">
               Mute duration (minutes, blank = permanent)
             </Label>
             <Input
@@ -603,7 +603,7 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
       </div>
 
       {meta?.note && (
-        <p className="text-[11px] text-muted-foreground italic">{meta.note}</p>
+        <p className="text-[0.6875rem] text-muted-foreground italic">{meta.note}</p>
       )}
 
       {err && <p className="text-xs text-danger">{err}</p>}
@@ -721,7 +721,7 @@ function BlockedWordsSection({ orgId }) {
     <section className="rounded-md ring-1 ring-border bg-surface/40">
       <div className="px-4 py-3 border-b border-border">
         <h2 className="text-sm font-semibold">Blocked Words</h2>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           Players cannot send messages containing these words. Requires plugin
           restart or daily server restart to take effect.
         </p>

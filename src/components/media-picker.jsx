@@ -156,7 +156,7 @@ export function MediaPicker({
                       </div>
                     )}
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
-                      <p className="text-[9px] text-white truncate leading-tight">
+                      <p className="text-[0.625rem] text-white truncate leading-tight">
                         {item.title || item.filename}
                       </p>
                     </div>

@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 bm_extra_example/
+# Headless preview screenshots (scripts/preview/nav-preview.mjs)
+scripts/preview/out
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

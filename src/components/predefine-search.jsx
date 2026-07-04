@@ -73,7 +73,7 @@ function PredefineSearch({ orgId, onPick }) {
             </button>
           )}
         </div>
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+        <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
           <ListChecks className="size-3" /> Pre-defines
         </span>
       </div>
@@ -81,7 +81,7 @@ function PredefineSearch({ orgId, onPick }) {
       {open && (
         <div className="absolute z-20 left-0 right-0 bottom-full mb-1 max-h-[260px] overflow-y-auto bg-background border border-border rounded-md shadow-lg">
           {matches.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground italic p-3">
+            <p className="text-[0.6875rem] text-muted-foreground italic p-3">
               {items.length === 0
                 ? "No pre-defines yet for this org. Add some in Manage Org \u2192 Pre-defines."
                 : "No pre-defines match your search."}
@@ -104,11 +104,11 @@ function PredefineSearch({ orgId, onPick }) {
                       {p.keyword}
                     </p>
                     {p.extraKeywords.length > 0 && (
-                      <p className="text-[10px] font-mono text-muted-foreground truncate">
+                      <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                         aka {p.extraKeywords.join(", ")}
                       </p>
                     )}
-                    <p className="text-[11px] text-foreground/80 mt-0.5 line-clamp-2 whitespace-pre-wrap">
+                    <p className="text-[0.6875rem] text-foreground/80 mt-0.5 line-clamp-2 whitespace-pre-wrap">
                       {p.content}
                     </p>
                   </button>

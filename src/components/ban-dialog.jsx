@@ -119,7 +119,7 @@ function BanDialog({
 
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
-            <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
               {isMute ? "Mute reason" : "Ban reason"}
             </Label>
 
@@ -145,7 +145,7 @@ function BanDialog({
               />
             )}
             {reasons.length === 0 && !isOther && (
-              <p className="text-[11px] text-muted-foreground italic">
+              <p className="text-[0.6875rem] text-muted-foreground italic">
                 No pre-set reasons configured — add some in Manage org → Ban
                 configs.
               </p>
@@ -153,7 +153,7 @@ function BanDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
               {isMute ? "Mute length" : "Ban length"}
             </Label>
             <select
@@ -170,7 +170,7 @@ function BanDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+            <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
               {isMute ? "Mute note" : "Ban note"}
             </Label>
             <Textarea
@@ -182,7 +182,7 @@ function BanDialog({
               className="min-h-[160px] text-xs font-mono"
             />
             {!isOther && (
-              <p className="text-[10px] font-mono text-muted-foreground">
+              <p className="text-[0.625rem] font-mono text-muted-foreground">
                 Pre-filled from the {isMute ? "mute" : "category's ban"} note
                 format. Edit in Manage org → Ban configs.
               </p>

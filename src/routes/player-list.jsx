@@ -377,7 +377,7 @@ function PlayerListPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   {lastRefresh && (
-                    <span className="text-[10px] font-mono text-muted-foreground">
+                    <span className="text-[0.625rem] font-mono text-muted-foreground">
                       {players.length} players ·{" "}
                       {players.filter((p) => p.isOnline).length} online
                     </span>
@@ -484,7 +484,7 @@ function PlayerListPage() {
                   />
                   Include banned
                 </button>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
+                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground ml-auto">
                   Sorted by {SORT_LABEL[sortKey]}{" "}
                   {sortDir === "desc" ? "↓" : "↑"} {"\xB7"} click a column to
                   change
@@ -501,7 +501,7 @@ function PlayerListPage() {
               {/* Table */}
               {(!loading || players.length > 0) && (
                 <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-x-auto">
-                  <div className="min-w-[900px] grid grid-cols-[minmax(220px,340px)_minmax(120px,180px)_70px_60px_60px_60px_70px_70px_60px_minmax(0,1fr)] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+                  <div className="min-w-[900px] grid grid-cols-[minmax(220px,340px)_minmax(120px,180px)_70px_60px_60px_60px_70px_70px_60px_minmax(0,1fr)] gap-2 px-3 py-2 border-b border-border text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
                     <HeaderCell
                       label="Player"
                       k="name"
@@ -526,7 +526,7 @@ function PlayerListPage() {
                       </PopoverTrigger>
                       <PopoverContent align="start" className="w-72 p-2">
                         <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
-                          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                          <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                             Filter servers
                           </span>
                           <button
@@ -537,7 +537,7 @@ function PlayerListPage() {
                                   : visibleServerIds,
                               );
                             }}
-                            className="text-[10px] font-semibold text-brand hover:underline"
+                            className="text-[0.625rem] font-semibold text-brand hover:underline"
                           >
                             {effectiveArr.length === visibleServerIds.length
                               ? "Clear"
@@ -546,7 +546,7 @@ function PlayerListPage() {
                         </div>
                         <div className="space-y-0.5">
                           {visibleServers.length === 0 && (
-                            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                            <div className="px-2 py-3 text-center text-[0.6875rem] text-muted-foreground">
                               No servers in the selected orgs.
                             </div>
                           )}
@@ -574,7 +574,7 @@ function PlayerListPage() {
                                   <div className="text-xs font-medium truncate normal-case tracking-normal">
                                     {s.serverName}
                                   </div>
-                                  <div className="text-[9px] font-mono text-muted-foreground normal-case tracking-normal">
+                                  <div className="text-[0.625rem] font-mono text-muted-foreground normal-case tracking-normal">
                                     {org?.short}
                                     {status?.rconError ? (
                                       <span className="text-danger ml-1">
@@ -665,7 +665,7 @@ function PlayerListPage() {
                               />
                             ) : (
                               <div
-                                className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[10px] text-background shrink-0"
+                                className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-[0.625rem] text-background shrink-0"
                                 style={{ background: avatarColor }}
                               >
                                 {p.name
@@ -679,7 +679,7 @@ function PlayerListPage() {
                                 <span className="truncate">{p.name}</span>
                                 <PlayerLinks steamId={p.steamId} />
                               </div>
-                              <div className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1">
+                              <div className="text-[0.625rem] font-mono text-muted-foreground truncate flex items-center gap-1">
                                 {p.steamId}
                                 <button
                                   onClick={() => copySteamId(p.steamId)}
@@ -696,7 +696,7 @@ function PlayerListPage() {
                             </div>
                           </div>
                           <div
-                            className="text-[10px] font-mono text-muted-foreground truncate flex items-center gap-1"
+                            className="text-[0.625rem] font-mono text-muted-foreground truncate flex items-center gap-1"
                             title={p.serverName ?? ""}
                           >
                             {p.isOnline ? (
@@ -713,7 +713,7 @@ function PlayerListPage() {
                           <div className="text-right">
                             <span
                               className={
-                                "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ring-1 " +
+                                "px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
                                 susColor(p.susScore)
                               }
                             >
@@ -734,7 +734,7 @@ function PlayerListPage() {
                           <div className="text-right">
                             <span
                               className={
-                                "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ring-1 " +
+                                "px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
                                 (p.isProxy
                                   ? "bg-danger/15 text-danger ring-danger/40"
                                   : "bg-surface ring-border text-muted-foreground")
@@ -763,7 +763,7 @@ function PlayerListPage() {
               {/* Pagination */}
               {rows.length > PAGE_SIZE && (
                 <div className="flex items-center justify-between text-xs">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Showing {(safePage - 1) * PAGE_SIZE + 1}–
                     {Math.min(safePage * PAGE_SIZE, rows.length)} of{" "}
                     {rows.length}
@@ -820,7 +820,7 @@ function RecentReportsSidebar({ reports, loading }) {
         <Flag className="size-3.5 text-warning" />
         <span className="text-xs font-semibold">Recent F7 Reports</span>
         {loading && (
-          <span className="ml-auto text-[10px] font-mono text-muted-foreground animate-pulse">
+          <span className="ml-auto text-[0.625rem] font-mono text-muted-foreground animate-pulse">
             updating…
           </span>
         )}
@@ -838,19 +838,19 @@ function RecentReportsSidebar({ reports, loading }) {
             className="px-3 py-2.5 space-y-1 hover:bg-surface/40 transition-colors"
           >
             <div className="flex items-start justify-between gap-1">
-              <span className="text-[10px] font-mono text-muted-foreground truncate flex-1">
+              <span className="text-[0.625rem] font-mono text-muted-foreground truncate flex-1">
                 {r.serverName.replace(/^\[[^\]]+\]\s*/, "")}
               </span>
-              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+              <span className="text-[0.625rem] font-mono text-muted-foreground shrink-0">
                 {timeAgo(r.createdAt)}
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded ring-1 bg-warning/10 text-warning ring-warning/30">
+              <span className="text-[0.625rem] font-mono uppercase tracking-wider px-1 py-0.5 rounded ring-1 bg-warning/10 text-warning ring-warning/30">
                 {r.reportReason || r.reportType}
               </span>
             </div>
-            <div className="text-[11px] font-medium truncate">
+            <div className="text-[0.6875rem] font-medium truncate">
               <Link
                 to="/player-lookup"
                 search={{ steam: r.reportedSteamId }}
@@ -859,11 +859,11 @@ function RecentReportsSidebar({ reports, loading }) {
                 {r.reportedSteamId}
               </Link>
             </div>
-            <div className="text-[10px] text-muted-foreground truncate">
+            <div className="text-[0.625rem] text-muted-foreground truncate">
               by {r.reporterName}
             </div>
             {r.reportDescription && (
-              <div className="text-[10px] text-muted-foreground line-clamp-2">
+              <div className="text-[0.625rem] text-muted-foreground line-clamp-2">
                 {r.reportDescription}
               </div>
             )}

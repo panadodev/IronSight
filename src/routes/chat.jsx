@@ -190,23 +190,23 @@ function FlaggedMessagesPanel({
       <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-1.5">
           <ShieldAlert className="size-3.5 text-danger" />
-          <span className="text-[11px] font-semibold tracking-tight">
+          <span className="text-[0.6875rem] font-semibold tracking-tight">
             Flagged Messages
           </span>
           {flags.length > 0 && !showResolved && (
-            <span className="text-[9px] font-mono bg-danger/15 text-danger px-1.5 rounded-full">
+            <span className="text-[0.625rem] font-mono bg-danger/15 text-danger px-1.5 rounded-full">
               {flags.length}
             </span>
           )}
           {totalReviewed > 0 && (
-            <span className="text-[9px] font-mono bg-success/10 text-success px-1.5 rounded-full">
+            <span className="text-[0.625rem] font-mono bg-success/10 text-success px-1.5 rounded-full">
               {totalReviewed} checked
             </span>
           )}
         </div>
         <button
           onClick={() => setShowResolved((v) => !v)}
-          className={`text-[9px] font-mono uppercase tracking-widest transition-colors ${
+          className={`text-[0.625rem] font-mono uppercase tracking-widest transition-colors ${
             showResolved
               ? "text-brand"
               : "text-muted-foreground hover:text-foreground"
@@ -218,7 +218,7 @@ function FlaggedMessagesPanel({
 
       {actionNotice && (
         <div
-          className={`px-3 py-1.5 border-b border-border text-[10px] ${
+          className={`px-3 py-1.5 border-b border-border text-[0.625rem] ${
             actionNotice.tone === "danger"
               ? "text-danger bg-danger/10"
               : "text-muted-foreground bg-surface/50"
@@ -230,13 +230,13 @@ function FlaggedMessagesPanel({
 
       <div className="flex-1 overflow-y-auto">
         {loading && flags.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground text-center py-8">
+          <p className="text-[0.6875rem] text-muted-foreground text-center py-8">
             Loading…
           </p>
         ) : flags.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center px-4">
             <CheckCircle2 className="size-6 text-muted-foreground/30" />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               {showResolved ? "No resolved flags." : "All clear."}
             </p>
           </div>
@@ -302,16 +302,16 @@ function FlagCard({
         <Link
           to="/player-lookup"
           search={{ steam: flag.steamId }}
-          className="text-[11px] font-semibold truncate hover:text-brand hover:underline"
+          className="text-[0.6875rem] font-semibold truncate hover:text-brand hover:underline"
           title={flag.steamId}
         >
           {flag.playerName ?? flag.steamId}
         </Link>
-        <span className="text-[9px] text-muted-foreground shrink-0">{age}</span>
+        <span className="text-[0.625rem] text-muted-foreground shrink-0">{age}</span>
       </div>
 
       {flag.serverName && (
-        <p className="text-[9px] font-mono text-muted-foreground truncate">
+        <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
           {flag.serverName}
         </p>
       )}
@@ -320,7 +320,7 @@ function FlagCard({
         <button
           onClick={onJump}
           disabled={!onJump}
-          className={`flex-1 text-left text-[11px] text-foreground/80 line-clamp-2 break-words ${
+          className={`flex-1 text-left text-[0.6875rem] text-foreground/80 line-clamp-2 break-words ${
             onJump ? "hover:text-brand cursor-pointer" : "cursor-default"
           }`}
           title={onJump ? "Jump to this message in chat log" : undefined}
@@ -329,7 +329,7 @@ function FlagCard({
         </button>
         <button
           onClick={onViewPlayer}
-          className="shrink-0 text-[9px] font-mono text-muted-foreground hover:text-brand transition-colors mt-0.5 whitespace-nowrap"
+          className="shrink-0 text-[0.625rem] font-mono text-muted-foreground hover:text-brand transition-colors mt-0.5 whitespace-nowrap"
           title={`Filter chat to ${flag.playerName ?? flag.steamId} on ${flag.serverName ?? "this server"}`}
         >
           filter
@@ -338,7 +338,7 @@ function FlagCard({
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
-          className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+          className={`text-[0.625rem] font-mono px-1.5 py-0.5 rounded ${
             isAutomute
               ? "bg-danger/15 text-danger ring-1 ring-danger/30"
               : "bg-warning/15 text-warning ring-1 ring-warning/30"
@@ -353,20 +353,20 @@ function FlagCard({
           return (
             <span
               key={`${flag.flagId}:${signal.category}`}
-              className="text-[9px] font-mono bg-surface px-1.5 py-0.5 rounded ring-1 ring-border"
+              className="text-[0.625rem] font-mono bg-surface px-1.5 py-0.5 rounded ring-1 ring-border"
             >
               {signalLabel} {signalScore}%
             </span>
           );
         })}
         {signals.length === 0 && (
-          <span className="text-[9px] font-mono text-muted-foreground">
+          <span className="text-[0.625rem] font-mono text-muted-foreground">
             {scorePercent}%
           </span>
         )}
         {flag.resolutionType && (
           <span
-            className={`text-[9px] font-mono px-1.5 py-0.5 rounded ring-1 ${
+            className={`text-[0.625rem] font-mono px-1.5 py-0.5 rounded ring-1 ${
               flag.resolutionType === "confirmed"
                 ? "bg-danger/10 text-danger ring-danger/20"
                 : "bg-muted/30 text-muted-foreground ring-border"
@@ -383,7 +383,7 @@ function FlagCard({
             <Button
               size="sm"
               variant="outline"
-              className="h-6 text-[10px] px-2 flex-1 text-danger border-danger/30 hover:bg-danger/10"
+              className="h-6 text-[0.625rem] px-2 flex-1 text-danger border-danger/30 hover:bg-danger/10"
               disabled={acting}
               onClick={onConfirm}
               title="Keep flagged — AI was correct, but unlist from the queue"
@@ -395,7 +395,7 @@ function FlagCard({
             <Button
               size="sm"
               variant="outline"
-              className="h-6 text-[10px] px-2 flex-1"
+              className="h-6 text-[0.625rem] px-2 flex-1"
               disabled={acting}
               onClick={onClear}
               title="Dismiss — not a real concern"
@@ -406,7 +406,7 @@ function FlagCard({
         </div>
       )}
       {flag.resolved && flag.resolvedByName && (
-        <p className="text-[9px] text-muted-foreground">
+        <p className="text-[0.625rem] text-muted-foreground">
           {flag.resolutionType === "confirmed" ? "Confirmed" : "Cleared"} by{" "}
           {flag.resolvedByName}
         </p>
@@ -451,7 +451,7 @@ function TeamRecipients({ info, nameFor }) {
   if (!info) {
     return (
       <span
-        className="text-[10px] text-yellow-500/40 italic shrink-0 self-center"
+        className="text-[0.625rem] text-yellow-500/40 italic shrink-0 self-center"
         title="No team roster recorded around this message's timestamp"
       >
         recipients unknown
@@ -463,7 +463,7 @@ function TeamRecipients({ info, nameFor }) {
 
   if (recipients.length === 0) {
     return (
-      <span className="text-[10px] text-yellow-500/50 shrink-0 self-center">
+      <span className="text-[0.625rem] text-yellow-500/50 shrink-0 self-center">
         → no teammates
       </span>
     );
@@ -475,7 +475,7 @@ function TeamRecipients({ info, nameFor }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-1 text-[10px] text-yellow-500/70 hover:text-yellow-400 shrink-0 self-center max-w-[280px]">
+        <button className="flex items-center gap-1 text-[0.625rem] text-yellow-500/70 hover:text-yellow-400 shrink-0 self-center max-w-[280px]">
           <ArrowRight className="size-3 shrink-0" />
           <span className="flex items-center gap-1 min-w-0">
             {shown.map((id) => (
@@ -495,7 +495,7 @@ function TeamRecipients({ info, nameFor }) {
       <PopoverContent align="end" className="w-64 p-2">
         <div className="flex items-center gap-1.5 px-1 pb-2 mb-1 border-b border-border">
           <Users className="size-3.5 text-yellow-500" />
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Team · {members.length} member{members.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -520,12 +520,12 @@ function TeamRecipients({ info, nameFor }) {
                   {nameFor(id)}
                 </span>
                 {isSender && (
-                  <span className="text-[9px] font-mono uppercase tracking-wider text-brand shrink-0">
+                  <span className="text-[0.625rem] font-mono uppercase tracking-wider text-brand shrink-0">
                     sender
                   </span>
                 )}
                 {isLeader && !isSender && (
-                  <span className="text-[9px] font-mono uppercase tracking-wider text-yellow-500/70 shrink-0">
+                  <span className="text-[0.625rem] font-mono uppercase tracking-wider text-yellow-500/70 shrink-0">
                     leader
                   </span>
                 )}
@@ -961,12 +961,12 @@ function ChatPage() {
               <h1 className="text-sm font-semibold tracking-tight">
                 Server Chat Logs
               </h1>
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                 {filtered.length} / {lines.length} lines
                 {hasMore && " (more below)"}
               </span>
-              <span className="hidden sm:flex items-center gap-1.5 text-[10px] text-muted-foreground ml-auto">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 bg-yellow-500/10 px-1 rounded">
+              <span className="hidden sm:flex items-center gap-1.5 text-[0.625rem] text-muted-foreground ml-auto">
+                <span className="text-[0.625rem] font-bold uppercase tracking-widest text-yellow-500/80 bg-yellow-500/10 px-1 rounded">
                   team
                 </span>
                 <ArrowRight className="size-3 text-yellow-500/70" />
@@ -976,7 +976,7 @@ function ChatPage() {
 
             <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Server
                 </Label>
                 <select
@@ -1005,7 +1005,7 @@ function ChatPage() {
 
               {relativeTs ? (
                 <div className="space-y-1">
-                  <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Timeframe
                   </Label>
                   <div className="flex ring-1 ring-border rounded-md overflow-hidden h-8">
@@ -1027,7 +1027,7 @@ function ChatPage() {
               ) : (
                 <>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       From
                     </Label>
                     <Input
@@ -1038,7 +1038,7 @@ function ChatPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       To
                     </Label>
                     <Input
@@ -1052,7 +1052,7 @@ function ChatPage() {
               )}
 
               <div className="space-y-1">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Players
                 </Label>
                 <Popover>
@@ -1066,19 +1066,19 @@ function ChatPage() {
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-72 p-2">
                     <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
-                      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                         In timeframe ({playersInWindow.length})
                       </span>
                       <button
                         onClick={() => setSelectedPlayers(new Set())}
-                        className="text-[10px] font-semibold text-brand hover:underline"
+                        className="text-[0.625rem] font-semibold text-brand hover:underline"
                       >
                         Clear
                       </button>
                     </div>
                     <div className="max-h-72 overflow-y-auto space-y-0.5">
                       {playersInWindow.length === 0 && (
-                        <p className="text-[11px] text-muted-foreground px-2 py-2">
+                        <p className="text-[0.6875rem] text-muted-foreground px-2 py-2">
                           No players spoke in this window.
                         </p>
                       )}
@@ -1103,7 +1103,7 @@ function ChatPage() {
                             <span className="text-xs font-medium flex-1 truncate">
                               {p.name}
                             </span>
-                            <span className="text-[9px] font-mono text-muted-foreground truncate">
+                            <span className="text-[0.625rem] font-mono text-muted-foreground truncate">
                               {p.steamId.slice(-6)}
                             </span>
                           </button>
@@ -1115,7 +1115,7 @@ function ChatPage() {
               </div>
 
               <div className="space-y-1 flex-1 min-w-[200px]">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Search text
                 </Label>
                 <Input
@@ -1155,7 +1155,7 @@ function ChatPage() {
             </div>
 
             {activeServer && (
-              <p className="text-[10px] font-mono text-muted-foreground">
+              <p className="text-[0.625rem] font-mono text-muted-foreground">
                 {activeServer.serverName}
               </p>
             )}
@@ -1176,7 +1176,7 @@ function ChatPage() {
                   No chat lines match these filters.
                 </p>
               ) : (
-                <div className="font-mono text-[12px] max-w-4xl mx-auto">
+                <div className="font-mono text-[0.75rem] max-w-4xl mx-auto">
                   {filtered.map((l, idx) => {
                     const prev = filtered[idx - 1];
                     const isContinuation =
@@ -1197,18 +1197,18 @@ function ChatPage() {
                         } ${String(l.id) === String(highlightedId) ? "bg-warning/10 ring-1 ring-warning/30" : ""}`}
                       >
                         {isContinuation ? (
-                          <span className="text-transparent group-hover:text-muted-foreground/40 shrink-0 w-[100px] text-[10px] text-right transition-colors select-none">
+                          <span className="text-transparent group-hover:text-muted-foreground/40 shrink-0 w-[100px] text-[0.625rem] text-right transition-colors select-none">
                             {fmtRelative(l.ts * 1000)}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground shrink-0 w-[100px] text-[11px]">
+                          <span className="text-muted-foreground shrink-0 w-[100px] text-[0.6875rem]">
                             {relativeTs
                               ? fmtRelative(l.ts * 1000)
                               : fmtTime(l.ts * 1000, tz)}
                           </span>
                         )}
                         {l.teamMessage && (
-                          <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
+                          <span className="text-[0.625rem] font-bold uppercase tracking-widest text-yellow-500/80 shrink-0 self-center bg-yellow-500/10 px-1 rounded">
                             team
                           </span>
                         )}
@@ -1257,7 +1257,7 @@ function ChatPage() {
                         Loading older messages…
                       </span>
                     ) : !hasMore && lines.length > 0 ? (
-                      <span className="text-[10px] text-muted-foreground/40">
+                      <span className="text-[0.625rem] text-muted-foreground/40">
                         All messages loaded
                       </span>
                     ) : null}

@@ -200,7 +200,7 @@ function MyTicketsPage() {
         {/* Ticket list */}
         <div className="w-80 shrink-0 border-r border-border flex flex-col">
           <div className="p-4 border-b border-border">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-brand mb-1">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-brand mb-1">
               Player Portal
             </p>
             <h1 className="text-lg font-semibold">My Tickets</h1>
@@ -242,7 +242,7 @@ function MyTicketsPage() {
                           </p>
                           <span
                             className={
-                              "shrink-0 text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
+                              "shrink-0 text-[0.625rem] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
                               (STATUS_TONE[t.status] ??
                                 "text-muted-foreground ring-border bg-surface")
                             }
@@ -251,11 +251,11 @@ function MyTicketsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <p className="text-[10px] font-mono text-muted-foreground truncate">
+                          <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
                             {t.ticket_type_name ?? "Ticket"} \u00b7{" "}
                             {t.org_name ?? t.org_id}
                           </p>
-                          <p className="text-[10px] font-mono text-muted-foreground ml-auto shrink-0">
+                          <p className="text-[0.625rem] font-mono text-muted-foreground ml-auto shrink-0">
                             {timeAgo(t.updated_at)}
                           </p>
                         </div>
@@ -301,7 +301,7 @@ function MyTicketsPage() {
               <div className="p-4 border-b border-border shrink-0">
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-mono text-muted-foreground mb-0.5">
+                    <p className="text-[0.625rem] font-mono text-muted-foreground mb-0.5">
                       #{ticketDetail.ticket.ticket_id} \u00b7{" "}
                       {ticketDetail.ticket.ticket_type_name ?? "Ticket"} \u00b7{" "}
                       {ticketDetail.ticket.org_id}
@@ -313,7 +313,7 @@ function MyTicketsPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <span
                       className={
-                        "text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
+                        "text-[0.625rem] font-mono uppercase tracking-widest px-1.5 py-0.5 ring-1 rounded " +
                         (STATUS_TONE[ticketDetail.ticket.status] ??
                           "text-muted-foreground ring-border bg-surface")
                       }
@@ -323,7 +323,7 @@ function MyTicketsPage() {
                     </span>
                     <span
                       className={
-                        "text-[9px] font-mono uppercase tracking-widest " +
+                        "text-[0.625rem] font-mono uppercase tracking-widest " +
                         (PRIORITY_TONE[ticketDetail.ticket.priority] ??
                           "text-muted-foreground")
                       }
@@ -333,7 +333,7 @@ function MyTicketsPage() {
                   </div>
                 </div>
                 {ticketDetail.ticket.assigned_to_username && (
-                  <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                  <p className="text-[0.625rem] font-mono text-muted-foreground mt-1">
                     Assigned to: {ticketDetail.ticket.assigned_to_username}
                   </p>
                 )}
@@ -344,12 +344,12 @@ function MyTicketsPage() {
                 {Array.isArray(ticketDetail.ticket.form_data) &&
                   ticketDetail.ticket.form_data.length > 0 && (
                     <div className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-3">
-                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                         Your submission
                       </p>
                       {ticketDetail.ticket.form_data.map((f, i) => (
                         <div key={i}>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                          <p className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
                             {f.label}
                           </p>
                           <p className="text-sm whitespace-pre-wrap break-words">
@@ -377,10 +377,10 @@ function MyTicketsPage() {
                         }
                       >
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-semibold">
+                          <span className="text-[0.625rem] font-semibold">
                             {isMe ? "You" : (msg.username ?? "Staff")}
                           </span>
-                          <span className="text-[10px] text-muted-foreground font-mono">
+                          <span className="text-[0.625rem] text-muted-foreground font-mono">
                             {timeAgo(msg.createdAt)}
                           </span>
                         </div>

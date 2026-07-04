@@ -517,7 +517,7 @@ export function NewBanDialog({
                     }
                   >
                     <span className="font-medium truncate">{r.serverName}</span>
-                    <span className="text-[10px] font-mono ml-2 text-right shrink-0">
+                    <span className="text-[0.625rem] font-mono ml-2 text-right shrink-0">
                       {r.ok
                         ? r.response || "OK"
                         : /non-101|network error|connection failed/i.test(
@@ -539,7 +539,7 @@ export function NewBanDialog({
             <div className="space-y-4 py-2">
               {manageableOrgIds.length > 1 && (
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Organization
                   </Label>
                   <Select value={orgId} onValueChange={setOrgId}>
@@ -561,7 +561,7 @@ export function NewBanDialog({
               )}
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Action
                 </Label>
                 <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
@@ -570,7 +570,7 @@ export function NewBanDialog({
                       key={t}
                       onClick={() => setActionType(t)}
                       className={
-                        "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
+                        "px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors " +
                         (actionType === t
                           ? "bg-brand text-brand-foreground"
                           : "text-muted-foreground hover:text-foreground")
@@ -584,7 +584,7 @@ export function NewBanDialog({
 
               {actionType === "ban" && canIssueIp && (
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Identifier Type
                   </Label>
                   <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
@@ -597,7 +597,7 @@ export function NewBanDialog({
                         }}
                         disabled={t === "ip" && !canOfferIpBan}
                         className={
-                          "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed " +
+                          "px-3 py-1 text-[0.625rem] font-mono uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed " +
                           (identifierType === t
                             ? "bg-brand text-brand-foreground"
                             : "text-muted-foreground hover:text-foreground")
@@ -608,7 +608,7 @@ export function NewBanDialog({
                     ))}
                   </div>
                   {playerSteamId && ipBanEligibility.loading && (
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[0.625rem] text-muted-foreground">
                       Checking latest IP classification (Residential/Business
                       required) before allowing IP bans...
                     </p>
@@ -616,7 +616,7 @@ export function NewBanDialog({
                   {playerSteamId &&
                     !ipBanEligibility.loading &&
                     !canOfferIpBan && (
-                      <p className="text-[10px] text-warning">
+                      <p className="text-[0.625rem] text-warning">
                         {ipBanEligibility.reason ||
                           "IP ban is unavailable because the latest IP is not Residential/Business-classified."}
                       </p>
@@ -626,7 +626,7 @@ export function NewBanDialog({
                     ipBanEligibility.latestIp && (
                       <p
                         className={
-                          "text-[10px] " +
+                          "text-[0.625rem] " +
                           (!ipBanEligibility.allowed
                             ? ipBanEligibility.isProxyVpn
                               ? "text-danger"
@@ -643,7 +643,7 @@ export function NewBanDialog({
                       </p>
                     )}
                   {identifierType === "ip" && (
-                    <p className="text-[10px] text-warning">
+                    <p className="text-[0.625rem] text-warning">
                       IP ban: anyone who later connects from this IP is
                       automatically given a linked ban record and removed.
                     </p>
@@ -652,7 +652,7 @@ export function NewBanDialog({
               )}
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   {identifierType === "ip" ? "IP Address" : "Steam ID (64-bit)"}
                 </Label>
                 <Input
@@ -668,7 +668,7 @@ export function NewBanDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Target Servers
                   {orgServers.length === 0 ? " (none configured)" : ""}
                 </Label>
@@ -709,7 +709,7 @@ export function NewBanDialog({
                               {s.serverName}
                             </span>
                             {!s.rconConfigured && (
-                              <span className="text-[9px] font-mono text-warning shrink-0">
+                              <span className="text-[0.625rem] font-mono text-warning shrink-0">
                                 No RCON
                               </span>
                             )}
@@ -724,13 +724,13 @@ export function NewBanDialog({
                             orgServers.map((s) => s.serverId),
                           )
                         }
-                        className="text-[10px] font-semibold text-brand hover:underline"
+                        className="text-[0.625rem] font-semibold text-brand hover:underline"
                       >
                         Select all
                       </button>
                       <button
                         onClick={() => setSelectedServerIds([])}
-                        className="text-[10px] text-muted-foreground hover:text-foreground"
+                        className="text-[0.625rem] text-muted-foreground hover:text-foreground"
                       >
                         Clear
                       </button>
@@ -745,7 +745,7 @@ export function NewBanDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Category
                 </Label>
                 <Select value={category} onValueChange={setCategory}>
@@ -763,7 +763,7 @@ export function NewBanDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Reason
                 </Label>
                 <select
@@ -789,7 +789,7 @@ export function NewBanDialog({
                 {reasonOptions.length === 0 &&
                   category &&
                   category !== "other" && (
-                    <p className="text-[10px] text-muted-foreground italic">
+                    <p className="text-[0.625rem] text-muted-foreground italic">
                       No preset reasons for this category — add them in Manage
                       org → Ban configs, or enter a custom reason.
                     </p>
@@ -797,7 +797,7 @@ export function NewBanDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Duration
                 </Label>
                 <Select value={duration} onValueChange={setDuration}>
@@ -812,7 +812,7 @@ export function NewBanDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   {duration === "-1"
                     ? "This ban will never expire."
                     : duration === "next_wipe"
@@ -831,7 +831,7 @@ export function NewBanDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Note (internal)
                 </Label>
                 <Textarea
@@ -847,7 +847,7 @@ export function NewBanDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                <Label className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                   Evidence
                 </Label>
                 {linkedMediaItems.length > 0 && (

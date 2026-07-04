@@ -58,7 +58,7 @@ function MethodBadge({ method }) {
   };
   return (
     <span
-      className={`font-mono text-[10px] uppercase ${colors[method] ?? "text-muted-foreground"}`}
+      className={`font-mono text-[0.625rem] uppercase ${colors[method] ?? "text-muted-foreground"}`}
     >
       {method}
     </span>
@@ -67,11 +67,11 @@ function MethodBadge({ method }) {
 
 function DirectionBadge({ direction }) {
   return direction === "incoming" ? (
-    <span className="inline-flex items-center gap-0.5 text-[9px] font-mono uppercase tracking-widest text-sky-400">
+    <span className="inline-flex items-center gap-0.5 text-[0.625rem] font-mono uppercase tracking-widest text-sky-400">
       <ArrowDown className="size-2.5" /> in
     </span>
   ) : (
-    <span className="inline-flex items-center gap-0.5 text-[9px] font-mono uppercase tracking-widest text-amber-400">
+    <span className="inline-flex items-center gap-0.5 text-[0.625rem] font-mono uppercase tracking-widest text-amber-400">
       <ArrowUp className="size-2.5" /> out
     </span>
   );
@@ -93,7 +93,7 @@ function LatencyBar({ value, max }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="font-mono tabular-nums text-[10px] text-muted-foreground w-12 text-right">
+      <span className="font-mono tabular-nums text-[0.625rem] text-muted-foreground w-12 text-right">
         {value}ms
       </span>
     </div>
@@ -197,7 +197,7 @@ function SysMetricsPage() {
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-danger mb-1">
+            <p className="text-[0.625rem] font-mono uppercase tracking-widest text-danger mb-1">
               Sysadmin Only
             </p>
             <h1 className="text-xl font-semibold flex items-center gap-2">
@@ -211,13 +211,13 @@ function SysMetricsPage() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {lastRefreshed && (
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-[0.625rem] font-mono text-muted-foreground">
                 updated {fmtAgo(lastRefreshed)}
               </span>
             )}
             <button
               onClick={() => setAutoRefresh((v) => !v)}
-              className={`text-[10px] font-mono px-2 py-1 rounded ring-1 transition-colors ${
+              className={`text-[0.625rem] font-mono px-2 py-1 rounded ring-1 transition-colors ${
                 autoRefresh
                   ? "ring-brand/40 bg-brand/10 text-brand"
                   : "ring-border bg-surface text-muted-foreground"
@@ -227,7 +227,7 @@ function SysMetricsPage() {
             </button>
             <button
               onClick={load}
-              className="flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright transition-colors"
+              className="flex items-center gap-1 text-[0.625rem] font-mono px-2 py-1 rounded ring-1 ring-border bg-surface hover:bg-surface-bright transition-colors"
             >
               <RefreshCw className="size-3" />
               refresh
@@ -256,7 +256,7 @@ function SysMetricsPage() {
             >
               {t}
               {t === "errors" && errors.length > 0 && (
-                <span className="ml-1.5 inline-block px-1 py-0.5 text-[9px] font-mono rounded bg-danger/20 text-danger">
+                <span className="ml-1.5 inline-block px-1 py-0.5 text-[0.625rem] font-mono rounded bg-danger/20 text-danger">
                   {errors.length}
                 </span>
               )}
@@ -301,7 +301,7 @@ function SysMetricsPage() {
                       key={c.label}
                       className="rounded-lg ring-1 ring-border bg-surface/40 p-3"
                     >
-                      <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                      <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                         {c.label}
                       </p>
                       <p
@@ -309,7 +309,7 @@ function SysMetricsPage() {
                       >
                         {c.value}
                       </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                      <p className="text-[0.625rem] text-muted-foreground mt-0.5">
                         {c.sub}
                       </p>
                     </div>
@@ -330,7 +330,7 @@ function SysMetricsPage() {
                       key={c.label}
                       className="rounded-lg ring-1 ring-border bg-surface/40 p-3"
                     >
-                      <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                      <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                         {c.label}
                       </p>
                       <p className="text-2xl font-semibold tabular-nums mt-1 font-mono">
@@ -342,11 +342,11 @@ function SysMetricsPage() {
 
                 {/* Top routes */}
                 <div className="space-y-2">
-                  <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Top routes by volume
                   </h2>
                   <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                    <div className="grid grid-cols-[3fr_60px_70px_70px_70px_60px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <div className="grid grid-cols-[3fr_60px_70px_70px_70px_60px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       <div>Route</div>
                       <div className="text-right">Hits</div>
                       <div className="text-right">Avg</div>
@@ -357,11 +357,11 @@ function SysMetricsPage() {
                     {routes.slice(0, 20).map((r) => (
                       <div
                         key={`${r.method}${r.route}`}
-                        className="grid grid-cols-[3fr_60px_70px_70px_70px_60px] gap-2 px-3 py-1.5 border-b border-border last:border-0 text-[11px] items-center"
+                        className="grid grid-cols-[3fr_60px_70px_70px_70px_60px] gap-2 px-3 py-1.5 border-b border-border last:border-0 text-[0.6875rem] items-center"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <MethodBadge method={r.method} />
-                          <span className="font-mono text-[10px] truncate text-muted-foreground/80">
+                          <span className="font-mono text-[0.625rem] truncate text-muted-foreground/80">
                             {r.route}
                           </span>
                           <div
@@ -401,11 +401,11 @@ function SysMetricsPage() {
 
                 {/* Recent outgoing */}
                 <div className="space-y-2">
-                  <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Recent outgoing calls
                   </h2>
                   <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                    <div className="grid grid-cols-[80px_1fr_60px_80px_100px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <div className="grid grid-cols-[80px_1fr_60px_80px_100px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       <div>Service</div>
                       <div>Host</div>
                       <div className="text-right">Status</div>
@@ -415,21 +415,21 @@ function SysMetricsPage() {
                     {outgoing.slice(0, 15).map((e, i) => (
                       <div
                         key={i}
-                        className="grid grid-cols-[80px_1fr_60px_80px_100px] gap-2 px-3 py-1 border-b border-border last:border-0 text-[11px] items-center"
+                        className="grid grid-cols-[80px_1fr_60px_80px_100px] gap-2 px-3 py-1 border-b border-border last:border-0 text-[0.6875rem] items-center"
                       >
-                        <div className="font-mono text-[10px] text-muted-foreground truncate">
+                        <div className="font-mono text-[0.625rem] text-muted-foreground truncate">
                           {e.service}
                         </div>
-                        <div className="font-mono text-[10px] truncate text-foreground/70">
+                        <div className="font-mono text-[0.625rem] truncate text-foreground/70">
                           {e.host}
                         </div>
                         <div className="text-right">
                           <StatusBadge status={e.status} />
                         </div>
-                        <div className="text-right font-mono text-[10px] text-muted-foreground">
+                        <div className="text-right font-mono text-[0.625rem] text-muted-foreground">
                           {e.ms}ms
                         </div>
-                        <div className="text-right font-mono text-[10px] text-muted-foreground">
+                        <div className="text-right font-mono text-[0.625rem] text-muted-foreground">
                           {fmtTime(e.ts)}
                         </div>
                       </div>
@@ -449,11 +449,11 @@ function SysMetricsPage() {
               <div className="space-y-6">
                 {/* Route aggregate table */}
                 <div className="space-y-2">
-                  <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Route aggregates — incoming
                   </h2>
                   <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                    <div className="grid grid-cols-[3fr_60px_1fr_1fr_1fr_60px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <div className="grid grid-cols-[3fr_60px_1fr_1fr_1fr_60px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       <div>Route</div>
                       <div className="text-right">Hits</div>
                       <div className="text-right">Avg</div>
@@ -464,11 +464,11 @@ function SysMetricsPage() {
                     {routes.map((r) => (
                       <div
                         key={`${r.method}${r.route}`}
-                        className="grid grid-cols-[3fr_60px_1fr_1fr_1fr_60px] gap-2 px-3 py-2 border-b border-border last:border-0 text-[11px] items-center"
+                        className="grid grid-cols-[3fr_60px_1fr_1fr_1fr_60px] gap-2 px-3 py-2 border-b border-border last:border-0 text-[0.6875rem] items-center"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <MethodBadge method={r.method} />
-                          <span className="font-mono text-[10px] truncate text-foreground/80">
+                          <span className="font-mono text-[0.625rem] truncate text-foreground/80">
                             {r.route}
                           </span>
                         </div>
@@ -511,7 +511,7 @@ function SysMetricsPage() {
                 {/* Recent incoming log */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       Recent incoming requests
                     </h2>
                     <div className="flex gap-1">
@@ -523,7 +523,7 @@ function SysMetricsPage() {
                         <button
                           key={v}
                           onClick={() => setIncomingFilter(v)}
-                          className={`text-[10px] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
+                          className={`text-[0.625rem] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
                             incomingFilter === v
                               ? "ring-brand/50 bg-brand/10 text-brand"
                               : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
@@ -535,7 +535,7 @@ function SysMetricsPage() {
                     </div>
                   </div>
                   <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                    <div className="grid grid-cols-[50px_3fr_60px_90px_100px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <div className="grid grid-cols-[50px_3fr_60px_90px_100px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       <div>Method</div>
                       <div>Route</div>
                       <div className="text-right">Status</div>
@@ -546,17 +546,17 @@ function SysMetricsPage() {
                       {filteredIncoming.slice(0, 200).map((e, i) => (
                         <div
                           key={i}
-                          className={`grid grid-cols-[50px_3fr_60px_90px_100px] gap-2 px-3 py-1 border-b border-border last:border-0 text-[11px] items-center ${
+                          className={`grid grid-cols-[50px_3fr_60px_90px_100px] gap-2 px-3 py-1 border-b border-border last:border-0 text-[0.6875rem] items-center ${
                             e.isIngest ? "bg-surface/20" : ""
                           }`}
                         >
                           <div>
                             <MethodBadge method={e.method} />
                           </div>
-                          <div className="font-mono text-[10px] truncate text-foreground/80">
+                          <div className="font-mono text-[0.625rem] truncate text-foreground/80">
                             {e.route}
                             {e.isIngest && (
-                              <span className="ml-1.5 text-[8px] font-mono text-amber-400/70 uppercase tracking-widest">
+                              <span className="ml-1.5 text-[0.5625rem] font-mono text-amber-400/70 uppercase tracking-widest">
                                 ingest
                               </span>
                             )}
@@ -564,7 +564,7 @@ function SysMetricsPage() {
                           <div className="text-right">
                             <StatusBadge status={e.status} />
                           </div>
-                          <div className="text-right font-mono tabular-nums text-[10px]">
+                          <div className="text-right font-mono tabular-nums text-[0.625rem]">
                             <span
                               className={
                                 e.ms > 2000
@@ -577,7 +577,7 @@ function SysMetricsPage() {
                               {e.ms}ms
                             </span>
                           </div>
-                          <div className="text-right font-mono text-[10px] text-muted-foreground">
+                          <div className="text-right font-mono text-[0.625rem] text-muted-foreground">
                             {fmtTime(e.ts)}
                           </div>
                         </div>
@@ -597,7 +597,7 @@ function SysMetricsPage() {
             {tab === "errors" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Non-2xx responses
                   </h2>
                   <div className="flex gap-1">
@@ -609,7 +609,7 @@ function SysMetricsPage() {
                       <button
                         key={v}
                         onClick={() => setErrorDirection(v)}
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
+                        className={`text-[0.625rem] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
                           errorDirection === v
                             ? "ring-brand/50 bg-brand/10 text-brand"
                             : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
@@ -622,7 +622,7 @@ function SysMetricsPage() {
                 </div>
 
                 <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-hidden">
-                  <div className="grid grid-cols-[60px_60px_3fr_70px_90px_120px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                  <div className="grid grid-cols-[60px_60px_3fr_70px_90px_120px] gap-2 px-3 py-1.5 border-b border-border bg-surface/60 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     <div>Dir</div>
                     <div>Method</div>
                     <div>Route / Host</div>
@@ -636,7 +636,7 @@ function SysMetricsPage() {
                       return (
                         <div
                           key={i}
-                          className="grid grid-cols-[60px_60px_3fr_70px_90px_120px] gap-2 px-3 py-1.5 border-b border-border last:border-0 text-[11px] items-center"
+                          className="grid grid-cols-[60px_60px_3fr_70px_90px_120px] gap-2 px-3 py-1.5 border-b border-border last:border-0 text-[0.6875rem] items-center"
                         >
                           <div>
                             <DirectionBadge direction={e.direction} />
@@ -645,15 +645,15 @@ function SysMetricsPage() {
                             {isIn ? (
                               <MethodBadge method={e.method} />
                             ) : (
-                              <span className="text-[10px] font-mono text-muted-foreground">
+                              <span className="text-[0.625rem] font-mono text-muted-foreground">
                                 {e.service}
                               </span>
                             )}
                           </div>
-                          <div className="font-mono text-[10px] truncate text-foreground/80">
+                          <div className="font-mono text-[0.625rem] truncate text-foreground/80">
                             {isIn ? e.route : e.host}
                             {isIn && e.isIngest && (
-                              <span className="ml-1.5 text-[8px] font-mono text-amber-400/70 uppercase tracking-widest">
+                              <span className="ml-1.5 text-[0.5625rem] font-mono text-amber-400/70 uppercase tracking-widest">
                                 ingest
                               </span>
                             )}
@@ -661,10 +661,10 @@ function SysMetricsPage() {
                           <div className="text-right">
                             <StatusBadge status={e.status} />
                           </div>
-                          <div className="text-right font-mono tabular-nums text-[10px] text-muted-foreground">
+                          <div className="text-right font-mono tabular-nums text-[0.625rem] text-muted-foreground">
                             {e.ms}ms
                           </div>
-                          <div className="text-right font-mono text-[10px] text-muted-foreground">
+                          <div className="text-right font-mono text-[0.625rem] text-muted-foreground">
                             {fmtTime(e.ts)}
                           </div>
                         </div>
@@ -673,7 +673,7 @@ function SysMetricsPage() {
                     {filteredErrors.length === 0 && (
                       <div className="px-3 py-8 text-sm text-muted-foreground text-center">
                         No non-2xx responses recorded.
-                        <p className="text-[10px] mt-1 text-muted-foreground/70">
+                        <p className="text-[0.625rem] mt-1 text-muted-foreground/70">
                           This buffer resets on server restart.
                         </p>
                       </div>
@@ -684,7 +684,7 @@ function SysMetricsPage() {
                 {/* Error breakdown by status */}
                 {filteredErrors.length > 0 && (
                   <div className="space-y-2">
-                    <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <h2 className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                       Breakdown by status code
                     </h2>
                     <div className="flex flex-wrap gap-2">
@@ -706,7 +706,7 @@ function SysMetricsPage() {
                             >
                               {code}
                             </p>
-                            <p className="text-[10px] text-muted-foreground">
+                            <p className="text-[0.625rem] text-muted-foreground">
                               {count}×
                             </p>
                           </div>
