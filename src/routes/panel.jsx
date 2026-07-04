@@ -44,6 +44,7 @@ import {
   HardDrive,
   Key,
   Layers,
+  MapPin,
   Pencil,
   Play,
   Plus,
@@ -3219,6 +3220,62 @@ function WorldPlayerMap({ players }) {
   );
 }
 
+function WorldHeatmapMap({ countries }) {
+  // countries: [{ country: "US", count: 312 }, ...]
+  const maxCount = countries.reduce((m, c) => Math.max(m, c.count), 0);
+
+  return (
+    <div className="ring-1 ring-border rounded-md bg-surface/40 overflow-hidden relative">
+      <svg
+        viewBox={`0 0 ${WORLD_MAP_WIDTH} ${WORLD_MAP_HEIGHT}`}
+        className="w-full h-auto block"
+        role="img"
+        aria-label="90-day player origin heatmap"
+      >
+        <path
+          d={WORLD_LAND_PATH}
+          className="fill-foreground/10 stroke-border"
+          strokeWidth={0.5}
+        />
+        {countries.map(({ country, count }) => {
+          const c = COUNTRY_CENTROIDS[country];
+          if (!c) return null;
+          const t = maxCount > 0 ? count / maxCount : 0;
+          const radius = Math.max(3, Math.min(16, 3 + t * 13));
+          const opacity = 0.25 + t * 0.65;
+          return (
+            <g key={country}>
+              <circle
+                cx={c.x}
+                cy={c.y}
+                r={radius * 2}
+                fill={`rgba(251,191,36,${opacity * 0.2})`}
+              />
+              <circle
+                cx={c.x}
+                cy={c.y}
+                r={radius}
+                fill={`rgba(251,191,36,${opacity})`}
+                stroke="rgba(0,0,0,0.3)"
+                strokeWidth={0.5}
+              />
+              <title>{`${COUNTRY_NAMES[country] ?? country}: ${count} unique player${count === 1 ? "" : "s"}`}</title>
+            </g>
+          );
+        })}
+      </svg>
+      {countries.length === 0 && (
+        <div className="absolute inset-0 grid place-items-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40">
+          No origin data yet — player sessions populate this over time.
+        </div>
+      )}
+      <div className="absolute bottom-2 right-2 text-[0.5625rem] font-mono text-muted-foreground bg-surface/80 px-1.5 py-0.5 rounded ring-1 ring-border">
+        90-day avg · unique players
+      </div>
+    </div>
+  );
+}
+
 function GlobalpingSection({ orgId }) {
   const { hasOrgPermission } = useAuth();
   const canViewPlayers = hasOrgPermission(orgId, "players_view");
@@ -3232,9 +3289,11 @@ function GlobalpingSection({ orgId }) {
   const [history, setHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [snapIndex, setSnapIndex] = useState(0);
-  const [playerMode, setPlayerMode] = useState(false);
+  const [mapMode, setMapMode] = useState("latency"); // "latency" | "players" | "heatmap"
   const [playerData, setPlayerData] = useState(null);
   const [playerLoading, setPlayerLoading] = useState(false);
+  const [heatmapData, setHeatmapData] = useState(null);
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -3266,6 +3325,22 @@ function GlobalpingSection({ orgId }) {
       // non-critical
     } finally {
       setPlayerLoading(false);
+    }
+  }, [orgId]);
+
+  const loadHeatmap = useCallback(async () => {
+    setHeatmapLoading(true);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/player-origin-heatmap`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      setHeatmapData(await res.json());
+    } catch {
+      // non-critical
+    } finally {
+      setHeatmapLoading(false);
     }
   }, [orgId]);
 
@@ -3414,7 +3489,7 @@ function GlobalpingSection({ orgId }) {
             title="Server to plot on the map"
             className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
-            {(playerMode ? (playerData?.servers ?? servers) : servers).map(
+            {(mapMode === "players" ? (playerData?.servers ?? servers) : servers).map(
               (s) => (
                 <option key={s.serverId} value={s.serverId}>
                   {s.serverName}
@@ -3441,9 +3516,9 @@ function GlobalpingSection({ orgId }) {
           </button>
           <div className="inline-flex items-center gap-0.5 ring-1 ring-border rounded bg-surface/40 p-0.5">
             <button
-              onClick={() => setPlayerMode(false)}
+              onClick={() => setMapMode("latency")}
               className={`text-[0.625rem] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
-                !playerMode
+                mapMode === "latency"
                   ? "bg-surface text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
@@ -3453,16 +3528,31 @@ function GlobalpingSection({ orgId }) {
             {canViewPlayers && (
               <button
                 onClick={() => {
-                  if (!playerMode) loadPlayers();
-                  setPlayerMode(true);
+                  if (mapMode !== "players") loadPlayers();
+                  setMapMode("players");
                 }}
                 className={`text-[0.625rem] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
-                  playerMode
+                  mapMode === "players"
                     ? "bg-surface text-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Users className="size-3" /> Players
+              </button>
+            )}
+            {canViewPlayers && (
+              <button
+                onClick={() => {
+                  if (mapMode !== "heatmap") loadHeatmap();
+                  setMapMode("heatmap");
+                }}
+                className={`text-[0.625rem] font-mono uppercase tracking-widest flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                  mapMode === "heatmap"
+                    ? "bg-surface text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MapPin className="size-3" /> Heatmap
               </button>
             )}
           </div>
@@ -3472,7 +3562,7 @@ function GlobalpingSection({ orgId }) {
       {/* World latency map / player map for the selected server */}
       <div className="space-y-1.5">
         <div className="relative">
-          {playerMode ? (
+          {mapMode === "players" ? (
             <>
               <WorldPlayerMap
                 players={(playerData?.players ?? []).filter(
@@ -3483,6 +3573,15 @@ function GlobalpingSection({ orgId }) {
               {playerLoading && (
                 <div className="absolute inset-0 grid place-items-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40">
                   Loading players…
+                </div>
+              )}
+            </>
+          ) : mapMode === "heatmap" ? (
+            <>
+              <WorldHeatmapMap countries={heatmapData?.countries ?? []} />
+              {heatmapLoading && (
+                <div className="absolute inset-0 grid place-items-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40">
+                  Loading heatmap…
                 </div>
               )}
             </>
@@ -3507,7 +3606,7 @@ function GlobalpingSection({ orgId }) {
             </>
           )}
         </div>
-        {!playerMode && snaps.length > 1 && (
+        {mapMode === "latency" && snaps.length > 1 && (
           <div className="flex items-center gap-3">
             <span className="text-[0.625rem] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
               {currentSnap

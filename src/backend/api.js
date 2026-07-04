@@ -99,6 +99,7 @@ import {
   generatePresignedPut,
   getMediaObject,
   headObject,
+  DEFAULT_USER_STORAGE_BYTES,
   MAX_FILE_SIZE,
   MULTIPART_THRESHOLD,
   normalizeObjectContentType,
@@ -3892,7 +3893,34 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const newTeam = String(body?.team ?? "").trim();
+  const newTeam = body?.team != null ? String(body.team).trim() : null;
+  const hasStorageLimit = "mediaUserLimitBytes" in body;
+  if (!newTeam && !hasStorageLimit) {
+    return json({ error: "team or mediaUserLimitBytes is required in request body" }, 400);
+  }
+
+  // Handle per-user storage limit update (can be combined with or independent of role change).
+  if (hasStorageLimit) {
+    const rawLimit = body.mediaUserLimitBytes;
+    if (rawLimit !== null && (typeof rawLimit !== "number" || !Number.isFinite(rawLimit) || rawLimit < 0)) {
+      return json({ error: "mediaUserLimitBytes must be a non-negative number or null" }, 400);
+    }
+    const memberCheck = await pool.query(
+      `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
+      [orgId, userId],
+    );
+    if (!memberCheck.rows[0]) {
+      return json({ error: "Member not found in this organization" }, 404);
+    }
+    await pool.query(
+      `UPDATE organization_members SET media_user_limit_bytes = $1 WHERE org_id = $2 AND user_id = $3`,
+      [rawLimit != null ? Math.round(rawLimit) : null, orgId, userId],
+    );
+    if (!newTeam) {
+      return json({ ok: true, orgId, userId, warnings: [] });
+    }
+  }
+
   if (!newTeam) {
     return json({ error: "team is required in request body" }, 400);
   }
@@ -4232,7 +4260,13 @@ async function handleGetOrgMembers(request, orgId) {
   }
 
   const { rows } = await pool.query(
-    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, u.discord_guilds, u.discord_avatar_hash, om.role_id
+    `SELECT u.user_id, u.username, u.discord_id, u.steam_id, u.discord_guilds, u.discord_avatar_hash,
+            om.role_id, om.media_user_limit_bytes,
+            COALESCE((
+              SELECT SUM(file_size) FROM org_media m
+              WHERE m.org_id = om.org_id AND m.uploaded_by = om.user_id
+                AND m.deleted = FALSE AND m.confirmed = TRUE AND m.source = 'staff'
+            ), 0)::BIGINT AS media_used_bytes
      FROM organization_members om
      JOIN users u ON u.user_id = om.user_id
      WHERE om.org_id = $1`,
@@ -4251,6 +4285,11 @@ async function handleGetOrgMembers(request, orgId) {
         row.discord_avatar_hash && row.discord_id
           ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar_hash}.png?size=64`
           : null,
+      mediaUserLimitBytes:
+        row.media_user_limit_bytes != null
+          ? Number(row.media_user_limit_bytes)
+          : null,
+      mediaUsedBytes: Number(row.media_used_bytes),
     })),
   });
 }
@@ -7246,7 +7285,14 @@ async function handleListOrgTickets(request, orgId) {
             tt.ticket_type_category,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
             creator.discord_id AS created_by_discord_id,
-            assignee.username AS assigned_to_username
+            assignee.username AS assigned_to_username,
+            (SELECT tm.created_at FROM ticket_messages tm
+             WHERE tm.ticket_id = t.ticket_id AND tm.user_id IS NOT NULL
+             ORDER BY tm.created_at DESC LIMIT 1) AS last_staff_reply_at,
+            (SELECT u.username FROM ticket_messages tm
+             JOIN users u ON u.user_id = tm.user_id
+             WHERE tm.ticket_id = t.ticket_id AND tm.user_id IS NOT NULL
+             ORDER BY tm.created_at DESC LIMIT 1) AS last_staff_reply_username
      FROM tickets t
      LEFT JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
      LEFT JOIN users creator ON creator.user_id = t.created_by
@@ -7279,6 +7325,8 @@ async function handleListOrgTickets(request, orgId) {
       created_at: Number(row.created_at),
       updated_at: Number(row.updated_at),
       closed_at: row.closed_at ? Number(row.closed_at) : null,
+      last_staff_reply_at: row.last_staff_reply_at ? Number(row.last_staff_reply_at) : null,
+      last_staff_reply_username: row.last_staff_reply_username ?? null,
     })),
   });
 }
@@ -13540,8 +13588,10 @@ async function handleListAllMedia(request) {
   if (!sysAdmin && !isPublic && quotaOrgIds.length > 0) {
     const { rows: qRows } = await pool.query(
       `SELECT o.org_id, o.name, o.media_user_limit_bytes,
+              om.media_user_limit_bytes AS member_user_limit_bytes,
               COALESCE(SUM(m.file_size), 0)::BIGINT AS user_used
        FROM organizations o
+       LEFT JOIN organization_members om ON om.org_id = o.org_id AND om.user_id = $2
        LEFT JOIN org_media m
          ON m.org_id = o.org_id
          AND m.uploaded_by = $2
@@ -13549,7 +13599,7 @@ async function handleListAllMedia(request) {
          AND m.confirmed = TRUE
          AND m.source = 'staff'
        WHERE o.org_id = ANY($1::text[])
-       GROUP BY o.org_id, o.name, o.media_user_limit_bytes`,
+       GROUP BY o.org_id, o.name, o.media_user_limit_bytes, om.media_user_limit_bytes`,
       [quotaOrgIds, session.userId],
     );
     userQuotas = qRows.map((r) => ({
@@ -13557,9 +13607,11 @@ async function handleListAllMedia(request) {
       orgName: r.name ?? null,
       used: Number(r.user_used),
       limit:
-        r.media_user_limit_bytes != null
-          ? Number(r.media_user_limit_bytes)
-          : null,
+        r.member_user_limit_bytes != null
+          ? Number(r.member_user_limit_bytes)
+          : r.media_user_limit_bytes != null
+            ? Number(r.media_user_limit_bytes)
+            : DEFAULT_USER_STORAGE_BYTES,
     }));
   }
 
@@ -13698,8 +13750,12 @@ async function handlePrepareMedia(request, orgId) {
 
   // Check org storage quota.
   const orgRes = await pool.query(
-    `SELECT media_storage_limit_bytes, media_user_limit_bytes FROM organizations WHERE org_id = $1 LIMIT 1`,
-    [orgId],
+    `SELECT o.media_storage_limit_bytes, o.media_user_limit_bytes,
+            om.media_user_limit_bytes AS member_user_limit_bytes
+     FROM organizations o
+     LEFT JOIN organization_members om ON om.org_id = o.org_id AND om.user_id = $2
+     WHERE o.org_id = $1 LIMIT 1`,
+    [orgId, session.userId],
   );
   const orgRow = orgRes.rows[0];
   if (orgRow?.media_storage_limit_bytes) {
@@ -13707,9 +13763,15 @@ async function handlePrepareMedia(request, orgId) {
     if (used + fileSize > Number(orgRow.media_storage_limit_bytes))
       return json({ error: "Organization storage quota exceeded." }, 413);
   }
-  if (orgRow?.media_user_limit_bytes) {
+  {
+    const effectiveUserLimit =
+      orgRow?.member_user_limit_bytes != null
+        ? Number(orgRow.member_user_limit_bytes)
+        : orgRow?.media_user_limit_bytes != null
+          ? Number(orgRow.media_user_limit_bytes)
+          : DEFAULT_USER_STORAGE_BYTES;
     const used = await getUserStorageUsed(orgId, session.userId);
-    if (used + fileSize > Number(orgRow.media_user_limit_bytes))
+    if (used + fileSize > effectiveUserLimit)
       return json(
         { error: "Your personal storage quota for this organization is full." },
         413,
@@ -13898,8 +13960,12 @@ async function handleConfirmMedia(request, orgId) {
   }
 
   const quotaRes = await pool.query(
-    `SELECT media_storage_limit_bytes, media_user_limit_bytes FROM organizations WHERE org_id = $1 LIMIT 1`,
-    [orgId],
+    `SELECT o.media_storage_limit_bytes, o.media_user_limit_bytes,
+            om.media_user_limit_bytes AS member_user_limit_bytes
+     FROM organizations o
+     LEFT JOIN organization_members om ON om.org_id = o.org_id AND om.user_id = $2
+     WHERE o.org_id = $1 LIMIT 1`,
+    [orgId, String(row.uploaded_by)],
   );
   const quota = quotaRes.rows[0];
   if (quota?.media_storage_limit_bytes) {
@@ -13909,9 +13975,15 @@ async function handleConfirmMedia(request, orgId) {
       return json({ error: "Organization storage quota exceeded." }, 413);
     }
   }
-  if (quota?.media_user_limit_bytes) {
+  {
+    const effectiveUserLimit =
+      quota?.member_user_limit_bytes != null
+        ? Number(quota.member_user_limit_bytes)
+        : quota?.media_user_limit_bytes != null
+          ? Number(quota.media_user_limit_bytes)
+          : DEFAULT_USER_STORAGE_BYTES;
     const used = await getUserStorageUsed(orgId, String(row.uploaded_by));
-    if (used + realSize > Number(quota.media_user_limit_bytes)) {
+    if (used + realSize > effectiveUserLimit) {
       await discard();
       return json(
         { error: "Personal storage quota for this organization is full." },
@@ -17231,6 +17303,41 @@ async function handleSearchPlayersByIpHash(request, hashQuery) {
   });
 }
 
+// ── Player origin heatmap (90-day country aggregate from session + IP data) ───
+
+async function handleGetPlayerOriginHeatmap(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (
+    !orgHasPermission(session, orgId, "players_view") &&
+    !canManageOrg(session, orgId) &&
+    !isGlobalAdmin(session)
+  )
+    return json({ error: "Forbidden" }, 403);
+
+  const since = Math.floor(Date.now() / 1000) - 90 * 86400;
+  try {
+    const { rows } = await pool.query(
+      `SELECT im.country, COUNT(DISTINCT sps.steam_id)::int AS count
+       FROM server_player_sessions sps
+       JOIN player_ip_history pih ON pih.steam_id = sps.steam_id
+       JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
+       WHERE sps.org_id = $1
+         AND sps.connected_at > $2
+         AND im.country IS NOT NULL
+       GROUP BY im.country
+       ORDER BY count DESC
+       LIMIT 100`,
+      [orgId, since],
+    );
+    return json({
+      countries: rows.map((r) => ({ country: String(r.country), count: Number(r.count) })),
+    });
+  } catch {
+    return json({ countries: [] });
+  }
+}
+
 // ── Org player list (cached players + live RCON online status) ────────────────
 
 async function handleGetOrgPlayerList(request, orgId) {
@@ -18745,6 +18852,13 @@ async function _handleApiRequest(request) {
     );
     if (orgPlayerListMatch && request.method === "GET")
       return handleGetOrgPlayerList(request, orgPlayerListMatch[1]);
+
+    // Org player origin heatmap (90-day country aggregate)
+    const playerOriginHeatmapMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/player-origin-heatmap$/,
+    );
+    if (playerOriginHeatmapMatch && request.method === "GET")
+      return handleGetPlayerOriginHeatmap(request, playerOriginHeatmapMatch[1]);
 
     // Org recent F7 reports (sidebar)
     const orgRecentReportsMatch = pathname.match(

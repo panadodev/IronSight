@@ -2251,4 +2251,8 @@ export async function ensureRolePermissionSeed(pool) {
   await pool.query(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_feedback_unique_ticket ON ticket_feedback(ticket_id)`,
   );
+
+  await pool.query(
+    `ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS media_user_limit_bytes BIGINT`,
+  );
 }

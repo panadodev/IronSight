@@ -7,17 +7,24 @@ import {
   AlertTriangle,
   Ban,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
   FileIcon,
   Gamepad2,
   LayoutList,
+  Maximize2,
+  Minimize2,
   Search,
   Shield,
   UserCheck,
   UserSearch,
   Users,
   Wifi,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -790,7 +797,6 @@ function TicketsPage() {
                   orgs={orgs}
                   selected={ticket.ticket_id === selectedId}
                   onClick={() => setSelectedId(ticket.ticket_id)}
-                  myUserId={sessionUser?.userId}
                 />
               ))
             )}
@@ -875,13 +881,11 @@ function getOrgPrefix(orgId, orgs) {
   return org ? org.short : (orgId ?? "??").slice(0, 2).toUpperCase();
 }
 
-function TicketListItem({ ticket, orgs, selected, onClick, myUserId }) {
+function TicketListItem({ ticket, orgs, selected, onClick }) {
   const kind = ticket.kind ?? ticketKind(ticket);
   const prefix = getOrgPrefix(ticket.org_id, orgs);
   const isAuto = ticket.category === "threat_auto";
   const isCase = ticket.category === "staff_case";
-  const claimed = Boolean(ticket.assigned_to);
-  const claimedByMe = claimed && ticket.assigned_to === myUserId;
   return (
     <button
       onClick={onClick}
@@ -917,22 +921,20 @@ function TicketListItem({ ticket, orgs, selected, onClick, myUserId }) {
               : (ticket.created_by_username ?? "Unknown")}
           </span>
         </div>
-        <div className="flex items-center gap-1 mt-0.5">
-          {claimed && (
-            <span
-              title={`Claimed by ${claimedByMe ? "you" : (ticket.assigned_to_username ?? "staff")}`}
-              className={`flex items-center gap-0.5 text-[0.5625rem] font-mono uppercase tracking-wider px-1 rounded shrink-0 max-w-[6rem] ${
-                claimedByMe
-                  ? "text-brand bg-brand/10"
-                  : "text-emerald-400 bg-emerald-400/10"
-              }`}
-            >
-              <UserCheck size={8} className="shrink-0" />
-              <span className="truncate">
-                {claimedByMe
-                  ? "You"
-                  : (ticket.assigned_to_username ?? "Claimed")}
+        <div className="flex items-center gap-1 mt-0.5 min-w-0">
+          {ticket.last_staff_reply_at ? (
+            <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+              <UserCheck size={8} className="shrink-0 text-muted-foreground" />
+              <span className="text-[0.5625rem] font-mono text-muted-foreground truncate">
+                {ticket.last_staff_reply_username ?? "Staff"}
               </span>
+              <span className="text-[0.5625rem] font-mono text-muted-foreground shrink-0">
+                · {formatRelativeTime(ticket.last_staff_reply_at)}
+              </span>
+            </span>
+          ) : (
+            <span className="text-[0.5625rem] font-mono text-muted-foreground/50 italic">
+              No replies yet
             </span>
           )}
           <span className="text-[0.625rem] font-mono text-muted-foreground ml-auto shrink-0">
@@ -1345,6 +1347,188 @@ function BlacklistManager({ orgId, prefill, onClose }) {
   );
 }
 
+function MediaLightbox({ media, initialIndex, onClose }) {
+  const [index, setIndex] = useState(initialIndex);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const panStart = useRef(null);
+  const containerRef = useRef(null);
+
+  const item = media[index];
+  const prev = () => { setIndex((i) => (i - 1 + media.length) % media.length); resetView(); };
+  const next = () => { setIndex((i) => (i + 1) % media.length); resetView(); };
+  const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") prev();
+      if (e.key === "ArrowRight") next();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const onWheel = (e) => {
+    e.preventDefault();
+    setZoom((z) => Math.min(8, Math.max(1, z - e.deltaY * 0.002)));
+  };
+
+  const onMouseDown = (e) => {
+    if (zoom <= 1) return;
+    setPanning(true);
+    panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+  };
+  const onMouseMove = (e) => {
+    if (!panning || !panStart.current) return;
+    setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
+  };
+  const onMouseUp = () => setPanning(false);
+
+  const formatBytes = (b) => {
+    if (!b) return null;
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/95"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 shrink-0">
+        <span className="text-xs font-mono text-white/60">
+          {index + 1} / {media.length}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setZoom((z) => Math.min(8, z + 0.5))}
+            className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          >
+            <ZoomIn size={16} />
+          </button>
+          <span className="text-xs font-mono text-white/40 w-10 text-center">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            onClick={() => setZoom((z) => Math.max(1, z - 0.5))}
+            className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          >
+            <ZoomOut size={16} />
+          </button>
+          <button
+            onClick={resetView}
+            className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          >
+            <Minimize2 size={16} />
+          </button>
+          <div className="w-px h-4 bg-white/20 mx-1" />
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Viewer */}
+      <div
+        ref={containerRef}
+        className="flex-1 relative overflow-hidden flex items-center justify-center"
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        style={{ cursor: zoom > 1 ? (panning ? "grabbing" : "grab") : "default" }}
+      >
+        {media.length > 1 && (
+          <button
+            onClick={prev}
+            className="absolute left-3 z-10 p-2 rounded-full bg-black/50 hover:bg-black/80 text-white/60 hover:text-white transition-colors"
+          >
+            <ChevronLeft size={20} />
+          </button>
+        )}
+
+        <div
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: "center",
+            transition: panning ? "none" : "transform 0.1s ease",
+            userSelect: "none",
+          }}
+          className="max-w-full max-h-full"
+        >
+          {item?.fileType === "image" && item.url ? (
+            <img
+              src={item.url}
+              alt={item.title || item.filename}
+              draggable={false}
+              className="max-w-[80vw] max-h-[70vh] object-contain"
+            />
+          ) : item?.fileType === "video" && item.url ? (
+            <video
+              src={item.url}
+              controls
+              className="max-w-[80vw] max-h-[70vh]"
+              style={{ pointerEvents: zoom > 1 ? "none" : "auto" }}
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-3 text-white/40">
+              <FileIcon size={48} />
+              <span className="text-sm font-mono">{item?.filename ?? "Unknown file"}</span>
+            </div>
+          )}
+        </div>
+
+        {media.length > 1 && (
+          <button
+            onClick={next}
+            className="absolute right-3 z-10 p-2 rounded-full bg-black/50 hover:bg-black/80 text-white/60 hover:text-white transition-colors"
+          >
+            <ChevronRight size={20} />
+          </button>
+        )}
+      </div>
+
+      {/* Info panel */}
+      <div className="shrink-0 border-t border-white/10 px-4 py-2 flex items-start gap-4 bg-black/60">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-white font-medium truncate">
+            {item?.title || item?.filename || "Untitled"}
+          </p>
+          {item?.title && item?.filename && (
+            <p className="text-xs font-mono text-white/40 truncate mt-0.5">{item.filename}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-4 shrink-0 text-xs font-mono text-white/40">
+          {item?.mimeType && <span>{item.mimeType}</span>}
+          {item?.fileSize && <span>{formatBytes(item.fileSize)}</span>}
+          {item?.uploadedAt && (
+            <span>{new Date(item.uploadedAt * 1000).toLocaleString()}</span>
+          )}
+          {item?.url && (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-white/40 hover:text-white transition-colors"
+            >
+              <ExternalLink size={12} />
+              Open
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TicketDetail({
   ticket,
   messages,
@@ -1380,6 +1564,7 @@ function TicketDetail({
   const publicMessages = messages.filter((m) => !m.isInternal);
   const isSysAdmin = sessionUser?.isSysAdmin || sessionUser?.globalAdmin;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
 
   const noteHasIp = IP_IN_TEXT_RE.test(noteText);
   const replyHasIp = IP_IN_TEXT_RE.test(replyText);
@@ -1545,13 +1730,11 @@ function TicketDetail({
                   Evidence / Attachments
                 </div>
                 <div className="columns-2 sm:columns-3 md:columns-4 gap-2">
-                  {media.map((item) => (
-                    <a
+                  {media.map((item, idx) => (
+                    <button
                       key={item.mediaId}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group relative mb-2 block break-inside-avoid rounded ring-1 ring-border hover:ring-brand transition-colors overflow-hidden"
+                      onClick={() => setLightboxIndex(idx)}
+                      className="group relative mb-2 block break-inside-avoid rounded ring-1 ring-border hover:ring-brand transition-colors overflow-hidden w-full text-left"
                     >
                       {item.fileType === "image" && item.url ? (
                         <img
@@ -1578,10 +1761,17 @@ function TicketDetail({
                           </p>
                         </div>
                       )}
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>
+            )}
+            {lightboxIndex !== null && media.length > 0 && (
+              <MediaLightbox
+                media={media}
+                initialIndex={lightboxIndex}
+                onClose={() => setLightboxIndex(null)}
+              />
             )}
             {messages.length === 0 &&
               media.length === 0 &&

@@ -20,6 +20,7 @@ import { env } from "./config.js";
 // threshold so the browser doesn't block on a single huge PUT.
 export const MULTIPART_THRESHOLD = 300 * 1024 * 1024; // 300 MB
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB hard cap
+export const DEFAULT_USER_STORAGE_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB default per-user quota
 export const DEFAULT_PUBLIC_FILE_LIMIT = 100 * 1024 * 1024; // 100 MB
 export const DEFAULT_PUBLIC_MAX_FILES = 5;
 const MULTIPART_PART_SIZE = 100 * 1024 * 1024; // 100 MB per part

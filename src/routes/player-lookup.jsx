@@ -1160,9 +1160,37 @@ function PlayerLookupPage() {
     };
   });
 
+  const bmOffenseRows = isSupportOnly
+    ? []
+    : visibleBmBans.map((b) => {
+        const isPerm = b.permanent || !b.expiresAt;
+        const expired =
+          !isPerm && b.expiresAt <= Math.floor(Date.now() / 1000);
+        return {
+          id: `bm-${b.bmBanId}`,
+          type: "BM Ban",
+          status: isPerm ? "Permanent" : expired ? "Expired" : "Active",
+          statusTone: isPerm ? "danger" : expired ? "muted" : "warning",
+          reason: b.reason ?? "—",
+          by: b.bmOrgName ?? "BattleMetrics",
+          note: b.note ?? "",
+          when: b.bannedAt
+            ? (() => {
+                const days = Math.floor(
+                  (Date.now() / 1000 - b.bannedAt) / 86400,
+                );
+                if (days < 7) return `${days}d ago`;
+                if (days < 30) return `${Math.floor(days / 7)}w ago`;
+                if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+                return `${(days / 365).toFixed(1)}y ago`;
+              })()
+            : "—",
+        };
+      });
+
   const visibleOffenseRows = isSupportOnly
     ? offenseRows.filter((o) => o.type === "Mute")
-    : offenseRows;
+    : [...offenseRows, ...bmOffenseRows];
 
   // Consolidated risk flags shown as a banner under the profile header. Built
   // entirely from data already on playerData / offenses — no extra fetches.
@@ -1606,6 +1634,9 @@ function PlayerLookupPage() {
                                 {playerData.bm?.rustBansBanned && (
                                   <span className="text-[0.625rem] font-mono uppercase tracking-widest text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0">
                                     BM Banned
+                                    {(playerData.bm?.rustBansCount ?? 0) > 1 && (
+                                      <> · {playerData.bm.rustBansCount} total</>
+                                    )}
                                   </span>
                                 )}
                                 {(playerData.bm?.rustBansCount ?? 0) > 0 &&

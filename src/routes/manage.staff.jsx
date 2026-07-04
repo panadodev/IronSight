@@ -44,6 +44,7 @@ import {
   Crown,
   Eye,
   Gavel,
+  HardDrive,
   LogOut,
   ScrollText,
   Search,
@@ -123,6 +124,15 @@ function relativeColor(unixSec) {
   if (diff < 86400 * 7) return "text-foreground";
   if (diff < 86400 * 30) return "text-amber-400/80";
   return "text-muted-foreground/60";
+}
+
+const DEFAULT_USER_STORAGE_GB = 10;
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
 function StatCard({ label, value, icon: Icon, colorClass, bgClass }) {
@@ -238,6 +248,10 @@ function StaffPage() {
   const [changingRoleId, setChangingRoleId] = useState(null);
 
   const [revokingSessionId, setRevokingSessionId] = useState(null);
+
+  const [storageLimitMember, setStorageLimitMember] = useState(null);
+  const [storageLimitGb, setStorageLimitGb] = useState("");
+  const [storageLimitSaving, setStorageLimitSaving] = useState(false);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
@@ -449,6 +463,44 @@ function StaffPage() {
       toast.error("Network error.");
     } finally {
       setRevokingSessionId(null);
+    }
+  }
+
+  async function handleSaveStorageLimit() {
+    if (!storageLimitMember || storageLimitSaving) return;
+    setStorageLimitSaving(true);
+    try {
+      const gb = storageLimitGb.trim();
+      const limitBytes = gb === "" ? null : Math.round(parseFloat(gb) * 1024 * 1024 * 1024);
+      if (gb !== "" && (!Number.isFinite(limitBytes) || limitBytes < 0)) {
+        toast.error("Enter a valid number of GB.");
+        return;
+      }
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(storageLimitMember.userId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mediaUserLimitBytes: limitBytes }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body?.error ?? "Failed to update storage limit.");
+        return;
+      }
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.userId === storageLimitMember.userId
+            ? { ...m, mediaUserLimitBytes: limitBytes }
+            : m,
+        ),
+      );
+      setStorageLimitMember(null);
+      toast.success("Storage limit updated.");
+    } finally {
+      setStorageLimitSaving(false);
     }
   }
 
@@ -760,6 +812,26 @@ function StaffPage() {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+                  )}
+
+                  {(isAdmin || isOwner) && !isOwnerRow && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const limitGb =
+                          m.mediaUserLimitBytes != null
+                            ? (m.mediaUserLimitBytes / (1024 * 1024 * 1024)).toFixed(1)
+                            : "";
+                        setStorageLimitGb(limitGb);
+                        setStorageLimitMember(m);
+                      }}
+                      className="h-7 px-2 text-[0.625rem] font-mono uppercase tracking-widest gap-1"
+                      title={`Storage: ${formatBytes(m.mediaUsedBytes ?? 0)} used`}
+                    >
+                      <HardDrive className="size-3" />
+                      {formatBytes(m.mediaUsedBytes ?? 0)}
+                    </Button>
                   )}
 
                   {canChangeRole && (
@@ -1144,6 +1216,60 @@ function StaffPage() {
           </div>
         </div>
       </div>
+
+      {/* Per-user storage limit dialog */}
+      <Dialog
+        open={!!storageLimitMember}
+        onOpenChange={(o) => !o && setStorageLimitMember(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <HardDrive className="size-4 text-muted-foreground" />
+              Storage limit — {storageLimitMember?.username}
+            </DialogTitle>
+            <DialogDescription>
+              Currently using{" "}
+              <span className="font-medium text-foreground">
+                {formatBytes(storageLimitMember?.mediaUsedBytes ?? 0)}
+              </span>
+              . Leave blank to use the org default (
+              {DEFAULT_USER_STORAGE_GB} GB).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 py-1">
+            <Label className="text-[0.6875rem] font-mono uppercase tracking-widest text-muted-foreground">
+              Limit (GB)
+            </Label>
+            <Input
+              type="number"
+              min="0"
+              step="1"
+              placeholder={`${DEFAULT_USER_STORAGE_GB} (default)`}
+              value={storageLimitGb}
+              onChange={(e) => setStorageLimitGb(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSaveStorageLimit()}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            {storageLimitGb !== "" && (
+              <Button
+                variant="ghost"
+                onClick={() => setStorageLimitGb("")}
+                className="text-muted-foreground"
+              >
+                Reset to default
+              </Button>
+            )}
+            <Button
+              onClick={handleSaveStorageLimit}
+              disabled={storageLimitSaving}
+            >
+              {storageLimitSaving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Multi-steam warning dialog */}
       <Dialog
