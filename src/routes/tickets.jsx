@@ -918,9 +918,6 @@ function TicketListItem({ ticket, orgs, selected, onClick, myUserId }) {
           </span>
         </div>
         <div className="flex items-center gap-1 mt-0.5">
-          <span className="text-[0.625rem] font-mono text-muted-foreground capitalize">
-            {ticket.priority}
-          </span>
           {claimed && (
             <span
               title={`Claimed by ${claimedByMe ? "you" : (ticket.assigned_to_username ?? "staff")}`}
@@ -1425,17 +1422,6 @@ function TicketDetail({
           >
             {isClaimed ? "CLAIMED" : "CLAIM"}
           </button>
-          <span
-            className={`text-[0.625rem] font-mono uppercase font-bold tracking-wider ml-auto ${
-              ticket.priority === "urgent"
-                ? "text-danger"
-                : ticket.priority === "high"
-                  ? "text-warning"
-                  : "text-muted-foreground"
-            }`}
-          >
-            {ticket.priority}
-          </span>
         </div>
       </div>
 

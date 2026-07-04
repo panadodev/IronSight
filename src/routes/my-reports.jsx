@@ -30,13 +30,6 @@ const STATUS_LABEL = {
   waiting_response: "Waiting for you",
   closed: "Closed",
 };
-const PRIORITY_TONE = {
-  urgent: "text-danger",
-  high: "text-warning",
-  normal: "text-muted-foreground",
-  low: "text-muted-foreground/60",
-};
-
 function timeAgo(unixTs) {
   const diff = Math.floor(Date.now() / 1000) - unixTs;
   if (diff < 60) return "just now";
@@ -320,15 +313,6 @@ function MyTicketsPage() {
                     >
                       {STATUS_LABEL[ticketDetail.ticket.status] ??
                         ticketDetail.ticket.status}
-                    </span>
-                    <span
-                      className={
-                        "text-[0.625rem] font-mono uppercase tracking-widest " +
-                        (PRIORITY_TONE[ticketDetail.ticket.priority] ??
-                          "text-muted-foreground")
-                      }
-                    >
-                      {ticketDetail.ticket.priority}
                     </span>
                   </div>
                 </div>

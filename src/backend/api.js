@@ -7069,7 +7069,6 @@ async function handleUpdateTicket(request, ticketIdStr) {
   }
 
   const status = body?.status == null ? null : String(body.status).trim();
-  const priority = body?.priority == null ? null : String(body.priority).trim();
   const hasAssigned = Object.prototype.hasOwnProperty.call(
     body ?? {},
     "assignedTo",
@@ -7085,12 +7084,6 @@ async function handleUpdateTicket(request, ticketIdStr) {
     !["open", "waiting_response", "closed"].includes(status)
   ) {
     return json({ error: "Invalid status" }, 400);
-  }
-  if (
-    priority !== null &&
-    !["urgent", "high", "normal", "low"].includes(priority)
-  ) {
-    return json({ error: "Invalid priority" }, 400);
   }
 
   // An assignee must belong to the ticket's org. Global admins may still
@@ -7116,10 +7109,6 @@ async function handleUpdateTicket(request, ticketIdStr) {
     setClauses.push(`status = $${idx++}`);
     values.push(status);
   }
-  if (priority !== null) {
-    setClauses.push(`priority = $${idx++}`);
-    values.push(priority);
-  }
   if (assignedTo !== undefined) {
     setClauses.push(`assigned_to = $${idx++}`);
     values.push(assignedTo);
@@ -7141,12 +7130,7 @@ async function handleUpdateTicket(request, ticketIdStr) {
 
   await pool.query(
     `INSERT INTO ticket_audit_log (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-    [
-      id,
-      session.userId,
-      "updated",
-      JSON.stringify({ status, priority, assignedTo }),
-    ],
+    [id, session.userId, "updated", JSON.stringify({ status, assignedTo })],
   );
 
   await invalidateTicketCache(id);
@@ -7161,7 +7145,6 @@ async function handleUpdateTicket(request, ticketIdStr) {
           type: "ticket_updated",
           ticket: {
             status: updated.status,
-            priority: updated.priority,
             assigned_to: updated.assigned_to,
             assigned_to_username: updated.assigned_to_username,
           },
@@ -7255,7 +7238,7 @@ async function handleListOrgTickets(request, orgId) {
 
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id, t.created_by, t.assigned_to,
-            t.status, t.priority, t.category, t.title,
+            t.status, t.category, t.title,
             t.created_at,
             t.updated_at,
             t.closed_at,
@@ -7292,7 +7275,6 @@ async function handleListOrgTickets(request, orgId) {
       assigned_to: row.assigned_to ? String(row.assigned_to) : null,
       assigned_to_username: row.assigned_to_username ?? null,
       status: String(row.status),
-      priority: String(row.priority),
       title: String(row.title),
       created_at: Number(row.created_at),
       updated_at: Number(row.updated_at),
@@ -7368,8 +7350,8 @@ async function handleCreateCase(request, orgId) {
   try {
     await txClient.query("BEGIN");
     const ins = await txClient.query(
-      `INSERT INTO tickets (org_id, ticket_type_id, created_by, status, priority, category, title, reported_players)
-       VALUES ($1, $2, $3, 'open', 'normal', 'staff_case', $4, $5) RETURNING ticket_id`,
+      `INSERT INTO tickets (org_id, ticket_type_id, created_by, status, category, title, reported_players)
+       VALUES ($1, $2, $3, 'open', 'staff_case', $4, $5) RETURNING ticket_id`,
       [orgId, ticketTypeId, session.userId, title, [steamId]],
     );
     ticketId = Number(ins.rows[0].ticket_id);
@@ -7463,7 +7445,7 @@ async function handleListMyTickets(request) {
 
   const { rows } = await pool.query(
     `SELECT t.ticket_id, t.org_id, t.ticket_type_id,
-            t.status, t.priority, t.title,
+            t.status, t.title,
             t.created_at,
             t.updated_at,
             t.closed_at,
@@ -7486,7 +7468,6 @@ async function handleListMyTickets(request) {
       ticket_type_id: row.ticket_type_id ? Number(row.ticket_type_id) : null,
       ticket_type_name: row.ticket_type_name ?? null,
       status: String(row.status),
-      priority: String(row.priority),
       title: String(row.title),
       created_at: Number(row.created_at),
       updated_at: Number(row.updated_at),

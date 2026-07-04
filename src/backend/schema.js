@@ -194,14 +194,12 @@ export async function ensureSchema(pool) {
       created_by UUID REFERENCES users(user_id) ON DELETE SET NULL,
       assigned_to UUID REFERENCES users(user_id) ON DELETE SET NULL,
       status TEXT NOT NULL DEFAULT 'open',
-      priority TEXT NOT NULL DEFAULT 'normal',
       category TEXT,
       title TEXT NOT NULL,
       created_at BIGINT NOT NULL DEFAULT unix_now(),
       updated_at BIGINT NOT NULL DEFAULT unix_now(),
       closed_at BIGINT,
-      CONSTRAINT chk_tickets_status CHECK (status IN ('open', 'waiting_response', 'closed')),
-      CONSTRAINT chk_tickets_priority CHECK (priority IN ('urgent', 'high', 'normal', 'low'))
+      CONSTRAINT chk_tickets_status CHECK (status IN ('open', 'waiting_response', 'closed'))
     )
   `);
 
