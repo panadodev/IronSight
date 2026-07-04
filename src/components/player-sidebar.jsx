@@ -2049,7 +2049,7 @@ function Field({ label, value, tone, hint }) {
   const labelEl = (
     <p
       className={
-        "text-[10px] text-muted-foreground uppercase w-fit" +
+        "text-xs text-muted-foreground uppercase w-fit" +
         (hint
           ? " underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 cursor-help"
           : "")
@@ -2061,7 +2061,7 @@ function Field({ label, value, tone, hint }) {
   return (
     <div>
       {hint ? <Hint text={hint}>{labelEl}</Hint> : labelEl}
-      <p className={`text-sm font-mono ${color}`}>{value}</p>
+      <p className={`text-base font-mono ${color}`}>{value}</p>
     </div>
   );
 }

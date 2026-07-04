@@ -86,6 +86,15 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
   }
+  /* Accessibility text scaling (see text-size-store.js). "small" is the
+     historical default (no attribute / 100%); normal and large scale the root
+     font-size so all rem-based text and spacing grow proportionally. */
+  html[data-text-size="normal"] {
+    font-size: 112.5%;
+  }
+  html[data-text-size="large"] {
+    font-size: 125%;
+  }
   body {
     padding-left: 14rem;
   }

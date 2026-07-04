@@ -140,6 +140,15 @@ function RootShell({ children }) {
     <html lang="en">
       <head>
         <HeadContent />
+        {/* Apply the saved accessibility text size before first paint so the
+            panel doesn't reflow on load. Mirrors text-size-store.js (key +
+            default). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var s=localStorage.getItem('iron_text_size_v1');if(s!=='normal'&&s!=='large')s='small';document.documentElement.setAttribute('data-text-size',s);}catch(e){}})();",
+          }}
+        />
       </head>
       <body>
         {children}

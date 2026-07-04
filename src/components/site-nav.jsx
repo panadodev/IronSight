@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -22,13 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { getAuthMe, invalidateAuthMe } from "@/lib/auth-cache";
 import { useAuth } from "@/lib/auth-context";
-import { timezoneStore } from "@/lib/timezone-store";
+import { TEAM_META } from "@/lib/constants";
 import { hintsStore } from "@/lib/hints-store";
 import { lastVisitStore } from "@/lib/last-visit";
 import { manageOrgStore, useManageOrgId } from "@/lib/manage-org-store";
-import { TEAM_META } from "@/lib/constants";
+import { timezoneStore } from "@/lib/timezone-store";
+import { textSizeStore, useTextSize, TEXT_SIZES } from "@/lib/text-size-store";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Building2,
@@ -92,6 +93,7 @@ function SiteNav() {
   const [steamLinkSuccess, setSteamLinkSuccess] = useState(false);
   const [steamLinkError, setSteamLinkError] = useState(null);
   const isSysAdminSession = Boolean(sessionUser?.isSysAdmin);
+  const textSize = useTextSize();
 
   // Per-org permission helpers. A link should appear if the user has the
   // relevant permission in ANY org (admins/owners pass via hasOrgPermission,
@@ -1125,8 +1127,7 @@ function SiteNav() {
           <DialogHeader>
             <DialogTitle>Profile</DialogTitle>
             <DialogDescription>
-              Manage your support system identity, linked accounts, and
-              integration tokens.
+              Manage your support system identity, linked accounts, and preferences.
             </DialogDescription>
           </DialogHeader>
 
@@ -1157,6 +1158,30 @@ function SiteNav() {
               <p className="text-[10px] text-muted-foreground">
                 Toggle between the public player-facing site and the staff
                 panel.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Text size</Label>
+              <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
+                {TEXT_SIZES.map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => textSizeStore.set(size)}
+                    className={
+                      "px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded transition-colors " +
+                      (textSize === size
+                        ? "bg-brand text-brand-foreground"
+                        : "text-muted-foreground hover:text-foreground")
+                    }
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Scale text across the panel for easier reading. Saved on this
+                device.
               </p>
             </div>
 

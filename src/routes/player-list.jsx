@@ -501,7 +501,7 @@ function PlayerListPage() {
               {/* Table */}
               {(!loading || players.length > 0) && (
                 <div className="rounded-md ring-1 ring-border bg-surface/40 overflow-x-auto">
-                  <div className="min-w-[900px] grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
+                  <div className="min-w-[900px] grid grid-cols-[minmax(220px,340px)_minmax(120px,180px)_70px_60px_60px_60px_70px_70px_60px_minmax(0,1fr)] gap-2 px-3 py-2 border-b border-border text-[10px] font-mono uppercase tracking-widest text-muted-foreground sticky top-0 bg-surface/80 backdrop-blur">
                     <HeaderCell
                       label="Player"
                       k="name"
@@ -643,6 +643,9 @@ function PlayerListPage() {
                       align="right"
                     />
                     <div className="px-1 text-right">Proxy</div>
+                    {/* Trailing spacer soaks up extra width on wide screens so
+                        the Player column stays a sane size instead of ballooning. */}
+                    <div aria-hidden />
                   </div>
 
                   <div className="divide-y divide-border/60">
@@ -651,7 +654,7 @@ function PlayerListPage() {
                       return (
                         <div
                           key={p.steamId}
-                          className="min-w-[900px] grid grid-cols-[minmax(220px,2fr)_140px_70px_60px_60px_60px_70px_70px_60px] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
+                          className="min-w-[900px] grid grid-cols-[minmax(220px,340px)_minmax(120px,180px)_70px_60px_60px_60px_70px_70px_60px_minmax(0,1fr)] gap-2 px-3 py-2 items-center text-xs hover:bg-surface/60 transition-colors"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             {p.avatarUrl ? (
@@ -740,6 +743,7 @@ function PlayerListPage() {
                               {p.isProxy ? "YES" : "NO"}
                             </span>
                           </div>
+                          <div aria-hidden />
                         </div>
                       );
                     })}

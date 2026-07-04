@@ -1578,7 +1578,7 @@ function PlayerLookupPage() {
                               steamId={playerData.steamId}
                               displayName={playerData.displayName}
                               avatarUrl={playerData.avatarUrl}
-                              size={64}
+                              size={72}
                             />
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
@@ -1600,7 +1600,7 @@ function PlayerLookupPage() {
                                       : "Offline"
                                   }
                                 />
-                                <h2 className="text-lg font-semibold truncate">
+                                <h2 className="text-xl font-semibold truncate">
                                   {playerData.displayName ?? playerData.steamId}
                                 </h2>
                                 {playerData.bm?.rustBansBanned && (
@@ -3319,6 +3319,16 @@ function ConnectionPointsSection({
                         {rawType ?? summary}
                       </dd>
                     </div>
+                    {entry.city && (
+                      <div>
+                        <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                          City
+                        </dt>
+                        <dd className="font-mono text-foreground">
+                          {entry.city}
+                        </dd>
+                      </div>
+                    )}
                     {entry.region && (
                       <div>
                         <dt className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
