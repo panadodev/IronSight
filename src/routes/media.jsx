@@ -222,7 +222,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Upload media</DialogTitle>
           <DialogDescription>
@@ -392,7 +392,7 @@ function Thumbnail({ item }) {
 function PreviewDialog({ item, onClose, onDelete, showOrg }) {
   return (
     <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl max-h-[90dvh] overflow-y-auto">
         {item && (
           <>
             <DialogHeader>
@@ -1119,7 +1119,7 @@ function MediaPage() {
             open={!!confirmDelete}
             onOpenChange={(o) => !o && setConfirmDelete(null)}
           >
-            <DialogContent className="max-w-sm">
+            <DialogContent className="max-w-sm max-h-[90dvh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Delete media?</DialogTitle>
                 <DialogDescription>

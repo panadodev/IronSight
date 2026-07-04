@@ -1391,7 +1391,7 @@ function DiscordModPage() {
         open={!!actionTarget}
         onOpenChange={(o) => !o && setActionTarget(null)}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {canTimeout || canKick || canBan

@@ -91,7 +91,7 @@ function ManageDialog({ kind, offenses, trigger }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {kind === "Ban" ? "Manage Bans" : "Manage Mutes"}

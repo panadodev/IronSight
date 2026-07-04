@@ -524,7 +524,7 @@ function PlayerListPage() {
                           <ChevronDown className="size-3" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-72 p-2">
+                      <PopoverContent align="start" className="w-72 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
                         <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
                           <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                             Filter servers

@@ -671,7 +671,7 @@ function TodoPage() {
         open={createTaskStaff !== null}
         onOpenChange={(open) => !open && closeCreateDialog()}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New task</DialogTitle>
             <DialogDescription className="font-mono text-[0.625rem]">
@@ -891,7 +891,7 @@ function TodoPage() {
         open={selectedTodo !== null}
         onOpenChange={(open) => !open && closeEditDialog()}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Task Details</DialogTitle>
             <DialogDescription>
@@ -1023,7 +1023,7 @@ function TodoPage() {
         open={reassignPending !== null}
         onOpenChange={(open) => !open && setReassignPending(null)}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Reassign Task</DialogTitle>
             <DialogDescription>
@@ -1077,7 +1077,7 @@ function OrgFilterPopover({ orgs, effectiveIds, label, onToggle, onSetAll }) {
           <ChevronDown className="size-3 text-muted-foreground ml-1" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-2">
+      <PopoverContent align="end" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
           <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Filter orgs
@@ -1314,7 +1314,7 @@ function AddStaffPopover({ staff, onAdd }) {
           Add staff to board
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-1.5">
+      <PopoverContent align="start" className="w-56 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="px-1 pb-1.5">
           <div className="relative">
             <Search className="size-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />

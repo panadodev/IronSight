@@ -313,7 +313,7 @@ function OrgSwitcher({ orgs, value, onChange }) {
           <ChevronDown className="size-3.5 text-muted-foreground ml-1" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-2">
+      <PopoverContent align="end" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
           Your manageable orgs
         </div>
@@ -700,7 +700,7 @@ function ScriptPickerButton({ scripts, onPick, disabled }) {
           <ScrollText className="size-3.5 mr-1" /> Script
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-1.5">
+      <PopoverContent align="end" className="w-80 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="flex items-center gap-1.5 px-1 pb-1.5">
           <Input
             value={q}
@@ -1110,7 +1110,7 @@ function ScriptsTab({ servers, orgId }) {
         open={!!confirmDelete}
         onOpenChange={(o) => !o && setConfirmDelete(null)}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Delete script?</DialogTitle>
             <DialogDescription>
@@ -1157,7 +1157,7 @@ function RunOnGroupButton({ tags, onPick, disabled }) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-52 p-1.5">
+      <PopoverContent align="end" className="w-52 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Pick a tag
         </div>
@@ -1193,7 +1193,7 @@ function RunOnServerButton({ servers, onPick, disabled }) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-64 p-1.5">
+      <PopoverContent align="end" className="w-64 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Pick a server
         </div>
@@ -1224,7 +1224,7 @@ function RunResultsDialog({ results, onClose }) {
   const anyError = results.results.some((r) => r.status === "error");
   return (
     <Dialog open={!!results} onOpenChange={(o) => !o && !pending && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Terminal className="size-4" />
@@ -1334,7 +1334,7 @@ function RunVarsDialog({ pending, onClose, onRun }) {
   const preview = applyVars(pending.script.command, values);
   return (
     <Dialog open={!!pending} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Run “{pending.script.name}”</DialogTitle>
           <DialogDescription>
@@ -1414,7 +1414,7 @@ function ScriptEditDialog({ open, initial, onClose, onSave, roles }) {
   const vars = extractVars(draft.command);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? "Edit script" : "New script"}</DialogTitle>
           <DialogDescription>
@@ -1850,7 +1850,7 @@ function OrgPluginsTab({ orgId }) {
                           <Plus className="size-2.5" /> tag
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-40 p-1">
+                      <PopoverContent align="start" className="w-40 p-1 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
                         {unassignedTags.map((t) => (
                           <button
                             key={t}
@@ -2012,7 +2012,7 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add plugin</DialogTitle>
           <DialogDescription>
@@ -2598,7 +2598,7 @@ function BulkDeleteDialog({
 
   return (
     <Dialog open onOpenChange={() => phase !== "loading" && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Remove from servers</DialogTitle>
           <DialogDescription>
@@ -2708,7 +2708,7 @@ function BulkUploadDialog({
 
   return (
     <Dialog open onOpenChange={() => phase !== "loading" && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Upload plugin</DialogTitle>
           <DialogDescription>
@@ -2815,7 +2815,7 @@ function PluginConfigDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-mono">{pluginName}.json</DialogTitle>
           <DialogDescription>{serverName}</DialogDescription>
@@ -4803,7 +4803,7 @@ function ServersTab({ orgId, onServerUpdate }) {
       {/* API Key reveal dialog after import */}
       {apiKeyReveal && (
         <Dialog open onOpenChange={() => setApiKeyReveal(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Server Imported</DialogTitle>
               <DialogDescription>
@@ -4844,7 +4844,7 @@ function ServersTab({ orgId, onServerUpdate }) {
       {/* Rotate key confirm dialog */}
       {rotateKeyConfirm && (
         <Dialog open onOpenChange={(o) => !o && setRotateKeyConfirm(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Reset API key?</DialogTitle>
               <DialogDescription>
@@ -4884,7 +4884,7 @@ function ServersTab({ orgId, onServerUpdate }) {
       {/* Rotate key reveal dialog */}
       {rotatedKeyReveal && (
         <Dialog open onOpenChange={() => setRotatedKeyReveal(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>New API Key Generated</DialogTitle>
               <DialogDescription>
@@ -4924,7 +4924,7 @@ function ServersTab({ orgId, onServerUpdate }) {
       {/* Delete confirmation dialog */}
       {deleteConfirm && (
         <Dialog open onOpenChange={(o) => !o && setDeleteConfirm(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Delete server?</DialogTitle>
               <DialogDescription>
@@ -5180,7 +5180,7 @@ function RconConfigDialog({ server, saving, error, onClose, onSave }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configure RCON — {server.serverName}</DialogTitle>
           <DialogDescription>
@@ -5310,7 +5310,7 @@ function ServerEditDialog({ open, initial, tags, nodes, onClose, onSave }) {
     }));
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? "Edit server" : "Add server"}</DialogTitle>
           <DialogDescription>
@@ -5447,7 +5447,7 @@ function NodeAddDialog({ open, onClose, onSave }) {
   }, [open]);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add dedicated machine</DialogTitle>
           <DialogDescription>

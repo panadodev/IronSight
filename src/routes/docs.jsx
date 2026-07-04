@@ -1092,7 +1092,7 @@ function NewCategoryDialog({ open, parentId, onClose, onCreate }) {
         }
       }}
     >
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {parentId ? "New subcategory" : "New category"}
@@ -1145,7 +1145,7 @@ function HistoryDialog({
   const v = article.versions.find((x) => x.id === previewing);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-4xl max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Version history — {article.title}</DialogTitle>
           <DialogDescription>

@@ -878,7 +878,7 @@ function SiteNav() {
                   <Users className="size-3.5" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" side="bottom" className="w-52 p-2">
+              <PopoverContent align="end" side="bottom" className="w-52 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
                 <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-1 pb-1.5 border-b border-border mb-1.5">
                   Online Staff
                 </p>
@@ -928,7 +928,7 @@ function SiteNav() {
                   <ChevronDown className="size-3 text-muted-foreground shrink-0" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" side="right" className="w-64 p-2">
+              <PopoverContent align="start" side="right" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
                 <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
                   <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Organizations
@@ -1123,7 +1123,7 @@ function SiteNav() {
       </aside>
 
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg flex flex-col max-h-[90dvh]">
           <DialogHeader>
             <DialogTitle>Profile</DialogTitle>
             <DialogDescription>
@@ -1131,7 +1131,7 @@ function SiteNav() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
+          <div className="space-y-5 py-2 flex-1 min-h-0 overflow-y-auto">
             <div className="space-y-1.5">
               <Label>Demo view</Label>
               <div className="flex items-center gap-1 bg-surface/60 ring-1 ring-border rounded-md p-0.5 w-fit">
@@ -1510,7 +1510,7 @@ function SiteNav() {
       </Dialog>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create organization</DialogTitle>
             <DialogDescription>
@@ -1648,7 +1648,7 @@ function ManageOrgInlineSwitcher({ orgs }) {
           <ChevronDown className="size-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="right" className="w-56 p-2">
+      <PopoverContent align="start" side="right" className="w-56 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
           Editing configs for
         </div>

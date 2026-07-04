@@ -2598,7 +2598,7 @@ function PlayerManageDialog({ steamId, kind, orgIds, open, onOpenChange }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {kind === "Ban" ? "Manage Bans" : "Manage Mutes"}
@@ -3552,7 +3552,7 @@ function CreateCaseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Staff Case</DialogTitle>
           <DialogDescription>

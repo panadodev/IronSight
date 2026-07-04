@@ -403,7 +403,7 @@ function SysRelaysPage() {
       </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add relay</DialogTitle>
             <DialogDescription>
