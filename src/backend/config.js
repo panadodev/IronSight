@@ -45,7 +45,7 @@ export const env = {
   ),
   redisUrl: chooseConnectionUrl(process.env.REDIS_URL, process.env.REDIS_URI),
   jwtSecret: process.env.JWT_SECRET,
-  sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 60 * 60 * 24),
+  sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 60 * 60 * 24 * 14),
   loginRateLimitPerMinute: Number(
     process.env.LOGIN_RATE_LIMIT_PER_MINUTE ?? 10,
   ),
@@ -65,6 +65,7 @@ export const env = {
     process.env.PTERODACTYL_ENCRYPTION_KEY ?? process.env.JWT_SECRET,
   discordBotToken: process.env.DISCORD_BOT_TOKEN,
   proxycheckHmacKey: process.env.PROXYCHECK_HMAC_KEY,
+  proxycheckApiKey: process.env.PROXYCHECK_API_KEY,
 
   // Cloudflare R2 (media storage — all sizes via presigned PUT or multipart)
   r2AccountId: process.env.R2_ACCOUNT_ID,

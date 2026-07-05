@@ -2275,4 +2275,8 @@ export async function ensureRolePermissionSeed(pool) {
   await pool.query(
     `ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS media_user_limit_bytes BIGINT`,
   );
+
+  await pool.query(
+    `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_vpn_login BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
 }

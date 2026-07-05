@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { parse as parseCookie } from "cookie";
 import { pool, redis } from "./runtime.js";
-import { json } from "./http.js";
+import { getClientIp, json } from "./http.js";
 import { env, SESSION_COOKIE, IMPERSONATE_COOKIE } from "./config.js";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
@@ -286,7 +286,26 @@ export async function getSession(request) {
 
     const raw = await redis.get(`session:${sid}`);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const session = JSON.parse(raw);
+
+    // Require both Discord and Steam on every session
+    if (!session.discordId || !session.steamId) return null;
+
+    // Revoke session if the request comes from a different IP than where it was created
+    if (session.loginIp) {
+      const requestIp = getClientIp(request);
+      if (requestIp && requestIp !== session.loginIp) {
+        redis.del(`session:${sid}`).catch(() => {});
+        pool
+          .query("UPDATE sessions SET revoked = TRUE WHERE session_id = $1", [
+            sid,
+          ])
+          .catch(() => {});
+        return null;
+      }
+    }
+
+    return session;
   } catch {
     return null;
   }

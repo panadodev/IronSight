@@ -50,7 +50,7 @@ import {
   diagRecordIncoming,
   diagRecordOutgoing,
 } from "./diagnostics.js";
-import { bmFetch, proxycheckApiFetch } from "./external-fetch.js";
+import { bmFetch, proxycheckApiFetch, proxycheckGlobalFetch } from "./external-fetch.js";
 import {
   generateRelayKey,
   healthCheckRelay,
@@ -464,6 +464,45 @@ async function evaluateIpBanEligibility(orgId, ip) {
     connectionType: connType,
     isProxyVpn: false,
   };
+}
+
+// VPN/proxy check used at login time. Uses the global PROXYCHECK_API_KEY env
+// var — no per-org key needed. Fails CLOSED: returns true (restrict to 24 h)
+// whenever the result is uncertain (key not set, API error, parse failure).
+// Only returns false when proxycheck explicitly confirms the IP is clean.
+async function checkLoginIpIsVpn(ip) {
+  const normalizedIp = String(ip ?? "").trim();
+  if (!IP_ADDRESS_RE.test(normalizedIp)) return false;
+  const hash = ipHmac(normalizedIp);
+  // Cache hit → confirmed result either way, no live call needed
+  try {
+    const cached = await pool.query(
+      `SELECT is_proxy, is_vpn, conn_type FROM ip_metadata WHERE ip_hash = $1 AND cache_expires_at > unix_now() LIMIT 1`,
+      [hash],
+    );
+    const row = cached.rows[0];
+    if (row) {
+      const connType = normalizeConnectionType(row.conn_type);
+      return (
+        Boolean(row.is_proxy) ||
+        Boolean(row.is_vpn) ||
+        connType === "proxy_vpn"
+      );
+    }
+  } catch {}
+  // No cache hit — call proxycheck with the global key; fail closed on any issue
+  try {
+    const resp = await proxycheckGlobalFetch(normalizedIp);
+    if (!resp || !resp.ok) return true; // key missing or API error → restrict
+    const data = await resp.json().catch(() => null);
+    if (!data || typeof data !== "object") return true;
+    if (data.status && data.status !== "ok") return true;
+    const meta = data[normalizedIp];
+    if (!meta || typeof meta !== "object") return true;
+    return isVpnOrProxyProxycheckMeta(meta);
+  } catch {
+    return true; // network error → restrict
+  }
 }
 
 function hasDiscordModLegacy(session, orgId) {
@@ -1091,14 +1130,25 @@ async function createSessionForUser(user, options = {}) {
     }
   }
 
-  const sid = crypto.randomUUID();
-  const token = jwt.sign({ sid }, env.jwtSecret, {
-    expiresIn: env.sessionTtlSeconds,
-  });
-  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const ipAddress = options.ipAddress ?? null;
   const userAgent = options.userAgent ?? null;
-  const expiresAt = Math.floor(Date.now() / 1000) + env.sessionTtlSeconds;
+
+  // VPN check — cap TTL to 24 h for confirmed or unconfirmed VPN/proxy logins
+  let isVpnLogin = false;
+  let sessionTtlSeconds = env.sessionTtlSeconds;
+  if (ipAddress) {
+    try {
+      isVpnLogin = await checkLoginIpIsVpn(ipAddress);
+      if (isVpnLogin) sessionTtlSeconds = Math.min(sessionTtlSeconds, 24 * 60 * 60);
+    } catch {}
+  }
+
+  const sid = crypto.randomUUID();
+  const token = jwt.sign({ sid }, env.jwtSecret, {
+    expiresIn: sessionTtlSeconds,
+  });
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const expiresAt = Math.floor(Date.now() / 1000) + sessionTtlSeconds;
 
   const session = {
     userId: String(user.userId),
@@ -1112,23 +1162,24 @@ async function createSessionForUser(user, options = {}) {
     globalAdmin: access.globalAdmin,
     canWrite: access.canWrite,
     canDeleteBans: access.canDeleteBans,
+    loginIp: ipAddress,
   };
 
   await redis.set(
     `session:${sid}`,
     JSON.stringify(session),
     "EX",
-    env.sessionTtlSeconds,
+    sessionTtlSeconds,
   );
   await pool.query(
-    `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, revoked)
-     VALUES ($1, $2, $3, unix_now(), $4, $5, $6, FALSE)`,
-    [sid, session.userId, tokenHash, expiresAt, ipAddress, userAgent],
+    `INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at, ip_address, user_agent, is_vpn_login, revoked)
+     VALUES ($1, $2, $3, unix_now(), $4, $5, $6, $7, FALSE)`,
+    [sid, session.userId, tokenHash, expiresAt, ipAddress, userAgent, isVpnLogin],
   );
 
   if (options.redirectTo) {
     const headers = clearPendingLinkHeaders(new Headers());
-    headers.append("set-cookie", sessionCookie(token, env.sessionTtlSeconds));
+    headers.append("set-cookie", sessionCookie(token, sessionTtlSeconds));
     return redirect(options.redirectTo, headers);
   }
 
@@ -1146,7 +1197,7 @@ async function createSessionForUser(user, options = {}) {
 
   response.headers.append(
     "set-cookie",
-    sessionCookie(token, env.sessionTtlSeconds),
+    sessionCookie(token, sessionTtlSeconds),
   );
   return response;
 }

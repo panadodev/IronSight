@@ -374,3 +374,23 @@ export async function proxycheckApiFetch(orgId, ipList) {
   if (!resp || !resp.ok) return resp;
   return verifyProxycheckResponseSignature(resp);
 }
+
+// Single-IP proxycheck using the global PROXYCHECK_API_KEY env var.
+// Returns the verified Response, null if the key is not configured, or null on
+// any network/signature error. Callers are responsible for treating null as
+// "unconfirmed" (i.e. fail closed).
+export async function proxycheckGlobalFetch(ip) {
+  const apiKey = env.proxycheckApiKey?.trim();
+  if (!apiKey) return null;
+  const normalizedIp = String(ip ?? "").trim();
+  if (!VALID_IP_RE.test(normalizedIp)) return null;
+  try {
+    const resp = await fetch(
+      `https://proxycheck.io/v3/${normalizedIp}?key=${encodeURIComponent(apiKey)}`,
+    );
+    if (!resp.ok) return null;
+    return verifyProxycheckResponseSignature(resp);
+  } catch {
+    return null;
+  }
+}
