@@ -320,7 +320,19 @@ const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^(?=.*:)[\da-fA-F:]+$/;
 
 function isVpnOrProxyProxycheckMeta(meta) {
   if (!meta || typeof meta !== "object") return false;
-  const t = String(meta.type ?? "").toLowerCase();
+  // proxycheck v3 nests detection under `detections`/`network`; v2 exposed
+  // `proxy`/`type` at the top level. Read both so a v3 response isn't silently
+  // treated as clean.
+  const truthy = (v) =>
+    v === true || v === "yes" || v === "true" || v === 1 || v === "1";
+  const detections =
+    meta.detections && typeof meta.detections === "object"
+      ? meta.detections
+      : {};
+  if (truthy(detections.proxy) || truthy(detections.vpn)) return true;
+  const network =
+    meta.network && typeof meta.network === "object" ? meta.network : {};
+  const t = String(network.type ?? meta.type ?? "").toLowerCase();
   return (
     meta.proxy === "yes" ||
     t.includes("vpn") ||
@@ -447,7 +459,9 @@ async function evaluateIpBanEligibility(orgId, ip) {
     };
   }
 
-  const connType = normalizeConnectionType(meta.type);
+  // v3 nests the connection type under `network.type`; `meta.type` is the v2
+  // fallback. Reading only `meta.type` would resolve every v3 IP to "unknown".
+  const connType = normalizeConnectionType(meta?.network?.type ?? meta.type);
   const isProxyVpn = isVpnOrProxyProxycheckMeta(meta);
 
   if (isProxyVpn || !isAllowedIpBanConnectionType(connType)) {
@@ -472,7 +486,9 @@ async function evaluateIpBanEligibility(orgId, ip) {
 // Only returns false when proxycheck explicitly confirms the IP is clean.
 async function checkLoginIpIsVpn(ip) {
   const normalizedIp = String(ip ?? "").trim();
-  if (!IP_ADDRESS_RE.test(normalizedIp)) return false;
+  // Unparseable IP (e.g. getClientIp's "unknown" fallback when no edge/XFF
+  // header is present) can't be cleared → fail closed as an unconfirmed VPN.
+  if (!IP_ADDRESS_RE.test(normalizedIp)) return true;
   const hash = ipHmac(normalizedIp);
   // Cache hit → confirmed result either way, no live call needed
   try {
