@@ -1070,15 +1070,22 @@ function PlayerLookupPage() {
     e.preventDefault();
     const trimmed = input.trim();
 
-    // Discord username search: prefix with @
+    // Discord search: @-prefix OR bare 18–20 digit snowflake (not a Steam ID)
     if (canLookupStaffDiscord && trimmed.startsWith("@")) {
       navigate({ search: { steam: undefined, ipHash: undefined } });
       searchStaffByDiscord(trimmed.slice(1));
       return;
     }
 
-    const normalizedLookup = normalizePlayerLookupIpQuery(trimmed);
     const isSteam = /^\d{17}$/.test(trimmed);
+
+    if (canLookupStaffDiscord && !isSteam && /^\d{18,20}$/.test(trimmed)) {
+      navigate({ search: { steam: undefined, ipHash: undefined } });
+      searchStaffByDiscord(trimmed);
+      return;
+    }
+
+    const normalizedLookup = normalizePlayerLookupIpQuery(trimmed);
 
     // BattleMetrics: bare numeric ID (non-Steam) or a battlemetrics.com/players URL.
     const bmUrlMatch = trimmed.match(/battlemetrics\.com\/players\/([0-9]+)/i);
