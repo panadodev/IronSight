@@ -36,6 +36,8 @@ const ERROR_LABELS = {
   steam_auth_failed: "Steam authentication failed.",
   steam_already_linked:
     "That Steam account is already linked to another Discord account.",
+  steam_mismatch:
+    "That Steam account does not match the one assigned to your staff profile. Sign in with your assigned Steam account.",
 };
 
 function LoginPage() {

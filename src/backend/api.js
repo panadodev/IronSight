@@ -617,6 +617,7 @@ function getPendingLink(request) {
       username: String(payload.username),
       avatarHash: payload.avatarHash ?? null,
       next: sanitizeNext(payload.next),
+      flow: String(payload.flow ?? "staff"),
     };
   } catch {
     return null;
@@ -1538,6 +1539,75 @@ async function handlePublicDiscordStart(request) {
   return redirect(`${DISCORD_AUTHORIZE_URL}?${authorizeParams.toString()}`);
 }
 
+// ── Steam-link helpers (shared by staff + public login callbacks) ────────────
+
+// A user counts as staff if they hold an active (non-disabled) membership in any
+// real organization, or they are the configured sysadmin. Staff are held to the
+// Steam account assigned to them on the staff management page; public visitors
+// are not.
+async function userIsStaff(userId, discordId) {
+  const sysAdminDiscordId = String(env.sysAdminDiscordId ?? "").trim();
+  if (sysAdminDiscordId && String(discordId) === sysAdminDiscordId) return true;
+  const res = await pool.query(
+    `SELECT 1 FROM organization_members
+     WHERE user_id = $1 AND org_id != $2 AND role_id != 'org_disabled' LIMIT 1`,
+    [userId, SYSADMIN.globalOrgId],
+  );
+  return res.rows.length > 0;
+}
+
+// True when the given Steam ID is already linked to a *different* user (checked
+// against both the multi-link table and the canonical users.steam_id column).
+// Passing a null/undefined userId treats any existing owner as a conflict.
+async function steamOwnedByOtherUser(steamId, userId) {
+  const owner = String(userId ?? "");
+  const linkRes = await pool.query(
+    `SELECT user_id FROM user_steam_accounts WHERE steam_id = $1 LIMIT 1`,
+    [steamId],
+  );
+  if (linkRes.rows[0] && String(linkRes.rows[0].user_id) !== owner) return true;
+  const userRes = await pool.query(
+    `SELECT user_id FROM users WHERE steam_id = $1 LIMIT 1`,
+    [steamId],
+  );
+  if (userRes.rows[0] && String(userRes.rows[0].user_id) !== owner) return true;
+  return false;
+}
+
+// Records a Steam account against a user in user_steam_accounts. When makePrimary
+// is set it also becomes the canonical users.steam_id (used for RCON syncing) and
+// the sole primary link. Caller must have already ruled out cross-user conflicts.
+async function linkSteamAccount(userId, steamId, { makePrimary = false } = {}) {
+  const cached = await pool
+    .query(
+      `SELECT display_name FROM player_cache WHERE steam_id = $1 LIMIT 1`,
+      [steamId],
+    )
+    .catch(() => ({ rows: [] }));
+  const steamName = cached.rows[0]?.display_name ?? null;
+
+  if (makePrimary) {
+    await pool.query(
+      `UPDATE user_steam_accounts SET is_primary = false WHERE user_id = $1`,
+      [userId],
+    );
+  }
+  await pool.query(
+    `INSERT INTO user_steam_accounts (user_id, steam_id, steam_name, is_primary)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (steam_id) DO UPDATE SET
+       steam_name = COALESCE(EXCLUDED.steam_name, user_steam_accounts.steam_name),
+       is_primary = user_steam_accounts.is_primary OR EXCLUDED.is_primary`,
+    [userId, steamId, steamName, makePrimary],
+  );
+  if (makePrimary) {
+    await pool.query(
+      `UPDATE users SET steam_id = $1, updated_at = unix_now() WHERE user_id = $2`,
+      [steamId, userId],
+    );
+  }
+}
+
 async function handleDiscordCallback(request) {
   const limited = await rateLimitLogin(request);
   if (limited) return limited;
@@ -1567,43 +1637,13 @@ async function handleDiscordCallback(request) {
       return redirect("/login?error=service_unavailable");
     }
 
-    const existingRes = await pool.query(
-      "SELECT user_id, username, discord_id, steam_id FROM users WHERE discord_id = $1 LIMIT 1",
-      [discordUser.discordId],
-    );
+    // Every OAuth login — including returning users — must re-verify Steam so a
+    // staff member is confirmed to still control their assigned Steam account and
+    // a public visitor's linked accounts stay in sync. We therefore always route
+    // through the Steam step instead of short-circuiting known users to a session.
 
-    const existing = existingRes.rows[0];
-    if (existing?.steam_id) {
-      await pool.query(
-        `UPDATE users
-         SET username = $1,
-             discord_guilds = COALESCE($2, discord_guilds),
-             discord_avatar_hash = $3,
-             updated_at = unix_now()
-         WHERE user_id = $4`,
-        [
-          discordUser.username,
-          discordUser.guilds ? JSON.stringify(discordUser.guilds) : null,
-          discordUser.avatarHash,
-          String(existing.user_id),
-        ],
-      );
-      return createSessionForUser(
-        {
-          userId: String(existing.user_id),
-          username: discordUser.username,
-          discordId: String(existing.discord_id),
-          steamId: String(existing.steam_id),
-        },
-        {
-          redirectTo: sanitizeNext(stateData.next),
-          ipAddress: getClientIp(request),
-          userAgent: request.headers.get("user-agent") ?? null,
-        },
-      );
-    }
-
-    // New user: cache guilds in Redis until Steam linking completes (15 min TTL).
+    // Cache guilds in Redis until the Steam step completes (15 min TTL) so the
+    // Steam callback can persist them (guilds are only fetched in the staff flow).
     if (discordUser.guilds && redis) {
       await redis.set(
         `discord:guilds:${discordUser.discordId}`,
@@ -1618,6 +1658,7 @@ async function handleDiscordCallback(request) {
       username: discordUser.username,
       avatarHash: discordUser.avatarHash,
       next: sanitizeNext(stateData.next),
+      flow: stateData.flow,
     });
 
     const headers = new Headers();
@@ -1699,20 +1740,6 @@ async function handleSteamCallback(request) {
     }
 
     const steamId = match[1];
-    const conflictingSteam = await pool.query(
-      "SELECT user_id, discord_id FROM users WHERE steam_id = $1 LIMIT 1",
-      [steamId],
-    );
-    const conflictingRow = conflictingSteam.rows[0];
-    if (
-      conflictingRow &&
-      String(conflictingRow.discord_id) !== pending.discordId
-    ) {
-      return redirect(
-        "/login?error=steam_already_linked",
-        clearPendingLinkHeaders(new Headers()),
-      );
-    }
 
     // Retrieve guild data cached during Discord OAuth step.
     let cachedGuildsJson = null;
@@ -1731,28 +1758,56 @@ async function handleSteamCallback(request) {
       [pending.discordId],
     );
     const existingUser = existingUserRes.rows[0];
+    const existingUserId = existingUser ? String(existingUser.user_id) : null;
+
+    // Reject if this Steam account already belongs to a different user.
+    if (await steamOwnedByOtherUser(steamId, existingUserId)) {
+      return redirect(
+        "/login?error=steam_already_linked",
+        clearPendingLinkHeaders(new Headers()),
+      );
+    }
 
     if (existingUser) {
+      const staff = await userIsStaff(existingUserId, pending.discordId);
+      const assigned =
+        existingUser.steam_id == null ? null : String(existingUser.steam_id);
+
+      // Staff must authenticate with the Steam account assigned to them on the
+      // staff management page. Any mismatch is rejected — we never silently swap
+      // a staff member's Steam identity.
+      if (staff && assigned && assigned !== steamId) {
+        return redirect(
+          "/login?error=steam_mismatch",
+          clearPendingLinkHeaders(new Headers()),
+        );
+      }
+
       await pool.query(
         `UPDATE users
          SET username = $2,
-             steam_id = $3,
-             discord_guilds = COALESCE($4, discord_guilds),
-             discord_avatar_hash = COALESCE($5, discord_avatar_hash),
+             discord_guilds = COALESCE($3, discord_guilds),
+             discord_avatar_hash = COALESCE($4, discord_avatar_hash),
              updated_at = unix_now()
          WHERE user_id = $1`,
         [
-          String(existingUser.user_id),
+          existingUserId,
           pending.username,
-          steamId,
           cachedGuildsJson,
           pending.avatarHash,
         ],
       );
 
+      // Adopt this Steam as the primary only when the user has none yet (first
+      // login) or it already is their assigned staff account; otherwise (a
+      // non-staff user signing in with a new Steam) just record it as an
+      // additional linked account without disturbing their primary.
+      const makePrimary = assigned == null || (staff && assigned === steamId);
+      await linkSteamAccount(existingUserId, steamId, { makePrimary });
+
       return createSessionForUser(
         {
-          userId: String(existingUser.user_id),
+          userId: existingUserId,
           username: pending.username,
           discordId: pending.discordId,
           steamId,
@@ -1790,6 +1845,7 @@ async function handleSteamCallback(request) {
         );
       throw err;
     }
+    await linkSteamAccount(userId, steamId, { makePrimary: true });
 
     return createSessionForUser(
       {
@@ -5443,42 +5499,52 @@ async function handlePublicSteamCallback(request) {
 
     const steamId = match[1];
 
-    // Reject if this Steam is already linked to a different Discord account
-    const conflictRes = await pool.query(
-      "SELECT user_id, discord_id FROM users WHERE steam_id = $1 LIMIT 1",
-      [steamId],
+    // Find existing user by Discord identity (the public flow always links
+    // Discord first, so a returning visitor is matched on discord_id).
+    const existingRes = await pool.query(
+      `SELECT user_id, username, discord_id, steam_id FROM users
+       WHERE discord_id = $1 LIMIT 1`,
+      [pending.discordId],
     );
-    const conflictRow = conflictRes.rows[0];
-    if (
-      conflictRow &&
-      conflictRow.discord_id &&
-      String(conflictRow.discord_id) !== pending.discordId
-    ) {
+    const existingUser = existingRes.rows[0];
+    const existingUserId = existingUser ? String(existingUser.user_id) : null;
+
+    // Reject if this Steam account already belongs to a different user.
+    if (await steamOwnedByOtherUser(steamId, existingUserId)) {
       return redirect(
         "/support?error=steam_already_linked",
         clearPendingLinkHeaders(new Headers()),
       );
     }
 
-    // Find existing user — prefer match by discord_id, fall back to steam_id
-    const existingRes = await pool.query(
-      `SELECT user_id, username, discord_id, steam_id FROM users
-       WHERE discord_id = $1 OR steam_id = $2
-       ORDER BY CASE WHEN discord_id = $1 THEN 0 ELSE 1 END
-       LIMIT 1`,
-      [pending.discordId, steamId],
-    );
-    const existingUser = existingRes.rows[0];
-
     let userId;
     if (existingUser) {
-      userId = String(existingUser.user_id);
+      userId = existingUserId;
+      const staff = await userIsStaff(userId, pending.discordId);
+      const assigned =
+        existingUser.steam_id == null ? null : String(existingUser.steam_id);
+
+      // A staff member is held to their assigned Steam account even when they
+      // come through the public portal — reject a mismatch rather than link it.
+      if (staff && assigned && assigned !== steamId) {
+        return redirect(
+          "/support?error=steam_mismatch",
+          clearPendingLinkHeaders(new Headers()),
+        );
+      }
+
       await pool.query(
         `UPDATE users
-         SET username = $2, discord_id = $3, steam_id = $4, updated_at = unix_now()
+         SET username = $2, discord_id = $3, updated_at = unix_now()
          WHERE user_id = $1`,
-        [userId, pending.username, pending.discordId, steamId],
+        [userId, pending.username, pending.discordId],
       );
+
+      // Public visitors can hold multiple Steam accounts on one Discord: keep
+      // their existing primary and just add any new Steam as another linked
+      // account. Only adopt it as primary when they had none yet.
+      const makePrimary = assigned == null || (staff && assigned === steamId);
+      await linkSteamAccount(userId, steamId, { makePrimary });
     } else {
       userId = crypto.randomUUID();
       await pool.query(
@@ -5486,6 +5552,7 @@ async function handlePublicSteamCallback(request) {
          VALUES ($1, $2, $3, $4)`,
         [userId, pending.username, pending.discordId, steamId],
       );
+      await linkSteamAccount(userId, steamId, { makePrimary: true });
     }
 
     // Upsert into public_identity_links (tracks portal-linked identities)

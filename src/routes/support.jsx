@@ -33,6 +33,8 @@ const ERROR_LABELS = {
   steam_requires_discord: "You need to link Discord before linking Steam.",
   steam_already_linked:
     "That Steam account is already linked to a different Discord. Contact support if you need help.",
+  steam_mismatch:
+    "That Steam account does not match the one assigned to your staff profile. Sign in with your assigned Steam account.",
   service_unavailable: "Service is temporarily unavailable. Please try again.",
 };
 
