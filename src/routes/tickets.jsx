@@ -1381,10 +1381,18 @@ function MediaLightbox({ media, initialIndex, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const onWheel = (e) => {
-    e.preventDefault();
-    setZoom((z) => Math.min(8, Math.max(1, z - e.deltaY * 0.002)));
-  };
+  // Attach wheel zoom as a native non-passive listener so e.preventDefault()
+  // actually suppresses the parent overflow-y:auto container's scroll.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e) => {
+      e.preventDefault();
+      setZoom((z) => Math.min(8, Math.max(1, z - e.deltaY * 0.002)));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
 
   const onMouseDown = (e) => {
     if (zoom <= 1) return;
@@ -1455,7 +1463,6 @@ function MediaLightbox({ media, initialIndex, onClose }) {
       <div
         ref={containerRef}
         className="flex-1 relative overflow-hidden flex items-center justify-center"
-        onWheel={onWheel}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
