@@ -3,12 +3,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 // config.js reads process.env at import time, so the secret must be set
 // before r2.js (which imports config) is loaded — hence the dynamic import.
 let signedMediaPath;
+let signedMediaThumbPath;
+let thumbKeyFor;
 let verifyMediaSignature;
 
 beforeAll(async () => {
   process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
   const r2 = await import("./r2.js");
   signedMediaPath = r2.signedMediaPath;
+  signedMediaThumbPath = r2.signedMediaThumbPath;
+  thumbKeyFor = r2.thumbKeyFor;
   verifyMediaSignature = r2.verifyMediaSignature;
 });
 
@@ -63,5 +67,29 @@ describe("signedMediaPath / verifyMediaSignature", () => {
     expect(verifyMediaSignature(mediaId, "not-a-number", "sig")).toBe(false);
     expect(verifyMediaSignature(mediaId, null, null)).toBe(false);
     expect(verifyMediaSignature(mediaId, "", "")).toBe(false);
+  });
+});
+
+describe("signedMediaThumbPath / thumbKeyFor", () => {
+  const mediaId = "0b0e8a1c-9f43-4f5f-8b7e-2f2b6a1d9c11";
+
+  it("mints a /thumb path that verifies with the same HMAC", () => {
+    const path = signedMediaThumbPath(mediaId);
+    const { exp, sig, pathname } = parseSignedPath(path);
+    expect(pathname).toBe(`/api/media/${mediaId}/thumb`);
+    expect(verifyMediaSignature(mediaId, exp, sig)).toBe(true);
+  });
+
+  it("shares the signature window with the file path (same s/e)", () => {
+    const file = parseSignedPath(signedMediaPath(mediaId));
+    const thumb = parseSignedPath(signedMediaThumbPath(mediaId));
+    expect(thumb.exp).toBe(file.exp);
+    expect(thumb.sig).toBe(file.sig);
+  });
+
+  it("derives a deterministic thumb key beside the source key", () => {
+    expect(thumbKeyFor("org/acme/user/1/abc_clip.mp4")).toBe(
+      "org/acme/user/1/abc_clip.mp4.thumb",
+    );
   });
 });

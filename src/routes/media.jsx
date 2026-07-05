@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { generateThumbnail, putThumbnail } from "@/lib/media-thumbnail";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Download,
@@ -171,8 +172,16 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
         return;
       }
 
-      const { uploadUrl, mediaId, multipart } = prepareBody;
+      const { uploadUrl, thumbUploadUrl, mediaId, multipart } = prepareBody;
       let parts = null;
+
+      // Generate + upload a gallery thumbnail in parallel with the main upload
+      // (best-effort). Awaited before confirm so the server can verify it.
+      const thumbPromise = thumbUploadUrl
+        ? generateThumbnail(file)
+            .then((blob) => (blob ? putThumbnail(thumbUploadUrl, blob) : false))
+            .catch(() => false)
+        : Promise.resolve(false);
 
       if (multipart) {
         setStatusText("Uploading (large file — multipart)…");
@@ -205,6 +214,7 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
 
       setStatusText("Finalizing…");
       setProgress(98);
+      await thumbPromise; // ensure the thumb object is in place before confirm
       const confirmRes = await fetch(
         `/api/orgs/${encodeURIComponent(orgId)}/media/confirm`,
         {
@@ -375,6 +385,20 @@ function UploadDialog({ open, onClose, orgs, onUploaded }) {
 }
 
 function Thumbnail({ item }) {
+  // Prefer the tiny generated thumbnail — this is what keeps the gallery from
+  // pulling full objects out of R2 on every render.
+  if (item.thumbUrl) {
+    return (
+      <img
+        src={item.thumbUrl}
+        alt={item.title || item.filename}
+        className="size-9 rounded object-cover bg-black/20 shrink-0"
+        loading="lazy"
+      />
+    );
+  }
+  // Legacy images (uploaded before thumbnails existed) fall back to the original;
+  // legacy videos fall back to an icon rather than a metadata fetch of the file.
   if (item.fileType === "image" && item.url) {
     return (
       <img
@@ -382,16 +406,6 @@ function Thumbnail({ item }) {
         alt={item.title || item.filename}
         className="size-9 rounded object-cover bg-black/20 shrink-0"
         loading="lazy"
-      />
-    );
-  }
-  if (item.fileType === "video" && item.url) {
-    return (
-      <video
-        src={item.url}
-        className="size-9 rounded object-cover bg-black/20 shrink-0"
-        preload="metadata"
-        muted
       />
     );
   }
@@ -480,7 +494,11 @@ function PreviewDialog({ item, onClose, onDelete, showOrg }) {
                     Download
                   </Button>
                   <Button asChild size="sm" variant="outline">
-                    <a href={item.url} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <ExternalLink className="size-3.5" />
                       Open
                     </a>

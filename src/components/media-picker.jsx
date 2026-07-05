@@ -179,22 +179,27 @@ export function MediaPicker({
                     }`}
                   >
                     <div className="w-full h-full bg-black/20 flex items-center justify-center">
-                      {item.fileType === "image" ? (
+                      {/* Prefer the tiny generated thumbnail so the picker grid
+                          doesn't pull full clips/images out of R2. */}
+                      {item.thumbUrl ? (
+                        <img
+                          src={item.thumbUrl}
+                          alt={item.title || item.filename}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : item.fileType === "image" ? (
                         <img
                           src={item.url}
                           alt={item.title || item.filename}
                           className="w-full h-full object-cover"
                           loading="lazy"
                         />
-                      ) : item.fileType === "video" ? (
-                        <video
-                          src={item.url}
-                          className="w-full h-full object-cover"
-                          preload="metadata"
-                          muted
-                        />
                       ) : (
-                        <FileIcon className="size-6 text-muted-foreground" />
+                        <FileTypeIcon
+                          fileType={item.fileType}
+                          className="size-6 text-muted-foreground"
+                        />
                       )}
                     </div>
                     {isSelected && (

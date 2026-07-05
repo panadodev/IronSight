@@ -1,4 +1,5 @@
 import { SiteNav } from "@/components/site-nav";
+import { generateThumbnail, putThumbnail } from "@/lib/media-thumbnail";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -356,6 +357,16 @@ function SubmitPage() {
       if (!prepareRes.ok)
         throw new Error(prepareBody?.error ?? "Failed to prepare upload");
 
+      // Generate + upload a gallery thumbnail in parallel (best-effort) so staff
+      // reviewing these submissions don't pull full clips out of R2 to preview.
+      const thumbPromise = prepareBody.thumbUploadUrl
+        ? generateThumbnail(att.file)
+            .then((blob) =>
+              blob ? putThumbnail(prepareBody.thumbUploadUrl, blob) : false,
+            )
+            .catch(() => false)
+        : Promise.resolve(false);
+
       // Step 2: PUT file directly to R2.
       updateAtt({ status: "uploading", progress: 0 });
       await putToPresignedUrl(prepareBody.uploadUrl, att.file, (frac) => {
@@ -364,6 +375,7 @@ function SubmitPage() {
 
       // Step 3: confirm.
       updateAtt({ status: "confirming", progress: 95 });
+      await thumbPromise; // thumb object must exist before the server verifies it
       const confirmRes = await fetch("/api/public/ticket-media/confirm", {
         method: "POST",
         credentials: "include",
@@ -651,9 +663,7 @@ function SubmitPage() {
             </div>
 
             {feedbackDone ? (
-              <p className="text-xs text-success">
-                Thanks for your feedback!
-              </p>
+              <p className="text-xs text-success">Thanks for your feedback!</p>
             ) : (
               <div className="border-t border-border pt-5 space-y-3 text-left">
                 <p className="text-xs text-muted-foreground text-center">
@@ -1216,97 +1226,101 @@ function SubmitPage() {
               </section>
             )}
 
-          {selectedType && selectedType.allowMedia !== false && session?.steamId && (
-            <section className="space-y-2">
-              <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
-                Attachments{" "}
-                <span className="normal-case font-normal text-muted-foreground/60">
-                  (optional — images &amp; videos only)
-                </span>
-              </label>
-              {attachments.length > 0 && (
-                <ul className="space-y-1.5">
-                  {attachments.map((att, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center gap-2 bg-surface/30 rounded-md px-3 py-2 text-sm"
-                    >
-                      <span className="flex-1 truncate text-xs">
-                        {att.file.name}
-                      </span>
-                      <span className="text-[0.625rem] text-muted-foreground shrink-0">
-                        {formatBytes(att.file.size)}
-                      </span>
-                      {att.status === "pending" && (
-                        <span className="text-[0.625rem] text-muted-foreground">
-                          Pending
-                        </span>
-                      )}
-                      {(att.status === "preparing" ||
-                        att.status === "uploading" ||
-                        att.status === "confirming") && (
-                        <span className="text-[0.625rem] text-muted-foreground">
-                          {att.status === "preparing"
-                            ? "Preparing…"
-                            : att.status === "confirming"
-                              ? "Finalizing…"
-                              : `${att.progress}%`}
-                        </span>
-                      )}
-                      {att.status === "done" && (
-                        <span className="text-[0.625rem] text-emerald-500">✓</span>
-                      )}
-                      {att.status === "error" && (
-                        <span
-                          className="text-[0.625rem] text-danger truncate max-w-[120px]"
-                          title={att.error}
-                        >
-                          {att.error}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAttachments((prev) =>
-                            prev.filter((_, j) => j !== i),
-                          )
-                        }
-                        disabled={submitting}
-                        className="text-muted-foreground hover:text-danger transition-colors"
+          {selectedType &&
+            selectedType.allowMedia !== false &&
+            session?.steamId && (
+              <section className="space-y-2">
+                <label className="block text-[0.625rem] uppercase font-bold text-muted-foreground tracking-widest">
+                  Attachments{" "}
+                  <span className="normal-case font-normal text-muted-foreground/60">
+                    (optional — images &amp; videos only)
+                  </span>
+                </label>
+                {attachments.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {attachments.map((att, i) => (
+                      <li
+                        key={i}
+                        className="flex items-center gap-2 bg-surface/30 rounded-md px-3 py-2 text-sm"
                       >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {attachments.length < 5 && (
-                <button
-                  type="button"
-                  onClick={() => attachFileRef.current?.click()}
-                  disabled={submitting}
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors border border-dashed border-border rounded-md px-3 py-2 w-full justify-center"
-                >
-                  + Add file ({attachments.length}/5)
-                </button>
-              )}
-              <input
-                ref={attachFileRef}
-                type="file"
-                className="hidden"
-                multiple
-                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
-                onChange={(e) => {
-                  addAttachmentFiles(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              <p className="text-[0.625rem] text-muted-foreground">
-                Supported: jpg, png, gif, webp, mp4, webm, mov · Max 100 MB each
-                · Up to 5 files · Uploaded securely to cloud storage
-              </p>
-            </section>
-          )}
+                        <span className="flex-1 truncate text-xs">
+                          {att.file.name}
+                        </span>
+                        <span className="text-[0.625rem] text-muted-foreground shrink-0">
+                          {formatBytes(att.file.size)}
+                        </span>
+                        {att.status === "pending" && (
+                          <span className="text-[0.625rem] text-muted-foreground">
+                            Pending
+                          </span>
+                        )}
+                        {(att.status === "preparing" ||
+                          att.status === "uploading" ||
+                          att.status === "confirming") && (
+                          <span className="text-[0.625rem] text-muted-foreground">
+                            {att.status === "preparing"
+                              ? "Preparing…"
+                              : att.status === "confirming"
+                                ? "Finalizing…"
+                                : `${att.progress}%`}
+                          </span>
+                        )}
+                        {att.status === "done" && (
+                          <span className="text-[0.625rem] text-emerald-500">
+                            ✓
+                          </span>
+                        )}
+                        {att.status === "error" && (
+                          <span
+                            className="text-[0.625rem] text-danger truncate max-w-[120px]"
+                            title={att.error}
+                          >
+                            {att.error}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAttachments((prev) =>
+                              prev.filter((_, j) => j !== i),
+                            )
+                          }
+                          disabled={submitting}
+                          className="text-muted-foreground hover:text-danger transition-colors"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {attachments.length < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => attachFileRef.current?.click()}
+                    disabled={submitting}
+                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors border border-dashed border-border rounded-md px-3 py-2 w-full justify-center"
+                  >
+                    + Add file ({attachments.length}/5)
+                  </button>
+                )}
+                <input
+                  ref={attachFileRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
+                  onChange={(e) => {
+                    addAttachmentFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <p className="text-[0.625rem] text-muted-foreground">
+                  Supported: jpg, png, gif, webp, mp4, webm, mov · Max 100 MB
+                  each · Up to 5 files · Uploaded securely to cloud storage
+                </p>
+              </section>
+            )}
 
           {selectedType && (
             <div className="flex flex-col items-center gap-3 pt-2">

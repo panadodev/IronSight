@@ -914,7 +914,9 @@ function TicketListItem({ ticket, orgs, selected, onClick }) {
               staff
             </span>
           )}
-          <span className="text-[0.625rem] text-muted-foreground shrink-0">·</span>
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">
+            ·
+          </span>
           <span className="text-[0.625rem] font-medium truncate min-w-0">
             {isAuto || isCase
               ? (ticket.title ?? "—")
@@ -1356,9 +1358,18 @@ function MediaLightbox({ media, initialIndex, onClose }) {
   const containerRef = useRef(null);
 
   const item = media[index];
-  const prev = () => { setIndex((i) => (i - 1 + media.length) % media.length); resetView(); };
-  const next = () => { setIndex((i) => (i + 1) % media.length); resetView(); };
-  const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const prev = () => {
+    setIndex((i) => (i - 1 + media.length) % media.length);
+    resetView();
+  };
+  const next = () => {
+    setIndex((i) => (i + 1) % media.length);
+    resetView();
+  };
+  const resetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
 
   useEffect(() => {
     const onKey = (e) => {
@@ -1382,7 +1393,10 @@ function MediaLightbox({ media, initialIndex, onClose }) {
   };
   const onMouseMove = (e) => {
     if (!panning || !panStart.current) return;
-    setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
+    setPan({
+      x: e.clientX - panStart.current.x,
+      y: e.clientY - panStart.current.y,
+    });
   };
   const onMouseUp = () => setPanning(false);
 
@@ -1396,7 +1410,9 @@ function MediaLightbox({ media, initialIndex, onClose }) {
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col bg-black/95"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 shrink-0">
@@ -1444,7 +1460,9 @@ function MediaLightbox({ media, initialIndex, onClose }) {
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
-        style={{ cursor: zoom > 1 ? (panning ? "grabbing" : "grab") : "default" }}
+        style={{
+          cursor: zoom > 1 ? (panning ? "grabbing" : "grab") : "default",
+        }}
       >
         {media.length > 1 && (
           <button
@@ -1481,7 +1499,9 @@ function MediaLightbox({ media, initialIndex, onClose }) {
           ) : (
             <div className="flex flex-col items-center gap-3 text-white/40">
               <FileIcon size={48} />
-              <span className="text-sm font-mono">{item?.filename ?? "Unknown file"}</span>
+              <span className="text-sm font-mono">
+                {item?.filename ?? "Unknown file"}
+              </span>
             </div>
           )}
         </div>
@@ -1503,7 +1523,9 @@ function MediaLightbox({ media, initialIndex, onClose }) {
             {item?.title || item?.filename || "Untitled"}
           </p>
           {item?.title && item?.filename && (
-            <p className="text-xs font-mono text-white/40 truncate mt-0.5">{item.filename}</p>
+            <p className="text-xs font-mono text-white/40 truncate mt-0.5">
+              {item.filename}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-4 shrink-0 text-xs font-mono text-white/40">
@@ -1736,17 +1758,20 @@ function TicketDetail({
                       onClick={() => setLightboxIndex(idx)}
                       className="group relative mb-2 block break-inside-avoid rounded ring-1 ring-border hover:ring-brand transition-colors overflow-hidden w-full text-left"
                     >
-                      {item.fileType === "image" && item.url ? (
+                      {/* Prefer the small generated thumbnail so the evidence
+                          grid doesn't fetch full clips/images from R2. */}
+                      {item.thumbUrl ? (
+                        <img
+                          src={item.thumbUrl}
+                          alt={item.title || item.filename}
+                          className="w-full h-auto object-contain group-hover:opacity-75 transition-opacity"
+                          loading="lazy"
+                        />
+                      ) : item.fileType === "image" && item.url ? (
                         <img
                           src={item.url}
                           alt={item.title || item.filename}
                           className="w-full h-auto object-contain group-hover:opacity-75 transition-opacity"
-                        />
-                      ) : item.fileType === "video" && item.url ? (
-                        <video
-                          src={item.url}
-                          className="w-full h-auto min-h-[80px] bg-surface/40 object-contain group-hover:opacity-75 transition-opacity"
-                          preload="metadata"
                         />
                       ) : (
                         <div className="w-full aspect-square bg-surface/40 flex items-center justify-center">
@@ -2173,7 +2198,9 @@ function PlayerCard({ player }) {
       </div>
       <div className="grid grid-cols-2 gap-y-3">
         <div>
-          <p className="text-[0.625rem] text-muted-foreground uppercase">S-Hours</p>
+          <p className="text-[0.625rem] text-muted-foreground uppercase">
+            S-Hours
+          </p>
           <p className="text-sm font-mono text-foreground">
             {formatHours(player.steam?.rustHours)}
           </p>
@@ -2199,7 +2226,9 @@ function PlayerCard({ player }) {
           <p className="text-sm font-mono text-foreground">{kd}</p>
         </div>
         <div>
-          <p className="text-[0.625rem] text-muted-foreground uppercase">Proxy</p>
+          <p className="text-[0.625rem] text-muted-foreground uppercase">
+            Proxy
+          </p>
           <p
             className={`text-sm font-mono ${isProxy === null ? "text-muted-foreground" : isProxy ? "text-danger" : "text-success"}`}
           >

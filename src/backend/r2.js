@@ -23,6 +23,10 @@ export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB hard cap
 export const DEFAULT_USER_STORAGE_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB default per-user quota
 export const DEFAULT_PUBLIC_FILE_LIMIT = 100 * 1024 * 1024; // 100 MB
 export const DEFAULT_PUBLIC_MAX_FILES = 5;
+// Gallery thumbnails are a ~480px webp; a legit one is tens of KB. Cap generously
+// so a misbehaving/hostile client can't turn the thumb slot into bulk storage.
+export const MAX_THUMB_SIZE = 2 * 1024 * 1024; // 2 MB
+export const THUMB_CONTENT_TYPE = "image/webp";
 const MULTIPART_PART_SIZE = 100 * 1024 * 1024; // 100 MB per part
 const PRESIGN_EXPIRY_SECONDS = 900; // 15-minute upload window
 
@@ -116,6 +120,25 @@ export function signedMediaPath(mediaId) {
   const exp =
     (Math.floor(now / MEDIA_URL_WINDOW_SECONDS) + 2) * MEDIA_URL_WINDOW_SECONDS;
   return `/api/media/${mediaId}/file?e=${exp}&s=${mediaSignature(mediaId, exp)}`;
+}
+
+// Signed path for the small gallery thumbnail. Uses the same HMAC (keyed on the
+// media id) as the full-file link — the thumb endpoint runs the identical
+// session + canViewMediaFile authorization, so a shared thumb link is no more
+// powerful than a shared file link.
+export function signedMediaThumbPath(mediaId) {
+  if (!env.jwtSecret) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const exp =
+    (Math.floor(now / MEDIA_URL_WINDOW_SECONDS) + 2) * MEDIA_URL_WINDOW_SECONDS;
+  return `/api/media/${mediaId}/thumb?e=${exp}&s=${mediaSignature(mediaId, exp)}`;
+}
+
+// The thumbnail object lives beside its source object under a fixed suffix.
+// Deterministic from the source key, so cleanup paths can target it without a
+// stored column even for abandoned (unconfirmed) uploads.
+export function thumbKeyFor(r2Key) {
+  return `${r2Key}.thumb`;
 }
 
 export function verifyMediaSignature(mediaId, exp, sig) {

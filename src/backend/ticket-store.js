@@ -2,7 +2,7 @@
 // the ticket handlers in api.js; depends only on the runtime singletons.
 
 import { pool, redis } from "./runtime.js";
-import { signedMediaPath } from "./r2.js";
+import { signedMediaPath, signedMediaThumbPath } from "./r2.js";
 
 export function ticketCacheKey(ticketId) {
   return `ticket:${ticketId}`;
@@ -116,7 +116,7 @@ export async function loadTicketMessages(ticketId) {
 
 export async function loadTicketMedia(ticketId) {
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.filename, m.file_type, m.file_size, m.title, m.uploaded_at, m.r2_key
+    `SELECT m.media_id, m.org_id, m.filename, m.file_type, m.file_size, m.title, m.uploaded_at, m.r2_key, m.thumb_key
      FROM ticket_media_links tml
      JOIN org_media m ON m.media_id = tml.media_id
      WHERE tml.ticket_id = $1 AND m.deleted = FALSE
@@ -132,5 +132,6 @@ export async function loadTicketMedia(ticketId) {
     title: row.title ?? "",
     uploadedAt: Number(row.uploaded_at),
     url: row.r2_key ? signedMediaPath(String(row.media_id)) : null,
+    thumbUrl: row.thumb_key ? signedMediaThumbPath(String(row.media_id)) : null,
   }));
 }

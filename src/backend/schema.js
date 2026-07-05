@@ -1928,6 +1928,13 @@ export async function ensureSchema(pool) {
   await pool.query(
     `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS multipart_upload_id TEXT`,
   );
+  // R2 key of the small (~480px webp) gallery thumbnail generated client-side at
+  // upload time. NULL for legacy uploads and 'other' file types. Serving a thumb
+  // instead of the original keeps the gallery from fetching full videos/images
+  // out of R2 on every list render.
+  await pool.query(
+    `ALTER TABLE org_media ADD COLUMN IF NOT EXISTS thumb_key TEXT`,
+  );
 
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_org_media_pending

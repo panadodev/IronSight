@@ -102,14 +102,17 @@ import {
   headObject,
   DEFAULT_USER_STORAGE_BYTES,
   MAX_FILE_SIZE,
+  MAX_THUMB_SIZE,
   MULTIPART_THRESHOLD,
   normalizeObjectContentType,
   PUBLIC_ALLOWED_MIME,
   r2Configured,
   sanitizeFilename,
   signedMediaPath,
+  signedMediaThumbPath,
   STAFF_ALLOWED_MIME,
   testR2BucketWriteDelete,
+  thumbKeyFor,
   verifyMediaSignature,
 } from "./r2.js";
 import { sanitizeDocHtml } from "./sanitize.js";
@@ -13627,6 +13630,9 @@ function serializeMedia(r) {
     uploadedBy: r.uploaded_by ? String(r.uploaded_by) : null,
     uploadedByName: r.uploaded_by_name ?? null,
     url: resolveMediaUrl(r),
+    // Small gallery thumbnail; null falls the frontend back to an icon (video)
+    // or the original (legacy images) without a full-object R2 fetch.
+    thumbUrl: r.thumb_key ? signedMediaThumbPath(String(r.media_id)) : null,
     filename: String(r.filename),
     fileType: String(r.file_type),
     mimeType: r.mime_type ?? null,
@@ -13638,6 +13644,29 @@ function serializeMedia(r) {
     storageBackend: r.storage_backend ?? "zipline",
     ...(r.source !== undefined ? { source: r.source } : {}),
   };
+}
+
+// Validate a client-uploaded thumbnail sitting at thumbKeyFor(r2Key): it must
+// exist and be within MAX_THUMB_SIZE. Returns the thumb key to store, or null
+// (discarding an oversized/empty object). Best-effort and never throws — a
+// missing or bad thumbnail is cosmetic and must not fail the main upload. Like
+// the main file, the thumb is only ever served via handleGetMediaThumb, which
+// forces Content-Type: image/webp + nosniff, so the object's stored content-type
+// is never trusted and no normalize/CopyObject is needed here.
+async function finalizeThumb(r2Key) {
+  const thumbKey = thumbKeyFor(String(r2Key));
+  try {
+    const head = await headObject(thumbKey);
+    if (!head || head.contentLength < 1) return null;
+    if (head.contentLength > MAX_THUMB_SIZE) {
+      await deleteMediaObject(thumbKey);
+      return null;
+    }
+    return thumbKey;
+  } catch (err) {
+    console.error(`[r2] thumb verify failed key=${thumbKey}:`, err?.message);
+    return null;
+  }
 }
 
 // Returns bytes currently used by confirmed media for an org (staff only).
@@ -13800,6 +13829,62 @@ async function handleGetMediaFile(request, mediaId) {
   return new Response(obj.body, { status: obj.status, headers });
 }
 
+// Streams a media item's small gallery thumbnail. Same two-part authorization as
+// handleGetMediaFile (HMAC signature + session cleared by canViewMediaFile), so a
+// leaked thumb link is no more useful than a leaked file link. The whole point is
+// that the gallery hits this — a ~15 KB webp — instead of range-fetching the full
+// original out of R2 for every row. Content-Type is forced to image/webp + nosniff,
+// so the stored object's type is never trusted (no normalize needed at confirm).
+async function handleGetMediaThumb(request, mediaId) {
+  const url = new URL(request.url);
+  if (
+    !verifyMediaSignature(
+      mediaId,
+      url.searchParams.get("e"),
+      url.searchParams.get("s"),
+    )
+  )
+    return json({ error: "Invalid or expired media link" }, 403);
+
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const { rows } = await pool.query(
+    `SELECT media_id, org_id, uploaded_by, source, thumb_key
+     FROM org_media
+     WHERE media_id = $1 AND deleted = FALSE AND confirmed = TRUE`,
+    [mediaId],
+  );
+  if (!rows[0]?.thumb_key) return json({ error: "Thumbnail not found" }, 404);
+  const row = rows[0];
+
+  if (!(await canViewMediaFile(session, row)))
+    return json({ error: "Forbidden" }, 403);
+
+  let obj;
+  try {
+    obj = await getMediaObject(String(row.thumb_key), null);
+  } catch (err) {
+    console.error(`[r2] thumb get failed mediaId=${mediaId}:`, err?.message);
+    return json({ error: "Failed to fetch thumbnail" }, 502);
+  }
+  if (!obj) return json({ error: "Thumbnail not found" }, 404);
+
+  const headers = new Headers({
+    "Content-Type": "image/webp",
+    "Content-Disposition": "inline",
+    // Per-user authorized, so private-only like the file endpoint. Thumbs are
+    // immutable, so allow a longer browser cache to keep repeat gallery scrolls
+    // off the origin.
+    "Cache-Control": "private, max-age=86400",
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (obj.contentLength != null)
+    headers.set("Content-Length", String(obj.contentLength));
+  if (obj.etag) headers.set("ETag", obj.etag);
+  return new Response(obj.body, { status: 200, headers });
+}
+
 async function handleListAllMedia(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -13896,7 +13981,7 @@ async function handleListAllMedia(request) {
   const where = conditions.join(" AND ");
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.thumb_key, m.storage_backend,
             m.zipline_url, m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at,
             u.username AS uploaded_by_name,
@@ -14020,7 +14105,7 @@ async function handleListOrgMedia(request, orgId) {
   const where = conditions.join(" AND ");
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.thumb_key, m.storage_backend,
             m.zipline_url, m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at, m.source,
             u.username AS uploaded_by_name
@@ -14141,6 +14226,15 @@ async function handlePrepareMedia(request, orgId) {
     uploadUrl = await generatePresignedPut(r2Key, mimeType, fileSize);
   }
 
+  // Client-generated gallery thumbnail (best-effort, image/video only). The
+  // browser PUTs a small webp to this key; confirm HeadObjects + size-caps it
+  // before trusting it. 'other' files get no thumb.
+  const fileType = mediaFileType(mimeType);
+  const thumbUploadUrl =
+    fileType === "image" || fileType === "video"
+      ? await generatePresignedPut(thumbKeyFor(r2Key), "image/webp")
+      : null;
+
   const { rows } = await pool.query(
     `INSERT INTO org_media
        (org_id, uploaded_by, filename, file_type, mime_type, file_size, title,
@@ -14151,7 +14245,7 @@ async function handlePrepareMedia(request, orgId) {
       orgId,
       session.userId,
       filename,
-      mediaFileType(mimeType),
+      fileType,
       mimeType,
       fileSize,
       title,
@@ -14168,6 +14262,7 @@ async function handlePrepareMedia(request, orgId) {
   return json(
     {
       uploadUrl,
+      thumbUploadUrl,
       mediaId,
       multipart: multipart ? { ...multipart, key: r2Key } : null,
     },
@@ -14223,6 +14318,7 @@ async function handleConfirmMedia(request, orgId) {
           String(row.multipart_upload_id),
         );
       await deleteMediaObject(String(row.r2_key));
+      await deleteMediaObject(thumbKeyFor(String(row.r2_key)));
     }
     await pool.query(
       `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
@@ -14364,13 +14460,21 @@ async function handleConfirmMedia(request, orgId) {
     }
   }
 
+  // Best-effort gallery thumbnail for image/video (the browser PUT a webp to the
+  // thumb key during upload). A missing/oversized thumb just leaves thumb_key NULL.
+  const fileType = mediaFileType(String(row.mime_type ?? ""));
+  const thumbKey =
+    fileType === "image" || fileType === "video"
+      ? await finalizeThumb(String(row.r2_key))
+      : null;
+
   const { rows: updated } = await pool.query(
     `UPDATE org_media
-     SET confirmed = TRUE, pending_since = NULL, file_size = $2
+     SET confirmed = TRUE, pending_since = NULL, file_size = $2, thumb_key = $3
      WHERE media_id = $1
-     RETURNING media_id, org_id, uploaded_by, r2_key, storage_backend, zipline_url,
+     RETURNING media_id, org_id, uploaded_by, r2_key, thumb_key, storage_backend, zipline_url,
                filename, file_type, mime_type, file_size, title, uploaded_at, last_accessed_at`,
-    [mediaId, realSize],
+    [mediaId, realSize, thumbKey],
   );
 
   console.log(
@@ -14429,6 +14533,9 @@ async function handleDeleteMedia(request, orgId, mediaId) {
         { error: "Failed to delete file from storage. Please try again." },
         502,
       );
+    // Thumbnail is derived + optional; a failed thumb delete shouldn't block the
+    // row soft-delete (worst case it's swept when the object's expiry fires).
+    await deleteMediaObject(thumbKeyFor(String(row.r2_key)));
   }
 
   await pool.query(`UPDATE org_media SET deleted = TRUE WHERE media_id = $1`, [
@@ -14449,7 +14556,7 @@ async function handleGetMediaItem(request, orgId, mediaId) {
     return json({ error: "Forbidden" }, 403);
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend, m.zipline_url,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.thumb_key, m.storage_backend, m.zipline_url,
             m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at,
             u.username AS uploaded_by_name
@@ -14485,7 +14592,7 @@ async function handleGetBanMedia(request, orgId, banId) {
   if (!banCheck.rows[0]) return json({ error: "Ban not found" }, 404);
 
   const { rows } = await pool.query(
-    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend, m.zipline_url,
+    `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.thumb_key, m.storage_backend, m.zipline_url,
             m.filename, m.file_type, m.mime_type, m.file_size, m.title,
             m.uploaded_at, m.last_accessed_at,
             u.username AS uploaded_by_name
@@ -14579,6 +14686,13 @@ async function handlePublicMediaPrepare(request) {
   const nowSec = Math.floor(Date.now() / 1000);
   const uploadUrl = await generatePresignedPut(r2Key, mimeType, fileSize);
 
+  // Best-effort thumbnail upload slot (image/video only), verified at confirm.
+  const fileType = mediaFileType(mimeType);
+  const thumbUploadUrl =
+    fileType === "image" || fileType === "video"
+      ? await generatePresignedPut(thumbKeyFor(r2Key), "image/webp")
+      : null;
+
   const { rows } = await pool.query(
     `INSERT INTO org_media
        (org_id, uploaded_by, filename, file_type, mime_type, file_size,
@@ -14589,7 +14703,7 @@ async function handlePublicMediaPrepare(request) {
       orgId,
       session.userId,
       filename,
-      mediaFileType(mimeType),
+      fileType,
       mimeType,
       fileSize,
       r2Key,
@@ -14598,7 +14712,7 @@ async function handlePublicMediaPrepare(request) {
   );
   const mediaId = String(rows[0].media_id);
 
-  return json({ uploadUrl, mediaId });
+  return json({ uploadUrl, thumbUploadUrl, mediaId });
 }
 
 // Public ticket media confirm: mark upload complete so it can be attached to a ticket.
@@ -14628,7 +14742,10 @@ async function handlePublicMediaConfirm(request) {
     return json({ error: "Forbidden" }, 403);
 
   const discard = async () => {
-    if (row.r2_key) await deleteMediaObject(String(row.r2_key));
+    if (row.r2_key) {
+      await deleteMediaObject(String(row.r2_key));
+      await deleteMediaObject(thumbKeyFor(String(row.r2_key)));
+    }
     await pool.query(
       `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
       [mediaId],
@@ -14685,9 +14802,11 @@ async function handlePublicMediaConfirm(request) {
     return json({ error: "Failed to finalize upload" }, 502);
   }
 
+  const thumbKey = await finalizeThumb(String(row.r2_key));
+
   await pool.query(
-    `UPDATE org_media SET confirmed = TRUE, file_size = $2 WHERE media_id = $1`,
-    [mediaId, head.contentLength],
+    `UPDATE org_media SET confirmed = TRUE, file_size = $2, thumb_key = $3 WHERE media_id = $1`,
+    [mediaId, head.contentLength, thumbKey],
   );
   return json({ ok: true, mediaId });
 }
@@ -14708,6 +14827,7 @@ async function purgeExpiredMedia() {
           String(row.multipart_upload_id),
         );
       await deleteMediaObject(String(row.r2_key));
+      await deleteMediaObject(thumbKeyFor(String(row.r2_key)));
     }
     await pool.query(
       `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
@@ -14730,7 +14850,10 @@ async function purgeExpiredMedia() {
     [orphanThreshold],
   );
   for (const row of orphans) {
-    if (row.r2_key) await deleteMediaObject(String(row.r2_key));
+    if (row.r2_key) {
+      await deleteMediaObject(String(row.r2_key));
+      await deleteMediaObject(thumbKeyFor(String(row.r2_key)));
+    }
     await pool.query(
       `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
       [row.media_id],
@@ -14755,7 +14878,10 @@ async function purgeExpiredMedia() {
       [org.org_id, thresholdSeconds],
     );
     for (const row of expired) {
-      if (row.r2_key) await deleteMediaObject(String(row.r2_key));
+      if (row.r2_key) {
+        await deleteMediaObject(String(row.r2_key));
+        await deleteMediaObject(thumbKeyFor(String(row.r2_key)));
+      }
       await pool.query(
         `UPDATE org_media SET deleted = TRUE WHERE media_id = $1`,
         [row.media_id],
@@ -19175,10 +19301,17 @@ async function _handleApiRequest(request) {
     if (orgGlobalpingLimitsMatch && request.method === "GET")
       return handleGetGlobalpingLimits(request, orgGlobalpingLimitsMatch[1]);
 
-    // Signed media file streaming (HMAC in query string, no session — see handler)
+    // Signed media file streaming (HMAC in query string + session — see handler)
     const mediaFileMatch = pathname.match(/^\/api\/media\/([a-f0-9-]+)\/file$/);
     if (mediaFileMatch && request.method === "GET")
       return handleGetMediaFile(request, mediaFileMatch[1]);
+
+    // Signed gallery thumbnail streaming (same auth as /file, ~15 KB webp)
+    const mediaThumbMatch = pathname.match(
+      /^\/api\/media\/([a-f0-9-]+)\/thumb$/,
+    );
+    if (mediaThumbMatch && request.method === "GET")
+      return handleGetMediaThumb(request, mediaThumbMatch[1]);
 
     // Cross-org media list:
     // - sysadmin sees all media
