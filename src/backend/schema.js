@@ -782,6 +782,7 @@ export async function ensureSchema(pool) {
       plugin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       org_id TEXT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
       name TEXT NOT NULL,
+      file_name TEXT,
       source TEXT NOT NULL DEFAULT 'umod',
       umod_slug TEXT,
       installed_version TEXT,
@@ -794,6 +795,12 @@ export async function ensureSchema(pool) {
       UNIQUE(org_id, name)
     )
   `);
+  // The .cs file name on the server (without extension) that this registry entry
+  // maps to — the exact key `oxide.reload`/upload and installed-version detection
+  // use. Nullable: when unset the plugin's display name is used as the fallback.
+  await pool.query(
+    `ALTER TABLE org_plugins ADD COLUMN IF NOT EXISTS file_name TEXT`,
+  );
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_org_plugins_org_id ON org_plugins(org_id)`,
   );

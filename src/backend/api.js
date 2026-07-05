@@ -10028,7 +10028,7 @@ async function handleListPlugins(request, orgId) {
 
   const [{ rows }, serversRes] = await Promise.all([
     pool.query(
-      `SELECT plugin_id, name, source, umod_slug, installed_version, latest_version,
+      `SELECT plugin_id, name, file_name, source, umod_slug, installed_version, latest_version,
               latest_updated_at, assigned_tags, risk, enabled, created_at
        FROM org_plugins WHERE org_id = $1 ORDER BY name ASC`,
       [orgId],
@@ -10063,6 +10063,7 @@ async function handleListPlugins(request, orgId) {
       return {
         id: r.plugin_id,
         name: r.name,
+        fileName: r.file_name ?? null,
         source: r.source,
         umodSlug: r.umod_slug ?? null,
         installedVersion: r.installed_version ?? null,
@@ -10105,6 +10106,14 @@ async function handleCreatePlugin(request, orgId) {
   if (!["umod", "custom"].includes(source))
     return json({ error: "source must be umod or custom" }, 400);
 
+  // Optional explicit .cs file name (without extension). Must be a safe plugin
+  // file name so it can be interpolated into RCON commands / Pterodactyl paths.
+  let fileName = null;
+  if (body?.fileName != null && String(body.fileName).trim() !== "") {
+    fileName = safePluginName(String(body.fileName).replace(/\.cs$/i, ""));
+    if (!fileName) return json({ error: "Invalid fileName" }, 400);
+  }
+
   const umodSlug =
     source === "umod" ? String(body?.umodSlug ?? "").trim() || null : null;
   const installedVersion = String(body?.installedVersion ?? "").trim() || null;
@@ -10121,14 +10130,15 @@ async function handleCreatePlugin(request, orgId) {
 
   const { rows } = await pool.query(
     `INSERT INTO org_plugins
-       (org_id, name, source, umod_slug, installed_version, latest_version,
+       (org_id, name, file_name, source, umod_slug, installed_version, latest_version,
         latest_updated_at, assigned_tags, risk, enabled)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE)
      ON CONFLICT (org_id, name) DO NOTHING
      RETURNING plugin_id`,
     [
       orgId,
       name,
+      fileName,
       source,
       umodSlug,
       installedVersion,
@@ -10172,6 +10182,18 @@ async function handleUpdatePlugin(request, orgId, pluginId) {
     if (!n) return json({ error: "name cannot be empty" }, 400);
     params.push(n);
     setClauses.push(`name = $${params.length}`);
+  }
+  if (body?.fileName !== undefined) {
+    // Empty string clears the override (fall back to display name); otherwise
+    // it must be a safe plugin file name.
+    const raw = String(body.fileName ?? "").trim();
+    let fileName = null;
+    if (raw !== "") {
+      fileName = safePluginName(raw.replace(/\.cs$/i, ""));
+      if (!fileName) return json({ error: "Invalid fileName" }, 400);
+    }
+    params.push(fileName);
+    setClauses.push(`file_name = $${params.length}`);
   }
   if (body?.risk !== undefined) {
     const r = Number(body.risk);
@@ -10274,15 +10296,17 @@ async function handlePluginPush(request, orgId, pluginId) {
   }
 
   const pluginRes = await pool.query(
-    `SELECT name, assigned_tags, latest_version FROM org_plugins
+    `SELECT name, file_name, assigned_tags, latest_version FROM org_plugins
      WHERE plugin_id = $1 AND org_id = $2`,
     [pluginId, orgId],
   );
   if (!pluginRes.rows[0]) return json({ error: "Plugin not found" }, 404);
 
-  const { name, assigned_tags, latest_version } = pluginRes.rows[0];
-  // Strip control chars before interpolating into the RCON console command.
-  const safeName = String(name).replace(/[\r\n\x00-\x1f]/g, "");
+  const { name, file_name, assigned_tags, latest_version } = pluginRes.rows[0];
+  // oxide.reload/unload target the plugin's file name; fall back to the display
+  // name when no explicit file name is set. Strip control chars before
+  // interpolating into the RCON console command.
+  const safeName = String(file_name || name).replace(/[\r\n\x00-\x1f]/g, "");
   const tags = Array.isArray(assigned_tags) ? assigned_tags : [];
   const command = action === "unload" ? "oxide.unload" : "oxide.reload";
 
@@ -10344,7 +10368,7 @@ async function handleUnloadRisk(request, orgId) {
     return json({ error: "risk must be 1, 2, or 3" }, 400);
 
   const { rows: plugins } = await pool.query(
-    `SELECT plugin_id, name, assigned_tags FROM org_plugins
+    `SELECT plugin_id, name, file_name, assigned_tags FROM org_plugins
      WHERE org_id = $1 AND risk = $2 AND enabled = TRUE`,
     [orgId, risk],
   );
@@ -10372,7 +10396,7 @@ async function handleUnloadRisk(request, orgId) {
           try {
             await executeRconCommand(
               rconUrl,
-              `oxide.unload ${String(p.name).replace(/[\r\n\x00-\x1f]/g, "")}`,
+              `oxide.unload ${String(p.file_name || p.name).replace(/[\r\n\x00-\x1f]/g, "")}`,
             );
             results.unloaded.push({
               pluginId: p.plugin_id,
@@ -10422,9 +10446,122 @@ async function fetchUmodLatest(slug) {
   }
 }
 
-// Refresh latest-version info for all of an org's umod-sourced plugins by
-// scraping their umod plugin pages. Custom-uploaded plugins are skipped (no
-// upstream to check). Best-effort: individual lookups that fail are ignored.
+// Reconcile each registry plugin's installed_version with the REAL version of
+// its matching .cs file on the org's Pterodactyl servers, so the registry
+// reflects what's actually deployed rather than a manually-entered guess.
+// Matching is by file name (the same key `oxide.reload`/upload use), normalized
+// to be case/punctuation-insensitive. When servers disagree on a version, every
+// distinct value is recorded ("2.1.3 / 2.1.0") so the mismatch surfaces as
+// outdated. Only plugins actually found on a server are touched — custom or
+// not-yet-deployed rows keep their existing value. Returns the number of
+// registry rows whose installed_version changed. Best-effort: unreachable
+// servers/files are skipped.
+async function syncInstalledPluginVersions(orgId) {
+  if (getPterodactylSecurityConfigError()) return 0;
+
+  let credentials;
+  try {
+    credentials = await loadPterodactylCredentials(orgId);
+  } catch {
+    return 0;
+  }
+  if (!credentials) return 0;
+  const { panelUrl, apiKey } = credentials;
+
+  const { rows: plugins } = await pool.query(
+    `SELECT plugin_id, name, file_name FROM org_plugins WHERE org_id = $1`,
+    [orgId],
+  );
+  if (plugins.length === 0) return 0;
+
+  const norm = (s) =>
+    String(s ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  // Key each plugin by its explicit file name when set (the authoritative match),
+  // otherwise fall back to its display name. An explicit file_name wins if both a
+  // named-only and a file-named plugin would collide on the same normalized key.
+  const byNorm = new Map(); // normalized file/display name -> plugin_id
+  for (const p of plugins) {
+    if (!p.file_name) byNorm.set(norm(p.name), p.plugin_id);
+  }
+  for (const p of plugins) {
+    if (p.file_name) byNorm.set(norm(p.file_name), p.plugin_id);
+  }
+
+  const { rows: servers } = await pool.query(
+    `SELECT ptero_identifier FROM servers
+     WHERE owner_org_id = $1 AND ptero_identifier IS NOT NULL`,
+    [orgId],
+  );
+  if (servers.length === 0) return 0;
+
+  const detected = new Map(); // plugin_id -> Set<version string>
+
+  await Promise.allSettled(
+    servers.map(async (s) => {
+      let files;
+      try {
+        files = await fetchPteroFileList(
+          panelUrl,
+          apiKey,
+          s.ptero_identifier,
+          "/oxide/plugins",
+        );
+      } catch {
+        return;
+      }
+      const csFiles = files.filter(
+        (f) => f.is_file && f.name.toLowerCase().endsWith(".cs"),
+      );
+      await Promise.allSettled(
+        csFiles.map(async (f) => {
+          // Match on file name first so we only read .cs files that map to a
+          // registry entry, keeping the number of file reads bounded.
+          const fileName = f.name.replace(/\.cs$/i, "");
+          const pluginId = byNorm.get(norm(fileName));
+          if (!pluginId) return;
+          let meta;
+          try {
+            const src = await fetchPteroFileContents(
+              panelUrl,
+              apiKey,
+              s.ptero_identifier,
+              `/oxide/plugins/${f.name}`,
+            );
+            meta = parseOxidePluginMeta(src);
+          } catch {
+            return;
+          }
+          if (!meta?.version) return;
+          if (!detected.has(pluginId)) detected.set(pluginId, new Set());
+          detected.get(pluginId).add(String(meta.version));
+        }),
+      );
+    }),
+  );
+
+  let synced = 0;
+  await Promise.allSettled(
+    [...detected.entries()].map(async ([pluginId, versions]) => {
+      const value = [...versions].sort().join(" / ");
+      const res = await pool.query(
+        `UPDATE org_plugins SET installed_version = $2
+         WHERE plugin_id = $1 AND org_id = $3
+           AND installed_version IS DISTINCT FROM $2`,
+        [pluginId, value, orgId],
+      );
+      if (res.rowCount > 0) synced += 1;
+    }),
+  );
+  return synced;
+}
+
+// Refresh version state for an org's plugins: pull the latest published version
+// for umod-sourced plugins (scraping their umod pages), then reconcile every
+// plugin's installed version against the real .cs files on the org's servers.
+// Custom-uploaded plugins have no upstream latest to check but are still synced
+// for installed version. Best-effort: individual failures are ignored.
 async function handleRefreshPluginVersions(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -10462,7 +10599,16 @@ async function handleRefreshPluginVersions(request, orgId) {
     }),
   );
 
-  return json({ ok: true, checked: rows.length, updated });
+  // Reconcile installed versions with what's actually running on the servers.
+  let installedSynced = 0;
+  try {
+    installedSynced = await syncInstalledPluginVersions(orgId);
+  } catch {
+    // Pterodactyl may be unconfigured/unreachable — latest-version refresh
+    // still succeeds on its own.
+  }
+
+  return json({ ok: true, checked: rows.length, updated, installedSynced });
 }
 
 // ── Plugin Configs (Pterodactyl file discovery) ────────────────────────────────

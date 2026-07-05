@@ -1686,7 +1686,7 @@ function OrgPluginsTab({ orgId }) {
             className="text-xs"
             onClick={checkUpdates}
             disabled={checking}
-            title="Look up the latest versions on umod.org"
+            title="Look up latest versions on umod.org and sync installed versions from your servers"
           >
             <RefreshCw
               className={"size-3.5 mr-1.5 " + (checking ? "animate-spin" : "")}
@@ -1752,6 +1752,14 @@ function OrgPluginsTab({ orgId }) {
                     <span className="text-sm font-semibold truncate">
                       {p.name}
                     </span>
+                    {p.fileName && (
+                      <span
+                        className="text-[0.625rem] font-mono text-muted-foreground shrink-0"
+                        title="Mapped .cs file on the server"
+                      >
+                        {p.fileName}.cs
+                      </span>
+                    )}
                     <span
                       className={
                         "inline-flex items-center rounded-md border py-0.5 px-1.5 font-semibold text-[0.625rem] font-mono h-4 " +
@@ -1959,6 +1967,7 @@ function OrgPluginsTab({ orgId }) {
 
 function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
   const [name, setName] = useState("");
+  const [fileName, setFileName] = useState("");
   const [source, setSource] = useState("umod");
   const [umodSlug, setUmodSlug] = useState("");
   const [installedVersion, setInstalledVersion] = useState("");
@@ -1970,6 +1979,7 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
   useEffect(() => {
     if (open) {
       setName("");
+      setFileName("");
       setSource("umod");
       setUmodSlug("");
       setInstalledVersion("");
@@ -1993,6 +2003,7 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
+          fileName: fileName.trim() || undefined,
           source,
           umodSlug: source === "umod" ? umodSlug.trim() : undefined,
           installedVersion: installedVersion.trim() || undefined,
@@ -2028,6 +2039,25 @@ function AddPluginDialog({ open, orgId, availableTags, onClose, onCreated }) {
               onChange={(e) => setName(e.target.value)}
               placeholder="AdminMenu"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label>File name (optional)</Label>
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={fileName}
+                onChange={(e) => setFileName(e.target.value)}
+                placeholder={name.trim() || "AdminMenu"}
+                className="font-mono"
+              />
+              <span className="text-xs font-mono text-muted-foreground">
+                .cs
+              </span>
+            </div>
+            <p className="text-[0.625rem] text-muted-foreground">
+              The <span className="font-mono">.cs</span> file on the server this
+              maps to. Sets the exact target for reload/unload and installed-
+              version detection. Defaults to the plugin name.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
