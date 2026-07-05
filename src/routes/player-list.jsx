@@ -39,10 +39,17 @@ const SORT_LABEL = {
   name: "Name",
 };
 
-function susColor(s) {
-  if (s >= 100) return "bg-danger/15 text-danger ring-danger/40";
-  if (s >= 50) return "bg-warning/15 text-warning ring-warning/40";
+function susColor(s, threshold = 1) {
+  const t = threshold > 0 ? threshold : 1;
+  if (s >= t) return "bg-danger/15 text-danger ring-danger/40";
+  if (s >= t / 2) return "bg-warning/15 text-warning ring-warning/40";
   return "bg-surface text-muted-foreground ring-border";
+}
+
+function formatSus(s) {
+  const n = Number(s) || 0;
+  // Trim trailing zeros: 1.00 → 1, 1.50 → 1.5, 1.35 → 1.35
+  return n.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function steamIdAvatarColor(steamId) {
@@ -371,8 +378,8 @@ function PlayerListPage() {
                     Player List
                   </h1>
                   <p className="text-xs text-muted-foreground mt-1">
-                    All players seen on your servers. Sus score is based on
-                    Steam hours, K/D ratio, and report count.
+                    All players seen on your servers. Sus score is the sum of
+                    your org's matched Threat Trigger signal weights.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -714,10 +721,15 @@ function PlayerListPage() {
                             <span
                               className={
                                 "px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
-                                susColor(p.susScore)
+                                susColor(p.susScore, p.susThreshold)
+                              }
+                              title={
+                                p.susThreshold
+                                  ? `Threat-trigger threshold: ${p.susThreshold}`
+                                  : undefined
                               }
                             >
-                              {Math.min(p.susScore, 100)}
+                              {formatSus(p.susScore)}
                             </span>
                           </div>
                           <div className="text-right font-mono">{p.kills}</div>

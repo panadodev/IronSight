@@ -980,7 +980,7 @@ function StaffDashboard() {
                 </span>
                 <h1 className="text-lg font-semibold tracking-tight truncate">
                   {isReport
-                    ? `${selected.category ? REPORT_CATEGORY_LABEL[selected.category] : "Report"} \u2014 ${truncateName(subject?.name ?? "")}`
+                    ? `Report for ${truncateName(subject?.name ?? "Unknown")} from ${truncateName(reporter.name)}`
                     : `${TICKET_TYPE_LABEL[selected.type]} \u2014 ${truncateName(reporter.name)}`}
                 </h1>
 

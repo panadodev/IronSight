@@ -1,7 +1,7 @@
 import { SteamRequiredGate } from "@/components/steam-required-gate";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ShieldAlert, Edit3, X, Plus, Trash2 } from "lucide-react";
+import { ShieldAlert, Edit3, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { SiteNav } from "@/components/site-nav";
 import { useAuth } from "@/lib/auth-context";
 import { Input } from "@/components/ui/input";
@@ -85,6 +85,10 @@ function BansMutesPage() {
   const [showNew, setShowNew] = useState(false);
   const [actionResult, setActionResult] = useState(null);
   const [pendingRevoke, setPendingRevoke] = useState(null);
+  const [bmFeed, setBmFeed] = useState([]);
+  const [bmFeedLoading, setBmFeedLoading] = useState(false);
+  const [bmFeedError, setBmFeedError] = useState(null);
+  const [bmFeedVisible, setBmFeedVisible] = useState(false);
 
   const manageableOrgIds = useMemo(
     () =>
@@ -152,6 +156,33 @@ function BansMutesPage() {
       /* ignore */
     }
   }, []);
+
+  const loadBmFeed = useCallback(async () => {
+    const orgId = manageableOrgIds[0];
+    if (!orgId) return;
+    setBmFeedLoading(true);
+    setBmFeedError(null);
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/bm-ban-feed?limit=25`,
+        { credentials: "include" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBmFeedError(body?.error ?? "Failed to load BM ban feed.");
+        return;
+      }
+      if (body.noBmOrg) {
+        setBmFeed([]);
+        return;
+      }
+      setBmFeed(Array.isArray(body.bans) ? body.bans : []);
+    } catch {
+      setBmFeedError("Failed to load BM ban feed.");
+    } finally {
+      setBmFeedLoading(false);
+    }
+  }, [manageableOrgIds]);
 
   useEffect(() => {
     loadBans();
@@ -295,6 +326,112 @@ function BansMutesPage() {
                 )}
               </div>
             </div>
+
+            {/* BM Ban Feed */}
+            {tab === "bans" && (
+              <div className="rounded-md ring-1 ring-border bg-surface/40">
+                <button
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+                  onClick={() => {
+                    const next = !bmFeedVisible;
+                    setBmFeedVisible(next);
+                    if (next && bmFeed.length === 0 && !bmFeedLoading && !bmFeedError) {
+                      loadBmFeed();
+                    }
+                  }}
+                >
+                  <span className="text-[0.625rem] font-mono uppercase tracking-[0.2em] text-muted-foreground">
+                    BattleMetrics Ban Feed
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {bmFeedVisible && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); loadBmFeed(); }}
+                        disabled={bmFeedLoading}
+                        className="size-6 inline-flex items-center justify-center rounded hover:bg-surface transition-colors text-muted-foreground disabled:opacity-40"
+                        title="Refresh"
+                      >
+                        <RefreshCw className={`size-3 ${bmFeedLoading ? "animate-spin" : ""}`} />
+                      </button>
+                    )}
+                    <span className="text-[0.625rem] font-mono text-muted-foreground">
+                      {bmFeedVisible ? "▲" : "▼"}
+                    </span>
+                  </div>
+                </button>
+                {bmFeedVisible && (
+                  <div className="border-t border-border">
+                    {bmFeedLoading ? (
+                      <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading…</div>
+                    ) : bmFeedError ? (
+                      <div className="px-4 py-4 text-xs text-danger">{bmFeedError}</div>
+                    ) : bmFeed.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                        No bans found. Make sure BattleMetrics is configured for this org.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <div className="min-w-[600px] grid grid-cols-[1fr_1fr_120px_100px] gap-2 px-4 py-1.5 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground border-b border-border/50">
+                          <div>Player</div>
+                          <div>Reason</div>
+                          <div>Status</div>
+                          <div>Issued</div>
+                        </div>
+                        <div className="divide-y divide-border/40">
+                          {bmFeed.map((ban) => {
+                            const now = Math.floor(Date.now() / 1000);
+                            const isExpired = !ban.permanent && ban.expiresAt && ban.expiresAt <= now;
+                            return (
+                              <div
+                                key={ban.bmBanId}
+                                className="min-w-[600px] grid grid-cols-[1fr_1fr_120px_100px] gap-2 px-4 py-2 items-center text-xs hover:bg-surface/60"
+                              >
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate">
+                                    {ban.playerName ?? ban.uid ?? ban.bmBanId}
+                                  </div>
+                                  {ban.steamId && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <Link
+                                        to="/player-lookup"
+                                        search={{ steam: ban.steamId }}
+                                        className="text-[0.625rem] font-mono text-brand hover:underline truncate"
+                                      >
+                                        {ban.steamId}
+                                      </Link>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-muted-foreground truncate" title={ban.reason}>
+                                  {ban.reason || "—"}
+                                </div>
+                                <div>
+                                  <span
+                                    className={
+                                      "px-1.5 py-0.5 rounded text-[0.625rem] font-mono font-bold ring-1 " +
+                                      (isExpired
+                                        ? "bg-surface text-muted-foreground ring-border"
+                                        : ban.permanent
+                                          ? "bg-danger/15 text-danger ring-danger/40"
+                                          : "bg-warning/15 text-warning ring-warning/40")
+                                    }
+                                  >
+                                    {isExpired ? "Expired" : ban.permanent ? "Permanent" : fmtRemaining(ban.expiresAt, false)}
+                                  </span>
+                                </div>
+                                <div className="font-mono text-[0.625rem] text-muted-foreground">
+                                  {ban.bannedAt ? fmtAgo(ban.bannedAt) : "—"}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Filters */}
             <div className="flex items-center gap-2 flex-wrap">

@@ -70,6 +70,7 @@ import {
 import {
   handleGetChatLogs,
   handleGetOrgRecentReports,
+  handleGetPlayerTeamHistory,
   handleGetPvpLogs,
   handleGetReports,
   handleGetServerLogs,
@@ -128,6 +129,7 @@ import {
 } from "./schema.js";
 import {
   evaluateBoughtAccount,
+  evaluateConfig,
   evaluateThreatTriggers,
   getThreatTriggerConfigOrDefault,
   namesFromAliases,
@@ -280,6 +282,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "player_session_history",
   "player_steam_friends",
   "player_notes",
+  "staff_discord_lookup",
   "cases_create",
 ];
 
@@ -6716,7 +6719,7 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
 
   const players = await Promise.all(
     steamIds.map(async (steamId) => {
-      const [playerData, orgBansRes] = await Promise.all([
+      const [playerData, orgBansRes, f7ReportsRes] = await Promise.all([
         (async () => {
           const fromRedis = await getPlayerDataFromRedis(steamId);
           if (fromRedis) {
@@ -6745,6 +6748,16 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
            ORDER BY pb.issued_at DESC`,
           [ticket.org_id, steamId],
         ),
+        pool.query(
+          `SELECT pr.id, pr.report_type, pr.report_reason, pr.report_description,
+                  pr.reporter_name, pr.reporter_steam_id, pr.server_name, pr.created_at
+           FROM player_reports pr
+           JOIN servers s ON s.server_id = pr.server_id
+           WHERE s.owner_org_id = $1 AND pr.reported_steam_id = $2
+           ORDER BY pr.created_at DESC
+           LIMIT 50`,
+          [ticket.org_id, steamId],
+        ),
       ]);
 
       const orgBans = orgBansRes.rows.map((r) => ({
@@ -6760,10 +6773,21 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
         issuedByUsername: r.issued_by_username ?? null,
       }));
 
+      const f7Reports = f7ReportsRes.rows.map((r) => ({
+        id: String(r.id),
+        reportType: String(r.report_type),
+        reportReason: String(r.report_reason),
+        reportDescription: String(r.report_description),
+        reporterName: String(r.reporter_name),
+        reporterSteamId: String(r.reporter_steam_id),
+        serverName: String(r.server_name),
+        createdAt: Number(r.created_at),
+      }));
+
       if (!playerData) {
-        return { steamId, fetching: true, orgBans };
+        return { steamId, fetching: true, orgBans, f7Reports };
       }
-      return { ...filterPlayerIpData(playerData, canSeeIp), orgBans };
+      return { ...filterPlayerIpData(playerData, canSeeIp), orgBans, f7Reports };
     }),
   );
 
@@ -11854,6 +11878,77 @@ async function handleRconConsoleStream(request, serverId) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+// ── BM ban feed ───────────────────────────────────────────────────────────────
+
+async function handleGetBmBanFeed(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!canAccessBans(session, orgId))
+    return json({ error: "Forbidden: ban permission required" }, 403);
+
+  const orgRes = await pool.query(
+    "SELECT bm_org_id FROM organizations WHERE org_id = $1 LIMIT 1",
+    [orgId],
+  );
+  const bmOrgId = orgRes.rows[0]?.bm_org_id;
+  if (!bmOrgId) return json({ bans: [], noBmOrg: true });
+
+  let data;
+  try {
+    const url = new URL(request.url);
+    const pageSize = Math.min(
+      50,
+      Math.max(1, parseInt(url.searchParams.get("limit") ?? "25", 10)),
+    );
+    const res = await bmFetch(
+      orgId,
+      `https://api.battlemetrics.com/bans?filter[organization]=${encodeURIComponent(bmOrgId)}&sort=-timestamp&include=player&page[size]=${pageSize}`,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return json(
+        { error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}` },
+        502,
+      );
+    }
+    data = await res.json();
+  } catch (err) {
+    return json({ error: `Failed to reach BattleMetrics: ${err.message}` }, 502);
+  }
+
+  const playerNames = {};
+  const playerSteamIds = {};
+  for (const item of data?.included ?? []) {
+    if (item.type === "player") {
+      playerNames[item.id] = item.attributes?.name ?? null;
+      const uid = item.attributes?.uid ?? null;
+      if (uid && /^\d{17}$/.test(uid)) playerSteamIds[item.id] = uid;
+    }
+  }
+
+  const bans = (data?.data ?? []).map((ban) => {
+    const attrs = ban.attributes ?? {};
+    const playerId = ban.relationships?.player?.data?.id ?? null;
+    const rawReason = String(attrs.reason ?? "");
+    const reason = rawReason.split("|")[0].trim();
+    const note = String(attrs.note ?? "").replace(/<[^>]+>/g, "").trim();
+    return {
+      bmBanId: String(ban.id),
+      playerId: playerId ? String(playerId) : null,
+      playerName: playerId ? (playerNames[playerId] ?? null) : null,
+      steamId: playerId ? (playerSteamIds[playerId] ?? null) : null,
+      uid: attrs.uid ?? null,
+      reason,
+      note: note || null,
+      bannedAt: attrs.timestamp ? Math.floor(new Date(attrs.timestamp).getTime() / 1000) : null,
+      expiresAt: attrs.expires ? Math.floor(new Date(attrs.expires).getTime() / 1000) : null,
+      permanent: !attrs.expires,
+    };
+  });
+
+  return json({ bans });
 }
 
 // ── Ban / Mute handlers ──────────────────────────────────────────────────────
@@ -17140,6 +17235,56 @@ async function handleSearchOrgPlayers(request, orgId) {
   });
 }
 
+// ── Staff Discord username search ─────────────────────────────────────────────
+
+async function handleSearchStaffByDiscord(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  if (!orgHasPermission(session, orgId, "staff_discord_lookup"))
+    return json({ error: "Forbidden: staff_discord_lookup permission required" }, 403);
+
+  const url = new URL(request.url);
+  const q = String(url.searchParams.get("q") ?? "").trim();
+  if (q.length < 2) return json({ members: [] });
+
+  const { rows } = await pool.query(
+    `SELECT u.user_id, u.username, u.discord_id,
+            usa.steam_id, usa.is_primary,
+            pc.display_name AS steam_display_name,
+            pc.avatar_url
+     FROM organization_members om
+     JOIN users u ON u.user_id = om.user_id
+     JOIN user_steam_accounts usa ON usa.user_id = u.user_id
+     LEFT JOIN player_cache pc ON pc.steam_id = usa.steam_id
+     WHERE om.org_id = $1
+       AND (u.username ILIKE $2 OR u.discord_id LIKE $3)
+     ORDER BY u.username ASC, usa.is_primary DESC
+     LIMIT 30`,
+    [orgId, `%${q}%`, `%${q}%`],
+  );
+
+  const byUser = new Map();
+  for (const row of rows) {
+    const uid = String(row.user_id);
+    if (!byUser.has(uid)) {
+      byUser.set(uid, {
+        userId: uid,
+        username: row.username,
+        discordId: row.discord_id ? String(row.discord_id) : null,
+        steamAccounts: [],
+      });
+    }
+    byUser.get(uid).steamAccounts.push({
+      steamId: String(row.steam_id),
+      isPrimary: Boolean(row.is_primary),
+      displayName: row.steam_display_name ?? null,
+      avatarUrl: row.avatar_url ?? null,
+    });
+  }
+
+  return json({ members: [...byUser.values()] });
+}
+
 function normalizePlayerIpLookupQuery(value) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -17406,11 +17551,14 @@ async function handleGetOrgPlayerList(request, orgId) {
     } catch {}
   }
 
-  // All sighted players for this org with cache data.
-  const [sightingsRes, activeBansRes] = await Promise.all([
+  // All sighted players for this org with cache data. The trigger config drives
+  // the sus score (its configured signal weights), so load it alongside.
+  const [sightingsRes, activeBansRes, triggerConfig] = await Promise.all([
     pool.query(
       `SELECT pc.steam_id, pc.display_name, pc.avatar_url,
               pc.steam_rust_hours, pc.steam_profile_created_at,
+              pc.steam_vac_count, pc.steam_game_ban_count,
+              pc.steam_days_since_last_ban, pc.steam_community_banned,
               pc.bm_rust_hours, pc.bm_kills, pc.bm_deaths,
               pc.bm_cheating_reports, pc.bm_teaming_reports, pc.bm_other_reports,
               pc.bm_rust_bans_count
@@ -17427,38 +17575,53 @@ async function handleGetOrgPlayerList(request, orgId) {
          AND (expires_at IS NULL OR expires_at > unix_now())`,
       [orgId],
     ),
+    getThreatTriggerConfigOrDefault(orgId),
   ]);
   const bannedSteamIds = new Set(activeBansRes.rows.map((r) => r.identifier));
+  const triggerThreshold = Number(triggerConfig?.threshold) || 1.0;
 
   const allSteamIds = sightingsRes.rows.map((r) => r.steam_id);
   let ipMap = {};
+  let f7Map = {};
   if (allSteamIds.length > 0) {
-    const ipRes = await pool.query(
-      `SELECT DISTINCT ON (pih.steam_id)
-              pih.steam_id, im.is_proxy, im.country, im.latitude, im.longitude
-       FROM player_ip_history pih
-       LEFT JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
-       WHERE pih.steam_id = ANY($1)
-         AND (
-           pih.server_id IS NULL
-           OR pih.server_id IN (SELECT server_id FROM servers WHERE owner_org_id = $2)
-         )
-       ORDER BY pih.steam_id, pih.last_seen DESC`,
-      [allSteamIds, orgId],
-    );
+    const [ipRes, f7Res] = await Promise.all([
+      pool.query(
+        `SELECT DISTINCT ON (pih.steam_id)
+                pih.steam_id, im.is_proxy, im.country, im.latitude, im.longitude
+         FROM player_ip_history pih
+         LEFT JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
+         WHERE pih.steam_id = ANY($1)
+           AND (
+             pih.server_id IS NULL
+             OR pih.server_id IN (SELECT server_id FROM servers WHERE owner_org_id = $2)
+           )
+         ORDER BY pih.steam_id, pih.last_seen DESC`,
+        [allSteamIds, orgId],
+      ),
+      pool.query(
+        `SELECT pr.reported_steam_id,
+                COUNT(*) FILTER (WHERE pr.created_at > unix_now() - 3600)  AS last1h,
+                COUNT(*) FILTER (WHERE pr.created_at > unix_now() - 86400) AS last24h,
+                COUNT(*) AS total
+         FROM player_reports pr
+         JOIN servers s ON s.server_id = pr.server_id
+         WHERE pr.reported_steam_id = ANY($1) AND s.owner_org_id = $2
+         GROUP BY pr.reported_steam_id`,
+        [allSteamIds, orgId],
+      ),
+    ]);
     ipMap = Object.fromEntries(ipRes.rows.map((r) => [r.steam_id, r]));
+    f7Map = Object.fromEntries(f7Res.rows.map((r) => [r.reported_steam_id, r]));
   }
+
+  const nowSec = Math.floor(Date.now() / 1000);
 
   const enriched = sightingsRes.rows.map((cache) => {
     const online = onlineMap.get(cache.steam_id);
     const ip = ipMap[cache.steam_id] ?? null;
 
     const totalHours =
-      cache.steam_rust_hours != null
-        ? Number(cache.steam_rust_hours)
-        : cache.bm_rust_hours != null
-          ? Number(cache.bm_rust_hours)
-          : 0;
+      cache.steam_rust_hours != null ? Number(cache.steam_rust_hours) : null;
     const kills = Number(cache.bm_kills ?? 0);
     const deaths = Number(cache.bm_deaths ?? 0);
     const kd = deaths > 0 ? kills / deaths : kills > 0 ? kills : 0;
@@ -17467,20 +17630,43 @@ async function handleGetOrgPlayerList(request, orgId) {
       Number(cache.bm_teaming_reports ?? 0) +
       Number(cache.bm_other_reports ?? 0);
     const accountAgeDays = cache.steam_profile_created_at
-      ? Math.floor(
-          (Date.now() / 1000 - Number(cache.steam_profile_created_at)) / 86400,
-        )
+      ? Math.floor((nowSec - Number(cache.steam_profile_created_at)) / 86400)
       : 0;
 
-    // Weighted signal approach mirroring Trigger page specs
-    let sigScore = 0;
-    if (ip?.is_proxy) sigScore += 0.5;
-    if (Number(cache.bm_rust_bans_count ?? 0) > 0) sigScore += 0.3;
-    if (accountAgeDays > 0 && accountAgeDays < 365) sigScore += 0.4;
-    if (totalHours > 0 && totalHours < 100) sigScore += 0.3;
-    if (reportCount >= 1) sigScore += 0.1;
-    if (reportCount >= 5) sigScore += 0.3;
-    const susScore = Math.min(Math.round(sigScore * 100), 100);
+    // Sus score = sum of the org's configured threat-trigger signal weights
+    // that match this player. Uses the same fact set + evaluator as the trigger
+    // engine, so the score stays in lockstep with the Threat Triggers page.
+    // No longer normalised to 0–100; it's the raw weighted total.
+    const f7 = f7Map[cache.steam_id] ?? null;
+    const facts = {
+      proxy: ip?.is_proxy ?? false,
+      vacBans: Number(cache.steam_vac_count ?? 0),
+      gameBans: Number(cache.steam_game_ban_count ?? 0),
+      daysSinceBan:
+        cache.steam_days_since_last_ban != null
+          ? Number(cache.steam_days_since_last_ban)
+          : Number.POSITIVE_INFINITY,
+      accountAge:
+        cache.steam_profile_created_at != null
+          ? (nowSec - Number(cache.steam_profile_created_at)) / (365.25 * 86400)
+          : null,
+      playtimeHours:
+        cache.steam_rust_hours != null ? Number(cache.steam_rust_hours) : null,
+      bmRustHours:
+        cache.bm_rust_hours != null ? Number(cache.bm_rust_hours) : null,
+      bmActiveBans: Number(cache.bm_rust_bans_count ?? 0),
+      bmCheatingReports: Number(cache.bm_cheating_reports ?? 0),
+      f7Last1h: Number(f7?.last1h ?? 0),
+      f7Last24h: Number(f7?.last24h ?? 0),
+      f7Total: Number(f7?.total ?? 0),
+      bmKills: kills,
+      bmDeaths: deaths,
+      bmKdr: deaths > 0 ? kills / deaths : null,
+      bmTeamingReports: Number(cache.bm_teaming_reports ?? 0),
+      steamCommunityBanned: Boolean(cache.steam_community_banned),
+    };
+    const susScore =
+      Math.round(evaluateConfig(triggerConfig, { facts }).score * 100) / 100;
 
     return {
       steamId: cache.steam_id,
@@ -17490,6 +17676,7 @@ async function handleGetOrgPlayerList(request, orgId) {
       serverName: online?.serverName ?? null,
       isBanned: bannedSteamIds.has(cache.steam_id),
       susScore,
+      susThreshold: triggerThreshold,
       rustHours: totalHours,
       bmHours: cache.bm_rust_hours != null ? Number(cache.bm_rust_hours) : 0,
       kills,
@@ -18317,6 +18504,13 @@ async function _handleApiRequest(request) {
     if (orgBanNoteMatch && request.method === "PUT")
       return handleSetBanNoteFormat(request, orgBanNoteMatch[1]);
 
+    // BM ban feed
+    const orgBmBanFeedMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bm-ban-feed$/,
+    );
+    if (orgBmBanFeedMatch && request.method === "GET")
+      return handleGetBmBanFeed(request, orgBmBanFeedMatch[1]);
+
     // Player bans / mutes
     const orgBansMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/bans$/,
@@ -18632,6 +18826,13 @@ async function _handleApiRequest(request) {
     if (pathname === "/api/blacklisted-words" && request.method === "GET")
       return handleGetBlacklistedWordsForServer(request);
 
+    // Player team history (DB-backed, no RCON required)
+    const playerTeamsMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/player-teams$/,
+    );
+    if (playerTeamsMatch && request.method === "GET")
+      return handleGetPlayerTeamHistory(request, playerTeamsMatch[1]);
+
     // External API key rate limit stats
     const orgExternalKeyStatsMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/external-keys\/stats$/,
@@ -18804,6 +19005,13 @@ async function _handleApiRequest(request) {
     );
     if (orgPlayerSearchMatch && request.method === "GET")
       return handleSearchOrgPlayers(request, orgPlayerSearchMatch[1]);
+
+    // Staff Discord username search
+    const staffDiscordSearchMatch = pathname.match(
+      /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/staff\/discord-search$/,
+    );
+    if (staffDiscordSearchMatch && request.method === "GET")
+      return handleSearchStaffByDiscord(request, staffDiscordSearchMatch[1]);
 
     const orgPlayerIpBanEligibilityMatch = pathname.match(
       /^\/api\/orgs\/([a-zA-Z0-9_-]+)\/players\/(\d+)\/ip-ban-eligibility$/,

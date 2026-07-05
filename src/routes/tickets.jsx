@@ -2498,181 +2498,185 @@ function ServerHistorySection({ bmSessions }) {
   );
 }
 
-function RconTeamSection({ servers, initialSteamId = "" }) {
-  const [steamId, setSteamId] = useState(initialSteamId);
-  const [serverId, setServerId] = useState(servers[0]?.serverId ?? "");
-  const [result, setResult] = useState(null);
+function F7ReportsSection({ reports }) {
+  const list = reports ?? [];
+  if (list.length === 0) return null;
+
+  return (
+    <section>
+      <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <AlertTriangle className="size-3" aria-hidden />
+          F7 Reports
+        </span>
+        <span className="font-mono normal-case tracking-normal">
+          {list.length}
+        </span>
+      </h2>
+      <div className="space-y-1.5">
+        {list.map((r) => (
+          <div
+            key={r.id}
+            className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30 space-y-0.5"
+          >
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <span className="text-[0.625rem] font-mono font-semibold text-foreground truncate">
+                {r.reportReason || r.reportType}
+              </span>
+              <span className="text-[0.5625rem] font-mono text-muted-foreground shrink-0">
+                {formatRelativeTime(r.createdAt)}
+              </span>
+            </div>
+            {r.reportDescription && (
+              <p className="text-[0.5625rem] font-mono text-muted-foreground leading-snug line-clamp-2">
+                {r.reportDescription}
+              </p>
+            )}
+            <p className="text-[0.5625rem] font-mono text-muted-foreground truncate">
+              by {r.reporterName} · {r.serverName}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TeamHistorySection({ orgId, steamId }) {
+  const [events, setEvents] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   useEffect(() => {
-    setServerId((prev) => {
-      const still = servers.some((s) => s.serverId === prev);
-      return still ? prev : (servers[0]?.serverId ?? "");
-    });
-  }, [servers]);
-
-  // When the viewed player changes, reset and auto-run across all servers
-  useEffect(() => {
-    setSteamId(initialSteamId);
-    setResult(null);
-    setError("");
-    const sid = initialSteamId.trim();
-    if (!sid || servers.length === 0) return;
+    if (!orgId || !steamId) return;
     let cancelled = false;
     setLoading(true);
-    const tryServer = (server) =>
-      fetch(`/api/servers/${encodeURIComponent(server.serverId)}/rcon/exec`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: `teaminfo ${sid}` }),
+    setEvents(null);
+    fetch(
+      `/api/orgs/${encodeURIComponent(orgId)}/player-teams?steamId=${encodeURIComponent(steamId)}&limit=20`,
+      { credentials: "include" },
+    )
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((data) => {
+        if (!cancelled) {
+          setEvents(data.events ?? []);
+          setLoading(false);
+        }
       })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (!data) return null;
-          const parsed = parseTeamInfoResponse(data.response ?? "");
-          return parsed && parsed.members.length > 0
-            ? { server, parsed }
-            : null;
-        })
-        .catch(() => null);
-    Promise.all(servers.map(tryServer)).then((results) => {
-      if (cancelled) return;
-      const hit = results.find(Boolean);
-      if (hit) {
-        setServerId(hit.server.serverId);
-        setResult(hit.parsed);
-      } else {
-        setError("Player is not in a team on any server.");
-      }
-      setLoading(false);
-    });
+      .catch(() => {
+        if (!cancelled) {
+          setEvents([]);
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [initialSteamId, servers]);
+  }, [orgId, steamId]);
 
-  const handleLookup = async () => {
-    const sid = steamId.trim();
-    if (!sid || !serverId || loading) return;
-    setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const res = await fetch(
-        `/api/servers/${encodeURIComponent(serverId)}/rcon/exec`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command: `teaminfo ${sid}` }),
-        },
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data?.error ?? "RCON command failed");
-        return;
-      }
-      const parsed = parseTeamInfoResponse(data.response ?? "");
-      if (parsed && parsed.members.length > 0) {
-        setResult(parsed);
-      } else {
-        setError("Player is not in a team or no result returned.");
-      }
-    } catch {
-      setError("Failed to reach server.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loading) {
+    return (
+      <section>
+        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+          <Users className="size-3" aria-hidden />
+          Team History
+        </h2>
+        <p className="text-[0.625rem] font-mono text-muted-foreground">
+          Loading...
+        </p>
+      </section>
+    );
+  }
+
+  if (!events || events.length === 0) {
+    return (
+      <section>
+        <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
+          <Users className="size-3" aria-hidden />
+          Team History
+        </h2>
+        <p className="text-[0.625rem] font-mono text-muted-foreground">
+          No team history found.
+        </p>
+      </section>
+    );
+  }
+
+  // events are ordered DESC (most recent first)
+  const latest = events[0];
+  const older = events.slice(1);
 
   return (
     <section>
       <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3 flex items-center gap-2">
         <Users className="size-3" aria-hidden />
-        RCON Team Lookup
+        Team History
       </h2>
-      <div className="space-y-2">
-        <input
-          value={steamId}
-          onChange={(e) => setSteamId(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleLookup()}
-          placeholder="Steam ID..."
-          disabled={loading}
-          className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
-        />
-        {servers.length > 1 && (
-          <select
-            value={serverId}
-            onChange={(e) => setServerId(e.target.value)}
-            className="w-full bg-background border border-border rounded px-2 py-1 text-[0.625rem] font-mono focus:outline-none focus:ring-1 focus:ring-brand/40"
-          >
-            {servers.map((s) => (
-              <option key={s.serverId} value={s.serverId}>
-                {s.serverName}
-              </option>
+      <div className="space-y-3">
+        <TeamEventCard event={latest} isCurrent />
+        {older.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[0.5625rem] font-mono text-muted-foreground uppercase tracking-widest">
+              Earlier
+            </p>
+            {older.map((ev) => (
+              <TeamEventCard key={ev.id} event={ev} />
             ))}
-          </select>
-        )}
-        {servers.length === 0 && (
-          <p className="text-[0.625rem] font-mono text-muted-foreground">
-            No RCON servers configured.
-          </p>
-        )}
-        <button
-          onClick={handleLookup}
-          disabled={
-            !steamId.trim() || !serverId || loading || servers.length === 0
-          }
-          className="w-full text-[0.625rem] font-mono bg-brand text-brand-foreground rounded py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-        >
-          {loading ? "Looking up..." : "Lookup"}
-        </button>
-        {error && (
-          <p className="text-[0.625rem] font-mono text-danger leading-snug">
-            {error}
-          </p>
-        )}
-        {result && (
-          <div>
-            <div className="text-[0.625rem] font-mono text-muted-foreground mb-1.5">
-              Team #{result.teamId} · {result.members.length} member
-              {result.members.length !== 1 ? "s" : ""}
-            </div>
-            <div className="space-y-1">
-              {result.members.map((member) => (
-                <div
-                  key={member.steamId}
-                  className="ring-1 ring-border rounded px-2 py-1.5 bg-surface/30"
-                >
-                  <div className="flex items-center gap-1 min-w-0">
-                    {member.online && (
-                      <span className="text-[0.5625rem] text-green-400 shrink-0">
-                        ●
-                      </span>
-                    )}
-                    {member.leader && (
-                      <span className="text-[0.5625rem] font-mono font-bold text-amber-400 shrink-0 uppercase">
-                        Lead
-                      </span>
-                    )}
-                    <span className="text-[0.625rem] font-medium truncate">
-                      {member.username}
-                    </span>
-                    <ExternalLinks steamId={member.steamId} size={9} />
-                  </div>
-                  <div className="text-[0.625rem] font-mono text-muted-foreground mt-0.5 truncate flex items-center gap-1">
-                    {member.steamId}
-                    <CopyButton text={member.steamId} />
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
       </div>
     </section>
+  );
+}
+
+function TeamEventCard({ event, isCurrent = false }) {
+  const eventLabels = {
+    created: "Created",
+    joined: "Joined",
+    left: "Left",
+    invited: "Invited",
+  };
+  const eventColors = {
+    created: "text-brand",
+    joined: "text-green-400",
+    left: "text-muted-foreground",
+    invited: "text-amber-400",
+  };
+  return (
+    <div
+      className={`ring-1 rounded px-2 py-2 space-y-1.5 ${isCurrent ? "ring-brand/40 bg-brand/5" : "ring-border bg-surface/30"}`}
+    >
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <span
+          className={`text-[0.5625rem] font-mono font-semibold uppercase ${eventColors[event.eventType] ?? "text-muted-foreground"}`}
+        >
+          {eventLabels[event.eventType] ?? event.eventType}
+        </span>
+        <span className="text-[0.5625rem] font-mono text-muted-foreground shrink-0">
+          {formatRelativeTime(event.createdAt)}
+        </span>
+      </div>
+      <p className="text-[0.5625rem] font-mono text-muted-foreground truncate">
+        {event.serverName}
+      </p>
+      {event.teamMembers.length > 0 && (
+        <div className="space-y-1 pt-0.5">
+          {event.teamMembers.map((sid) => (
+            <div key={sid} className="flex items-center gap-1 min-w-0">
+              {sid === event.teamLeader && (
+                <span className="text-[0.5rem] font-mono font-bold text-amber-400 shrink-0 uppercase">
+                  Lead
+                </span>
+              )}
+              <span className="text-[0.5625rem] font-mono text-foreground truncate">
+                {sid}
+              </span>
+              <ExternalLinks steamId={sid} size={9} />
+              <CopyButton text={sid} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2948,6 +2952,8 @@ function PlayerIntelSidebar({
             />
 
             <ServerHistorySection bmSessions={player.bmSessions} />
+
+            <F7ReportsSection reports={player.f7Reports} />
           </>
         )}
 
@@ -2962,11 +2968,8 @@ function PlayerIntelSidebar({
           </div>
         )}
 
-        {!loading && hasPlayers && (
-          <RconTeamSection
-            servers={servers}
-            initialSteamId={player?.steamId ?? ""}
-          />
+        {!loading && hasPlayers && orgId && (
+          <TeamHistorySection orgId={orgId} steamId={player?.steamId ?? ""} />
         )}
 
         {submitterUsername && (

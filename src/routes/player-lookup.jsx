@@ -286,6 +286,10 @@ function PlayerLookupPage() {
   const [nameMatches, setNameMatches] = useState([]);
   const [nameSearchLoading, setNameSearchLoading] = useState(false);
   const [nameSearchError, setNameSearchError] = useState("");
+  const [discordQuery, setDiscordQuery] = useState("");
+  const [discordMatches, setDiscordMatches] = useState([]);
+  const [discordSearchLoading, setDiscordSearchLoading] = useState(false);
+  const [discordSearchError, setDiscordSearchError] = useState("");
   const [bmResolving, setBmResolving] = useState(false);
   const [bmResolveError, setBmResolveError] = useState("");
 
@@ -415,6 +419,10 @@ function PlayerLookupPage() {
     hasOrgPermission(o.id, "player_steam_friends"),
   );
   const canViewNotes = orgs.some((o) => hasOrgPermission(o.id, "player_notes"));
+  const discordLookupOrgIds = orgs
+    .filter((o) => hasOrgPermission(o.id, "staff_discord_lookup"))
+    .map((o) => o.id);
+  const canLookupStaffDiscord = discordLookupOrgIds.length > 0;
 
   const caseOrgIds = orgs
     .filter((o) => hasOrgPermission(o.id, "cases_create"))
@@ -615,12 +623,56 @@ function PlayerLookupPage() {
     [nameSearchOrgIds],
   );
 
+  const searchStaffByDiscord = useCallback(
+    async (query) => {
+      const q = String(query ?? "").trim();
+      if (q.length < 2) {
+        setDiscordQuery("");
+        setDiscordMatches([]);
+        setDiscordSearchError("");
+        return;
+      }
+      if (discordLookupOrgIds.length === 0) {
+        setDiscordQuery(q);
+        setDiscordMatches([]);
+        setDiscordSearchError("No organization with Discord lookup access.");
+        return;
+      }
+      setDiscordSearchLoading(true);
+      setDiscordQuery(q);
+      setDiscordSearchError("");
+      try {
+        const res = await fetch(
+          `/api/orgs/${encodeURIComponent(discordLookupOrgIds[0])}/staff/discord-search?q=${encodeURIComponent(q)}`,
+          { credentials: "include" },
+        );
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setDiscordMatches([]);
+          setDiscordSearchError(body?.error ?? "Failed to search staff accounts.");
+          return;
+        }
+        setDiscordMatches(Array.isArray(body.members) ? body.members : []);
+      } catch {
+        setDiscordMatches([]);
+        setDiscordSearchError("Failed to search staff accounts.");
+      } finally {
+        setDiscordSearchLoading(false);
+      }
+    },
+    [discordLookupOrgIds],
+  );
+
   useEffect(() => {
     if (steamId || ipHashQuery) {
       setNameQuery("");
       setNameMatches([]);
       setNameSearchError("");
       setNameSearchLoading(false);
+      setDiscordQuery("");
+      setDiscordMatches([]);
+      setDiscordSearchError("");
+      setDiscordSearchLoading(false);
     }
   }, [steamId, ipHashQuery]);
 
@@ -992,6 +1044,14 @@ function PlayerLookupPage() {
   const submit = (e) => {
     e.preventDefault();
     const trimmed = input.trim();
+
+    // Discord username search: prefix with @
+    if (canLookupStaffDiscord && trimmed.startsWith("@")) {
+      navigate({ search: { steam: undefined, ipHash: undefined } });
+      searchStaffByDiscord(trimmed.slice(1));
+      return;
+    }
+
     const normalizedLookup = normalizePlayerLookupIpQuery(trimmed);
     const isSteam = /^\d{17}$/.test(trimmed);
 
@@ -1396,7 +1456,7 @@ function PlayerLookupPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Search by Steam ID, BattleMetrics ID or URL, raw IP, IP hash, or player name"
+                    placeholder={`Search by Steam ID, BattleMetrics ID or URL, raw IP, IP hash, or player name${canLookupStaffDiscord ? " · @username for Discord" : ""}`}
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
@@ -1425,10 +1485,25 @@ function PlayerLookupPage() {
             </div>
           </div>
 
-          {!steamId && !ipHashQuery && !nameQuery ? (
+          {!steamId && !ipHashQuery && !nameQuery && !discordQuery ? (
             <div className="flex-1 grid place-items-center text-muted-foreground text-sm">
               Enter a Steam ID, raw IP, hashed IP token, or player name above.
+              {canLookupStaffDiscord && (
+                <span className="block text-xs mt-1 text-muted-foreground/60">
+                  Prefix with @ to search by Discord username.
+                </span>
+              )}
             </div>
+          ) : discordQuery ? (
+            <DiscordSearchResults
+              query={discordQuery}
+              loading={discordSearchLoading}
+              error={discordSearchError}
+              matches={discordMatches}
+              onOpenPlayer={(id) =>
+                navigate({ search: { steam: id, ipHash: undefined } })
+              }
+            />
           ) : nameQuery ? (
             <NameSearchResults
               query={nameQuery}
@@ -1653,6 +1728,7 @@ function PlayerLookupPage() {
                                 {playerData.steamId}
                                 <PlayerLinks
                                   steamId={playerData.steamId}
+                                  bmId={playerData.bm?.id}
                                   size="sm"
                                 />
                               </p>
@@ -2782,6 +2858,96 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
                 >
                   Open
                 </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DiscordSearchResults({ query, loading, error, matches, onOpenPlayer }) {
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
+        <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
+          <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
+            Discord Staff Search
+          </h2>
+          <p className="text-xs text-muted-foreground font-mono">
+            Query: @{query}
+          </p>
+        </section>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Searching...</p>
+        ) : error ? (
+          <p className="text-sm text-danger">{error}</p>
+        ) : matches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No staff members found matching this Discord username.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {matches.map((m) => (
+              <li
+                key={m.userId}
+                className="bg-surface/40 ring-1 ring-border rounded-lg px-4 py-3 space-y-2"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">{m.username}</span>
+                  {m.discordId && (
+                    <span className="text-[0.625rem] font-mono text-muted-foreground">
+                      {m.discordId}
+                    </span>
+                  )}
+                </div>
+                <ul className="space-y-1.5">
+                  {m.steamAccounts.map((acc) => (
+                    <li
+                      key={acc.steamId}
+                      className="flex items-center justify-between gap-3 bg-background/60 rounded px-3 py-2"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {acc.avatarUrl ? (
+                          <img
+                            src={acc.avatarUrl}
+                            alt=""
+                            className="size-7 rounded ring-1 ring-black/30 shrink-0 object-cover"
+                          />
+                        ) : (
+                          <div
+                            className="size-7 rounded ring-1 ring-black/30 shrink-0 grid place-items-center font-mono font-bold text-background text-[0.5rem]"
+                            style={{ background: steamIdColor(acc.steamId) }}
+                          >
+                            {(acc.displayName ?? acc.steamId)
+                              .replace(/[\[\]]/g, "")
+                              .slice(0, 2)
+                              .toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm truncate">
+                            {acc.displayName ?? acc.steamId}
+                          </p>
+                          <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
+                            {acc.steamId}
+                            {acc.isPrimary && (
+                              <span className="ml-1.5 text-brand">primary</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onOpenPlayer(acc.steamId)}
+                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-primary text-primary-foreground shadow hover:bg-primary/90 h-8 rounded-md px-3 text-xs shrink-0"
+                      >
+                        Open
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>

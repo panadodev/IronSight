@@ -680,7 +680,7 @@ function LinkedAccountsSection({
                       {a.relatedSteamId && (
                         <span className="text-[0.625rem] font-mono text-muted-foreground inline-flex items-center gap-1">
                           {a.relatedSteamId}
-                          <PlayerLinks steamId={a.relatedSteamId} size="xs" />
+                          <PlayerLinks steamId={a.relatedSteamId} bmId={a.relatedBmId} size="xs" />
                         </span>
                       )}
                       {a.hardLink ? (
@@ -1355,7 +1355,7 @@ function SessionRelatedSection({ sessionRelated }) {
                     </span>
                     {c.relatedSteamId && (
                       <span className="text-[0.625rem] font-mono text-muted-foreground inline-flex items-center gap-1">
-                        <PlayerLinks steamId={c.relatedSteamId} size="xs" />
+                        <PlayerLinks steamId={c.relatedSteamId} bmId={c.relatedBmId} size="xs" />
                       </span>
                     )}
                     <Hint text={meta.hint}>

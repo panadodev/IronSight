@@ -3398,14 +3398,9 @@ function GlobalpingSection({ orgId }) {
     [orgId],
   );
 
-  // Default the map to the first server once data arrives.
-  useEffect(() => {
-    if (data?.servers?.length && !mapServerId) {
-      setMapServerId(data.servers[0].serverId);
-    }
-  }, [data, mapServerId]);
-
   // Refetch history for the mapped server, also when the live data refreshes.
+  // Empty mapServerId = "All servers" — history requires a specific server, so
+  // loadHistory handles the empty case by clearing history.
   useEffect(() => {
     loadHistory(mapServerId);
   }, [mapServerId, loadHistory, updatedAt]);
@@ -3452,6 +3447,39 @@ function GlobalpingSection({ orgId }) {
 
   const hasAnyResult = results.length > 0;
 
+  // Aggregate all-servers snapshot: best (min) avg RTT per country across all servers.
+  const allServersSnap = (() => {
+    if (!results.length) return null;
+    const cells = {};
+    for (const r of results) {
+      const prev = cells[r.country];
+      if (!prev) {
+        cells[r.country] = { ...r };
+      } else {
+        cells[r.country] = {
+          ...prev,
+          reachable: prev.reachable || r.reachable,
+          avgRtt:
+            prev.avgRtt != null && r.avgRtt != null
+              ? Math.min(prev.avgRtt, r.avgRtt)
+              : (prev.avgRtt ?? r.avgRtt),
+          minRtt:
+            prev.minRtt != null && r.minRtt != null
+              ? Math.min(prev.minRtt, r.minRtt)
+              : (prev.minRtt ?? r.minRtt),
+          maxRtt:
+            prev.maxRtt != null && r.maxRtt != null
+              ? Math.max(prev.maxRtt, r.maxRtt)
+              : (prev.maxRtt ?? r.maxRtt),
+          probeCount: (prev.probeCount ?? 0) + (r.probeCount ?? 0),
+          reachableCount:
+            (prev.reachableCount ?? 0) + (r.reachableCount ?? 0),
+        };
+      }
+    }
+    return { cells };
+  })();
+
   // Chronological snapshots (history is newest-first) for the time slider, only
   // when they belong to the currently-selected server.
   const snaps =
@@ -3459,8 +3487,10 @@ function GlobalpingSection({ orgId }) {
       ? [...history.snapshots].reverse()
       : [];
   const safeIndex = Math.min(snapIndex, Math.max(0, snaps.length - 1));
-  const currentSnap = snaps[safeIndex] ?? null;
-  const mapCountries = history?.countries ?? countries;
+  const currentSnap = mapServerId
+    ? (snaps[safeIndex] ?? null)
+    : allServersSnap;
+  const mapCountries = mapServerId ? (history?.countries ?? countries) : countries;
   const mapServerName =
     servers.find((s) => s.serverId === mapServerId)?.serverName ?? "";
 
@@ -3484,11 +3514,12 @@ function GlobalpingSection({ orgId }) {
             </span>
           )}
           <select
-            value={mapServerId || servers[0]?.serverId || ""}
+            value={mapServerId}
             onChange={(e) => setMapServerId(e.target.value)}
             title="Server to plot on the map"
             className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
+            <option value="">All servers</option>
             {(mapMode === "players" ? (playerData?.servers ?? servers) : servers).map(
               (s) => (
                 <option key={s.serverId} value={s.serverId}>
@@ -3591,12 +3622,12 @@ function GlobalpingSection({ orgId }) {
                 snapshot={currentSnap}
                 countries={mapCountries}
               />
-              {historyLoading && !snaps.length && (
+              {mapServerId && historyLoading && !snaps.length && (
                 <div className="absolute inset-0 grid place-items-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40">
                   Loading history…
                 </div>
               )}
-              {!historyLoading && !snaps.length && (
+              {mapServerId && !historyLoading && !snaps.length && (
                 <div className="absolute inset-0 grid place-items-center text-center text-[0.6875rem] font-mono text-muted-foreground bg-background/40 px-4">
                   No measurement history yet for{" "}
                   {mapServerName || "this server"}. Measurements run every few
@@ -3606,7 +3637,7 @@ function GlobalpingSection({ orgId }) {
             </>
           )}
         </div>
-        {mapMode === "latency" && snaps.length > 1 && (
+        {mapMode === "latency" && mapServerId && snaps.length > 1 && (
           <div className="flex items-center gap-3">
             <span className="text-[0.625rem] font-mono text-muted-foreground whitespace-nowrap tabular-nums">
               {currentSnap

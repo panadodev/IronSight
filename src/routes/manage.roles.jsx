@@ -135,6 +135,11 @@ const PERMISSION_GROUPS = [
             label: "Player Notes",
             desc: "View and add staff notes on player profiles",
           },
+          {
+            id: "staff_discord_lookup",
+            label: "Discord → Steam Lookup",
+            desc: "Search for Steam accounts linked to org members' Discord accounts on the player lookup page",
+          },
         ],
       },
       {

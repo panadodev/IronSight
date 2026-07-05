@@ -506,6 +506,51 @@ export async function handleGetTeamEvents(request) {
   return json({ lines });
 }
 
+export async function handleGetPlayerTeamHistory(request, orgId) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const allowed =
+    canManageOrg(session, orgId) ||
+    isConfiguredSysAdmin(session) ||
+    orgHasPermission(session, orgId, "tickets_player_intel");
+  if (!allowed) return json({ error: "Forbidden" }, 403);
+
+  const url = new URL(request.url);
+  const steamId = (url.searchParams.get("steamId") ?? "").trim();
+  if (!steamId) return json({ error: "steamId is required" }, 400);
+
+  const limit = parseLimit(url.searchParams.get("limit"), 30, 100);
+
+  const { rows } = await pool.query(
+    `SELECT te.id, te.server_id, te.server_name, te.event_type,
+            te.team_members, te.team_leader, te.target_player,
+            te.event_time AS event_time_unix,
+            te.created_at
+     FROM team_events te
+     JOIN servers s ON s.server_id = te.server_id
+     WHERE s.owner_org_id = $1
+       AND (te.team_leader = $2 OR te.team_members @> jsonb_build_array($2::text))
+     ORDER BY te.created_at DESC
+     LIMIT $3`,
+    [orgId, steamId, limit],
+  );
+
+  const events = rows.map((row) => ({
+    id: String(row.id),
+    serverId: String(row.server_id),
+    serverName: String(row.server_name),
+    eventType: String(row.event_type),
+    teamMembers: Array.isArray(row.team_members) ? row.team_members : [],
+    teamLeader: String(row.team_leader),
+    targetPlayer: row.target_player != null ? String(row.target_player) : null,
+    eventTimeUnix: Number(row.event_time_unix),
+    createdAt: Number(row.created_at),
+  }));
+
+  return json({ events });
+}
+
 export async function handleGetServerLogs(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;

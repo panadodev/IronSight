@@ -80,16 +80,13 @@ function SessionBar({
   w,
   earliestSec,
   spanSec,
-  nowSec,
   rowIdx,
   onHover,
   onLeave,
 }) {
-  const end = w.stoppedAt ?? nowSec;
   const leftPct = ((w.startedAt - earliestSec) / spanSec) * 100;
-  const widthPct = Math.max(0.8, ((end - w.startedAt) / spanSec) * 100);
+  const widthPct = Math.max(0.8, ((w.stoppedAt - w.startedAt) / spanSec) * 100);
   const color = serverColor(w.bmServerId);
-  const online = w.stoppedAt == null;
   const top = rowIdx * 14;
 
   return (
@@ -101,8 +98,7 @@ function SessionBar({
         height: 10,
         top,
         background: color,
-        opacity: online ? 1 : 0.75,
-        boxShadow: online ? `0 0 4px ${color}` : undefined,
+        opacity: 0.75,
       }}
       onMouseEnter={(e) => onHover(w, e)}
       onMouseLeave={onLeave}
@@ -117,7 +113,10 @@ function SessionTimeline({ sessionWindows }) {
 
   const { windows, earliestSec, spanSec, rows, totalHeight } = useMemo(() => {
     const raw = (sessionWindows ?? []).filter(
-      (w) => w.startedAt != null && Number.isFinite(w.startedAt),
+      (w) =>
+        w.startedAt != null &&
+        Number.isFinite(w.startedAt) &&
+        w.stoppedAt != null,
     );
     if (raw.length === 0)
       return {
@@ -128,11 +127,10 @@ function SessionTimeline({ sessionWindows }) {
         totalHeight: 16,
       };
 
-    const nowSec = Date.now() / 1000;
     const sorted = [...raw].sort((a, b) => a.startedAt - b.startedAt);
     const earliest = sorted[0].startedAt;
     const latest = sorted.reduce(
-      (m, w) => Math.max(m, w.stoppedAt ?? nowSec),
+      (m, w) => Math.max(m, w.stoppedAt),
       earliest,
     );
     const span = Math.max(latest - earliest, 3600);
@@ -140,7 +138,7 @@ function SessionTimeline({ sessionWindows }) {
     // Row assignment: greedy interval packing to avoid overlaps
     const rowEnds = [];
     const rowMap = sorted.map((w) => {
-      const end = w.stoppedAt ?? nowSec;
+      const end = w.stoppedAt;
       let assigned = -1;
       for (let r = 0; r < rowEnds.length; r++) {
         if (rowEnds[r] <= w.startedAt) {
@@ -168,8 +166,7 @@ function SessionTimeline({ sessionWindows }) {
     };
   }, [sessionWindows]);
 
-  const nowSec = Date.now() / 1000;
-  const total = sessionWindows?.length ?? 0;
+  const total = windows.length;
 
   const handleHover = (w, e) => {
     setTooltip({ w, x: e.clientX, y: e.clientY });
@@ -213,7 +210,6 @@ function SessionTimeline({ sessionWindows }) {
                   w={w}
                   earliestSec={earliestSec}
                   spanSec={spanSec}
-                  nowSec={nowSec}
                   rowIdx={rows[i]}
                   onHover={handleHover}
                   onLeave={handleLeave}
@@ -247,9 +243,7 @@ function SessionTimeline({ sessionWindows }) {
                 })}
               </p>
               <p className="text-muted-foreground">
-                {tooltip.w.stoppedAt
-                  ? fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)
-                  : "Online now"}
+                {fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)}
               </p>
             </div>
           )}
