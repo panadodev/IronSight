@@ -17447,10 +17447,10 @@ async function handleSearchStaffByDiscord(request, orgId) {
      JOIN user_steam_accounts usa ON usa.user_id = u.user_id
      LEFT JOIN player_cache pc ON pc.steam_id = usa.steam_id
      WHERE om.org_id = $1
-       AND (u.username ILIKE $2 OR u.discord_id LIKE $3)
+       AND u.discord_id::text LIKE $2
      ORDER BY u.username ASC, usa.is_primary DESC
      LIMIT 30`,
-    [orgId, `%${q}%`, `%${q}%`],
+    [orgId, `%${q}%`],
   );
 
   const byUser = new Map();

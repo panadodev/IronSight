@@ -642,17 +642,42 @@ function PlayerLookupPage() {
       setDiscordQuery(q);
       setDiscordSearchError("");
       try {
-        const res = await fetch(
-          `/api/orgs/${encodeURIComponent(discordLookupOrgIds[0])}/staff/discord-search?q=${encodeURIComponent(q)}`,
-          { credentials: "include" },
+        const responses = await Promise.all(
+          discordLookupOrgIds.map(async (orgId) => {
+            const res = await fetch(
+              `/api/orgs/${encodeURIComponent(orgId)}/staff/discord-search?q=${encodeURIComponent(q)}`,
+              { credentials: "include" },
+            );
+            const body = await res.json().catch(() => ({}));
+            return { ok: res.ok, body };
+          }),
         );
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
+        const successful = responses.filter((r) => r.ok);
+        if (successful.length === 0) {
           setDiscordMatches([]);
-          setDiscordSearchError(body?.error ?? "Failed to search staff accounts.");
+          setDiscordSearchError(
+            responses[0]?.body?.error ?? "Failed to search staff accounts.",
+          );
           return;
         }
-        setDiscordMatches(Array.isArray(body.members) ? body.members : []);
+        const merged = new Map();
+        for (const { body } of successful) {
+          for (const member of Array.isArray(body.members) ? body.members : []) {
+            if (!merged.has(member.userId)) {
+              merged.set(member.userId, member);
+            } else {
+              const existing = merged.get(member.userId);
+              const existingIds = new Set(
+                existing.steamAccounts.map((a) => a.steamId),
+              );
+              for (const acc of member.steamAccounts) {
+                if (!existingIds.has(acc.steamId))
+                  existing.steamAccounts.push(acc);
+              }
+            }
+          }
+        }
+        setDiscordMatches([...merged.values()]);
       } catch {
         setDiscordMatches([]);
         setDiscordSearchError("Failed to search staff accounts.");
@@ -1456,7 +1481,7 @@ function PlayerLookupPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder={`Search by Steam ID, BattleMetrics ID or URL, raw IP, IP hash, or player name${canLookupStaffDiscord ? " · @username for Discord" : ""}`}
+                    placeholder={`Search by Steam ID, BattleMetrics ID or URL, raw IP, IP hash, or player name${canLookupStaffDiscord ? " · @discordid for Discord ID" : ""}`}
                     className="w-full pl-9 pr-3 py-2.5 bg-background ring-1 ring-border rounded-md text-sm font-mono focus:outline-none focus:ring-brand"
                   />
                 </div>
@@ -1490,7 +1515,7 @@ function PlayerLookupPage() {
               Enter a Steam ID, raw IP, hashed IP token, or player name above.
               {canLookupStaffDiscord && (
                 <span className="block text-xs mt-1 text-muted-foreground/60">
-                  Prefix with @ to search by Discord username.
+                  Prefix with @ to search by Discord ID.
                 </span>
               )}
             </div>
@@ -2873,10 +2898,10 @@ function DiscordSearchResults({ query, loading, error, matches, onOpenPlayer }) 
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
         <section className="bg-surface/60 ring-1 ring-border rounded-lg p-4">
           <h2 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2">
-            Discord Staff Search
+            Discord ID Search
           </h2>
           <p className="text-xs text-muted-foreground font-mono">
-            Query: @{query}
+            Discord ID: {query}
           </p>
         </section>
 
@@ -2886,7 +2911,7 @@ function DiscordSearchResults({ query, loading, error, matches, onOpenPlayer }) 
           <p className="text-sm text-danger">{error}</p>
         ) : matches.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No staff members found matching this Discord username.
+            No staff members found with this Discord ID.
           </p>
         ) : (
           <ul className="space-y-3">
