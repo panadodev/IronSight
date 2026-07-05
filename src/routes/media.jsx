@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  Download,
   ExternalLink,
   FileIcon,
   Film,
@@ -88,6 +89,21 @@ function uploadChunkXhr(url, blob, onProgress, xhrRef) {
       blob instanceof Blob && blob.type ? blob.slice(0, blob.size, "") : blob;
     xhr.send(body);
   });
+}
+
+async function downloadMedia(item) {
+  if (!item.url) return;
+  const res = await fetch(item.url, { credentials: "include" });
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = item.filename || item.title || "media";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function UploadDialog({ open, onClose, orgs, onUploaded }) {
@@ -454,12 +470,22 @@ function PreviewDialog({ item, onClose, onDelete, showOrg }) {
                 Delete
               </Button>
               {item.url && (
-                <Button asChild size="sm" variant="outline">
-                  <a href={item.url} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="size-3.5" />
-                    Open
-                  </a>
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => downloadMedia(item)}
+                  >
+                    <Download className="size-3.5" />
+                    Download
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="size-3.5" />
+                      Open
+                    </a>
+                  </Button>
+                </>
               )}
             </div>
           </>
@@ -555,16 +581,28 @@ function MediaTable({
               <td className="px-3 py-2">
                 <div className="flex items-center gap-1.5 justify-end">
                   {item.url && (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-border hover:bg-surface/60 transition-colors text-muted-foreground hover:text-foreground"
-                      title="Open"
-                    >
-                      <ExternalLink className="size-3" />
-                    </a>
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadMedia(item);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-border hover:bg-surface/60 transition-colors text-muted-foreground hover:text-foreground"
+                        title="Download"
+                      >
+                        <Download className="size-3" />
+                      </button>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-border hover:bg-surface/60 transition-colors text-muted-foreground hover:text-foreground"
+                        title="Open"
+                      >
+                        <ExternalLink className="size-3" />
+                      </a>
+                    </>
                   )}
                   <button
                     onClick={(e) => {

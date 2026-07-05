@@ -37,11 +37,50 @@ const DM_MESSAGE =
 
 let ws;
 let heartbeatTimer;
+let presenceTimer;
 let sessionId = null;
 let resumeGatewayUrl = null;
 let seq = null;
 let acked = true;
 let reconnecting = false;
+
+const PRESENCE_INTERVAL_MS = 60_000;
+
+async function fetchPlayerCount() {
+  try {
+    const res = await fetch(`${API_URL}/api/internal/bot/player-count`, {
+      headers: BOT_HEADERS,
+    });
+    if (!res.ok) return null;
+    const { count } = await res.json();
+    return typeof count === "number" ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+function updatePresence(count) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  send({
+    op: 3, // UPDATE_PRESENCE
+    d: {
+      since: null,
+      activities: [
+        {
+          name: `${count} player${count === 1 ? "" : "s"}`,
+          type: 3, // WATCHING
+        },
+      ],
+      status: "online",
+      afk: false,
+    },
+  });
+}
+
+async function refreshPresence() {
+  const count = await fetchPlayerCount();
+  if (count !== null) updatePresence(count);
+}
 
 // Tracks owners awaiting a Discord ID reply to deactivate a staff member.
 // Key: owner Discord user ID; value: { orgId, orgName, staffList, expiresAt }
@@ -56,6 +95,7 @@ function reconnect(resume = false) {
   if (reconnecting) return;
   reconnecting = true;
   clearInterval(heartbeatTimer);
+  clearInterval(presenceTimer);
   console.log(`[IronSight Bot] Reconnecting in 5s (resume=${resume})`);
   try {
     ws.close();
@@ -269,6 +309,9 @@ function connect(resume = false) {
           sessionId = d.session_id;
           resumeGatewayUrl = d.resume_gateway_url;
           console.log(`[IronSight Bot] Ready as ${d.user.username}`);
+          clearInterval(presenceTimer);
+          refreshPresence();
+          presenceTimer = setInterval(refreshPresence, PRESENCE_INTERVAL_MS);
         } else if (t === "RESUMED") {
           console.log("[IronSight Bot] Session resumed");
         } else if (t === "GUILD_MEMBER_ADD") {
@@ -425,6 +468,7 @@ function connect(resume = false) {
 
   socket.addEventListener("close", ({ code }) => {
     clearInterval(heartbeatTimer);
+    clearInterval(presenceTimer);
     console.log(`[IronSight Bot] Gateway closed (code ${code})`);
     if (code === 4004) {
       console.error("[IronSight Bot] Invalid token — exiting");

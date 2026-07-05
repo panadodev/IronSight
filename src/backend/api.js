@@ -8722,7 +8722,12 @@ async function handleListScripts(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!orgHasPermission(session, orgId, "scripts_view")) {
+  // scripts_manage implies scripts_view — the panel UI surfaces the Scripts tab
+  // (and its script picker) to holders of either permission, so listing must too.
+  if (
+    !orgHasPermission(session, orgId, "scripts_view") &&
+    !orgHasPermission(session, orgId, "scripts_manage")
+  ) {
     return json({ error: "Forbidden: scripts_view permission required" }, 403);
   }
 
@@ -17795,6 +17800,13 @@ async function _handleApiRequest(request) {
     }
 
     if (
+      pathname === "/api/internal/bot/player-count" &&
+      request.method === "GET"
+    ) {
+      return handleBotGetPlayerCount(request);
+    }
+
+    if (
       pathname === "/api/internal/bot/deactivate" &&
       request.method === "POST"
     ) {
@@ -19964,6 +19976,16 @@ async function handleBotDeactivateMember(request) {
   await revokeUserSessions(target.user_id);
 
   return json({ ok: true, username: target.username, orgId });
+}
+
+async function handleBotGetPlayerCount(request) {
+  const authError = requireBotAuth(request);
+  if (authError) return authError;
+
+  const res = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM server_player_sessions WHERE disconnected_at IS NULL`,
+  );
+  return json({ count: Number(res.rows[0]?.cnt ?? 0) });
 }
 
 async function handleIngestDiscordMessage(request) {
