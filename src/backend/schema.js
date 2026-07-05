@@ -2079,6 +2079,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('player_session_history',   'View session history and timeline on player profiles'),
       ('player_steam_friends',     'View Steam friends list on player profiles'),
       ('player_notes',             'View and add staff notes on player profiles'),
+      ('staff_discord_lookup',     'Search for Steam accounts linked to org members'' Discord accounts'),
       ('ticket_types_manage',      'Manage ticket types (enable/disable)'),
       ('applications_view',        'View and review staff applications'),
       ('cases_create',             'Create staff cases from player lookup')
