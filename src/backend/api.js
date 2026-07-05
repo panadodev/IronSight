@@ -12445,8 +12445,11 @@ async function handleCreateBan(request, orgId) {
       .filter((id) => typeof id === "string" && /^[a-f0-9-]{36}$/.test(id))
       .slice(0, 20);
     if (safeMediaIds.length > 0) {
+      // Org-scoped and confirmed only. Source is intentionally unrestricted so
+      // both staff-gallery items and user-submitted ticket evidence can be
+      // attached; unconfirmed/abandoned uploads are excluded.
       const validMedia = await pool.query(
-        `SELECT media_id FROM org_media WHERE media_id = ANY($1::uuid[]) AND org_id = $2 AND deleted = FALSE`,
+        `SELECT media_id FROM org_media WHERE media_id = ANY($1::uuid[]) AND org_id = $2 AND deleted = FALSE AND confirmed = TRUE`,
         [safeMediaIds, orgId],
       );
       for (const row of validMedia.rows) {
@@ -13566,6 +13569,7 @@ function serializeMedia(r) {
     lastAccessedAt:
       r.last_accessed_at != null ? Number(r.last_accessed_at) : null,
     storageBackend: r.storage_backend ?? "zipline",
+    ...(r.source !== undefined ? { source: r.source } : {}),
   };
 }
 
@@ -13602,6 +13606,16 @@ async function canViewMediaFile(session, media) {
   // Org admins/owners can see anything in their org.
   if (canManageOrg(session, orgId)) return true;
 
+  const hasBanReviewPerm =
+    orgHasPermission(session, orgId, "players_view") ||
+    orgHasPermission(session, orgId, "bans_create") ||
+    orgHasPermission(session, orgId, "bans_manage");
+
+  if (media.source === "staff") {
+    // Staff-uploaded media (media library + ban evidence).
+    return hasBanReviewPerm || orgHasPermission(session, orgId, "media_upload");
+  }
+
   if (media.source === "ticket") {
     // Staff who can view tickets, or the submitter of the ticket this media is
     // attached to (covers a staffer attaching evidence to the submitter's ticket).
@@ -13616,17 +13630,23 @@ async function canViewMediaFile(session, media) {
        WHERE tml.media_id = $1 AND t.created_by = $2 LIMIT 1`,
       [media.media_id, session.userId],
     );
-    return rows.length > 0;
+    if (rows.length > 0) return true;
+    // Otherwise fall through to the ban-evidence check below.
   }
 
-  if (media.source === "staff") {
-    // Staff-uploaded media (media library + ban evidence).
-    return (
-      orgHasPermission(session, orgId, "media_upload") ||
-      orgHasPermission(session, orgId, "players_view") ||
-      orgHasPermission(session, orgId, "bans_create") ||
-      orgHasPermission(session, orgId, "bans_manage")
+  // User-submitted media ('ticket'/'pending') a staffer attached to a ban as
+  // evidence: viewable by anyone who can review that ban, even without
+  // tickets_view — the people meant to review the evidence. Only reached for
+  // non-'staff' sources (staff media returned above), so this query stays off
+  // the staff-gallery hot path.
+  if (hasBanReviewPerm) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM ban_media_links bml
+       JOIN player_bans b ON b.ban_id = bml.ban_id
+       WHERE bml.media_id = $1 AND b.org_id = $2 LIMIT 1`,
+      [media.media_id, orgId],
     );
+    if (rows.length > 0) return true;
   }
 
   // 'pending' (unattached public upload) and anything else: only the uploader,
@@ -13893,16 +13913,34 @@ async function handleListOrgMedia(request, orgId) {
   );
   const fileType = url.searchParams.get("type") ?? null;
 
+  // `source=public` lists media players submitted through the public ticket
+  // flow so staff can attach a reporter's clips/screenshots as ban evidence.
+  // User submissions are ticket content, so browsing them is gated on
+  // ticket-viewing (which is also what `canViewMediaFile` clears for these
+  // 'ticket' items) rather than the ban perms — a ban-only staffer without
+  // tickets access would just get broken thumbnails. In-flight 'pending'
+  // uploads (never promoted to a ticket) are excluded.
+  const isPublic = url.searchParams.get("source") === "public";
+  if (
+    isPublic &&
+    !canManage &&
+    !orgHasPermission(session, orgId, "tickets_view") &&
+    !orgHasPermission(session, orgId, "tickets_manage")
+  )
+    return json({ error: "Forbidden" }, 403);
+
   const conditions = [
     "m.org_id = $1",
     "m.deleted = FALSE",
     "m.confirmed = TRUE",
-    "m.source = 'staff'",
+    isPublic ? "m.source = 'ticket'" : "m.source = 'staff'",
   ];
   const params = [orgId];
   let paramIdx = 2;
 
-  if (!canManage) {
+  // A plain staffer's own gallery is scoped to their uploads; the public tab is
+  // already gated on ban permissions above, so it shows all org submissions.
+  if (!isPublic && !canManage) {
     conditions.push(`m.uploaded_by = $${paramIdx++}`);
     params.push(session.userId);
   }
@@ -13917,7 +13955,7 @@ async function handleListOrgMedia(request, orgId) {
   const { rows } = await pool.query(
     `SELECT m.media_id, m.org_id, m.uploaded_by, m.r2_key, m.storage_backend,
             m.zipline_url, m.filename, m.file_type, m.mime_type, m.file_size, m.title,
-            m.uploaded_at, m.last_accessed_at,
+            m.uploaded_at, m.last_accessed_at, m.source,
             u.username AS uploaded_by_name
      FROM org_media m
      LEFT JOIN users u ON u.user_id = m.uploaded_by
@@ -15763,6 +15801,7 @@ async function evalBoughtAccountFlag(orgId, d) {
       bmRustHours: d?.bm?.rustHours ?? null,
       names,
       steamGroups: Array.isArray(d?.steamGroups) ? d.steamGroups : [],
+      steamLevel: d?.steam?.level ?? null,
     });
     return Boolean(reasons);
   } catch {
@@ -17613,15 +17652,18 @@ async function handleGetPlayerOriginHeatmap(request, orgId) {
 
   const since = Math.floor(Date.now() / 1000) - 90 * 86400;
   try {
+    // The frontend heatmap keys COUNTRY_CENTROIDS by ISO alpha-2 codes, so we
+    // group by im.iso_code (e.g. "US") rather than im.country (the full name,
+    // e.g. "United States") which would never match a centroid.
     const { rows } = await pool.query(
-      `SELECT im.country, COUNT(DISTINCT sps.steam_id)::int AS count
+      `SELECT im.iso_code AS country, COUNT(DISTINCT sps.steam_id)::int AS count
        FROM server_player_sessions sps
        JOIN player_ip_history pih ON pih.steam_id = sps.steam_id
        JOIN ip_metadata im ON im.ip_hash = pih.ip_hash
        WHERE sps.org_id = $1
          AND sps.connected_at > $2
-         AND im.country IS NOT NULL
-       GROUP BY im.country
+         AND im.iso_code IS NOT NULL
+       GROUP BY im.iso_code
        ORDER BY count DESC
        LIMIT 100`,
       [orgId, since],

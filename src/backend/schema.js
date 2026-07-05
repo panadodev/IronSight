@@ -1862,6 +1862,11 @@ export async function ensureSchema(pool) {
     `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS steam_groups JSONB`,
   );
 
+  // Steam account level (fetched from IPlayerService/GetSteamLevel).
+  await pool.query(
+    `ALTER TABLE player_cache ADD COLUMN IF NOT EXISTS steam_level INT`,
+  );
+
   // Groups that are considered suspicious — any player who is a member gets
   // a warning flag on the player lookup page.
   await pool.query(`

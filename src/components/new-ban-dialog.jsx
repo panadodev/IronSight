@@ -928,6 +928,12 @@ export function NewBanDialog({
           onClose={() => setMediaPickerOpen(false)}
           orgId={orgId}
           selectedIds={linkedMediaIds}
+          selectedItems={linkedMediaItems}
+          allowUserSubmitted={
+            !!orgId &&
+            (hasOrgPermission(orgId, "tickets_view") ||
+              hasOrgPermission(orgId, "tickets_manage"))
+          }
           onConfirm={(ids, items) => {
             setLinkedMediaIds(ids);
             setLinkedMediaItems(items);

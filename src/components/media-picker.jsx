@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Film, Image, FileIcon, Check } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function FileTypeIcon({ fileType, className = "size-4" }) {
   if (fileType === "video") return <Film className={className} />;
@@ -21,16 +21,31 @@ export function MediaPicker({
   onClose,
   orgId,
   selectedIds = [],
+  selectedItems = [],
   onConfirm,
+  // When true, offers a second tab listing media submitted by players through
+  // the public ticket flow, so it can be attached to a ban as evidence.
+  allowUserSubmitted = false,
 }) {
   const [media, setMedia] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(new Set(selectedIds));
   const [typeFilter, setTypeFilter] = useState("all");
+  const [sourceTab, setSourceTab] = useState("gallery");
+
+  // Cache every item we've seen (across both tabs and the pre-selected set) so a
+  // selection made on one tab still resolves to a thumbnail on confirm, even
+  // though `media` only holds the currently visible tab.
+  const itemsById = useRef(new Map());
 
   useEffect(() => {
-    if (open) setSelected(new Set(selectedIds));
+    if (!open) return;
+    setSelected(new Set(selectedIds));
+    setSourceTab("gallery");
+    itemsById.current = new Map();
+    for (const it of selectedItems) itemsById.current.set(it.mediaId, it);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -39,14 +54,19 @@ export function MediaPicker({
     setError("");
     const params = new URLSearchParams({ limit: "48", offset: "0" });
     if (typeFilter !== "all") params.set("type", typeFilter);
+    if (sourceTab === "public") params.set("source", "public");
     fetch(`/api/orgs/${encodeURIComponent(orgId)}/media?${params}`, {
       credentials: "include",
     })
       .then((r) => r.json())
-      .then((body) => setMedia(body.media ?? []))
+      .then((body) => {
+        const items = body.media ?? [];
+        for (const it of items) itemsById.current.set(it.mediaId, it);
+        setMedia(items);
+      })
       .catch(() => setError("Failed to load media."))
       .finally(() => setLoading(false));
-  }, [open, orgId, typeFilter]);
+  }, [open, orgId, typeFilter, sourceTab]);
 
   function toggle(id) {
     setSelected((prev) => {
@@ -58,10 +78,16 @@ export function MediaPicker({
   }
 
   function handleConfirm() {
-    const selectedItems = media.filter((m) => selected.has(m.mediaId));
-    onConfirm(Array.from(selected), selectedItems);
+    const ids = Array.from(selected);
+    const items = ids.map((id) => itemsById.current.get(id)).filter(Boolean);
+    onConfirm(ids, items);
     onClose();
   }
+
+  const emptyLabel =
+    sourceTab === "public"
+      ? "No player-submitted media in this org yet."
+      : "No media in gallery yet.";
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -69,9 +95,32 @@ export function MediaPicker({
         <DialogHeader className="shrink-0">
           <DialogTitle>Link evidence</DialogTitle>
           <DialogDescription>
-            Select media from your gallery to attach as evidence to this ban.
+            {sourceTab === "public"
+              ? "Attach media submitted by players through the public ticket flow as evidence for this ban."
+              : "Select media from your gallery to attach as evidence to this ban."}
           </DialogDescription>
         </DialogHeader>
+
+        {allowUserSubmitted && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {[
+              { id: "gallery", label: "Staff gallery" },
+              { id: "public", label: "User submitted" },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSourceTab(t.id)}
+                className={`px-3 py-1.5 text-xs rounded-md ring-1 transition-colors ${
+                  sourceTab === t.id
+                    ? "ring-brand/60 bg-brand/15 text-brand font-medium"
+                    : "ring-border bg-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center gap-1.5 shrink-0">
           {["all", "image", "video"].map((t) => (
@@ -112,9 +161,7 @@ export function MediaPicker({
           ) : media.length === 0 ? (
             <div className="py-12 text-center">
               <FileIcon className="size-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">
-                No media in gallery yet.
-              </p>
+              <p className="text-sm text-muted-foreground">{emptyLabel}</p>
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 p-1">
@@ -153,6 +200,11 @@ export function MediaPicker({
                     {isSelected && (
                       <div className="absolute top-1.5 right-1.5 size-5 rounded-full bg-brand flex items-center justify-center">
                         <Check className="size-3 text-white" strokeWidth={3} />
+                      </div>
+                    )}
+                    {sourceTab === "public" && (
+                      <div className="absolute top-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[0.5rem] font-mono uppercase tracking-wider text-white">
+                        User
                       </div>
                     )}
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">

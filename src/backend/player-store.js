@@ -108,7 +108,7 @@ async function findBMIdBySteamId(steamId, orgId) {
 }
 
 async function fetchSteamPlayerData(steamId, orgId) {
-  const [summaryResp, playtimeResp, bansResp] = await Promise.all([
+  const [summaryResp, playtimeResp, bansResp, levelResp] = await Promise.all([
     steamApiFetch(orgId, "/ISteamUser/GetPlayerSummaries/v0002/", {
       steamids: steamId,
     }),
@@ -119,6 +119,9 @@ async function fetchSteamPlayerData(steamId, orgId) {
     }),
     steamApiFetch(orgId, "/ISteamUser/GetPlayerBans/v1/", {
       steamids: steamId,
+    }),
+    steamApiFetch(orgId, "/IPlayerService/GetSteamLevel/v1/", {
+      steamid: steamId,
     }),
   ]);
 
@@ -193,6 +196,17 @@ async function fetchSteamPlayerData(steamId, orgId) {
     }
   }
 
+  let steamLevel = null;
+  if (levelResp?.ok) {
+    try {
+      const json = await levelResp.json();
+      const lvl = json.response?.player_level;
+      if (lvl != null) steamLevel = Number(lvl);
+    } catch {
+      console.warn(`[player:steam] level JSON parse error for ${steamId}`);
+    }
+  }
+
   return {
     success: summaryOk,
     displayName,
@@ -202,6 +216,7 @@ async function fetchSteamPlayerData(steamId, orgId) {
     rustHours,
     hoursPublic,
     bans,
+    steamLevel,
   };
 }
 
@@ -1601,6 +1616,7 @@ async function writeSteamDataToCache(steamId, data) {
        steam_days_since_last_ban = COALESCE($11, steam_days_since_last_ban),
        steam_community_banned    = COALESCE($12, steam_community_banned),
        steam_economy_ban         = COALESCE($13, steam_economy_ban),
+       steam_level               = COALESCE($14, steam_level),
        steam_cached_at          = unix_now(),
        cache_expires_at         = unix_now() + 2592000
      WHERE steam_id = $1`,
@@ -1618,6 +1634,7 @@ async function writeSteamDataToCache(steamId, data) {
       data.bans?.daysSinceLastBan ?? null,
       data.bans?.communityBanned ?? null,
       data.bans?.economyBan ?? null,
+      data.steamLevel ?? null,
     ],
   );
 }
@@ -2720,6 +2737,7 @@ export async function getPlayerCacheData(steamId) {
           ? Boolean(p.steam_community_banned)
           : null,
       economyBan: p.steam_economy_ban ?? null,
+      level: p.steam_level != null ? Number(p.steam_level) : null,
       cachedAt: p.steam_cached_at ?? null,
     },
     bm: p.bm_id

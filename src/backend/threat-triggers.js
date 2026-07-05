@@ -90,6 +90,18 @@ export const TRIGGER_FACTS = [
     unit: "reports",
   },
   { id: "steamCommunityBanned", label: "Steam community banned", type: "bool" },
+  {
+    id: "bmAccountAge",
+    label: "BM account age",
+    type: "number",
+    unit: "yrs",
+  },
+  {
+    id: "hsHitPct",
+    label: "HS hit %",
+    type: "number",
+    unit: "%",
+  },
 ];
 
 const FACT_TYPE = new Map(TRIGGER_FACTS.map((f) => [f.id, f.type]));
@@ -121,6 +133,7 @@ export const DEFAULT_TRIGGER_CONFIG = {
     },
     nameRule: { enabled: false, terms: [] },
     groupRule: { enabled: false, groups: [] },
+    steamLevelRule: { enabled: false, maxLevel: 5 },
   },
 };
 
@@ -183,6 +196,11 @@ export function sanitizeTriggerConfig(raw) {
               .filter(Boolean)
               .slice(0, 50)
           : [],
+      },
+      steamLevelRule: {
+        enabled: Boolean(raw?.boughtAccount?.steamLevelRule?.enabled),
+        maxLevel:
+          num(raw?.boughtAccount?.steamLevelRule?.maxLevel) ?? 5,
       },
     },
   };
@@ -261,9 +279,10 @@ export function namesFromAliases(aliases) {
 // Computes the fact set for a player within an org. Returns null when the player
 // has no cached profile AND no reports (nothing to evaluate).
 export async function computePlayerFacts(orgId, steamId) {
-  const [profileRes, proxyRes, reportRes] = await Promise.all([
+  const [profileRes, proxyRes, reportRes, hsRes] = await Promise.all([
     pool.query(
-      `SELECT display_name, steam_profile_created_at, steam_rust_hours,
+      `SELECT display_name, steam_profile_created_at, bm_profile_created_at,
+              steam_rust_hours,
               steam_vac_count, steam_game_ban_count, steam_days_since_last_ban,
               steam_community_banned,
               bm_rust_hours, bm_rust_bans_count, bm_cheating_reports,
@@ -291,6 +310,15 @@ export async function computePlayerFacts(orgId, steamId) {
        WHERE pr.reported_steam_id = $1 AND s.owner_org_id = $2`,
       [steamId, orgId],
     ),
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE LOWER(COALESCE(NULLIF(TRIM(p.combatlog_cache->>'bodypart'),''),'unknown')) = 'head')::int AS hs_kills,
+         COUNT(*)::int AS total_kills
+       FROM pvp_log p
+       JOIN servers s ON s.server_id = p.server_id
+       WHERE p.killer_steam_id = $1 AND s.owner_org_id = $2`,
+      [steamId, orgId],
+    ),
   ]);
 
   const p = profileRes.rows[0] ?? null;
@@ -302,6 +330,15 @@ export async function computePlayerFacts(orgId, steamId) {
   const accountAge =
     p?.steam_profile_created_at != null
       ? (nowSec - Number(p.steam_profile_created_at)) / (365.25 * 86400)
+      : null;
+  const bmAccountAge =
+    p?.bm_profile_created_at != null
+      ? (nowSec - Number(p.bm_profile_created_at)) / (365.25 * 86400)
+      : null;
+  const hsRow = hsRes.rows[0] ?? { hs_kills: 0, total_kills: 0 };
+  const hsHitPct =
+    Number(hsRow.total_kills) > 0
+      ? (Number(hsRow.hs_kills) / Number(hsRow.total_kills)) * 100
       : null;
 
   const names = [
@@ -347,6 +384,8 @@ export async function computePlayerFacts(orgId, steamId) {
       bmTeamingReports:
         p?.bm_teaming_reports != null ? Number(p.bm_teaming_reports) : 0,
       steamCommunityBanned: Boolean(p?.steam_community_banned),
+      bmAccountAge,
+      hsHitPct,
     },
   };
 }
@@ -413,6 +452,13 @@ export function evaluateBoughtAccount(ba, data) {
     const memberGids = new Set((data.steamGroups ?? []).map(String));
     const hit = ba.groupRule.groups.find((g) => memberGids.has(String(g.gid)));
     if (hit) reasons.push(`Steam group match "${hit.label ?? hit.gid}"`);
+  }
+
+  if (ba.steamLevelRule?.enabled && data.steamLevel != null) {
+    const max = ba.steamLevelRule.maxLevel ?? 5;
+    if (data.steamLevel <= max) {
+      reasons.push(`low Steam level (${data.steamLevel} ≤ ${max})`);
+    }
   }
 
   return reasons.length ? reasons : null;

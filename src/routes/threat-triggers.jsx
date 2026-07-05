@@ -70,6 +70,10 @@ function hydrate(config) {
             }))
           : [],
       },
+      steamLevelRule: {
+        enabled: Boolean(config?.boughtAccount?.steamLevelRule?.enabled),
+        maxLevel: config?.boughtAccount?.steamLevelRule?.maxLevel ?? 5,
+      },
     },
   };
 }
@@ -700,12 +704,15 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
   const [groupError, setGroupError] = useState(null);
   const { hoursRule, nameRule } = bought;
   const groupRule = bought.groupRule ?? { enabled: false, groups: [] };
+  const steamLevelRule = bought.steamLevelRule ?? { enabled: false, maxLevel: 5 };
 
   const setHours = (patch) =>
     onChange({ hoursRule: { ...hoursRule, ...patch } });
   const setName = (patch) => onChange({ nameRule: { ...nameRule, ...patch } });
   const setGroup = (patch) =>
     onChange({ groupRule: { ...groupRule, ...patch } });
+  const setSteamLevel = (patch) =>
+    onChange({ steamLevelRule: { ...steamLevelRule, ...patch } });
 
   const addTerm = () => {
     const t = term.trim();
@@ -869,6 +876,34 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
               ))
             )}
           </div>
+        </div>
+
+        {/* Steam level rule */}
+        <div className="rounded-md ring-1 ring-border bg-background p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold">Steam level</p>
+              <p className="text-[0.625rem] text-muted-foreground">
+                Flag if the player's Steam level is at or below a threshold
+                (e.g. level 0–5 suggests a newly created or purchased account).
+              </p>
+            </div>
+            <Toggle
+              checked={steamLevelRule.enabled}
+              onClick={() => setSteamLevel({ enabled: !steamLevelRule.enabled })}
+              label={steamLevelRule.enabled ? "On" : "Off"}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <NumField
+              label="Max level ≤"
+              value={steamLevelRule.maxLevel}
+              onChange={(v) => setSteamLevel({ maxLevel: v })}
+            />
+          </div>
+          <p className="text-[0.625rem] font-mono text-muted-foreground">
+            Triggers when Steam level ≤ {steamLevelRule.maxLevel}.
+          </p>
         </div>
 
         {/* Steam group rule */}
