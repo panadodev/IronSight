@@ -125,12 +125,12 @@ Logs a PvP kill event with optional Rust combatlog data. Persisted to PostgreSQL
 }
 ```
 
-| Field             | Type   | Required | Description                                                                               |
-| ----------------- | ------ | -------- | ----------------------------------------------------------------------------------------- |
-| `killer_steam_id` | string | Yes      | SteamID64 of the killer (max 64 chars)                                                    |
-| `victim_name`     | string | Yes      | Display name of the victim (max 128 chars)                                                |
+| Field             | Type   | Required | Description                                                                                                                       |
+| ----------------- | ------ | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `killer_steam_id` | string | Yes      | SteamID64 of the killer (max 64 chars)                                                                                            |
+| `victim_name`     | string | Yes      | Display name of the victim (max 128 chars)                                                                                        |
 | `victim_steam_id` | string | No       | SteamID64 of the victim (max 64 chars). When present, enables precise relationship intel matching instead of name-based matching. |
-| `combatlog_cache` | object | No       | Raw Rust combatlog JSON object (max 64 KB)                                                |
+| `combatlog_cache` | object | No       | Raw Rust combatlog JSON object (max 64 KB)                                                                                        |
 
 **Response**
 
@@ -231,16 +231,16 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 }
 ```
 
-| Field             | Type          | Required | Description                                                                                                                                                                                                       |
-| ----------------- | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Field             | Type          | Required | Description                                                                                                                                                                                                                                  |
+| ----------------- | ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event_type`      | string        | Yes      | Any non-empty string (uppercased automatically). Common values: `ADMIN_COMMAND`, `ADMIN_CONNECT`, `ADMIN_DISCONNECT`, `KICK`, `BAN`, `UNBAN`, `MUTE`, `UNMUTE`, `RCON_COMMAND`, `NOCLIP_TOGGLE`, `GODMODE_TOGGLE`, `ENTITY`, `SPAWN`, `GIVE` |
-| `admin_steam_id`  | string        | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                                                                                                    |
-| `admin_name`      | string        | No       | In-game display name of the admin (max 128 chars)                                                                                                                                                                 |
-| `target_steam_id` | string        | No       | SteamID64 of the affected player (max 64 chars)                                                                                                                                                                   |
-| `target_name`     | string        | No       | In-game display name of the affected player (max 128 chars)                                                                                                                                                       |
-| `command`         | string        | No       | The raw command string that was executed (max 1000 chars)                                                                                                                                                         |
-| `coordinates`     | object/string | No       | World coordinates where the command was issued. Pass either `{ "x": float, "y": float, "z": float }` or a pre-formatted string (max 128 chars). Displayed in the Server Logs page.                                |
-| `details`         | object        | No       | Any extra key/value context (e.g. `{ "duration": 3600, "reason": "cheating" }`). Max 4 KB when serialised as JSON.                                                                                                |
+| `admin_steam_id`  | string        | No       | SteamID64 of the admin who performed the action (max 64 chars)                                                                                                                                                                               |
+| `admin_name`      | string        | No       | In-game display name of the admin (max 128 chars)                                                                                                                                                                                            |
+| `target_steam_id` | string        | No       | SteamID64 of the affected player (max 64 chars)                                                                                                                                                                                              |
+| `target_name`     | string        | No       | In-game display name of the affected player (max 128 chars)                                                                                                                                                                                  |
+| `command`         | string        | No       | The raw command string that was executed (max 1000 chars)                                                                                                                                                                                    |
+| `coordinates`     | object/string | No       | World coordinates where the command was issued. Pass either `{ "x": float, "y": float, "z": float }` or a pre-formatted string (max 128 chars). Displayed in the Server Logs page.                                                           |
+| `details`         | object        | No       | Any extra key/value context (e.g. `{ "duration": 3600, "reason": "cheating" }`). Max 4 KB when serialised as JSON.                                                                                                                           |
 
 **Response**
 
@@ -250,22 +250,22 @@ Records an admin action taken on the server — commands, kicks, bans, mutes, no
 
 **Suggested plugin hooks**
 
-| Hook / callback                 | `event_type` to send | Recommended fields                                                                                                    |
-| ------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `OnUserAuthorized` / admin join | `ADMIN_CONNECT`      | `admin_steam_id`, `admin_name`, `details.ip_address`, `coordinates`                                                   |
-| Admin leave / disconnect        | `ADMIN_DISCONNECT`   | `admin_steam_id`, `admin_name`                                                                                        |
-| `OnUserCommand` (chat `/cmd`)   | `ADMIN_COMMAND`      | `admin_steam_id`, `admin_name`, `command`, `coordinates` (admin position)                                             |
-| `OnServerCommand` (console)     | `RCON_COMMAND`       | `command`                                                                                                             |
-| `OnPlayerKicked`                | `KICK`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates`                                       |
-| Ban issued (custom)             | `BAN`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `details.reason`, `details.duration`, `coordinates` |
-| Unban issued (custom)           | `UNBAN`              | `admin_steam_id`, `admin_name`, `target_steam_id`                                                                     |
-| Mute issued (custom)            | `MUTE`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates`                                       |
-| Unmute issued (custom)          | `UNMUTE`             | `admin_steam_id`, `admin_name`, `target_steam_id`                                                                     |
-| Noclip toggled                  | `NOCLIP_TOGGLE`      | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates`                                                      |
-| Godmode toggled                 | `GODMODE_TOGGLE`     | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates`                                                      |
+| Hook / callback                 | `event_type` to send | Recommended fields                                                                                                                        |
+| ------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `OnUserAuthorized` / admin join | `ADMIN_CONNECT`      | `admin_steam_id`, `admin_name`, `details.ip_address`, `coordinates`                                                                       |
+| Admin leave / disconnect        | `ADMIN_DISCONNECT`   | `admin_steam_id`, `admin_name`                                                                                                            |
+| `OnUserCommand` (chat `/cmd`)   | `ADMIN_COMMAND`      | `admin_steam_id`, `admin_name`, `command`, `coordinates` (admin position)                                                                 |
+| `OnServerCommand` (console)     | `RCON_COMMAND`       | `command`                                                                                                                                 |
+| `OnPlayerKicked`                | `KICK`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates`                                                           |
+| Ban issued (custom)             | `BAN`                | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `details.reason`, `details.duration`, `coordinates`                     |
+| Unban issued (custom)           | `UNBAN`              | `admin_steam_id`, `admin_name`, `target_steam_id`                                                                                         |
+| Mute issued (custom)            | `MUTE`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `target_name`, `coordinates`                                                           |
+| Unmute issued (custom)          | `UNMUTE`             | `admin_steam_id`, `admin_name`, `target_steam_id`                                                                                         |
+| Noclip toggled                  | `NOCLIP_TOGGLE`      | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates`                                                                          |
+| Godmode toggled                 | `GODMODE_TOGGLE`     | `admin_steam_id`, `admin_name`, `details.enabled`, `coordinates`                                                                          |
 | Admin killed an entity          | `ENTITY`             | `admin_steam_id`, `admin_name`, `details.action` = `"kill"`, `target_steam_id`/`target_name` (when the entity is a player), `coordinates` |
-| Admin spawned an entity/item    | `SPAWN`              | `admin_steam_id`, `admin_name`, `command`/`details`, `coordinates`                                                    |
-| Admin gave an item              | `GIVE`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `details`, `coordinates`                                          |
+| Admin spawned an entity/item    | `SPAWN`              | `admin_steam_id`, `admin_name`, `command`/`details`, `coordinates`                                                                        |
+| Admin gave an item              | `GIVE`               | `admin_steam_id`, `admin_name`, `target_steam_id`, `details`, `coordinates`                                                               |
 
 > **Server Logs → Discord DM alerts.** Org admins can subscribe (per admin) on
 > the Server Logs page to be DM'd when certain events land: an `ENTITY` event
@@ -340,13 +340,13 @@ Returns the active mute state for a single player. Use this for real-time checks
 }
 ```
 
-| Field        | Type         | Description                                                  |
-| ------------ | ------------ | ------------------------------------------------------------ |
-| `muted`      | boolean      | `true` if the player is currently muted                      |
-| `permanent`  | boolean      | `true` if the mute has no expiry                             |
-| `reason`     | string       | The mute reason as recorded in the panel                     |
-| `expiresAt`  | number\|null | Unix expiry timestamp, or `null` for a permanent mute        |
-| `expiresUnix`| number\|null | Alias for `expiresAt` (both fields are always returned)      |
+| Field         | Type         | Description                                             |
+| ------------- | ------------ | ------------------------------------------------------- |
+| `muted`       | boolean      | `true` if the player is currently muted                 |
+| `permanent`   | boolean      | `true` if the mute has no expiry                        |
+| `reason`      | string       | The mute reason as recorded in the panel                |
+| `expiresAt`   | number\|null | Unix expiry timestamp, or `null` for a permanent mute   |
+| `expiresUnix` | number\|null | Alias for `expiresAt` (both fields are always returned) |
 
 Only server-targeted mutes (or org-wide mutes) that apply to **this server** are returned.
 
@@ -389,6 +389,7 @@ None. No body required — authentication is via the server API key header only.
 **Recovery behaviour**
 
 When a server resumes pinging after a gap of more than 10 minutes, IronSight automatically:
+
 1. Sends a Discord DM to all staff members with the **server offline** notification enabled for this org.
 2. Clears the `stale_ping` alert state so the notification fires only once per outage.
 

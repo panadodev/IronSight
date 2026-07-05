@@ -124,7 +124,9 @@ export function ServerOverlapSection({
               {isExpanded && (
                 <div className="px-3 py-2 bg-surface/50 border-t border-border/50 space-y-1">
                   {!players ? (
-                    <p className="text-[0.625rem] text-muted-foreground">Loading…</p>
+                    <p className="text-[0.625rem] text-muted-foreground">
+                      Loading…
+                    </p>
                   ) : players.length === 0 ? (
                     <p className="text-[0.625rem] text-muted-foreground italic">
                       No known players found for this server.

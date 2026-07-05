@@ -562,7 +562,10 @@ function ApiKeysSection({ orgId }) {
                 Required permissions:
               </p>
               {SERVICE_PERMISSIONS[addService].map(({ group, items }) => (
-                <p key={group} className="text-[0.625rem] text-muted-foreground">
+                <p
+                  key={group}
+                  className="text-[0.625rem] text-muted-foreground"
+                >
                   <span className="text-foreground/60 font-medium">
                     {group}:
                   </span>{" "}
@@ -1514,116 +1517,116 @@ function ManageDetailsPage() {
           )}
 
           {isSysAdmin && (
-          <div className="space-y-3 rounded-lg ring-1 ring-border bg-surface/20 p-4">
-            <div>
-              <p className="text-sm font-medium">Media Storage (R2 / S3)</p>
-              <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
-                Files go directly from the browser to Cloudflare R2 — single PUT
-                under 300 MB, presigned multipart above. Storage credentials are
-                configured via server environment variables (R2_ACCOUNT_ID,
-                R2_ACCESS_KEY_ID, etc.).
-              </p>
+            <div className="space-y-3 rounded-lg ring-1 ring-border bg-surface/20 p-4">
+              <div>
+                <p className="text-sm font-medium">Media Storage (R2 / S3)</p>
+                <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
+                  Files go directly from the browser to Cloudflare R2 — single
+                  PUT under 300 MB, presigned multipart above. Storage
+                  credentials are configured via server environment variables
+                  (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, etc.).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="media-expiry">Media expiry (months)</Label>
+                  <Input
+                    id="media-expiry"
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={mediaExpiryMonths}
+                    onChange={(e) => setMediaExpiryMonths(e.target.value)}
+                    disabled={loading || saving}
+                    placeholder="Never"
+                    className="w-full"
+                  />
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Objects not accessed in this many months are purged. A daily
+                    job checks and deletes expired media automatically.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="media-storage-limit">
+                    Org storage cap (GB)
+                  </Label>
+                  <Input
+                    id="media-storage-limit"
+                    type="number"
+                    min={1}
+                    value={mediaStorageLimitGb}
+                    onChange={(e) => setMediaStorageLimitGb(e.target.value)}
+                    disabled={loading || saving}
+                    placeholder="Unlimited"
+                    className="w-full"
+                  />
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Max total staff-gallery storage for this org. Leave blank
+                    for no limit.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="media-user-limit">Per-user cap (MB)</Label>
+                  <Input
+                    id="media-user-limit"
+                    type="number"
+                    min={1}
+                    value={mediaUserLimitMb}
+                    onChange={(e) => setMediaUserLimitMb(e.target.value)}
+                    disabled={loading || saving}
+                    placeholder="Unlimited"
+                    className="w-full"
+                  />
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Max storage per staff member. Leave blank for no limit.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="media-public-limit">
+                    Public upload limit (MB)
+                  </Label>
+                  <Input
+                    id="media-public-limit"
+                    type="number"
+                    min={1}
+                    value={mediaPublicFileLimitMb}
+                    onChange={(e) => setMediaPublicFileLimitMb(e.target.value)}
+                    disabled={loading || saving}
+                    placeholder="100"
+                    className="w-full"
+                  />
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Max size per file that public ticket submitters can upload.
+                    Default: 100 MB.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="media-public-max">
+                    Public max files / ticket
+                  </Label>
+                  <Input
+                    id="media-public-max"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={mediaPublicMaxFiles}
+                    onChange={(e) => setMediaPublicMaxFiles(e.target.value)}
+                    disabled={loading || saving}
+                    placeholder="5"
+                    className="w-full"
+                  />
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Max files a public user can attach to a single ticket.
+                    Default: 5.
+                  </p>
+                </div>
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="media-expiry">Media expiry (months)</Label>
-                <Input
-                  id="media-expiry"
-                  type="number"
-                  min={1}
-                  max={120}
-                  value={mediaExpiryMonths}
-                  onChange={(e) => setMediaExpiryMonths(e.target.value)}
-                  disabled={loading || saving}
-                  placeholder="Never"
-                  className="w-full"
-                />
-                <p className="text-[0.625rem] text-muted-foreground">
-                  Objects not accessed in this many months are purged. A daily
-                  job checks and deletes expired media automatically.
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="media-storage-limit">
-                  Org storage cap (GB)
-                </Label>
-                <Input
-                  id="media-storage-limit"
-                  type="number"
-                  min={1}
-                  value={mediaStorageLimitGb}
-                  onChange={(e) => setMediaStorageLimitGb(e.target.value)}
-                  disabled={loading || saving}
-                  placeholder="Unlimited"
-                  className="w-full"
-                />
-                <p className="text-[0.625rem] text-muted-foreground">
-                  Max total staff-gallery storage for this org. Leave blank for
-                  no limit.
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="media-user-limit">Per-user cap (MB)</Label>
-                <Input
-                  id="media-user-limit"
-                  type="number"
-                  min={1}
-                  value={mediaUserLimitMb}
-                  onChange={(e) => setMediaUserLimitMb(e.target.value)}
-                  disabled={loading || saving}
-                  placeholder="Unlimited"
-                  className="w-full"
-                />
-                <p className="text-[0.625rem] text-muted-foreground">
-                  Max storage per staff member. Leave blank for no limit.
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="media-public-limit">
-                  Public upload limit (MB)
-                </Label>
-                <Input
-                  id="media-public-limit"
-                  type="number"
-                  min={1}
-                  value={mediaPublicFileLimitMb}
-                  onChange={(e) => setMediaPublicFileLimitMb(e.target.value)}
-                  disabled={loading || saving}
-                  placeholder="100"
-                  className="w-full"
-                />
-                <p className="text-[0.625rem] text-muted-foreground">
-                  Max size per file that public ticket submitters can upload.
-                  Default: 100 MB.
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="media-public-max">
-                  Public max files / ticket
-                </Label>
-                <Input
-                  id="media-public-max"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={mediaPublicMaxFiles}
-                  onChange={(e) => setMediaPublicMaxFiles(e.target.value)}
-                  disabled={loading || saving}
-                  placeholder="5"
-                  className="w-full"
-                />
-                <p className="text-[0.625rem] text-muted-foreground">
-                  Max files a public user can attach to a single ticket.
-                  Default: 5.
-                </p>
-              </div>
-            </div>
-          </div>
           )}
 
           <Button type="submit" disabled={loading || saving}>

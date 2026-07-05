@@ -48,7 +48,8 @@ function sanitizeBanNote(html) {
   if (typeof document === "undefined") return null;
   const doc = new DOMParser().parseFromString(html, "text/html");
 
-  const BLOCKED = "script,style,iframe,object,embed,form,input,textarea,button,meta,link,svg,math,canvas,noscript";
+  const BLOCKED =
+    "script,style,iframe,object,embed,form,input,textarea,button,meta,link,svg,math,canvas,noscript";
   doc.querySelectorAll(BLOCKED).forEach((el) => el.remove());
 
   doc.querySelectorAll("*").forEach((el) => {
@@ -83,7 +84,9 @@ function sanitizeBanNote(html) {
 function BanNoteContent({ note }) {
   if (!note) {
     return (
-      <p className="text-xs text-muted-foreground italic">No additional notes.</p>
+      <p className="text-xs text-muted-foreground italic">
+        No additional notes.
+      </p>
     );
   }
 

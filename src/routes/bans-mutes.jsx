@@ -335,7 +335,12 @@ function BansMutesPage() {
                   onClick={() => {
                     const next = !bmFeedVisible;
                     setBmFeedVisible(next);
-                    if (next && bmFeed.length === 0 && !bmFeedLoading && !bmFeedError) {
+                    if (
+                      next &&
+                      bmFeed.length === 0 &&
+                      !bmFeedLoading &&
+                      !bmFeedError
+                    ) {
                       loadBmFeed();
                     }
                   }}
@@ -346,12 +351,17 @@ function BansMutesPage() {
                   <div className="flex items-center gap-2">
                     {bmFeedVisible && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); loadBmFeed(); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          loadBmFeed();
+                        }}
                         disabled={bmFeedLoading}
                         className="size-6 inline-flex items-center justify-center rounded hover:bg-surface transition-colors text-muted-foreground disabled:opacity-40"
                         title="Refresh"
                       >
-                        <RefreshCw className={`size-3 ${bmFeedLoading ? "animate-spin" : ""}`} />
+                        <RefreshCw
+                          className={`size-3 ${bmFeedLoading ? "animate-spin" : ""}`}
+                        />
                       </button>
                     )}
                     <span className="text-[0.625rem] font-mono text-muted-foreground">
@@ -362,12 +372,17 @@ function BansMutesPage() {
                 {bmFeedVisible && (
                   <div className="border-t border-border">
                     {bmFeedLoading ? (
-                      <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading…</div>
+                      <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                        Loading…
+                      </div>
                     ) : bmFeedError ? (
-                      <div className="px-4 py-4 text-xs text-danger">{bmFeedError}</div>
+                      <div className="px-4 py-4 text-xs text-danger">
+                        {bmFeedError}
+                      </div>
                     ) : bmFeed.length === 0 ? (
                       <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                        No bans found. Make sure BattleMetrics is configured for this org.
+                        No bans found. Make sure BattleMetrics is configured for
+                        this org.
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -380,7 +395,10 @@ function BansMutesPage() {
                         <div className="divide-y divide-border/40">
                           {bmFeed.map((ban) => {
                             const now = Math.floor(Date.now() / 1000);
-                            const isExpired = !ban.permanent && ban.expiresAt && ban.expiresAt <= now;
+                            const isExpired =
+                              !ban.permanent &&
+                              ban.expiresAt &&
+                              ban.expiresAt <= now;
                             return (
                               <div
                                 key={ban.bmBanId}
@@ -402,7 +420,10 @@ function BansMutesPage() {
                                     </div>
                                   )}
                                 </div>
-                                <div className="text-muted-foreground truncate" title={ban.reason}>
+                                <div
+                                  className="text-muted-foreground truncate"
+                                  title={ban.reason}
+                                >
                                   {ban.reason || "—"}
                                 </div>
                                 <div>
@@ -416,7 +437,11 @@ function BansMutesPage() {
                                           : "bg-warning/15 text-warning ring-warning/40")
                                     }
                                   >
-                                    {isExpired ? "Expired" : ban.permanent ? "Permanent" : fmtRemaining(ban.expiresAt, false)}
+                                    {isExpired
+                                      ? "Expired"
+                                      : ban.permanent
+                                        ? "Permanent"
+                                        : fmtRemaining(ban.expiresAt, false)}
                                   </span>
                                 </div>
                                 <div className="font-mono text-[0.625rem] text-muted-foreground">

@@ -774,7 +774,9 @@ function RolesPage() {
             {creating ? "Creating…" : "Create"}
           </Button>
         </div>
-        {createErr && <p className="text-[0.6875rem] text-danger">{createErr}</p>}
+        {createErr && (
+          <p className="text-[0.6875rem] text-danger">{createErr}</p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -873,7 +875,9 @@ function RolesPage() {
                         </Button>
                       )}
                       {deleteErr && expandedId === role.roleId && (
-                        <p className="text-[0.6875rem] text-danger">{deleteErr}</p>
+                        <p className="text-[0.6875rem] text-danger">
+                          {deleteErr}
+                        </p>
                       )}
                       {editable && (
                         <div className="flex flex-col">
@@ -1163,7 +1167,9 @@ function RolesPage() {
                       {isDirty && (
                         <div className="flex flex-col gap-1 pt-1 border-t border-border">
                           {saveErr && expandedId === role.roleId && (
-                            <p className="text-[0.6875rem] text-danger">{saveErr}</p>
+                            <p className="text-[0.6875rem] text-danger">
+                              {saveErr}
+                            </p>
                           )}
                           <div className="flex justify-end">
                             <Button

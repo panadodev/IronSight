@@ -44,8 +44,12 @@ const COMPONENTS = {
       className="border-l-2 border-border pl-2 my-1 text-muted-foreground"
     />
   ),
-  h1: ({ node, ...props }) => <h1 {...props} className="font-semibold text-sm my-1" />,
-  h2: ({ node, ...props }) => <h2 {...props} className="font-semibold text-sm my-1" />,
+  h1: ({ node, ...props }) => (
+    <h1 {...props} className="font-semibold text-sm my-1" />
+  ),
+  h2: ({ node, ...props }) => (
+    <h2 {...props} className="font-semibold text-sm my-1" />
+  ),
   h3: ({ node, ...props }) => <h3 {...props} className="font-semibold my-1" />,
   table: ({ node, ...props }) => (
     <div className="overflow-x-auto my-1">
@@ -53,7 +57,10 @@ const COMPONENTS = {
     </div>
   ),
   th: ({ node, ...props }) => (
-    <th {...props} className="border border-border px-1.5 py-0.5 text-left font-semibold" />
+    <th
+      {...props}
+      className="border border-border px-1.5 py-0.5 text-left font-semibold"
+    />
   ),
   td: ({ node, ...props }) => (
     <td {...props} className="border border-border px-1.5 py-0.5" />

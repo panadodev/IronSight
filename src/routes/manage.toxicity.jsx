@@ -569,7 +569,9 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[0.6875rem] text-muted-foreground">Action</Label>
+          <Label className="text-[0.6875rem] text-muted-foreground">
+            Action
+          </Label>
           <Select value={action} onValueChange={setAction}>
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
@@ -603,7 +605,9 @@ function TriggerForm({ orgId, existing, onSaved, onCancel }) {
       </div>
 
       {meta?.note && (
-        <p className="text-[0.6875rem] text-muted-foreground italic">{meta.note}</p>
+        <p className="text-[0.6875rem] text-muted-foreground italic">
+          {meta.note}
+        </p>
       )}
 
       {err && <p className="text-xs text-danger">{err}</p>}

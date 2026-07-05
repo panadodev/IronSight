@@ -680,7 +680,11 @@ function LinkedAccountsSection({
                       {a.relatedSteamId && (
                         <span className="text-[0.625rem] font-mono text-muted-foreground inline-flex items-center gap-1">
                           {a.relatedSteamId}
-                          <PlayerLinks steamId={a.relatedSteamId} bmId={a.relatedBmId} size="xs" />
+                          <PlayerLinks
+                            steamId={a.relatedSteamId}
+                            bmId={a.relatedBmId}
+                            size="xs"
+                          />
                         </span>
                       )}
                       {a.hardLink ? (
@@ -798,7 +802,9 @@ function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
       <h4 className="text-[0.625rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-2 flex items-center gap-2">
         <Users className="size-3" />
         Playing Partners
-        <span className="text-[0.625rem] font-mono ml-auto">{sorted.length}</span>
+        <span className="text-[0.625rem] font-mono ml-auto">
+          {sorted.length}
+        </span>
       </h4>
       <ul className="space-y-1">
         {sorted.map((c) => {
@@ -1150,7 +1156,9 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
               title="Session co-presence"
               badge="timing"
             >
-              <p className={`text-[0.6875rem] font-mono ${co.tone}`}>{co.label}</p>
+              <p className={`text-[0.6875rem] font-mono ${co.tone}`}>
+                {co.label}
+              </p>
               <p className="mt-1 text-[0.625rem] text-muted-foreground leading-snug">
                 {co.hint}
                 {account.coPresence.sharedServers > 0 &&
@@ -1355,7 +1363,11 @@ function SessionRelatedSection({ sessionRelated }) {
                     </span>
                     {c.relatedSteamId && (
                       <span className="text-[0.625rem] font-mono text-muted-foreground inline-flex items-center gap-1">
-                        <PlayerLinks steamId={c.relatedSteamId} bmId={c.relatedBmId} size="xs" />
+                        <PlayerLinks
+                          steamId={c.relatedSteamId}
+                          bmId={c.relatedBmId}
+                          size="xs"
+                        />
                       </span>
                     )}
                     <Hint text={meta.hint}>

@@ -12,7 +12,10 @@ function StarDisplay({ rating }) {
   return (
     <span className="text-sm leading-none">
       {[1, 2, 3, 4, 5].map((s) => (
-        <span key={s} className={s <= rating ? "text-amber-400" : "text-border"}>
+        <span
+          key={s}
+          className={s <= rating ? "text-amber-400" : "text-border"}
+        >
           ★
         </span>
       ))}

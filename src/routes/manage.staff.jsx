@@ -471,7 +471,8 @@ function StaffPage() {
     setStorageLimitSaving(true);
     try {
       const gb = storageLimitGb.trim();
-      const limitBytes = gb === "" ? null : Math.round(parseFloat(gb) * 1024 * 1024 * 1024);
+      const limitBytes =
+        gb === "" ? null : Math.round(parseFloat(gb) * 1024 * 1024 * 1024);
       if (gb !== "" && (!Number.isFinite(limitBytes) || limitBytes < 0)) {
         toast.error("Enter a valid number of GB.");
         return;
@@ -671,8 +672,12 @@ function StaffPage() {
         {addErr && <p className="text-[0.6875rem] text-danger">{addErr}</p>}
       </div>
 
-      {removeErr && <p className="text-[0.6875rem] text-danger px-1">{removeErr}</p>}
-      {viewAsErr && <p className="text-[0.6875rem] text-danger px-1">{viewAsErr}</p>}
+      {removeErr && (
+        <p className="text-[0.6875rem] text-danger px-1">{removeErr}</p>
+      )}
+      {viewAsErr && (
+        <p className="text-[0.6875rem] text-danger px-1">{viewAsErr}</p>
+      )}
 
       {/* Roster */}
       <div className="space-y-1.5">
@@ -821,7 +826,10 @@ function StaffPage() {
                       onClick={() => {
                         const limitGb =
                           m.mediaUserLimitBytes != null
-                            ? (m.mediaUserLimitBytes / (1024 * 1024 * 1024)).toFixed(1)
+                            ? (
+                                m.mediaUserLimitBytes /
+                                (1024 * 1024 * 1024)
+                              ).toFixed(1)
                             : "";
                         setStorageLimitGb(limitGb);
                         setStorageLimitMember(m);
@@ -1233,8 +1241,8 @@ function StaffPage() {
               <span className="font-medium text-foreground">
                 {formatBytes(storageLimitMember?.mediaUsedBytes ?? 0)}
               </span>
-              . Leave blank to use the org default (
-              {DEFAULT_USER_STORAGE_GB} GB).
+              . Leave blank to use the org default ({DEFAULT_USER_STORAGE_GB}{" "}
+              GB).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5 py-1">

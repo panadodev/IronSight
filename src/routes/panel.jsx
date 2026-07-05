@@ -314,7 +314,10 @@ function OrgSwitcher({ orgs, value, onChange }) {
           <ChevronDown className="size-3.5 text-muted-foreground ml-1" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="end"
+        className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
           Your manageable orgs
         </div>
@@ -701,7 +704,10 @@ function ScriptPickerButton({ scripts, onPick, disabled }) {
           <ScrollText className="size-3.5 mr-1" /> Script
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="end"
+        className="w-80 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="flex items-center gap-1.5 px-1 pb-1.5">
           <Input
             value={q}
@@ -1158,7 +1164,10 @@ function RunOnGroupButton({ tags, onPick, disabled }) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-52 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="end"
+        className="w-52 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Pick a tag
         </div>
@@ -1194,7 +1203,10 @@ function RunOnServerButton({ servers, onPick, disabled }) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-64 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="end"
+        className="w-64 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 py-1">
           Pick a server
         </div>
@@ -1859,7 +1871,10 @@ function OrgPluginsTab({ orgId }) {
                           <Plus className="size-2.5" /> tag
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-40 p-1 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+                      <PopoverContent
+                        align="start"
+                        className="w-40 p-1 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+                      >
                         {unassignedTags.map((t) => (
                           <button
                             key={t}
@@ -3502,8 +3517,7 @@ function GlobalpingSection({ orgId }) {
               ? Math.max(prev.maxRtt, r.maxRtt)
               : (prev.maxRtt ?? r.maxRtt),
           probeCount: (prev.probeCount ?? 0) + (r.probeCount ?? 0),
-          reachableCount:
-            (prev.reachableCount ?? 0) + (r.reachableCount ?? 0),
+          reachableCount: (prev.reachableCount ?? 0) + (r.reachableCount ?? 0),
         };
       }
     }
@@ -3517,10 +3531,10 @@ function GlobalpingSection({ orgId }) {
       ? [...history.snapshots].reverse()
       : [];
   const safeIndex = Math.min(snapIndex, Math.max(0, snaps.length - 1));
-  const currentSnap = mapServerId
-    ? (snaps[safeIndex] ?? null)
-    : allServersSnap;
-  const mapCountries = mapServerId ? (history?.countries ?? countries) : countries;
+  const currentSnap = mapServerId ? (snaps[safeIndex] ?? null) : allServersSnap;
+  const mapCountries = mapServerId
+    ? (history?.countries ?? countries)
+    : countries;
   const mapServerName =
     servers.find((s) => s.serverId === mapServerId)?.serverName ?? "";
 
@@ -3550,13 +3564,14 @@ function GlobalpingSection({ orgId }) {
             className="h-6 rounded ring-1 ring-border bg-surface px-1.5 text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring [&>option]:bg-surface [&>option]:text-foreground [&>option]:normal-case"
           >
             <option value="">All servers</option>
-            {(mapMode === "players" ? (playerData?.servers ?? servers) : servers).map(
-              (s) => (
-                <option key={s.serverId} value={s.serverId}>
-                  {s.serverName}
-                </option>
-              ),
-            )}
+            {(mapMode === "players"
+              ? (playerData?.servers ?? servers)
+              : servers
+            ).map((s) => (
+              <option key={s.serverId} value={s.serverId}>
+                {s.serverName}
+              </option>
+            ))}
           </select>
           {triggering ? (
             <span className="text-[0.625rem] font-mono uppercase tracking-widest text-amber-500 flex items-center gap-1">

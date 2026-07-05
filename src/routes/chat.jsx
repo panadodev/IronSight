@@ -307,7 +307,9 @@ function FlagCard({
         >
           {flag.playerName ?? flag.steamId}
         </Link>
-        <span className="text-[0.625rem] text-muted-foreground shrink-0">{age}</span>
+        <span className="text-[0.625rem] text-muted-foreground shrink-0">
+          {age}
+        </span>
       </div>
 
       {flag.serverName && (
@@ -492,7 +494,10 @@ function TeamRecipients({ info, nameFor }) {
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="end"
+        className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="flex items-center gap-1.5 px-1 pb-2 mb-1 border-b border-border">
           <Users className="size-3.5 text-yellow-500" />
           <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
@@ -1064,7 +1069,10 @@ function ChatPage() {
                       <ChevronDown className="size-3 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-72 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+                  <PopoverContent
+                    align="start"
+                    className="w-72 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+                  >
                     <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
                       <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                         In timeframe ({playersInWindow.length})

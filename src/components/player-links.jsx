@@ -13,7 +13,9 @@ function PlayerLinks({ steamId, bmId, size = "xs" }) {
   const bmHref = bmId
     ? `https://www.battlemetrics.com/rcon/players/${bmId}`
     : `https://www.battlemetrics.com/players?filter%5Bsearch%5D=${steamId}`;
-  const bmTitle = bmId ? "Open BattleMetrics RCON profile" : "Search BattleMetrics";
+  const bmTitle = bmId
+    ? "Open BattleMetrics RCON profile"
+    : "Search BattleMetrics";
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0" onClick={stop}>
       {steamId && (

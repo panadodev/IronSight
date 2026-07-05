@@ -932,7 +932,11 @@ function TiptapToolbar({ editor }) {
             placeholder="https://youtube.com/watch?v=..."
             className="h-6 text-xs flex-1"
           />
-          <Button size="sm" className="h-6 text-[0.625rem] px-2" onClick={insertYt}>
+          <Button
+            size="sm"
+            className="h-6 text-[0.625rem] px-2"
+            onClick={insertYt}
+          >
             Embed
           </Button>
         </div>

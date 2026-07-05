@@ -704,7 +704,10 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
   const [groupError, setGroupError] = useState(null);
   const { hoursRule, nameRule } = bought;
   const groupRule = bought.groupRule ?? { enabled: false, groups: [] };
-  const steamLevelRule = bought.steamLevelRule ?? { enabled: false, maxLevel: 5 };
+  const steamLevelRule = bought.steamLevelRule ?? {
+    enabled: false,
+    maxLevel: 5,
+  };
 
   const setHours = (patch) =>
     onChange({ hoursRule: { ...hoursRule, ...patch } });
@@ -890,7 +893,9 @@ function BoughtAccountCard({ orgId, bought, onChange, onSave, saving, dirty }) {
             </div>
             <Toggle
               checked={steamLevelRule.enabled}
-              onClick={() => setSteamLevel({ enabled: !steamLevelRule.enabled })}
+              onClick={() =>
+                setSteamLevel({ enabled: !steamLevelRule.enabled })
+              }
               label={steamLevelRule.enabled ? "On" : "Off"}
             />
           </div>

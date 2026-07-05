@@ -1077,7 +1077,10 @@ function OrgFilterPopover({ orgs, effectiveIds, label, onToggle, onSetAll }) {
           <ChevronDown className="size-3 text-muted-foreground ml-1" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="end"
+        className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
           <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
             Filter orgs
@@ -1314,7 +1317,10 @@ function AddStaffPopover({ staff, onAdd }) {
           Add staff to board
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="start"
+        className="w-56 p-1.5 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="px-1 pb-1.5">
           <div className="relative">
             <Search className="size-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />

@@ -3958,14 +3958,25 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
   const newTeam = body?.team != null ? String(body.team).trim() : null;
   const hasStorageLimit = "mediaUserLimitBytes" in body;
   if (!newTeam && !hasStorageLimit) {
-    return json({ error: "team or mediaUserLimitBytes is required in request body" }, 400);
+    return json(
+      { error: "team or mediaUserLimitBytes is required in request body" },
+      400,
+    );
   }
 
   // Handle per-user storage limit update (can be combined with or independent of role change).
   if (hasStorageLimit) {
     const rawLimit = body.mediaUserLimitBytes;
-    if (rawLimit !== null && (typeof rawLimit !== "number" || !Number.isFinite(rawLimit) || rawLimit < 0)) {
-      return json({ error: "mediaUserLimitBytes must be a non-negative number or null" }, 400);
+    if (
+      rawLimit !== null &&
+      (typeof rawLimit !== "number" ||
+        !Number.isFinite(rawLimit) ||
+        rawLimit < 0)
+    ) {
+      return json(
+        { error: "mediaUserLimitBytes must be a non-negative number or null" },
+        400,
+      );
     }
     const memberCheck = await pool.query(
       `SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2 LIMIT 1`,
@@ -5356,13 +5367,25 @@ async function handleUpdateRolePermissions(request, roleId) {
       );
     }
     await client.query(`COMMIT`);
-    return json({ ok: true, roleId, permissionIds });
   } catch (err) {
     await client.query(`ROLLBACK`);
     throw err;
   } finally {
     client.release();
   }
+
+  await auditLog({
+    orgId: null,
+    actorUserId: session.userId,
+    resourceType: "role",
+    resourceId: String(roleId),
+    actionType: "ROLE_PERMISSIONS_UPDATED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { roleId, permissionIds },
+  });
+
+  return json({ ok: true, roleId, permissionIds });
 }
 
 // ── Default ticket types ─────────────────────────────────────────────────────
@@ -5803,6 +5826,18 @@ async function handleCreateTicketTypeQuestion(request, orgId, ticketTypeId) {
   );
 
   const r = rows[0];
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ticket_type_question",
+    resourceId: String(r.question_id),
+    actionType: "TICKET_QUESTION_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { ticketTypeId, questionText, questionType },
+  });
+
   return json(
     {
       question: {
@@ -5902,6 +5937,17 @@ async function handleUpdateTicketTypeQuestion(
     params,
   );
 
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ticket_type_question",
+    resourceId: String(questionId),
+    actionType: "TICKET_QUESTION_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { ticketTypeId, questionId },
+  });
+
   return json({ ok: true });
 }
 
@@ -5928,6 +5974,18 @@ async function handleDeleteTicketTypeQuestion(
   );
 
   if (res.rowCount === 0) return json({ error: "Question not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ticket_type_question",
+    resourceId: String(questionId),
+    actionType: "TICKET_QUESTION_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { ticketTypeId, questionId },
+  });
+
   return json({ ok: true });
 }
 
@@ -5985,6 +6043,17 @@ async function handleReorderTicketTypeQuestion(
     `UPDATE ticket_type_questions SET position = $1 WHERE question_id = $2`,
     [Number(a.position), Number(b.question_id)],
   );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ticket_type_question",
+    resourceId: String(questionId),
+    actionType: "TICKET_QUESTION_REORDERED",
+    actionCategory: "org_management",
+    severity: 1,
+    metadata: { ticketTypeId, questionId, direction },
+  });
 
   return json({ ok: true });
 }
@@ -6114,6 +6183,20 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
   if (res.rowCount === 0) {
     return json({ error: "Ticket type not found" }, 404);
   }
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ticket_type",
+    resourceId: String(ticketTypeId),
+    actionType: "TICKET_TYPE_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: {
+      ticketTypeId,
+      updatedFields: setClauses.map((c) => c.split(" = ")[0]),
+    },
+  });
 
   return json({ ok: true });
 }
@@ -6857,7 +6940,11 @@ async function handleGetTicketPlayerIntel(request, ticketIdStr) {
       if (!playerData) {
         return { steamId, fetching: true, orgBans, f7Reports };
       }
-      return { ...filterPlayerIpData(playerData, canSeeIp), orgBans, f7Reports };
+      return {
+        ...filterPlayerIpData(playerData, canSeeIp),
+        orgBans,
+        f7Reports,
+      };
     }),
   );
 
@@ -7419,7 +7506,9 @@ async function handleListOrgTickets(request, orgId) {
       created_at: Number(row.created_at),
       updated_at: Number(row.updated_at),
       closed_at: row.closed_at ? Number(row.closed_at) : null,
-      last_staff_reply_at: row.last_staff_reply_at ? Number(row.last_staff_reply_at) : null,
+      last_staff_reply_at: row.last_staff_reply_at
+        ? Number(row.last_staff_reply_at)
+        : null,
       last_staff_reply_username: row.last_staff_reply_username ?? null,
     })),
   });
@@ -8858,6 +8947,17 @@ async function handleCreateScript(request, orgId) {
   );
   const row = rows[0];
 
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "script",
+    resourceId: String(row.script_id),
+    actionType: "SCRIPT_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { name, command, description, minRank },
+  });
+
   return json(
     {
       script: {
@@ -8942,6 +9042,21 @@ async function handleUpdateScript(request, orgId, scriptId) {
   );
   const row = rows[0];
 
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "script",
+    resourceId: String(scriptId),
+    actionType: "SCRIPT_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: {
+      updatedFields: Object.keys(body).filter((k) =>
+        ["name", "command", "description", "minRank"].includes(k),
+      ),
+    },
+  });
+
   return json({
     script: {
       id: String(row.script_id),
@@ -8971,6 +9086,17 @@ async function handleDeleteScript(request, orgId, scriptId) {
     [scriptId, orgId],
   );
   if (res.rowCount === 0) return json({ error: "Script not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "script",
+    resourceId: String(scriptId),
+    actionType: "SCRIPT_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { scriptId },
+  });
 
   return json({ ok: true });
 }
@@ -9182,6 +9308,18 @@ async function handleCreateOrgPredefine(request, orgId) {
      RETURNING predefine_id, keyword, extra_keywords, content, ticket_type_ids`,
     [orgId, keyword, extraKeywords, content, ticketTypeIds, session.userId],
   );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "predefine",
+    resourceId: String(rows[0].predefine_id),
+    actionType: "PREDEFINE_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { keyword },
+  });
+
   return json({ predefine: serializePredefine(rows[0]) }, 201);
 }
 
@@ -9257,6 +9395,18 @@ async function handleUpdateOrgPredefine(request, orgId, predefineId) {
      RETURNING predefine_id, keyword, extra_keywords, content, ticket_type_ids`,
     params,
   );
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "predefine",
+    resourceId: String(predefineId),
+    actionType: "PREDEFINE_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { predefineId },
+  });
+
   return json({ predefine: serializePredefine(rows[0]) });
 }
 
@@ -9275,6 +9425,18 @@ async function handleDeleteOrgPredefine(request, orgId, predefineId) {
     [predefineId, orgId],
   );
   if (res.rowCount === 0) return json({ error: "Pre-define not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "predefine",
+    resourceId: String(predefineId),
+    actionType: "PREDEFINE_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { predefineId },
+  });
+
   return json({ ok: true });
 }
 
@@ -9361,6 +9523,17 @@ async function handleSetOrgToxicity(request, orgId) {
   try {
     await redis.del(`org:toxicity:${orgId}`);
   } catch {}
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "toxicity_config",
+    actionType: "TOXICITY_CONFIG_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { updatedKind: column ?? "full" },
+  });
+
   return json({
     yellow: Array.isArray(row?.yellow) ? row.yellow : [],
     red: Array.isArray(row?.red) ? row.red : [],
@@ -9449,6 +9622,18 @@ async function handleCreateAIModerationTrigger(request, orgId) {
     [orgId, category, threshold, action, muteDurationMinutes, session.userId],
   );
   const r = rows[0];
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ai_moderation_trigger",
+    resourceId: String(r.trigger_id),
+    actionType: "AI_TRIGGER_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { category, threshold, action },
+  });
+
   return json(
     {
       triggerId: String(r.trigger_id),
@@ -9524,6 +9709,23 @@ async function handleUpdateAIModerationTrigger(request, orgId, triggerId) {
   );
   if (!rows[0]) return json({ error: "Trigger not found" }, 404);
   const r = rows[0];
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ai_moderation_trigger",
+    resourceId: String(triggerId),
+    actionType: "AI_TRIGGER_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: {
+      triggerId,
+      updatedFields: Object.keys(body).filter((k) =>
+        ["threshold", "action", "muteDurationMinutes", "enabled"].includes(k),
+      ),
+    },
+  });
+
   return json({
     triggerId: String(r.trigger_id),
     category: r.category,
@@ -9552,6 +9754,18 @@ async function handleDeleteAIModerationTrigger(request, orgId, triggerId) {
     [triggerId, orgId],
   );
   if (res.rowCount === 0) return json({ error: "Trigger not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ai_moderation_trigger",
+    resourceId: String(triggerId),
+    actionType: "AI_TRIGGER_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { triggerId },
+  });
+
   return json({ ok: true });
 }
 
@@ -9982,6 +10196,18 @@ async function handleCreateBanReason(request, orgId) {
   try {
     await redis.del(`org:ban-config:${orgId}`);
   } catch {}
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ban_reason",
+    resourceId: String(rows[0].reason_id),
+    actionType: "BAN_REASON_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { category, label },
+  });
+
   return json(
     {
       reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
@@ -10022,6 +10248,18 @@ async function handleUpdateBanReason(request, orgId, reasonId) {
   try {
     await redis.del(`org:ban-config:${orgId}`);
   } catch {}
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ban_reason",
+    resourceId: String(reasonId),
+    actionType: "BAN_REASON_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { label },
+  });
+
   return json({
     reason: { id: String(rows[0].reason_id), label: String(rows[0].label) },
   });
@@ -10045,6 +10283,18 @@ async function handleDeleteBanReason(request, orgId, reasonId) {
   try {
     await redis.del(`org:ban-config:${orgId}`);
   } catch {}
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ban_reason",
+    resourceId: String(reasonId),
+    actionType: "BAN_REASON_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { reasonId },
+  });
+
   return json({ ok: true });
 }
 
@@ -10080,6 +10330,17 @@ async function handleSetBanNoteFormat(request, orgId) {
   try {
     await redis.del(`org:ban-config:${orgId}`);
   } catch {}
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "ban_note_format",
+    actionType: "BAN_NOTE_FORMAT_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { category },
+  });
+
   return json({ ok: true, category, noteFormat });
 }
 
@@ -10223,6 +10484,17 @@ async function handleCreatePlugin(request, orgId) {
     return json({ error: "A plugin with that name already exists" }, 409);
   }
 
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "plugin",
+    resourceId: String(rows[0].plugin_id),
+    actionType: "PLUGIN_CREATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { name, source },
+  });
+
   return json({ ok: true, pluginId: rows[0].plugin_id });
 }
 
@@ -10308,6 +10580,17 @@ async function handleUpdatePlugin(request, orgId, pluginId) {
 
   if (res.rowCount === 0) return json({ error: "Plugin not found" }, 404);
 
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "plugin",
+    resourceId: String(pluginId),
+    actionType: "PLUGIN_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { updatedFields: setClauses.map((c) => c.split(" = ")[0]) },
+  });
+
   return json({ ok: true });
 }
 
@@ -10327,6 +10610,17 @@ async function handleDeletePlugin(request, orgId, pluginId) {
     [pluginId, orgId],
   );
   if (res.rowCount === 0) return json({ error: "Plugin not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "plugin",
+    resourceId: String(pluginId),
+    actionType: "PLUGIN_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { pluginId },
+  });
 
   return json({ ok: true });
 }
@@ -12130,13 +12424,18 @@ async function handleGetBmBanFeed(request, orgId) {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       return json(
-        { error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}` },
+        {
+          error: `BattleMetrics API error ${res.status}: ${text.slice(0, 200)}`,
+        },
         502,
       );
     }
     data = await res.json();
   } catch (err) {
-    return json({ error: `Failed to reach BattleMetrics: ${err.message}` }, 502);
+    return json(
+      { error: `Failed to reach BattleMetrics: ${err.message}` },
+      502,
+    );
   }
 
   const playerNames = {};
@@ -12154,7 +12453,9 @@ async function handleGetBmBanFeed(request, orgId) {
     const playerId = ban.relationships?.player?.data?.id ?? null;
     const rawReason = String(attrs.reason ?? "");
     const reason = rawReason.split("|")[0].trim();
-    const note = String(attrs.note ?? "").replace(/<[^>]+>/g, "").trim();
+    const note = String(attrs.note ?? "")
+      .replace(/<[^>]+>/g, "")
+      .trim();
     return {
       bmBanId: String(ban.id),
       playerId: playerId ? String(playerId) : null,
@@ -12163,8 +12464,12 @@ async function handleGetBmBanFeed(request, orgId) {
       uid: attrs.uid ?? null,
       reason,
       note: note || null,
-      bannedAt: attrs.timestamp ? Math.floor(new Date(attrs.timestamp).getTime() / 1000) : null,
-      expiresAt: attrs.expires ? Math.floor(new Date(attrs.expires).getTime() / 1000) : null,
+      bannedAt: attrs.timestamp
+        ? Math.floor(new Date(attrs.timestamp).getTime() / 1000)
+        : null,
+      expiresAt: attrs.expires
+        ? Math.floor(new Date(attrs.expires).getTime() / 1000)
+        : null,
       permanent: !attrs.expires,
     };
   });
@@ -13072,6 +13377,18 @@ async function handleAddBlacklistedWord(request, orgId) {
   }
 
   const r = rows[0];
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "blacklisted_word",
+    resourceId: String(r.word_id),
+    actionType: "BLACKLISTED_WORD_ADDED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: { word },
+  });
+
   return json(
     { word_id: r.word_id, word: r.word, created_at: Number(r.created_at) },
     201,
@@ -13090,6 +13407,18 @@ async function handleDeleteBlacklistedWord(request, orgId, wordId) {
   );
 
   if (result.rowCount === 0) return json({ error: "Word not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "blacklisted_word",
+    resourceId: String(wordId),
+    actionType: "BLACKLISTED_WORD_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { wordId },
+  });
+
   return json({ ok: true });
 }
 
@@ -13461,6 +13790,18 @@ async function handleAddExternalKey(request, orgId) {
   );
 
   const r = rows[0];
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "external_api_key",
+    resourceId: String(r.key_id),
+    actionType: "EXTERNAL_KEY_ADDED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { service, label },
+  });
+
   return json(
     {
       keyId: String(r.key_id),
@@ -13519,6 +13860,21 @@ async function handleUpdateExternalKey(request, orgId, keyId) {
   );
   if (!rowCount) return json({ error: "Key not found" }, 404);
 
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "external_api_key",
+    resourceId: String(keyId),
+    actionType: "EXTERNAL_KEY_UPDATED",
+    actionCategory: "org_management",
+    severity: 2,
+    metadata: {
+      updatedFields: Object.keys(body).filter((k) =>
+        ["label", "priority", "enabled", "clearRateLimit"].includes(k),
+      ),
+    },
+  });
+
   return json({ ok: true });
 }
 
@@ -13536,6 +13892,17 @@ async function handleDeleteExternalKey(request, orgId, keyId) {
     [keyId, orgId],
   );
   if (!rowCount) return json({ error: "Key not found" }, 404);
+
+  await auditLog({
+    orgId,
+    actorUserId: session.userId,
+    resourceType: "external_api_key",
+    resourceId: String(keyId),
+    actionType: "EXTERNAL_KEY_DELETED",
+    actionCategory: "org_management",
+    severity: 3,
+    metadata: { keyId },
+  });
 
   return json({ ok: true });
 }
@@ -17624,7 +17991,10 @@ async function handleSearchStaffByDiscord(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
   if (!orgHasPermission(session, orgId, "staff_discord_lookup"))
-    return json({ error: "Forbidden: staff_discord_lookup permission required" }, 403);
+    return json(
+      { error: "Forbidden: staff_discord_lookup permission required" },
+      403,
+    );
 
   const url = new URL(request.url);
   const q = String(url.searchParams.get("q") ?? "").trim();
@@ -17862,7 +18232,10 @@ async function handleGetPlayerOriginHeatmap(request, orgId) {
       [orgId, since],
     );
     return json({
-      countries: rows.map((r) => ({ country: String(r.country), count: Number(r.count) })),
+      countries: rows.map((r) => ({
+        country: String(r.country),
+        count: Number(r.count),
+      })),
     });
   } catch {
     return json({ countries: [] });

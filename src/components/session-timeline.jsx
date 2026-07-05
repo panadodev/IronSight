@@ -76,14 +76,7 @@ function TimeAxisLabels({ earliestSec, spanSec, tz }) {
   );
 }
 
-function SessionBar({
-  w,
-  earliestSec,
-  spanSec,
-  rowIdx,
-  onHover,
-  onLeave,
-}) {
+function SessionBar({ w, earliestSec, spanSec, rowIdx, onHover, onLeave }) {
   const leftPct = ((w.startedAt - earliestSec) / spanSec) * 100;
   const widthPct = Math.max(0.8, ((w.stoppedAt - w.startedAt) / spanSec) * 100);
   const color = serverColor(w.bmServerId);
@@ -129,10 +122,7 @@ function SessionTimeline({ sessionWindows }) {
 
     const sorted = [...raw].sort((a, b) => a.startedAt - b.startedAt);
     const earliest = sorted[0].startedAt;
-    const latest = sorted.reduce(
-      (m, w) => Math.max(m, w.stoppedAt),
-      earliest,
-    );
+    const latest = sorted.reduce((m, w) => Math.max(m, w.stoppedAt), earliest);
     const span = Math.max(latest - earliest, 3600);
 
     // Row assignment: greedy interval packing to avoid overlaps
@@ -218,7 +208,11 @@ function SessionTimeline({ sessionWindows }) {
             </div>
 
             {/* Time axis */}
-            <TimeAxisLabels earliestSec={earliestSec} spanSec={spanSec} tz={tz} />
+            <TimeAxisLabels
+              earliestSec={earliestSec}
+              spanSec={spanSec}
+              tz={tz}
+            />
           </div>
 
           {tooltip && (
@@ -234,13 +228,16 @@ function SessionTimeline({ sessionWindows }) {
                 {tooltip.w.serverName ?? `Server ${tooltip.w.bmServerId}`}
               </p>
               <p className="text-muted-foreground">
-                {new Date(tooltip.w.startedAt * 1000).toLocaleString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  ...(tz ? { timeZone: tz } : {}),
-                })}
+                {new Date(tooltip.w.startedAt * 1000).toLocaleString(
+                  undefined,
+                  {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    ...(tz ? { timeZone: tz } : {}),
+                  },
+                )}
               </p>
               <p className="text-muted-foreground">
                 {fmtDuration(tooltip.w.stoppedAt - tooltip.w.startedAt)}

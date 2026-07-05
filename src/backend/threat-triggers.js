@@ -199,8 +199,7 @@ export function sanitizeTriggerConfig(raw) {
       },
       steamLevelRule: {
         enabled: Boolean(raw?.boughtAccount?.steamLevelRule?.enabled),
-        maxLevel:
-          num(raw?.boughtAccount?.steamLevelRule?.maxLevel) ?? 5,
+        maxLevel: num(raw?.boughtAccount?.steamLevelRule?.maxLevel) ?? 5,
       },
     },
   };

@@ -604,7 +604,9 @@ function BanConfigsPanel({
         />
       </div>
 
-      {saveError && <p className="text-[0.6875rem] text-destructive">{saveError}</p>}
+      {saveError && (
+        <p className="text-[0.6875rem] text-destructive">{saveError}</p>
+      )}
       <p className="text-[0.625rem] text-muted-foreground font-mono">
         "Other" reports always use a custom reason and have no note template.
       </p>

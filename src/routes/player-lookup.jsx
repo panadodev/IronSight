@@ -226,7 +226,9 @@ function CacheStamp({ playerData, refreshing }) {
 
   if (!newest) {
     return (
-      <span className="text-[0.625rem] text-warning/80 font-mono">not cached</span>
+      <span className="text-[0.625rem] text-warning/80 font-mono">
+        not cached
+      </span>
     );
   }
 
@@ -662,7 +664,9 @@ function PlayerLookupPage() {
         }
         const merged = new Map();
         for (const { body } of successful) {
-          for (const member of Array.isArray(body.members) ? body.members : []) {
+          for (const member of Array.isArray(body.members)
+            ? body.members
+            : []) {
             if (!merged.has(member.userId)) {
               merged.set(member.userId, member);
             } else {
@@ -1256,8 +1260,7 @@ function PlayerLookupPage() {
     ? []
     : visibleBmBans.map((b) => {
         const isPerm = b.permanent || !b.expiresAt;
-        const expired =
-          !isPerm && b.expiresAt <= Math.floor(Date.now() / 1000);
+        const expired = !isPerm && b.expiresAt <= Math.floor(Date.now() / 1000);
         return {
           id: `bm-${b.bmBanId}`,
           type: "BM Ban",
@@ -1741,8 +1744,12 @@ function PlayerLookupPage() {
                                 {playerData.bm?.rustBansBanned && (
                                   <span className="text-[0.625rem] font-mono uppercase tracking-widest text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0">
                                     BM Banned
-                                    {(playerData.bm?.rustBansCount ?? 0) > 1 && (
-                                      <> · {playerData.bm.rustBansCount} total</>
+                                    {(playerData.bm?.rustBansCount ?? 0) >
+                                      1 && (
+                                      <>
+                                        {" "}
+                                        · {playerData.bm.rustBansCount} total
+                                      </>
                                     )}
                                   </span>
                                 )}
@@ -2379,7 +2386,9 @@ function BodypartBreakdown({ label, total, bodyparts, barClass }) {
         <span>{total}</span>
       </p>
       {entries.length === 0 ? (
-        <p className="text-[0.6875rem] text-muted-foreground italic">No data.</p>
+        <p className="text-[0.6875rem] text-muted-foreground italic">
+          No data.
+        </p>
       ) : (
         <ul className="space-y-1.5">
           {entries.map(([part, count]) => (
@@ -2899,7 +2908,13 @@ function IpHashSearchResults({ hash, loading, error, matches, onOpenPlayer }) {
   );
 }
 
-function DiscordSearchResults({ query, loading, error, matches, onOpenPlayer }) {
+function DiscordSearchResults({
+  query,
+  loading,
+  error,
+  matches,
+  onOpenPlayer,
+}) {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">

@@ -878,7 +878,11 @@ function SiteNav() {
                   <Users className="size-3.5" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" side="bottom" className="w-52 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+              <PopoverContent
+                align="end"
+                side="bottom"
+                className="w-52 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+              >
                 <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-1 pb-1.5 border-b border-border mb-1.5">
                   Online Staff
                 </p>
@@ -928,7 +932,11 @@ function SiteNav() {
                   <ChevronDown className="size-3 text-muted-foreground shrink-0" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" side="right" className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+              <PopoverContent
+                align="start"
+                side="right"
+                className="w-64 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+              >
                 <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-border">
                   <span className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
                     Organizations
@@ -1127,7 +1135,8 @@ function SiteNav() {
           <DialogHeader>
             <DialogTitle>Profile</DialogTitle>
             <DialogDescription>
-              Manage your support system identity, linked accounts, and preferences.
+              Manage your support system identity, linked accounts, and
+              preferences.
             </DialogDescription>
           </DialogHeader>
 
@@ -1648,7 +1657,11 @@ function ManageOrgInlineSwitcher({ orgs }) {
           <ChevronDown className="size-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="right" className="w-56 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto">
+      <PopoverContent
+        align="start"
+        side="right"
+        className="w-56 p-2 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+      >
         <div className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground px-2 pb-1 mb-1 border-b border-border">
           Editing configs for
         </div>
