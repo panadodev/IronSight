@@ -286,6 +286,48 @@ function TicketsPage() {
   // null = blacklist manager closed; otherwise the prefill for the add form.
   const [blacklistPrefill, setBlacklistPrefill] = useState(null);
 
+  const restoredFromStorage = useRef(false);
+  const ticketStorageKey = sessionUser?.userId
+    ? `iron_tickets_v1_${sessionUser.userId}`
+    : null;
+
+  // Restore selectedId and selectedKinds from localStorage when userId is known.
+  // Must be defined before the write effects so React runs it first.
+  useEffect(() => {
+    if (!ticketStorageKey || restoredFromStorage.current) return;
+    restoredFromStorage.current = true;
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(ticketStorageKey) ?? "{}",
+      );
+      if (stored.selectedId != null) setSelectedId(stored.selectedId);
+      if (Array.isArray(stored.selectedKinds) && stored.selectedKinds.length > 0)
+        setSelectedKinds(new Set(stored.selectedKinds));
+    } catch {}
+  }, [ticketStorageKey]);
+
+  useEffect(() => {
+    if (!ticketStorageKey) return;
+    try {
+      const current = JSON.parse(localStorage.getItem(ticketStorageKey) ?? "{}");
+      localStorage.setItem(
+        ticketStorageKey,
+        JSON.stringify({ ...current, selectedId }),
+      );
+    } catch {}
+  }, [selectedId, ticketStorageKey]);
+
+  useEffect(() => {
+    if (!ticketStorageKey) return;
+    try {
+      const current = JSON.parse(localStorage.getItem(ticketStorageKey) ?? "{}");
+      localStorage.setItem(
+        ticketStorageKey,
+        JSON.stringify({ ...current, selectedKinds: [...selectedKinds] }),
+      );
+    } catch {}
+  }, [selectedKinds, ticketStorageKey]);
+
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;
     let cancelled = false;
@@ -490,10 +532,12 @@ function TicketsPage() {
         }
         const name = (item.created_by_username ?? "").toLowerCase();
         const steamId = item.created_by_steam_id ?? "";
+        const discordId = item.created_by_discord_id ?? "";
         if (
           !item.title.toLowerCase().includes(q) &&
           !name.includes(q) &&
-          !steamId.includes(q)
+          !steamId.includes(q) &&
+          !discordId.includes(q)
         )
           return false;
       }

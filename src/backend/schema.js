@@ -2063,6 +2063,7 @@ export async function ensureRolePermissionSeed(pool) {
       ('bans_purge',          'Permanently delete ban records'),
       ('players_view',        'View player lookup and player list'),
       ('ip_read',             'View player IP addresses and location'),
+      ('view_raw_ip',         'View raw (unmasked) player IP addresses'),
       ('bans_manage',         'Issue and manage bans and mutes'),
       ('bans_create',         'Create bans and mutes'),
       ('bans_modify',         'Modify existing bans and mutes'),
