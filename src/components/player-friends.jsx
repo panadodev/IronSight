@@ -1,12 +1,6 @@
 import { useMemo, useState } from "react";
-import { Users, Ban, EyeOff } from "lucide-react";
+import { Users, EyeOff } from "lucide-react";
 import { PlayerLinks } from "@/components/player-links";
-
-const BAN_SOURCE_LABEL = {
-  eac: "EAC",
-  vac: "VAC",
-  game: "Game",
-};
 
 function steamIdColor(steamId) {
   let h = 0;
@@ -15,19 +9,40 @@ function steamIdColor(steamId) {
   return `oklch(0.5 0.14 ${Math.abs(h) % 360})`;
 }
 
-function FriendAvatar({ steamId, displayName, avatarUrl }) {
+// "eac" / "panel" bans are high-severity (red); "vac" / "game" are medium (orange).
+function banSeverity(banSources) {
+  if (!banSources?.length) return null;
+  if (banSources.some((s) => s === "eac" || s === "panel")) return "high";
+  return "medium";
+}
+
+const BAN_SOURCE_LABEL = {
+  eac: "EAC",
+  vac: "VAC",
+  game: "Game",
+  panel: "Panel",
+};
+
+function FriendAvatar({ steamId, displayName, avatarUrl, severity }) {
+  const ringClass =
+    severity === "high"
+      ? "ring-2 ring-red-500"
+      : severity === "medium"
+        ? "ring-2 ring-orange-400"
+        : "ring-1 ring-black/40";
+
   if (avatarUrl) {
     return (
       <img
         src={avatarUrl}
         alt={displayName ?? steamId}
-        className="size-7 rounded ring-1 ring-black/40 shrink-0 object-cover"
+        className={`size-7 rounded ${ringClass} shrink-0 object-cover`}
       />
     );
   }
   return (
     <div
-      className="size-7 rounded ring-1 ring-black/40 grid place-items-center font-mono font-bold text-background shrink-0 text-[0.625rem]"
+      className={`size-7 rounded ${ringClass} grid place-items-center font-mono font-bold text-background shrink-0 text-[0.625rem]`}
       style={{ background: steamIdColor(steamId) }}
     >
       {(displayName ?? steamId)
@@ -114,39 +129,45 @@ function PlayerFriendsSection({ friends }) {
       )}
 
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-        {visible.map((f) => (
-          <li
-            key={f.steamId}
-            className={`flex items-center gap-2 ring-1 rounded px-2 py-1.5 ${f.banned ? "bg-danger/5 ring-danger/30" : "bg-surface/40 ring-border"}`}
-          >
-            <FriendAvatar
-              steamId={f.steamId}
-              displayName={f.displayName}
-              avatarUrl={f.avatarUrl}
-            />
-            <div className="min-w-0 flex-1">
-              <p
-                className="text-[0.6875rem] font-medium truncate"
-                title={f.displayName ?? f.steamId}
-              >
-                {f.displayName ?? f.steamId}
-              </p>
-              <p className="text-[0.625rem] font-mono text-muted-foreground truncate flex items-center gap-1">
-                {f.steamId}
-                <PlayerLinks steamId={f.steamId} size="sm" />
-              </p>
-            </div>
-            {f.banned && (
-              <span
-                className="inline-flex items-center gap-0.5 text-[0.625rem] font-mono uppercase tracking-wider text-danger bg-danger/10 ring-1 ring-danger/30 px-1.5 py-0.5 rounded shrink-0"
-                title={`Banned: ${f.banSources.map((s) => BAN_SOURCE_LABEL[s] ?? s).join(", ")}`}
-              >
-                <Ban className="size-2.5" />
-                {f.banSources.map((s) => BAN_SOURCE_LABEL[s] ?? s).join("/")}
-              </span>
-            )}
-          </li>
-        ))}
+        {visible.map((f) => {
+          const severity = banSeverity(f.banSources);
+          const rowClass =
+            severity === "high"
+              ? "bg-red-500/5 ring-red-500/30"
+              : severity === "medium"
+                ? "bg-orange-500/5 ring-orange-500/30"
+                : "bg-surface/40 ring-border";
+          const banTitle =
+            f.banSources?.length
+              ? `Banned: ${f.banSources.map((s) => BAN_SOURCE_LABEL[s] ?? s).join(", ")}`
+              : undefined;
+          return (
+            <li
+              key={f.steamId}
+              title={banTitle}
+              className={`flex items-center gap-2 ring-1 rounded px-2 py-1.5 ${rowClass}`}
+            >
+              <FriendAvatar
+                steamId={f.steamId}
+                displayName={f.displayName}
+                avatarUrl={f.avatarUrl}
+                severity={severity}
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className="text-[0.6875rem] font-medium truncate"
+                  title={f.displayName ?? f.steamId}
+                >
+                  {f.displayName ?? f.steamId}
+                </p>
+                <p className="text-[0.625rem] font-mono text-muted-foreground truncate flex items-center gap-1">
+                  {f.steamId}
+                  <PlayerLinks steamId={f.steamId} size="sm" />
+                </p>
+              </div>
+            </li>
+          );
+        })}
       </ul>
 
       {filtered.length > 18 && (

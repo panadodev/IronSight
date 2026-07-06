@@ -2529,14 +2529,27 @@ export async function refreshPlayerData(
 // cheaters" — a strong teaming/alt signal. Banned friends are sorted first.
 async function enrichFriendsWithBans(friendIds) {
   if (!friendIds?.length) return [];
-  const { rows } = await pool.query(
-    `SELECT steam_id, display_name, avatar_url,
-            bm_rust_bans_banned, steam_vac_banned, steam_vac_count,
-            steam_game_ban_count
-     FROM player_cache WHERE steam_id = ANY($1)`,
-    [friendIds],
-  );
-  const byId = new Map(rows.map((r) => [String(r.steam_id), r]));
+  const [cacheResult, panelBanResult] = await Promise.all([
+    pool.query(
+      `SELECT steam_id, display_name, avatar_url,
+              bm_rust_bans_banned, steam_vac_banned, steam_vac_count,
+              steam_game_ban_count
+       FROM player_cache WHERE steam_id = ANY($1)`,
+      [friendIds],
+    ),
+    pool.query(
+      `SELECT DISTINCT identifier AS steam_id
+       FROM player_bans
+       WHERE identifier = ANY($1)
+         AND identifier_type = 'steam_id'
+         AND action_type = 'ban'
+         AND revoked = FALSE
+         AND (expires_at IS NULL OR expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT)`,
+      [friendIds],
+    ),
+  ]);
+  const byId = new Map(cacheResult.rows.map((r) => [String(r.steam_id), r]));
+  const panelBanned = new Set(panelBanResult.rows.map((r) => String(r.steam_id)));
   const enriched = friendIds.map((fid) => {
     const r = byId.get(fid);
     const banSources = [];
@@ -2546,6 +2559,7 @@ async function enrichFriendsWithBans(friendIds) {
         banSources.push("vac");
       if ((r.steam_game_ban_count ?? 0) > 0) banSources.push("game");
     }
+    if (panelBanned.has(fid)) banSources.push("panel");
     return {
       steamId: fid,
       displayName: r?.display_name ?? null,
