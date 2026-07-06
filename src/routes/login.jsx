@@ -10,10 +10,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/login")({
+  // Absent params stay undefined so the router doesn't rewrite the URL to
+  // include empty defaults (e.g. `&error=`); consumers fall back inline.
   validateSearch: (search) => ({
-    next: typeof search.next === "string" ? search.next : "/todo",
-    step: typeof search.step === "string" ? search.step : "discord",
-    error: typeof search.error === "string" ? search.error : "",
+    next:
+      typeof search.next === "string" && search.next ? search.next : undefined,
+    step:
+      typeof search.step === "string" && search.step ? search.step : undefined,
+    error:
+      typeof search.error === "string" && search.error
+        ? search.error
+        : undefined,
   }),
   head: () => ({ meta: [{ title: "Login - IronSight" }] }),
   component: LoginPage,
@@ -46,6 +53,7 @@ function LoginPage() {
   const [sessionUser, setSessionUser] = useState(null);
   const [pending, setPending] = useState(null);
   const [pageError, setPageError] = useState("");
+  const [autoContinuing, setAutoContinuing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +82,16 @@ function LoginPage() {
         if (!cancelled && pendingRes.ok) {
           const pendingBody = await pendingRes.json();
           setPending(pendingBody.pending);
+
+          // Arriving fresh from the Discord callback (?step=steam) with a
+          // pending link and no error: continue straight to Steam instead of
+          // making the user click through. Manual visits to /login (no step
+          // param) keep the buttons so the user can switch Discord accounts.
+          if (pendingBody.pending && search.step === "steam" && !search.error) {
+            setAutoContinuing(true);
+            window.location.assign("/api/auth/steam/start");
+            return;
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -90,7 +108,7 @@ function LoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [search.error, search.next]);
+  }, [search.error, search.next, search.step]);
 
   function startDiscord() {
     window.location.assign(
@@ -286,9 +304,8 @@ function LoginPage() {
             Sign in with verified Discord and Steam identity.
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            First-time access starts with Discord OAuth2, then Steam OpenID
-            links your Steam account. After that, Discord alone is enough to
-            sign in.
+            Sign-in starts with Discord OAuth2, then Steam OpenID verifies your
+            Steam account. Both identities are checked on every sign-in.
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             <Feature
@@ -359,7 +376,9 @@ function LoginPage() {
                       </p>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Finish first-time setup by linking Steam.
+                      {autoContinuing
+                        ? "Taking you to Steam sign-in..."
+                        : "Verify your Steam account to finish signing in."}
                     </p>
                     <Button
                       className="w-full"
@@ -371,8 +390,8 @@ function LoginPage() {
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Start with Discord. If this is your first login, you will be
-                    prompted to link Steam after Discord returns.
+                    Start with Discord. You will be sent to Steam right after
+                    Discord returns — both are verified on every sign-in.
                   </p>
                 )}
               </div>

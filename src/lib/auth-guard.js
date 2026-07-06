@@ -22,9 +22,17 @@ export const fetchAuthStatus = createServerFn({ method: "GET" }).handler(
     const { handleApiRequest } = await import("@/backend/api");
 
     const req = getRequest();
-    const cookie = req.headers.get("cookie") ?? "";
     const url = new URL("/api/auth/me", req.url);
-    const apiReq = new Request(url, { headers: { cookie } });
+    // Forward the client-IP headers along with the cookie: getSession pins
+    // sessions to the login IP, and a synthetic request without these headers
+    // resolves to getClientIp() === "unknown", which would read as an IP
+    // mismatch and revoke the session on the first SSR page load after login.
+    const headers = new Headers({ cookie: req.headers.get("cookie") ?? "" });
+    for (const name of ["cf-connecting-ip", "x-forwarded-for"]) {
+      const value = req.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    const apiReq = new Request(url, { headers });
 
     try {
       const res = await handleApiRequest(apiReq);

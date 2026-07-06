@@ -6,8 +6,8 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { parse as parseCookie } from "cookie";
 import { pool, redis } from "./runtime.js";
-import { getClientIp, json } from "./http.js";
-import { env, SESSION_COOKIE, IMPERSONATE_COOKIE } from "./config.js";
+import { getClientIp, ipPinScope, json } from "./http.js";
+import { env, SESSION_COOKIE, IMPERSONATE_COOKIE, SYSADMIN } from "./config.js";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 
@@ -100,6 +100,127 @@ export async function authenticateServerKey(request, logTag) {
     return { error: json({ error: "Invalid API key" }, 401) };
   }
   return { server: serverRes.rows[0] };
+}
+
+// Deletes all Redis keys matching a pattern via cursor SCAN (safe for prod).
+export async function scanDel(pattern) {
+  let cursor = "0";
+  do {
+    const [next, keys] = await redis.scan(
+      cursor,
+      "MATCH",
+      pattern,
+      "COUNT",
+      100,
+    );
+    cursor = next;
+    if (keys.length > 0) await redis.del(...keys);
+  } while (cursor !== "0");
+}
+
+export async function invalidateServerListCache(orgIds) {
+  try {
+    await redis.del(`servers:by-orgs:${[...orgIds].sort().join("|")}`);
+  } catch {}
+}
+
+export async function revokeUserSessions(userId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT session_id FROM sessions WHERE user_id = $1 AND revoked = FALSE AND expires_at > unix_now()`,
+      [userId],
+    );
+    if (rows.length > 0) {
+      const pipeline = redis.pipeline();
+      for (const row of rows) pipeline.del(`session:${row.session_id}`);
+      await pipeline.exec();
+      await pool.query(
+        `UPDATE sessions SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE`,
+        [userId],
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[session] revokeUserSessions failed for ${userId}:`,
+      err.message,
+    );
+  }
+}
+
+export async function listUserOrganizations(userId) {
+  const { rows } = await pool.query(
+    `SELECT o.org_id,
+            o.guild_id,
+            o.name,
+            COALESCE(array_agg(DISTINCT u.discord_id) FILTER (WHERE u.discord_id IS NOT NULL), '{}') AS discord_ids
+     FROM organizations o
+     JOIN organization_members self_m ON self_m.org_id = o.org_id
+     LEFT JOIN organization_members all_m ON all_m.org_id = o.org_id
+     LEFT JOIN users u ON u.user_id = all_m.user_id
+     WHERE self_m.user_id = $1
+       AND o.org_id <> $2
+       AND self_m.role_id != 'org_disabled'
+     GROUP BY o.org_id, o.guild_id, o.name
+     ORDER BY o.org_id`,
+    [userId, SYSADMIN.globalOrgId],
+  );
+
+  return rows.map((row) => ({
+    orgId: String(row.org_id),
+    guildId: row.guild_id == null ? null : String(row.guild_id),
+    name: row.name == null ? null : String(row.name),
+    discordIds: Array.isArray(row.discord_ids)
+      ? row.discord_ids.filter(Boolean).map(String)
+      : [],
+  }));
+}
+
+// Every org the session belongs to, selected org first. Used to let a player
+// refresh borrow API keys from a sibling org when the selected org has none.
+export function sessionCandidateOrgIds(session, preferredOrgId) {
+  const set = new Set();
+  if (preferredOrgId) set.add(String(preferredOrgId));
+  for (const id of Object.keys(session.orgPermissions ?? {}))
+    set.add(String(id));
+  for (const id of session.orgAdminOrgIds ?? []) set.add(String(id));
+  for (const id of session.orgOwnerOrgIds ?? []) set.add(String(id));
+  set.delete(SYSADMIN.globalOrgId);
+  return Array.from(set);
+}
+
+// Member orgs where the caller holds `permissionId` (admins/owners pass).
+export function orgsWithPermission(session, permissionId) {
+  const out = new Set();
+  for (const orgId of sessionCandidateOrgIds(session, null)) {
+    if (orgHasPermission(session, orgId, permissionId)) out.add(orgId);
+  }
+  return out;
+}
+
+// Privacy: when a staffer enables "private profile", other staff must not be
+// able to pull their player intel — only the person themselves and the platform
+// sysadmin can. Their online presence stays visible (returned in the protected
+// payload). Returns the matching staff identity for a steamId, or null.
+export async function getStaffIdentityForSteamId(steamId) {
+  const { rows } = await pool.query(
+    `SELECT user_id, username, profile_private
+     FROM users WHERE steam_id = $1 LIMIT 1`,
+    [steamId],
+  );
+  if (!rows[0]) return null;
+  return {
+    userId: String(rows[0].user_id),
+    username: rows[0].username ?? null,
+    profilePrivate: Boolean(rows[0].profile_private),
+  };
+}
+
+// True when `session` is allowed to bypass another staffer's privacy (it's their
+// own profile, or the caller is the configured sysadmin).
+export function canBypassStaffPrivacy(session, staff) {
+  return (
+    staff.userId === String(session.userId) || isConfiguredSysAdmin(session)
+  );
 }
 
 export async function auditLog({
@@ -291,10 +412,16 @@ export async function getSession(request) {
     // Require both Discord and Steam on every session
     if (!session.discordId || !session.steamId) return null;
 
-    // Revoke session if the request comes from a different IP than where it was created
-    if (session.loginIp) {
-      const requestIp = getClientIp(request);
-      if (requestIp && requestIp !== session.loginIp) {
+    // Revoke session if the request comes from a different IP scope than
+    // where it was created. ipPinScope compares IPv4 exactly and IPv6 by /64
+    // prefix (privacy extensions rotate the low bits mid-session), and
+    // returns null for "unknown"/unparseable IPs (e.g. the in-process SSR
+    // auth probe carries no client-IP headers) — inconclusive, not a
+    // mismatch, so only compare when both scopes are known.
+    const loginScope = ipPinScope(session.loginIp);
+    if (loginScope) {
+      const requestScope = ipPinScope(getClientIp(request));
+      if (requestScope && requestScope !== loginScope) {
         redis.del(`session:${sid}`).catch(() => {});
         pool
           .query("UPDATE sessions SET revoked = TRUE WHERE session_id = $1", [
@@ -309,6 +436,14 @@ export async function getSession(request) {
   } catch {
     return null;
   }
+}
+
+export async function requireSysAdminSession(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return { error };
+  if (!isConfiguredSysAdmin(session))
+    return { error: json({ error: "Forbidden: sysadmin only" }, 403) };
+  return { session };
 }
 
 export async function requireSession(request) {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { json, parseLimit, parseMaybeList, getClientIp } from "./http.js";
+import {
+  json,
+  parseLimit,
+  parseMaybeList,
+  getClientIp,
+  ipPinScope,
+} from "./http.js";
 
 describe("json", () => {
   it("defaults to status 200 with JSON content-type", async () => {
@@ -117,5 +123,65 @@ describe("getClientIp", () => {
   it("returns 'unknown' when no IP headers are present", () => {
     const req = makeRequest({});
     expect(getClientIp(req)).toBe("unknown");
+  });
+});
+
+describe("ipPinScope", () => {
+  it("returns null for unknown/empty/non-string inputs", () => {
+    expect(ipPinScope("unknown")).toBe(null);
+    expect(ipPinScope("")).toBe(null);
+    expect(ipPinScope(null)).toBe(null);
+    expect(ipPinScope(undefined)).toBe(null);
+    expect(ipPinScope(42)).toBe(null);
+  });
+
+  it("pins IPv4 on the exact address", () => {
+    expect(ipPinScope("203.0.113.9")).toBe("203.0.113.9");
+    expect(ipPinScope("  203.0.113.9  ")).toBe("203.0.113.9");
+  });
+
+  it("pins IPv6 on the /64 prefix", () => {
+    expect(ipPinScope("2001:db8:85a3:8d3:1319:8a2e:370:7348")).toBe(
+      "2001:0db8:85a3:08d3::/64",
+    );
+  });
+
+  it("matches two IPv6 addresses in the same /64 (privacy extensions)", () => {
+    const a = ipPinScope("2001:db8:85a3:8d3:1319:8a2e:370:7348");
+    const b = ipPinScope("2001:db8:85a3:8d3:ffff:eeee:dddd:cccc");
+    expect(a).toBe(b);
+  });
+
+  it("distinguishes IPv6 addresses in different /64s", () => {
+    const a = ipPinScope("2001:db8:85a3:8d3::1");
+    const b = ipPinScope("2001:db8:85a3:8d4::1");
+    expect(a).not.toBe(b);
+  });
+
+  it("expands :: shorthand", () => {
+    expect(ipPinScope("2001:db8::1")).toBe("2001:0db8:0000:0000::/64");
+    expect(ipPinScope("::1")).toBe("0000:0000:0000:0000::/64");
+  });
+
+  it("is case-insensitive for IPv6", () => {
+    expect(ipPinScope("2001:DB8:85A3:8D3::1")).toBe(
+      ipPinScope("2001:db8:85a3:8d3::1"),
+    );
+  });
+
+  it("maps IPv4-mapped IPv6 onto the IPv4 scope", () => {
+    expect(ipPinScope("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(ipPinScope("::ffff:203.0.113.9")).toBe(ipPinScope("203.0.113.9"));
+  });
+
+  it("strips zone indexes and brackets", () => {
+    expect(ipPinScope("fe80::1%eth0")).toBe("fe80:0000:0000:0000::/64");
+    expect(ipPinScope("[2001:db8::1]")).toBe("2001:0db8:0000:0000::/64");
+  });
+
+  it("returns null for malformed IPv6", () => {
+    expect(ipPinScope("2001:db8:::1")).toBe(null);
+    expect(ipPinScope("1:2:3:4:5:6:7:8:9")).toBe(null);
+    expect(ipPinScope("gggg::1")).toBe(null);
   });
 });
