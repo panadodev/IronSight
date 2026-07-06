@@ -284,6 +284,7 @@ const ASSIGNABLE_PERMISSIONS = [
   "bans_purge",
   "players_view",
   "ip_read",
+  "view_raw_ip",
   "bans_manage",
   "bans_create",
   "bans_modify",
@@ -6617,7 +6618,7 @@ async function handleGetTicket(request, ticketIdStr) {
 // Redact/shape IP history entries depending on caller entitlement. Panel APIs
 // never return plaintext IPs; they expose only short hash tokens + proxycheck
 // metadata for investigation workflows.
-function filterPlayerIpData(playerData, canSeeIp) {
+function filterPlayerIpData(playerData, canSeeIp, canSeeRawIp = false) {
   if (!playerData) return playerData;
   const toShortIpHash = (value) =>
     String(value ?? "")
@@ -6630,11 +6631,12 @@ function filterPlayerIpData(playerData, canSeeIp) {
       const { ipEncrypted, ipAddress, ...rest } = entry;
       if (canSeeIp) {
         void ipEncrypted;
-        void ipAddress;
-        return {
+        const out = {
           ...rest,
           ipHashShort: toShortIpHash(rest.ipHashShort || rest.ipHash),
         };
+        if (canSeeRawIp && ipAddress) out.ipAddress = ipAddress;
+        return out;
       }
       return {
         ...rest,
@@ -6710,12 +6712,13 @@ function filterIpHistoryBySource(playerData, entitledOrgs) {
 // One-shot IP visibility resolution for the player bundle: full redact when the
 // caller has no IP access, source-filter otherwise. Always passes through
 // filterPlayerIpData so hash tokens + metadata are kept (or redacted) by role.
-function applyIpEntitlement(playerData, entitlement) {
-  if (entitlement === null) return filterPlayerIpData(playerData, false);
-  if (entitlement === "ALL") return filterPlayerIpData(playerData, true);
+function applyIpEntitlement(playerData, entitlement, canSeeRawIp = false) {
+  if (entitlement === null) return filterPlayerIpData(playerData, false, false);
+  if (entitlement === "ALL") return filterPlayerIpData(playerData, true, canSeeRawIp);
   return filterPlayerIpData(
     filterIpHistoryBySource(playerData, entitlement),
     true,
+    canSeeRawIp,
   );
 }
 
@@ -6737,9 +6740,9 @@ function filterBmBansBySource(playerData, entitledOrgs) {
 
 // Apply both source-scoped slices (IPs + external bans) to the shared bundle for
 // this caller. Computed at read so the cached bundle stays org-agnostic.
-function applyShareEntitlement(playerData, ipEntitlement, bmEntitlement) {
+function applyShareEntitlement(playerData, ipEntitlement, bmEntitlement, canSeeRawIp = false) {
   return filterBmBansBySource(
-    applyIpEntitlement(playerData, ipEntitlement),
+    applyIpEntitlement(playerData, ipEntitlement, canSeeRawIp),
     bmEntitlement,
   );
 }
@@ -12564,6 +12567,9 @@ async function handleGetPlayer(request, steamId) {
   const bmEntitlement = await entitledOrgsForCategory(session, "bm_bans", (o) =>
     orgHasPermission(session, o, "players_view"),
   );
+  const canSeeRawIp =
+    isConfiguredSysAdmin(session) ||
+    orgsWithPermission(session, "view_raw_ip").length > 0;
   const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
   const needsRichIpMetadataBackfill = (payload) =>
     (payload?.ipHistory ?? []).some((ip) => {
@@ -12598,7 +12604,7 @@ async function handleGetPlayer(request, steamId) {
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
     }
-    const d = applyShareEntitlement(fromRedis, ipEntitlement, bmEntitlement);
+    const d = applyShareEntitlement(fromRedis, ipEntitlement, bmEntitlement, canSeeRawIp);
     d.boughtAccountTriggered = await evalBoughtAccountFlag(orgId, d);
     // A refresh pipeline is still running for this player — tell the client so
     // it keeps silently re-polling until the enrichment lands.
@@ -12627,7 +12633,7 @@ async function handleGetPlayer(request, steamId) {
     );
   }
 
-  const d = applyShareEntitlement(cached, ipEntitlement, bmEntitlement);
+  const d = applyShareEntitlement(cached, ipEntitlement, bmEntitlement, canSeeRawIp);
   d.boughtAccountTriggered = await evalBoughtAccountFlag(orgId, d);
   try {
     if ((await redis.exists(playerFetchLockKey(steamId))) === 1)
@@ -12796,6 +12802,9 @@ async function handleRefreshPlayer(request, steamId) {
   const bmEntitlement = await entitledOrgsForCategory(session, "bm_bans", (o) =>
     orgHasPermission(session, o, "players_view"),
   );
+  const canSeeRawIp =
+    isConfiguredSysAdmin(session) ||
+    orgsWithPermission(session, "view_raw_ip").length > 0;
   const candidateOrgIds = sessionCandidateOrgIds(session, orgId);
 
   const refreshedKey = playerRefreshedKey(steamId);
@@ -12814,6 +12823,7 @@ async function handleRefreshPlayer(request, steamId) {
           cached,
           ipEntitlement,
           bmEntitlement,
+          canSeeRawIp,
         );
         payload.boughtAccountTriggered = await evalBoughtAccountFlag(
           orgId,
@@ -12872,6 +12882,7 @@ async function handleRefreshPlayer(request, steamId) {
             fresh,
             ipEntitlement,
             bmEntitlement,
+            canSeeRawIp,
           );
           if (!done) payload.enriching = true;
           payload.boughtAccountTriggered = await evalBoughtAccountFlag(

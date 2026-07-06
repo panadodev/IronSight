@@ -331,7 +331,7 @@ function MyTicketsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <p className="text-[0.625rem] font-mono text-muted-foreground truncate">
-                            {t.ticket_type_name ?? "Ticket"} \u00b7{" "}
+                            {t.ticket_type_name ?? "Ticket"}{" \u00b7 "}
                             {t.org_name ?? t.org_id}
                           </p>
                           <p className="text-[0.625rem] font-mono text-muted-foreground ml-auto shrink-0">
@@ -381,8 +381,8 @@ function MyTicketsPage() {
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-[0.625rem] font-mono text-muted-foreground mb-0.5">
-                      #{ticketDetail.ticket.ticket_id} \u00b7{" "}
-                      {ticketDetail.ticket.ticket_type_name ?? "Ticket"} \u00b7{" "}
+                      #{ticketDetail.ticket.ticket_id}{" \u00b7 "}
+                      {ticketDetail.ticket.ticket_type_name ?? "Ticket"}{" \u00b7 "}
                       {ticketDetail.ticket.org_id}
                     </p>
                     <h2 className="text-base font-semibold truncate">

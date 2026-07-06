@@ -413,6 +413,7 @@ function PlayerLookupPage() {
   const canViewIpConnections = orgs.some((o) =>
     hasOrgPermission(o.id, "ip_read"),
   );
+  const canViewRawIp = orgs.some((o) => hasOrgPermission(o.id, "view_raw_ip"));
 
   const canViewSessionHistory = orgs.some((o) =>
     hasOrgPermission(o.id, "player_session_history"),
@@ -2186,6 +2187,7 @@ function PlayerLookupPage() {
                         relatedAccounts={playerData.relatedAccounts}
                         currentSteamId={playerData.steamId}
                         tz={tz}
+                        canViewRawIp={canViewRawIp}
                         onSearchHash={(hash) =>
                           navigate({
                             search: { steam: undefined, ipHash: hash },
@@ -3102,11 +3104,13 @@ function ConnectionPointsSection({
   relatedAccounts,
   currentSteamId,
   tz,
+  canViewRawIp = false,
   onSearchHash,
 }) {
   const [expanded, setExpanded] = useState(null);
   const [expandedHistoryByIp, setExpandedHistoryByIp] = useState({});
   const [copiedHash, setCopiedHash] = useState(null);
+  const [revealedIps, setRevealedIps] = useState({});
 
   const sharedPlayerCountByIp = useMemo(() => {
     const subjectSteamId = String(currentSteamId ?? "");
@@ -3173,6 +3177,27 @@ function ConnectionPointsSection({
       ...prev,
       [hash]: !prev[hash],
     }));
+  };
+
+  const revealIp = (hash) => {
+    setRevealedIps((prev) => {
+      if (prev[hash]?.timer) clearTimeout(prev[hash].timer);
+      const timer = setTimeout(() => {
+        setRevealedIps((p) => {
+          const { [hash]: _, ...rest } = p;
+          return rest;
+        });
+      }, 8000);
+      return { ...prev, [hash]: { timer } };
+    });
+  };
+
+  const hideIp = (hash) => {
+    setRevealedIps((prev) => {
+      if (prev[hash]?.timer) clearTimeout(prev[hash].timer);
+      const { [hash]: _, ...rest } = prev;
+      return rest;
+    });
   };
 
   return (
@@ -3349,6 +3374,32 @@ function ConnectionPointsSection({
               {isOpen && (
                 <div className="px-4 pb-3 pt-1 bg-surface/30 border-t border-border">
                   <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+                    {canViewRawIp && (
+                      <div className="col-span-2 sm:col-span-3 md:col-span-4 flex items-center gap-2 mb-1">
+                        {revealedIps[entry.ipHash] ? (
+                          <>
+                            <span className="font-mono text-xs text-foreground bg-surface ring-1 ring-border rounded px-2 py-0.5 select-all">
+                              {entry.ipAddress ?? "—"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => hideIp(entry.ipHash)}
+                              className="text-[0.625rem] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                            >
+                              Hide
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => revealIp(entry.ipHash)}
+                            className="text-[0.625rem] font-mono uppercase tracking-wider text-warning hover:underline flex items-center gap-1"
+                          >
+                            View Raw IP
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {connectionHistory.length > 0 && (
                       <div className="col-span-2 sm:col-span-3 md:col-span-4">
                         <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-1">

@@ -40,7 +40,7 @@ function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-sm text-muted-foreground">
-            Last updated: June 2026
+            Last updated: July 2026
           </p>
         </header>
 
@@ -159,10 +159,15 @@ function PrivacyPage() {
                 <span className="font-medium text-foreground">
                   encrypted at rest
                 </span>{" "}
-                and indexed only by a one-way cryptographic hash. The raw
-                address is never shown in the panel — staff with the appropriate
-                permission see only a short, non-reversible token and the
-                derived metadata below.
+                and indexed only by a one-way cryptographic hash. By default,
+                staff see only a short, non-reversible token and the derived
+                metadata below. Organization owners may additionally grant the{" "}
+                <span className="font-medium text-foreground">
+                  View Raw IPs
+                </span>{" "}
+                permission to specific staff roles, which allows those members
+                to reveal the underlying address on demand for investigative
+                purposes.
               </li>
               <li>
                 IP-derived metadata — from each observed IP we derive and store
@@ -375,9 +380,13 @@ function PrivacyPage() {
             </p>
             <p>
               Sensitive credentials (such as third-party API keys configured by
-              organizations) are stored encrypted. Player IP addresses are also
-              encrypted at rest and are only ever surfaced to authorized staff
-              as short, non-reversible hashes — never as the raw address.
+              organizations) are stored encrypted. Player IP addresses are
+              encrypted at rest. By default they are surfaced to authorized
+              staff only as short, non-reversible hash tokens; staff members
+              granted the explicit{" "}
+              <span className="font-medium text-foreground">View Raw IPs</span>{" "}
+              permission may reveal the underlying address on a
+              per-connection-point basis for investigative purposes.
             </p>
             <p>
               Staff authentication requires both a Discord account and a Steam

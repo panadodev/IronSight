@@ -148,6 +148,11 @@ const PERMISSION_GROUPS = [
         desc: "See connection history",
       },
       {
+        id: "view_raw_ip",
+        label: "View Raw IPs",
+        desc: "Reveal unmasked IP addresses on connection points (requires View Connection Points)",
+      },
+      {
         isParent: true,
         id: "_chat",
         label: "View Chat Logs",

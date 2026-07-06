@@ -520,10 +520,6 @@ function TicketsPage() {
 
   const handlePostNote = useCallback(async () => {
     if (!noteText.trim() || !selectedId || submitting) return;
-    if (IP_IN_TEXT_RE.test(noteText.trim())) {
-      setSubmitError("Raw IP addresses are not permitted in ticket messages.");
-      return;
-    }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -547,10 +543,6 @@ function TicketsPage() {
 
   const handlePostReply = useCallback(async () => {
     if (!replyText.trim() || !selectedId || submitting) return;
-    if (IP_IN_TEXT_RE.test(replyText.trim())) {
-      setSubmitError("Raw IP addresses are not permitted in ticket messages.");
-      return;
-    }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -1872,12 +1864,6 @@ function TicketDetail({
         )}
         {composerMode === "reply" && !isInternalOnly ? (
           <>
-            {replyHasIp && (
-              <p className="text-[0.625rem] font-mono text-warning mb-2 flex items-center gap-1">
-                <AlertTriangle size={10} className="shrink-0" />
-                Raw IP addresses are not permitted in ticket messages.
-              </p>
-            )}
             <textarea
               value={replyText}
               onChange={(e) => onReplyChange(e.target.value)}
@@ -1889,25 +1875,33 @@ function TicketDetail({
               <span className="text-[0.625rem] font-mono text-muted-foreground">
                 Markdown supported
               </span>
-              <button
-                onClick={onPostReply}
-                disabled={
-                  !replyText.trim() || submitting || isClosed || replyHasIp
-                }
-                className="text-[0.625rem] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {submitting ? "Sending..." : "Send Reply"}
-              </button>
+              {replyHasIp ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[0.625rem] font-mono text-warning flex items-center gap-1">
+                    <AlertTriangle size={10} className="shrink-0" />
+                    Contains a raw IP address
+                  </span>
+                  <button
+                    onClick={onPostReply}
+                    disabled={submitting || isClosed}
+                    className="text-[0.625rem] font-mono bg-warning/20 text-warning ring-1 ring-warning/40 rounded px-3 py-1 hover:bg-warning/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? "Sending..." : "Send anyway?"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={onPostReply}
+                  disabled={!replyText.trim() || submitting || isClosed}
+                  className="text-[0.625rem] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {submitting ? "Sending..." : "Send Reply"}
+                </button>
+              )}
             </div>
           </>
         ) : (
           <>
-            {noteHasIp && (
-              <p className="text-[0.625rem] font-mono text-warning mb-2 flex items-center gap-1">
-                <AlertTriangle size={10} className="shrink-0" />
-                Raw IP addresses are not permitted in ticket messages.
-              </p>
-            )}
             <textarea
               value={noteText}
               onChange={(e) => onNoteChange(e.target.value)}
@@ -1919,15 +1913,29 @@ function TicketDetail({
               <span className="text-[0.625rem] font-mono text-muted-foreground">
                 Markdown supported
               </span>
-              <button
-                onClick={onPostNote}
-                disabled={
-                  !noteText.trim() || submitting || isClosed || noteHasIp
-                }
-                className="text-[0.625rem] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {submitting ? "Posting..." : "Post Note"}
-              </button>
+              {noteHasIp ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[0.625rem] font-mono text-warning flex items-center gap-1">
+                    <AlertTriangle size={10} className="shrink-0" />
+                    Contains a raw IP address
+                  </span>
+                  <button
+                    onClick={onPostNote}
+                    disabled={submitting || isClosed}
+                    className="text-[0.625rem] font-mono bg-warning/20 text-warning ring-1 ring-warning/40 rounded px-3 py-1 hover:bg-warning/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? "Posting..." : "Post anyway?"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={onPostNote}
+                  disabled={!noteText.trim() || submitting || isClosed}
+                  className="text-[0.625rem] font-mono bg-brand text-brand-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {submitting ? "Posting..." : "Post Note"}
+                </button>
+              )}
             </div>
           </>
         )}
