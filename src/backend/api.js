@@ -124,6 +124,7 @@ import {
   removeAllDiscordRolesForRole,
   sendDiscordDm,
   sendDiscordDmWithResult,
+  sendDiscordWebhook,
   syncDiscordRolesOnRoleChange,
 } from "./handlers/discord.js";
 import {
@@ -900,6 +901,8 @@ async function init() {
       "panel-jobs",
       async (job) => {
         if (job.name === "ban-expire") await processBanExpireJob(job);
+        if (job.name === "ticket-unanswered-check")
+          await processTicketUnansweredCheck(job);
       },
       {
         connection: new Redis(env.redisUrl, {
@@ -5563,6 +5566,29 @@ async function handleListOrgs() {
 
 // ── Ticket type endpoints ─────────────────────────────────────────────────────
 
+function isDiscordWebhookUrl(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return (
+      u.protocol === "https:" &&
+      (u.hostname === "discord.com" || u.hostname === "discordapp.com") &&
+      u.pathname.startsWith("/api/webhooks/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
+function isValidSnowflakeArray(arr) {
+  return (
+    Array.isArray(arr) &&
+    arr.length <= 25 &&
+    arr.every((id) => typeof id === "string" && DISCORD_SNOWFLAKE_RE.test(id))
+  );
+}
+
 function sanitizeQuestionConfig(questionType, config) {
   if (questionType === "text") {
     const minLength =
@@ -6007,7 +6033,10 @@ async function handleListOrgTicketTypes(request, orgId) {
     await ensureDefaultTicketTypes(orgId);
   }
 
-  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled, allow_media, max_open_per_user
+  const webhookCols = session
+    ? `, webhook_created, webhook_created_roles, webhook_responded, webhook_responded_roles, webhook_unanswered, webhook_unanswered_roles, webhook_unanswered_minutes`
+    : "";
+  let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled, allow_media, max_open_per_user${webhookCols}
      FROM ticket_types WHERE org_id = $1`;
 
   // Public users only see enabled ticket types
@@ -6028,6 +6057,20 @@ async function handleListOrgTicketTypes(request, orgId) {
       allowMedia: row.allow_media !== false,
       maxOpenPerUser:
         row.max_open_per_user != null ? Number(row.max_open_per_user) : null,
+      ...(session
+        ? {
+            webhookCreated: row.webhook_created ?? null,
+            webhookCreatedRoles: row.webhook_created_roles ?? [],
+            webhookResponded: row.webhook_responded ?? null,
+            webhookRespondedRoles: row.webhook_responded_roles ?? [],
+            webhookUnanswered: row.webhook_unanswered ?? null,
+            webhookUnansweredRoles: row.webhook_unanswered_roles ?? [],
+            webhookUnansweredMinutes:
+              row.webhook_unanswered_minutes != null
+                ? Number(row.webhook_unanswered_minutes)
+                : null,
+          }
+        : {}),
     })),
   });
 }
@@ -6050,7 +6093,18 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { isEnabled, allowMedia, maxOpenPerUser } = body;
+  const {
+    isEnabled,
+    allowMedia,
+    maxOpenPerUser,
+    webhookCreated,
+    webhookCreatedRoles,
+    webhookResponded,
+    webhookRespondedRoles,
+    webhookUnanswered,
+    webhookUnansweredRoles,
+    webhookUnansweredMinutes,
+  } = body;
   if (isEnabled !== undefined && typeof isEnabled !== "boolean") {
     return json({ error: "isEnabled must be a boolean" }, 400);
   }
@@ -6069,10 +6123,58 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
       400,
     );
   }
+  for (const [field, url] of [
+    ["webhookCreated", webhookCreated],
+    ["webhookResponded", webhookResponded],
+    ["webhookUnanswered", webhookUnanswered],
+  ]) {
+    if (url !== undefined && url !== null && !isDiscordWebhookUrl(url)) {
+      return json(
+        { error: `${field} must be a valid Discord webhook URL or null` },
+        400,
+      );
+    }
+  }
+  for (const [field, roles] of [
+    ["webhookCreatedRoles", webhookCreatedRoles],
+    ["webhookRespondedRoles", webhookRespondedRoles],
+    ["webhookUnansweredRoles", webhookUnansweredRoles],
+  ]) {
+    if (roles !== undefined && !isValidSnowflakeArray(roles)) {
+      return json(
+        {
+          error: `${field} must be an array of up to 25 Discord role ID strings`,
+        },
+        400,
+      );
+    }
+  }
+  if (
+    webhookUnansweredMinutes !== undefined &&
+    webhookUnansweredMinutes !== null &&
+    (!Number.isInteger(webhookUnansweredMinutes) ||
+      webhookUnansweredMinutes < 1 ||
+      webhookUnansweredMinutes > 10080)
+  ) {
+    return json(
+      {
+        error:
+          "webhookUnansweredMinutes must be null or an integer between 1 and 10080",
+      },
+      400,
+    );
+  }
   if (
     isEnabled === undefined &&
     allowMedia === undefined &&
-    maxOpenPerUser === undefined
+    maxOpenPerUser === undefined &&
+    webhookCreated === undefined &&
+    webhookCreatedRoles === undefined &&
+    webhookResponded === undefined &&
+    webhookRespondedRoles === undefined &&
+    webhookUnanswered === undefined &&
+    webhookUnansweredRoles === undefined &&
+    webhookUnansweredMinutes === undefined
   ) {
     return json({ error: "No fields to update" }, 400);
   }
@@ -6090,6 +6192,34 @@ async function handleUpdateOrgTicketType(request, orgId, ticketTypeId) {
   if (maxOpenPerUser !== undefined) {
     params.push(maxOpenPerUser);
     setClauses.push(`max_open_per_user = $${params.length}`);
+  }
+  if (webhookCreated !== undefined) {
+    params.push(webhookCreated);
+    setClauses.push(`webhook_created = $${params.length}`);
+  }
+  if (webhookCreatedRoles !== undefined) {
+    params.push(webhookCreatedRoles);
+    setClauses.push(`webhook_created_roles = $${params.length}`);
+  }
+  if (webhookResponded !== undefined) {
+    params.push(webhookResponded);
+    setClauses.push(`webhook_responded = $${params.length}`);
+  }
+  if (webhookRespondedRoles !== undefined) {
+    params.push(webhookRespondedRoles);
+    setClauses.push(`webhook_responded_roles = $${params.length}`);
+  }
+  if (webhookUnanswered !== undefined) {
+    params.push(webhookUnanswered);
+    setClauses.push(`webhook_unanswered = $${params.length}`);
+  }
+  if (webhookUnansweredRoles !== undefined) {
+    params.push(webhookUnansweredRoles);
+    setClauses.push(`webhook_unanswered_roles = $${params.length}`);
+  }
+  if (webhookUnansweredMinutes !== undefined) {
+    params.push(webhookUnansweredMinutes);
+    setClauses.push(`webhook_unanswered_minutes = $${params.length}`);
   }
   params.push(ticketTypeId, orgId);
 
@@ -6234,6 +6364,65 @@ async function handleDeleteTicketBlacklist(request, orgId, blacklistId) {
     return json({ error: "Blacklist entry not found" }, 404);
 
   return json({ ok: true });
+}
+
+// ── Ticket webhook helpers ────────────────────────────────────────────────────
+
+async function fireTicketWebhook(webhookUrl, mentionRoles, embed) {
+  if (!webhookUrl) return;
+  sendDiscordWebhook(webhookUrl, mentionRoles ?? [], embed).catch(() => {});
+}
+
+async function notifyStaffWatchers(ticketId, ticketTitle) {
+  const { rows } = await pool.query(
+    `SELECT tsw.user_id, u.discord_id
+     FROM ticket_staff_watches tsw
+     JOIN users u ON u.user_id = tsw.user_id
+     WHERE tsw.ticket_id = $1 AND u.discord_id IS NOT NULL`,
+    [ticketId],
+  );
+  if (rows.length === 0) return;
+  const dmMsg = `💬 **New response on watched ticket** — ${ticketTitle}\n(Ticket #${ticketId})`;
+  for (const row of rows) {
+    const cooldownKey = `watch:dm:${ticketId}:${row.user_id}`;
+    const onCooldown = await redis.get(cooldownKey).catch(() => null);
+    if (onCooldown) continue;
+    sendDiscordDm(row.discord_id, dmMsg).catch(() => {});
+    redis.set(cooldownKey, "1", "EX", 1800).catch(() => {});
+  }
+}
+
+async function processTicketUnansweredCheck(job) {
+  const { ticketId, ticketTypeId } = job.data;
+  const { rows } = await pool.query(
+    `SELECT t.status, t.title, t.created_by, tt.webhook_unanswered, tt.webhook_unanswered_roles
+     FROM tickets t
+     JOIN ticket_types tt ON tt.ticket_type_id = t.ticket_type_id
+     WHERE t.ticket_id = $1 AND t.ticket_type_id = $2`,
+    [ticketId, ticketTypeId],
+  );
+  const row = rows[0];
+  if (!row || row.status === "closed" || !row.webhook_unanswered) return;
+  // Skip if a staff member has already replied publicly
+  const staffReply = await pool.query(
+    `SELECT 1 FROM ticket_messages
+     WHERE ticket_id = $1 AND is_internal = FALSE AND user_id != $2 AND user_id IS NOT NULL
+     LIMIT 1`,
+    [ticketId, row.created_by],
+  );
+  if (staffReply.rows.length > 0) return;
+  const embed = {
+    title: "⚠️ Unanswered Ticket",
+    description: `**#${ticketId}** — ${row.title}`,
+    color: 0xffa500,
+    footer: { text: "No staff reply since ticket was opened" },
+    timestamp: new Date().toISOString(),
+  };
+  await sendDiscordWebhook(
+    row.webhook_unanswered,
+    row.webhook_unanswered_roles ?? [],
+    embed,
+  );
 }
 
 // ── Ticket CRUD ───────────────────────────────────────────────────────────────
@@ -6435,6 +6624,51 @@ async function handleCreateTicket(request) {
 
   const ticket = await loadTicketFromDb(ticketId);
   if (ticket) await cacheTicket(ticket);
+
+  // Fire webhook_created and schedule unanswered check
+  if (ticketTypeId) {
+    const ttRes = await pool.query(
+      `SELECT webhook_created, webhook_created_roles, webhook_unanswered, webhook_unanswered_roles, webhook_unanswered_minutes
+       FROM ticket_types WHERE ticket_type_id = $1 AND org_id = $2 LIMIT 1`,
+      [ticketTypeId, orgId],
+    );
+    const tt = ttRes.rows[0];
+    if (tt?.webhook_created) {
+      const embed = {
+        title: "🎫 New Ticket",
+        description: `**#${ticketId}** — ${title}`,
+        color: 0x5865f2,
+        fields: [
+          {
+            name: "Type",
+            value: ticket?.ticket_type_name ?? "Unknown",
+            inline: true,
+          },
+          {
+            name: "Submitted by",
+            value: ticket?.created_by_username ?? "Unknown",
+            inline: true,
+          },
+        ],
+        timestamp: new Date().toISOString(),
+      };
+      fireTicketWebhook(tt.webhook_created, tt.webhook_created_roles, embed);
+    }
+    if (
+      tt?.webhook_unanswered &&
+      Number.isInteger(tt.webhook_unanswered_minutes) &&
+      tt.webhook_unanswered_minutes > 0
+    ) {
+      const delayMs = tt.webhook_unanswered_minutes * 60 * 1000;
+      queue
+        .add(
+          "ticket-unanswered-check",
+          { ticketId, ticketTypeId },
+          { jobId: `ticket-unanswered-${ticketId}`, delay: delayMs },
+        )
+        .catch(() => {});
+    }
+  }
 
   return json({ ok: true, ticketId }, 201);
 }
@@ -7173,6 +7407,35 @@ async function handleAddTicketMessage(request, ticketIdStr) {
     }
   }
 
+  // When creator replies to an awaited ticket, fire webhook_responded
+  if (isCreator && !isInternal && ticket.status === "waiting_response") {
+    if (ticket.ticket_type_id) {
+      pool
+        .query(
+          `SELECT webhook_responded, webhook_responded_roles FROM ticket_types WHERE ticket_type_id = $1 LIMIT 1`,
+          [ticket.ticket_type_id],
+        )
+        .then((ttRes) => {
+          const tt = ttRes.rows[0];
+          if (!tt?.webhook_responded) return;
+          const embed = {
+            title: "💬 Ticket Response",
+            description: `**#${id}** — ${ticket.title}`,
+            color: 0x57f287,
+            footer: { text: "Ticket creator replied while awaiting response" },
+            timestamp: new Date().toISOString(),
+          };
+          fireTicketWebhook(tt.webhook_responded, tt.webhook_responded_roles, embed);
+        })
+        .catch(() => {});
+    }
+  }
+
+  // Notify staff watchers via DM when creator posts publicly
+  if (isCreator && !isInternal) {
+    notifyStaffWatchers(id, ticket.title).catch(() => {});
+  }
+
   return json({ ok: true });
 }
 
@@ -7232,6 +7495,61 @@ async function handleToggleTicketDmNotifications(request, ticketIdStr) {
   }
 
   return json({ ok: true, dmStatus: dmResult.reason, inGuild, inviteUrl });
+}
+
+async function handleGetStaffWatch(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  const res = await pool.query(
+    `SELECT 1 FROM ticket_staff_watches WHERE ticket_id = $1 AND user_id = $2`,
+    [id, session.userId],
+  );
+  return json({ watching: res.rows.length > 0 });
+}
+
+async function handleToggleStaffWatch(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  const ticket = await loadTicketFromDb(id);
+  if (!ticket) return json({ error: "Ticket not found" }, 404);
+
+  if (
+    !isGlobalAdmin(session) &&
+    !canManageOrg(session, ticket.org_id) &&
+    !orgHasPermission(session, ticket.org_id, "tickets_view") &&
+    !orgHasPermission(session, ticket.org_id, "tickets_manage")
+  ) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  const existing = await pool.query(
+    `SELECT 1 FROM ticket_staff_watches WHERE ticket_id = $1 AND user_id = $2`,
+    [id, session.userId],
+  );
+
+  if (existing.rows.length > 0) {
+    await pool.query(
+      `DELETE FROM ticket_staff_watches WHERE ticket_id = $1 AND user_id = $2`,
+      [id, session.userId],
+    );
+    return json({ watching: false });
+  } else {
+    await pool.query(
+      `INSERT INTO ticket_staff_watches (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [id, session.userId],
+    );
+    return json({ watching: true });
+  }
 }
 
 async function handleUpdateTicket(request, ticketIdStr) {
@@ -14001,6 +14319,16 @@ async function _handleApiRequest(request) {
     );
     if (ticketDmMatch && request.method === "POST") {
       return handleToggleTicketDmNotifications(request, ticketDmMatch[1]);
+    }
+
+    const ticketWatchMatch = pathname.match(
+      /^\/api\/tickets\/(\d+)\/staff-watch$/,
+    );
+    if (ticketWatchMatch && request.method === "GET") {
+      return handleGetStaffWatch(request, ticketWatchMatch[1]);
+    }
+    if (ticketWatchMatch && request.method === "POST") {
+      return handleToggleStaffWatch(request, ticketWatchMatch[1]);
     }
 
     const orgMembersMatch = pathname.match(

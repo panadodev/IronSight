@@ -32,6 +32,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Webhook,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -586,6 +587,173 @@ function OpenLimitSelect({ ticketType, disabled, onChange }) {
   );
 }
 
+function WebhookEventSection({ label, urlValue, onUrlChange, rolesValue, onRolesChange, minutesValue, onMinutesChange, showMinutes }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Webhook URL</Label>
+        <Input
+          value={urlValue}
+          onChange={(e) => onUrlChange(e.target.value)}
+          placeholder="https://discord.com/api/webhooks/..."
+          className="text-xs font-mono h-8"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">
+          Role IDs to mention{" "}
+          <span className="text-muted-foreground font-normal">(comma-separated)</span>
+        </Label>
+        <Input
+          value={rolesValue}
+          onChange={(e) => onRolesChange(e.target.value)}
+          placeholder="e.g. 123456789012345678, 987654321098765432"
+          className="text-xs font-mono h-8"
+        />
+      </div>
+      {showMinutes && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">
+            Minutes before alert{" "}
+            <span className="text-muted-foreground font-normal">(leave blank to disable)</span>
+          </Label>
+          <Input
+            type="number"
+            min={1}
+            max={10080}
+            value={minutesValue}
+            onChange={(e) => onMinutesChange(e.target.value)}
+            placeholder="e.g. 30"
+            className="text-xs h-8 w-32"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebhookConfig({ orgId, ticketTypeId, ticketType, onUpdate }) {
+  const [createdUrl, setCreatedUrl] = useState(ticketType.webhookCreated ?? "");
+  const [createdRoles, setCreatedRoles] = useState(
+    (ticketType.webhookCreatedRoles ?? []).join(", "),
+  );
+  const [respondedUrl, setRespondedUrl] = useState(
+    ticketType.webhookResponded ?? "",
+  );
+  const [respondedRoles, setRespondedRoles] = useState(
+    (ticketType.webhookRespondedRoles ?? []).join(", "),
+  );
+  const [unansweredUrl, setUnansweredUrl] = useState(
+    ticketType.webhookUnanswered ?? "",
+  );
+  const [unansweredRoles, setUnansweredRoles] = useState(
+    (ticketType.webhookUnansweredRoles ?? []).join(", "),
+  );
+  const [unansweredMinutes, setUnansweredMinutes] = useState(
+    ticketType.webhookUnansweredMinutes != null
+      ? String(ticketType.webhookUnansweredMinutes)
+      : "",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  function parseRoles(str) {
+    return str
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    const payload = {
+      webhookCreated: createdUrl.trim() || null,
+      webhookCreatedRoles: parseRoles(createdRoles),
+      webhookResponded: respondedUrl.trim() || null,
+      webhookRespondedRoles: parseRoles(respondedRoles),
+      webhookUnanswered: unansweredUrl.trim() || null,
+      webhookUnansweredRoles: parseRoles(unansweredRoles),
+      webhookUnansweredMinutes: unansweredMinutes
+        ? Number(unansweredMinutes)
+        : null,
+    };
+    try {
+      const res = await fetch(
+        `/api/orgs/${encodeURIComponent(orgId)}/ticket-types/${ticketTypeId}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Failed to save");
+        setSaving(false);
+        return;
+      }
+      setSaved(true);
+      onUpdate(payload);
+    } catch {
+      setError("Network error");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="mt-4 pl-1 space-y-4 border-t border-border pt-3">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Webhook className="size-3.5 text-muted-foreground" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          Discord Notifications
+        </span>
+      </div>
+      <div className="space-y-5">
+        <WebhookEventSection
+          label="Ticket created"
+          urlValue={createdUrl}
+          onUrlChange={setCreatedUrl}
+          rolesValue={createdRoles}
+          onRolesChange={setCreatedRoles}
+        />
+        <WebhookEventSection
+          label="Creator responded (while awaiting reply)"
+          urlValue={respondedUrl}
+          onUrlChange={setRespondedUrl}
+          rolesValue={respondedRoles}
+          onRolesChange={setRespondedRoles}
+        />
+        <WebhookEventSection
+          label="Staff haven't replied within..."
+          urlValue={unansweredUrl}
+          onUrlChange={setUnansweredUrl}
+          rolesValue={unansweredRoles}
+          onRolesChange={setUnansweredRoles}
+          minutesValue={unansweredMinutes}
+          onMinutesChange={setUnansweredMinutes}
+          showMinutes
+        />
+      </div>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {saved && (
+          <span className="text-xs text-green-400">Saved!</span>
+        )}
+        {error && (
+          <span className="text-xs text-destructive">{error}</span>
+        )}
+        <Button size="sm" onClick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : "Save Webhooks"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function TicketsPage() {
   const { sessionUser, hasOrgPermission } = useAuth();
   const orgId = useManageOrgId();
@@ -735,6 +903,14 @@ function TicketsPage() {
     setUpdating(null);
   };
 
+  const handleWebhookUpdate = (ticketTypeId, fields) => {
+    setTicketTypes((prev) =>
+      prev.map((tt) =>
+        tt.ticketTypeId === ticketTypeId ? { ...tt, ...fields } : tt,
+      ),
+    );
+  };
+
   const regularTypes = ticketTypes.filter(
     (tt) => tt.category !== "staff_application",
   );
@@ -807,10 +983,20 @@ function TicketsPage() {
                       </div>
                     </div>
                     {expandedId === tt.ticketTypeId && (
-                      <ApplicationQuestions
-                        orgId={orgId}
-                        ticketTypeId={tt.ticketTypeId}
-                      />
+                      <>
+                        <ApplicationQuestions
+                          orgId={orgId}
+                          ticketTypeId={tt.ticketTypeId}
+                        />
+                        <WebhookConfig
+                          orgId={orgId}
+                          ticketTypeId={tt.ticketTypeId}
+                          ticketType={tt}
+                          onUpdate={(fields) =>
+                            handleWebhookUpdate(tt.ticketTypeId, fields)
+                          }
+                        />
+                      </>
                     )}
                   </div>
                 ))}
@@ -880,10 +1066,20 @@ function TicketsPage() {
                     </div>
 
                     {expandedId === tt.ticketTypeId && (
-                      <ApplicationQuestions
-                        orgId={orgId}
-                        ticketTypeId={tt.ticketTypeId}
-                      />
+                      <>
+                        <ApplicationQuestions
+                          orgId={orgId}
+                          ticketTypeId={tt.ticketTypeId}
+                        />
+                        <WebhookConfig
+                          orgId={orgId}
+                          ticketTypeId={tt.ticketTypeId}
+                          ticketType={tt}
+                          onUpdate={(fields) =>
+                            handleWebhookUpdate(tt.ticketTypeId, fields)
+                          }
+                        />
+                      </>
                     )}
                   </div>
                 ))}

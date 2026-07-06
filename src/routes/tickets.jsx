@@ -6,6 +6,8 @@ import {
   Activity,
   AlertTriangle,
   Ban,
+  Bell,
+  BellOff,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -1586,6 +1588,35 @@ function TicketDetail({
   const isSysAdmin = sessionUser?.isSysAdmin || sessionUser?.globalAdmin;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [isWatching, setIsWatching] = useState(null);
+  const [watchBusy, setWatchBusy] = useState(false);
+
+  useEffect(() => {
+    setIsWatching(null);
+    fetch(`/api/tickets/${ticket.ticket_id}/staff-watch`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setIsWatching(data?.watching ?? false))
+      .catch(() => setIsWatching(false));
+  }, [ticket.ticket_id]);
+
+  const handleToggleWatch = async () => {
+    if (watchBusy) return;
+    setWatchBusy(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticket.ticket_id}/staff-watch`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIsWatching(data.watching);
+      }
+    } finally {
+      setWatchBusy(false);
+    }
+  };
 
   const noteHasIp = IP_IN_TEXT_RE.test(noteText);
   const replyHasIp = IP_IN_TEXT_RE.test(replyText);
@@ -1671,6 +1702,29 @@ function TicketDetail({
           >
             <Ban size={10} className="shrink-0" />
             Blacklist
+          </button>
+        )}
+        {isWatching !== null && (
+          <button
+            onClick={handleToggleWatch}
+            disabled={watchBusy}
+            title={
+              isWatching
+                ? "Stop receiving DMs when the user replies"
+                : "Get a DM when the user replies"
+            }
+            className={`flex items-center gap-1 text-[0.625rem] font-mono px-2 py-0.5 rounded ring-1 transition-colors ${
+              isWatching
+                ? "bg-brand/15 ring-brand/40 text-brand hover:bg-brand/25"
+                : "bg-surface/60 ring-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {isWatching ? (
+              <BellOff size={10} className="shrink-0" />
+            ) : (
+              <Bell size={10} className="shrink-0" />
+            )}
+            {isWatching ? "Watching" : "Stay Updated"}
           </button>
         )}
         {isSysAdmin && (

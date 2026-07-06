@@ -140,6 +140,23 @@ export async function sendDiscordDmWithResult(discordUserId, content) {
   }
 }
 
+export async function sendDiscordWebhook(webhookUrl, mentionRoles, embed) {
+  try {
+    const payload = { embeds: [embed] };
+    if (Array.isArray(mentionRoles) && mentionRoles.length > 0) {
+      payload.content = mentionRoles.map((id) => `<@&${id}>`).join(" ");
+      payload.allowed_mentions = { roles: mentionRoles };
+    }
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Non-critical
+  }
+}
+
 export async function checkGuildMembership(guildId, discordUserId) {
   if (!env.discordBotToken || !guildId || !discordUserId) return false;
   try {

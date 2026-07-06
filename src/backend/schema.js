@@ -2283,4 +2283,40 @@ export async function ensureRolePermissionSeed(pool) {
   await pool.query(
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_vpn_login BOOLEAN NOT NULL DEFAULT FALSE`,
   );
+
+  // ── Ticket type webhook notifications ─────────────────────────────────────
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_created TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_created_roles TEXT[] NOT NULL DEFAULT '{}'`,
+  );
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_responded TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_responded_roles TEXT[] NOT NULL DEFAULT '{}'`,
+  );
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_unanswered TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_unanswered_roles TEXT[] NOT NULL DEFAULT '{}'`,
+  );
+  await pool.query(
+    `ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS webhook_unanswered_minutes INTEGER`,
+  );
+
+  // ── Staff ticket watches (DM on creator reply) ────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_staff_watches (
+      ticket_id INTEGER NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      created_at BIGINT NOT NULL DEFAULT unix_now(),
+      PRIMARY KEY (ticket_id, user_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ticket_staff_watches_ticket_id ON ticket_staff_watches(ticket_id)`,
+  );
 }
