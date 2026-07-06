@@ -260,6 +260,10 @@ export async function ensureSchema(pool) {
     `ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`,
   );
 
+  await pool.query(
+    `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS dm_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
+
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (

@@ -63,14 +63,12 @@ async function safeJson(response) {
 const SERVICE_LABELS = {
   battlemetrics: "BattleMetrics",
   steam: "Steam Web API",
-  proxycheck: "Proxycheck.io",
   openai: "OpenAI",
 };
 
 const SERVICE_LINKS = {
   battlemetrics: "https://www.battlemetrics.com/developers/token",
   steam: "https://steamcommunity.com/dev/apikey",
-  proxycheck: "https://proxycheck.io/dashboard/",
   openai: "https://platform.openai.com/api-keys",
 };
 
@@ -79,8 +77,6 @@ const SERVICE_HINTS = {
     "Used to look up players, issue bans, and sync ban history via the BattleMetrics API.",
   steam:
     "Used to fetch Steam profile data, friends lists, and game hours during player lookup.",
-  proxycheck:
-    "Used to flag VPN / proxy connections on new player joins and during lookups.",
   openai:
     "Used for AI chat moderation — scores every ingested chat message and fires highlight/automute triggers configured on the Toxicity page.",
 };
@@ -100,7 +96,6 @@ const SERVICE_PERMISSIONS = {
     { group: "Organizations", items: ["View organization information"] },
   ],
   steam: null,
-  proxycheck: null,
   openai: null,
 };
 
@@ -214,17 +209,6 @@ function UsageDayBar({ queriesDay, dailyLimit, label }) {
   );
 }
 
-function ProxycheckKeyUsage({ usage }) {
-  if (!usage) return null;
-  return (
-    <UsageDayBar
-      queriesDay={usage.queriesDay}
-      dailyLimit={usage.dailyLimit}
-      label="Queries today"
-    />
-  );
-}
-
 function SteamKeyUsage({ keyData }) {
   const todayStart = Math.floor(Date.now() / 1000 / 86400) * 86400;
   const callsToday = (keyData ?? [])
@@ -245,7 +229,6 @@ function ApiKeysSection({ orgId }) {
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [keysError, setKeysError] = useState("");
   const [stats, setStats] = useState({});
-  const [proxycheckUsage, setProxycheckUsage] = useState({});
 
   const [addService, setAddService] = useState("battlemetrics");
   const [addKey, setAddKey] = useState("");
@@ -264,7 +247,6 @@ function ApiKeysSection({ orgId }) {
       if (res.ok) {
         const body = await res.json();
         setStats(body.stats ?? {});
-        setProxycheckUsage(body.proxycheckUsage ?? {});
       }
     } catch {
       // non-critical — usage displays just won't show
@@ -371,15 +353,13 @@ function ApiKeysSection({ orgId }) {
     }
   }
 
-  const keysByService = [
-    "battlemetrics",
-    "steam",
-    "proxycheck",
-    "openai",
-  ].reduce((acc, svc) => {
-    acc[svc] = keys.filter((k) => k.service === svc);
-    return acc;
-  }, {});
+  const keysByService = ["battlemetrics", "steam", "openai"].reduce(
+    (acc, svc) => {
+      acc[svc] = keys.filter((k) => k.service === svc);
+      return acc;
+    },
+    {},
+  );
 
   return (
     <div className="space-y-4 border-t border-border pt-6">
@@ -401,7 +381,7 @@ function ApiKeysSection({ orgId }) {
         <p className="text-sm text-muted-foreground">Loading keys…</p>
       ) : (
         <div className="space-y-4">
-          {["battlemetrics", "steam", "proxycheck", "openai"].map((svc) => (
+          {["battlemetrics", "steam", "openai"].map((svc) => (
             <div
               key={svc}
               className="rounded-lg ring-1 ring-border bg-surface/40 p-4 space-y-2 max-w-xl"
@@ -493,9 +473,6 @@ function ApiKeysSection({ orgId }) {
                       {svc === "battlemetrics" && (
                         <BmKeyGraph keyData={stats[k.keyId]} />
                       )}
-                      {svc === "proxycheck" && (
-                        <ProxycheckKeyUsage usage={proxycheckUsage[k.keyId]} />
-                      )}
                       {svc === "steam" && (
                         <SteamKeyUsage keyData={stats[k.keyId]} />
                       )}
@@ -540,7 +517,6 @@ function ApiKeysSection({ orgId }) {
             <SelectContent>
               <SelectItem value="battlemetrics">BattleMetrics</SelectItem>
               <SelectItem value="steam">Steam Web API</SelectItem>
-              <SelectItem value="proxycheck">Proxycheck.io</SelectItem>
               <SelectItem value="openai">OpenAI</SelectItem>
             </SelectContent>
           </Select>

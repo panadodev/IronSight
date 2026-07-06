@@ -159,6 +159,7 @@ function SysMetricsPage() {
   const outgoing = data?.outgoing ?? [];
   const errors = data?.errors ?? [];
   const routes = data?.routes ?? [];
+  const proxycheckQuota = data?.proxycheckQuota ?? null;
 
   // Overview stats
   const totalIn = incoming.length;
@@ -339,6 +340,31 @@ function SysMetricsPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* Proxycheck quota */}
+                {proxycheckQuota && proxycheckQuota.dailyLimit > 0 && (() => {
+                  const pct = Math.min(Math.round((proxycheckQuota.queriesDay / proxycheckQuota.dailyLimit) * 100), 100);
+                  const remaining = proxycheckQuota.dailyLimit - proxycheckQuota.queriesDay;
+                  return (
+                    <div className="rounded-lg ring-1 ring-border bg-surface/40 p-3 max-w-sm">
+                      <p className="text-[0.625rem] font-mono uppercase tracking-widest text-muted-foreground">
+                        Proxycheck.io (ENV key)
+                      </p>
+                      <p className="text-2xl font-semibold tabular-nums mt-1 font-mono">
+                        {remaining.toLocaleString()}
+                      </p>
+                      <p className="text-[0.625rem] text-muted-foreground mt-0.5">
+                        queries remaining today · {proxycheckQuota.queriesDay.toLocaleString()} / {proxycheckQuota.dailyLimit.toLocaleString()} used ({pct}%)
+                      </p>
+                      <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${pct >= 80 ? "bg-amber-500" : "bg-blue-400"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Top routes */}
                 <div className="space-y-2">

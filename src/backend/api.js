@@ -98,7 +98,9 @@ import {
   safePluginName,
 } from "./handlers/pterodactyl.js";
 import {
+  checkGuildMembership,
   checkServerHealthAlerts,
+  createGuildInvite,
   handleBotDeactivateMember,
   handleBotGetPlayerCount,
   handleBotGetStaffList,
@@ -120,6 +122,8 @@ import {
   pruneOldChatMessages,
   pruneOldDiscordMessages,
   removeAllDiscordRolesForRole,
+  sendDiscordDm,
+  sendDiscordDmWithResult,
   syncDiscordRolesOnRoleChange,
 } from "./handlers/discord.js";
 import {
@@ -1001,24 +1005,6 @@ async function init() {
 async function createSessionForUser(user, options = {}) {
   const access = await loadUserAccess(user.userId);
 
-  // Block login for users who are disabled in all their orgs (unless sysadmin)
-  const sysAdminDiscordId = String(env.sysAdminDiscordId ?? "").trim();
-  const isSysAdmin =
-    sysAdminDiscordId && String(user.discordId) === sysAdminDiscordId;
-  if (!isSysAdmin) {
-    const memberRes = await pool.query(
-      `SELECT
-         (SELECT 1 FROM organization_members WHERE user_id = $1 AND org_id != $2 AND role_id != 'org_disabled' LIMIT 1) AS has_active,
-         (SELECT 1 FROM organization_members WHERE user_id = $1 AND org_id != $2 LIMIT 1) AS has_any`,
-      [user.userId, SYSADMIN.globalOrgId],
-    );
-    const { has_active, has_any } = memberRes.rows[0] ?? {};
-    if (has_any && !has_active) {
-      if (options.redirectTo) return redirect("/login?error=account_disabled");
-      return json({ error: "Your account has been disabled." }, 403);
-    }
-  }
-
   const ipAddress = options.ipAddress ?? null;
   const userAgent = options.userAgent ?? null;
 
@@ -1459,7 +1445,7 @@ async function userIsStaff(userId, discordId) {
   if (sysAdminDiscordId && String(discordId) === sysAdminDiscordId) return true;
   const res = await pool.query(
     `SELECT 1 FROM organization_members
-     WHERE user_id = $1 AND org_id != $2 AND role_id != 'org_disabled' LIMIT 1`,
+     WHERE user_id = $1 AND org_id != $2 LIMIT 1`,
     [userId, SYSADMIN.globalOrgId],
   );
   return res.rows.length > 0;
@@ -4055,11 +4041,6 @@ async function handleUpdateOrgMemberTeam(request, orgId, userId) {
     `UPDATE organization_members SET role_id = $1 WHERE org_id = $2 AND user_id = $3`,
     [resolvedTeam, orgId, userId],
   );
-
-  // Revoke sessions immediately when a member is disabled
-  if (resolvedTeam === "org_disabled") {
-    await revokeUserSessions(userId);
-  }
 
   // Sync Discord roles: remove old role's Discord roles, add new role's (best-effort)
   const discordWarning = await syncDiscordRolesOnRoleChange(
@@ -7171,7 +7152,83 @@ async function handleAddTicketMessage(request, ticketIdStr) {
     )
     .catch(() => {});
 
+  // DM the ticket creator when staff reply (non-internal) and they opted in
+  if (
+    isStaff &&
+    !isCreator &&
+    !isInternal &&
+    ticket.dm_notifications_enabled &&
+    ticket.created_by_discord_id
+  ) {
+    const cooldownKey = `ticket:dm:cd:${id}`;
+    const onCooldown = await redis.get(cooldownKey).catch(() => null);
+    if (!onCooldown) {
+      const ticketUrl = `${env.appUrl}/my-reports?ticket=${id}`;
+      const dmMsg = `💬 **New reply on your ticket** — ${ticket.title}\n${ticketUrl}`;
+      sendDiscordDm(ticket.created_by_discord_id, dmMsg).catch(() => {});
+      redis.set(cooldownKey, "1", "EX", 900).catch(() => {});
+    }
+  }
+
   return json({ ok: true });
+}
+
+async function handleToggleTicketDmNotifications(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const enabled = Boolean(body?.enabled);
+
+  const ticket = await loadTicketFromDb(id);
+  if (!ticket) return json({ error: "Ticket not found" }, 404);
+
+  if (ticket.created_by !== session.userId)
+    return json({ error: "Forbidden" }, 403);
+
+  await pool.query(
+    `UPDATE tickets SET dm_notifications_enabled = $1 WHERE ticket_id = $2`,
+    [enabled, id],
+  );
+  await invalidateTicketCache(id);
+
+  if (!enabled) return json({ ok: true });
+
+  const discordId = session.discordId;
+  if (!discordId) return json({ ok: true, dmStatus: "no_discord" });
+
+  const orgRes = await pool.query(
+    `SELECT guild_id FROM organizations WHERE org_id = $1 LIMIT 1`,
+    [ticket.org_id],
+  );
+  const guildId = orgRes.rows[0]?.guild_id ?? null;
+
+  const [inGuild, dmResult] = await Promise.all([
+    guildId
+      ? checkGuildMembership(guildId, discordId)
+      : Promise.resolve(false),
+    sendDiscordDmWithResult(
+      discordId,
+      `✅ **IronSight ticket notifications enabled** — You'll receive a DM when staff reply to your ticket: **${ticket.title}**`,
+    ),
+  ]);
+
+  let inviteUrl = null;
+  if (!inGuild && guildId) {
+    inviteUrl = await createGuildInvite(guildId);
+  }
+
+  return json({ ok: true, dmStatus: dmResult.reason, inGuild, inviteUrl });
 }
 
 async function handleUpdateTicket(request, ticketIdStr) {
@@ -12758,6 +12815,10 @@ async function handleRefreshPlayer(request, steamId) {
           ipEntitlement,
           bmEntitlement,
         );
+        payload.boughtAccountTriggered = await evalBoughtAccountFlag(
+          orgId,
+          payload,
+        );
         if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
         return json(payload);
       }
@@ -12813,6 +12874,10 @@ async function handleRefreshPlayer(request, steamId) {
             bmEntitlement,
           );
           if (!done) payload.enriching = true;
+          payload.boughtAccountTriggered = await evalBoughtAccountFlag(
+            orgId,
+            payload,
+          );
           if (bmRateLimitWarning) payload.bmRateLimitWarning = true;
           return json(payload);
         }
@@ -13918,6 +13983,13 @@ async function _handleApiRequest(request) {
     );
     if (ticketMessagesMatch && request.method === "POST") {
       return handleAddTicketMessage(request, ticketMessagesMatch[1]);
+    }
+
+    const ticketDmMatch = pathname.match(
+      /^\/api\/tickets\/(\d+)\/dm-notifications$/,
+    );
+    if (ticketDmMatch && request.method === "POST") {
+      return handleToggleTicketDmNotifications(request, ticketDmMatch[1]);
     }
 
     const orgMembersMatch = pathname.match(

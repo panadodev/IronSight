@@ -19,6 +19,7 @@ import {
   healthCheckRelay,
 } from "../relay.js";
 import { diagIncoming, diagOutgoing, diagErrors } from "../diagnostics.js";
+import { env } from "../config.js";
 
 // ── Sysadmin: clear all player cache ─────────────────────────────────────────
 
@@ -353,11 +354,30 @@ export async function handleGetSysMetrics(request) {
     })
     .sort((a, b) => b.count - a.count);
 
+  let proxycheckQuota = null;
+  const pcApiKey = env.proxycheckApiKey?.trim();
+  if (pcApiKey) {
+    try {
+      const pcRes = await fetch(
+        `https://proxycheck.io/dashboard/export/usage/?key=${encodeURIComponent(pcApiKey)}`,
+      );
+      if (pcRes.ok) {
+        const pcData = await pcRes.json();
+        const queriesDay = Number(pcData["Queries Today"] ?? 0);
+        const dailyLimit = Number(pcData["Daily Limit"] ?? 0);
+        proxycheckQuota = { queriesDay, dailyLimit };
+      }
+    } catch {
+      // non-critical
+    }
+  }
+
   return json({
     incoming: [...diagIncoming].reverse().slice(0, 500),
     outgoing: [...diagOutgoing].reverse().slice(0, 500),
     errors: [...diagErrors].reverse().slice(0, 500),
     routes,
+    proxycheckQuota,
   });
 }
 

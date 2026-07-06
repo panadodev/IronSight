@@ -47,6 +47,7 @@ export async function loadTicketFromDb(ticketId) {
             t.closed_at,
             t.reported_players,
             t.form_data,
+            t.dm_notifications_enabled,
             tt.ticket_type_name,
             creator.username AS created_by_username, creator.steam_id AS created_by_steam_id,
             creator.discord_id AS created_by_discord_id,
@@ -84,6 +85,7 @@ export async function loadTicketFromDb(ticketId) {
       ? row.reported_players.map(String)
       : [],
     form_data: Array.isArray(row.form_data) ? row.form_data : [],
+    dm_notifications_enabled: Boolean(row.dm_notifications_enabled),
   };
 }
 

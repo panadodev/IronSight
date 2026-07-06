@@ -6,7 +6,6 @@ import {
   auditLog,
   orgHasPermission,
   requireSession,
-  revokeUserSessions,
 } from "../core.js";
 import { json, nowUnix } from "../http.js";
 import { pool, redis } from "../runtime.js";
@@ -116,6 +115,81 @@ export async function sendDiscordDm(discordUserId, content) {
     });
   } catch {
     // DMs can fail silently (user has DMs disabled, etc.)
+  }
+}
+
+// Returns { ok, reason } where reason is one of:
+// "sent" | "no_bot_token" | "not_sharing_server" | "dms_closed" | "error"
+export async function sendDiscordDmWithResult(discordUserId, content) {
+  if (!env.discordBotToken) return { ok: false, reason: "no_bot_token" };
+  try {
+    const dmRes = await discordFetch("/users/@me/channels", {
+      method: "POST",
+      body: JSON.stringify({ recipient_id: discordUserId }),
+    });
+    if (!dmRes.ok) return { ok: false, reason: "not_sharing_server" };
+    const { id: channelId } = await dmRes.json();
+    const msgRes = await discordFetch(`/channels/${channelId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+    if (!msgRes.ok) return { ok: false, reason: "dms_closed" };
+    return { ok: true, reason: "sent" };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+}
+
+export async function checkGuildMembership(guildId, discordUserId) {
+  if (!env.discordBotToken || !guildId || !discordUserId) return false;
+  try {
+    const res = await discordFetch(
+      `/guilds/${guildId}/members/${discordUserId}`,
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Returns a Discord invite URL for the guild, or null if one cannot be created.
+export async function createGuildInvite(guildId) {
+  if (!env.discordBotToken || !guildId) return null;
+  try {
+    const guildRes = await discordFetch(`/guilds/${guildId}`);
+    if (!guildRes.ok) return null;
+    const guild = await guildRes.json();
+
+    if (guild.vanity_url_code) {
+      return `https://discord.gg/${guild.vanity_url_code}`;
+    }
+
+    let channelId = guild.system_channel_id ?? null;
+    if (!channelId) {
+      const chRes = await discordFetch(`/guilds/${guildId}/channels`);
+      if (chRes.ok) {
+        const channels = await chRes.json();
+        const textCh = Array.isArray(channels)
+          ? channels.find((c) => c.type === 0)
+          : null;
+        channelId = textCh?.id ?? null;
+      }
+    }
+
+    if (!channelId) return null;
+
+    const inviteRes = await discordFetch(
+      `/channels/${channelId}/invites`,
+      {
+        method: "POST",
+        body: JSON.stringify({ max_age: 86400, max_uses: 0, unique: false }),
+      },
+    );
+    if (!inviteRes.ok) return null;
+    const invite = await inviteRes.json();
+    return invite.code ? `https://discord.gg/${invite.code}` : null;
+  } catch {
+    return null;
   }
 }
 
@@ -757,7 +831,6 @@ export async function handleBotDeactivateMember(request) {
     `UPDATE organization_members SET role_id = 'org_disabled' WHERE org_id = $1 AND user_id = $2`,
     [orgId, target.user_id],
   );
-  await revokeUserSessions(target.user_id);
 
   return json({ ok: true, username: target.username, orgId });
 }
