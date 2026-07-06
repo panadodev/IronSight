@@ -845,10 +845,10 @@ async function init() {
             !entry.isStaff
           )
             continue;
-          // Internal-note typing is staff-only; don't echo back to the typer
+          // Internal-note typing is staff-only; don't echo back to the same connection
           if (event.type === "typing" && event.isInternal && !entry.isStaff)
             continue;
-          if (event.type === "typing" && event.userId === entry.userId)
+          if (event.type === "typing" && event.connectionId === entry.connectionId)
             continue;
           let out = chunk;
           if (
@@ -6047,14 +6047,23 @@ async function handleListOrgTicketTypes(request, orgId) {
     await ensureDefaultTicketTypes(orgId);
   }
 
-  const webhookCols = session
+  // A session from the public portal (Discord+Steam, no org membership) must
+  // be treated the same as unauthenticated for visibility purposes — only staff
+  // members of this org (or global admins) may see disabled ticket types.
+  const isStaffOfOrg =
+    session &&
+    (isGlobalAdmin(session) ||
+      (session.orgAdminOrgIds ?? []).includes(orgId) ||
+      (session.orgOwnerOrgIds ?? []).includes(orgId) ||
+      (session.orgPermissions ?? {})[orgId] != null);
+
+  const webhookCols = isStaffOfOrg
     ? `, webhook_created, webhook_created_roles, webhook_responded, webhook_responded_roles, webhook_unanswered, webhook_unanswered_roles, webhook_unanswered_minutes`
     : "";
   let query = `SELECT ticket_type_id, ticket_type_name, ticket_type_description, ticket_type_category, is_enabled, allow_media, max_open_per_user${webhookCols}
      FROM ticket_types WHERE org_id = $1`;
 
-  // Public users only see enabled ticket types
-  if (!session) {
+  if (!isStaffOfOrg) {
     query += ` AND is_enabled = true`;
   }
 
@@ -6071,7 +6080,7 @@ async function handleListOrgTicketTypes(request, orgId) {
       allowMedia: row.allow_media !== false,
       maxOpenPerUser:
         row.max_open_per_user != null ? Number(row.max_open_per_user) : null,
-      ...(session
+      ...(isStaffOfOrg
         ? {
             webhookCreated: row.webhook_created ?? null,
             webhookCreatedRoles: row.webhook_created_roles ?? [],
@@ -6747,14 +6756,19 @@ async function handleStreamTicket(request, ticketIdStr) {
     orgHasPermission(session, ticket.org_id, "tickets_view") ||
     orgHasPermission(session, ticket.org_id, "tickets_manage");
 
+  const connectionId = crypto.randomUUID();
   let entry;
   let heartbeat;
   const stream = new ReadableStream({
     start(controller) {
-      entry = { controller, isStaff, userId: session.userId };
+      entry = { controller, isStaff, userId: session.userId, connectionId };
       if (!ticketStreams.has(id)) ticketStreams.set(id, new Set());
       ticketStreams.get(id).add(entry);
-      controller.enqueue(sseEncoder.encode(": connected\n\n"));
+      controller.enqueue(
+        sseEncoder.encode(
+          `: connected\n\ndata: ${JSON.stringify({ type: "connected", connectionId })}\n\n`,
+        ),
+      );
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(sseEncoder.encode(": ping\n\n"));
@@ -6820,9 +6834,11 @@ async function handleTypingTicket(request, ticketIdStr) {
     orgHasPermission(session, ticket.org_id, "tickets_manage");
 
   let isInternal = false;
+  let connectionId = null;
   try {
     const body = await request.json();
     isInternal = Boolean(body?.isInternal) && isStaff;
+    if (typeof body?.connectionId === "string") connectionId = body.connectionId;
   } catch {}
 
   redis
@@ -6834,6 +6850,7 @@ async function handleTypingTicket(request, ticketIdStr) {
         username: session.username ?? null,
         isStaff,
         isInternal,
+        connectionId,
       }),
     )
     .catch(() => {});

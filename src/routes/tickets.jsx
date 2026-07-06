@@ -263,6 +263,7 @@ function TicketsPage() {
   const [typingUsers, setTypingUsers] = useState(new Map());
   const typingTimersRef = useRef(new Map());
   const typingThrottleRef = useRef(null);
+  const sseConnectionIdRef = useRef(null);
   const [orgServers, setOrgServers] = useState([]);
   const [orgStaff, setOrgStaff] = useState([]);
   const [orgPredefines, setOrgPredefines] = useState([]);
@@ -503,6 +504,7 @@ function TicketsPage() {
     for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
     typingTimersRef.current.clear();
     setTypingUsers(new Map());
+    sseConnectionIdRef.current = null;
 
     const es = new EventSource(`/api/tickets/${selectedId}/stream`, {
       withCredentials: true,
@@ -510,6 +512,10 @@ function TicketsPage() {
     es.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data);
+        if (event.type === "connected") {
+          sseConnectionIdRef.current = event.connectionId ?? null;
+          return;
+        }
         if (event.type === "new_message") {
           setSelectedMessages((prev) =>
             prev.some((m) => m.messageId === event.message.messageId)
@@ -545,6 +551,7 @@ function TicketsPage() {
     };
     return () => {
       es.close();
+      sseConnectionIdRef.current = null;
       for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
       typingTimersRef.current.clear();
       setTypingUsers(new Map());
@@ -559,7 +566,10 @@ function TicketsPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isInternal }),
+        body: JSON.stringify({
+          isInternal,
+          connectionId: sseConnectionIdRef.current,
+        }),
       }).catch(() => {});
       typingThrottleRef.current = setTimeout(() => {
         typingThrottleRef.current = null;
@@ -1923,11 +1933,11 @@ function TicketDetail({
       </div>
 
       {typingUsers?.size > 0 && (
-        <div className="flex items-center gap-1.5 px-4 py-1.5 shrink-0 text-[0.625rem] font-mono text-muted-foreground">
+        <div className="flex items-center gap-1.5 px-4 py-1.5 shrink-0 text-[0.625rem] font-mono text-muted-foreground border-b border-border/40">
           <span className="flex gap-0.5 items-center">
-            <span className="w-1 h-1 rounded-full bg-muted-foreground/60 animate-bounce [animation-duration:0.8s] [animation-delay:0ms]" />
-            <span className="w-1 h-1 rounded-full bg-muted-foreground/60 animate-bounce [animation-duration:0.8s] [animation-delay:150ms]" />
-            <span className="w-1 h-1 rounded-full bg-muted-foreground/60 animate-bounce [animation-duration:0.8s] [animation-delay:300ms]" />
+            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "0.8s" }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce" style={{ animationDelay: "150ms", animationDuration: "0.8s" }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce" style={{ animationDelay: "300ms", animationDuration: "0.8s" }} />
           </span>
           {formatTypingText([...typingUsers.values()])}
         </div>
