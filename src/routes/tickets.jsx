@@ -260,6 +260,9 @@ function TicketsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [typingUsers, setTypingUsers] = useState(new Map());
+  const typingTimersRef = useRef(new Map());
+  const typingThrottleRef = useRef(null);
   const [orgServers, setOrgServers] = useState([]);
   const [orgStaff, setOrgStaff] = useState([]);
   const [orgPredefines, setOrgPredefines] = useState([]);
@@ -496,6 +499,11 @@ function TicketsPage() {
 
   useEffect(() => {
     if (!selectedId) return;
+    // Clear any lingering typing indicators from the previous ticket
+    for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
+    typingTimersRef.current.clear();
+    setTypingUsers(new Map());
+
     const es = new EventSource(`/api/tickets/${selectedId}/stream`, {
       withCredentials: true,
     });
@@ -514,11 +522,51 @@ function TicketsPage() {
               t.ticket_id === selectedId ? { ...t, ...event.ticket } : t,
             ),
           );
+        } else if (event.type === "typing") {
+          const { userId, username, isStaff } = event;
+          const existing = typingTimersRef.current.get(userId);
+          if (existing) clearTimeout(existing);
+          setTypingUsers((prev) => {
+            const next = new Map(prev);
+            next.set(userId, { name: username, isStaff });
+            return next;
+          });
+          const timer = setTimeout(() => {
+            setTypingUsers((prev) => {
+              const next = new Map(prev);
+              next.delete(userId);
+              return next;
+            });
+            typingTimersRef.current.delete(userId);
+          }, 5000);
+          typingTimersRef.current.set(userId, timer);
         }
       } catch {}
     };
-    return () => es.close();
+    return () => {
+      es.close();
+      for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
+      typingTimersRef.current.clear();
+      setTypingUsers(new Map());
+    };
   }, [selectedId]);
+
+  const sendTypingEvent = useCallback(
+    (isInternal) => {
+      if (!selectedId) return;
+      if (typingThrottleRef.current) return;
+      fetch(`/api/tickets/${selectedId}/typing`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isInternal }),
+      }).catch(() => {});
+      typingThrottleRef.current = setTimeout(() => {
+        typingThrottleRef.current = null;
+      }, 1000);
+    },
+    [selectedId],
+  );
 
   const handlePostNote = useCallback(async () => {
     if (!noteText.trim() || !selectedId || submitting) return;
@@ -831,6 +879,8 @@ function TicketsPage() {
               predefines={orgPredefines}
               canBlacklist={canBlacklist}
               onOpenBlacklist={openBlacklist}
+              typingUsers={typingUsers}
+              onTyping={sendTypingEvent}
             />
           </main>
         ) : (
@@ -1552,6 +1602,14 @@ function MediaLightbox({ media, initialIndex, onClose }) {
   );
 }
 
+function formatTypingText(users) {
+  if (users.length === 0) return "";
+  const names = users.map((u) => u.name || "Support staff");
+  if (names.length === 1) return `${names[0]} is typing...`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing...`;
+  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are typing...`;
+}
+
 function TicketDetail({
   ticket,
   messages,
@@ -1577,6 +1635,8 @@ function TicketDetail({
   predefines = [],
   canBlacklist = false,
   onOpenBlacklist,
+  typingUsers,
+  onTyping,
 }) {
   const isClaimed = ticket.assigned_to === sessionUser?.userId;
   const isClosed = ticket.status === "closed";
@@ -1862,6 +1922,17 @@ function TicketDetail({
         )}
       </div>
 
+      {typingUsers?.size > 0 && (
+        <div className="flex items-center gap-1.5 px-4 py-1.5 shrink-0 text-[0.625rem] font-mono text-muted-foreground">
+          <span className="flex gap-0.5 items-center">
+            <span className="w-1 h-1 rounded-full bg-muted-foreground/60 animate-bounce [animation-duration:0.8s] [animation-delay:0ms]" />
+            <span className="w-1 h-1 rounded-full bg-muted-foreground/60 animate-bounce [animation-duration:0.8s] [animation-delay:150ms]" />
+            <span className="w-1 h-1 rounded-full bg-muted-foreground/60 animate-bounce [animation-duration:0.8s] [animation-delay:300ms]" />
+          </span>
+          {formatTypingText([...typingUsers.values()])}
+        </div>
+      )}
+
       <div className="border-t border-border px-4 py-3 shrink-0">
         <div className="flex items-center gap-1 mb-2">
           {!isInternalOnly && (
@@ -1920,7 +1991,10 @@ function TicketDetail({
           <>
             <textarea
               value={replyText}
-              onChange={(e) => onReplyChange(e.target.value)}
+              onChange={(e) => {
+                onReplyChange(e.target.value);
+                onTyping?.(false);
+              }}
               placeholder="Write a reply to the submitter..."
               disabled={isClosed}
               className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"
@@ -1958,7 +2032,10 @@ function TicketDetail({
           <>
             <textarea
               value={noteText}
-              onChange={(e) => onNoteChange(e.target.value)}
+              onChange={(e) => {
+                onNoteChange(e.target.value);
+                onTyping?.(true);
+              }}
               placeholder="Discuss this case with other staff — evidence checks, second opinions, decisions..."
               disabled={isClosed}
               className="w-full h-20 bg-background border border-border rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:opacity-50"

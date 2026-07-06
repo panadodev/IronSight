@@ -845,6 +845,11 @@ async function init() {
             !entry.isStaff
           )
             continue;
+          // Internal-note typing is staff-only; don't echo back to the typer
+          if (event.type === "typing" && event.isInternal && !entry.isStaff)
+            continue;
+          if (event.type === "typing" && event.userId === entry.userId)
+            continue;
           let out = chunk;
           if (
             event.type === "new_message" &&
@@ -858,6 +863,15 @@ async function init() {
               };
               redactedChunk = sseEncoder.encode(
                 `data: ${JSON.stringify(redacted)}\n\n`,
+              );
+            }
+            out = redactedChunk;
+          }
+          // Non-staff see typing indicators but without the staff member's name
+          if (event.type === "typing" && !entry.isStaff) {
+            if (!redactedChunk) {
+              redactedChunk = sseEncoder.encode(
+                `data: ${JSON.stringify({ ...event, username: null })}\n\n`,
               );
             }
             out = redactedChunk;
@@ -6767,6 +6781,64 @@ async function handleStreamTicket(request, ticketIdStr) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+async function handleTypingTicket(request, ticketIdStr) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  const id = Number(ticketIdStr);
+  if (!Number.isInteger(id) || id <= 0)
+    return json({ error: "Invalid ticket ID" }, 400);
+
+  let ticket = await getCachedTicket(id);
+  if (!ticket) {
+    ticket = await loadTicketFromDb(id);
+    if (!ticket) return json({ error: "Ticket not found" }, 404);
+    await cacheTicket(ticket);
+  }
+
+  if (ticket.created_by !== session.userId) {
+    if (isGlobalAdmin(session)) {
+      // ok
+    } else if (canManageOrg(session, ticket.org_id)) {
+      // ok
+    } else {
+      const perms = session.orgPermissions?.[ticket.org_id] ?? [];
+      const hasPermission =
+        perms.includes("tickets_view") || perms.includes("tickets_manage");
+      if (!hasPermission) return json({ error: "Forbidden" }, 403);
+      if (await ticketTypeRestricted(session, ticket))
+        return json({ error: "Forbidden" }, 403);
+    }
+  }
+
+  const isStaff =
+    isGlobalAdmin(session) ||
+    canManageOrg(session, ticket.org_id) ||
+    orgHasPermission(session, ticket.org_id, "tickets_view") ||
+    orgHasPermission(session, ticket.org_id, "tickets_manage");
+
+  let isInternal = false;
+  try {
+    const body = await request.json();
+    isInternal = Boolean(body?.isInternal) && isStaff;
+  } catch {}
+
+  redis
+    .publish(
+      `ticket-stream:${id}`,
+      JSON.stringify({
+        type: "typing",
+        userId: session.userId,
+        username: session.username ?? null,
+        isStaff,
+        isInternal,
+      }),
+    )
+    .catch(() => {});
+
+  return json({ ok: true });
 }
 
 async function handleGetTicket(request, ticketIdStr) {
@@ -14291,6 +14363,11 @@ async function _handleApiRequest(request) {
     const ticketStreamMatch = pathname.match(/^\/api\/tickets\/(\d+)\/stream$/);
     if (ticketStreamMatch && request.method === "GET") {
       return handleStreamTicket(request, ticketStreamMatch[1]);
+    }
+
+    const ticketTypingMatch = pathname.match(/^\/api\/tickets\/(\d+)\/typing$/);
+    if (ticketTypingMatch && request.method === "POST") {
+      return handleTypingTicket(request, ticketTypingMatch[1]);
     }
 
     const ticketPlayerIntelMatch = pathname.match(
