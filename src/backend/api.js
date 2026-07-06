@@ -12924,6 +12924,12 @@ async function evalBoughtAccountFlag(orgId, d) {
   }
 }
 
+const PLAYER_AUTO_REFRESH_SECONDS = 12 * 3600;
+function isPlayerAutoRefreshDue(d) {
+  const lastCached = Math.max(d.steam?.cachedAt ?? 0, d.bm?.cachedAt ?? 0);
+  return lastCached < nowUnix() - PLAYER_AUTO_REFRESH_SECONDS;
+}
+
 async function handleGetPlayer(request, steamId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -13006,7 +13012,7 @@ async function handleGetPlayer(request, steamId) {
   // Redis first — avoids 6 PostgreSQL queries on the hot path
   const fromRedis = await getPlayerDataFromRedis(steamId);
   if (fromRedis) {
-    if (fromRedis.isStale || needsRichIpMetadataBackfill(fromRedis)) {
+    if (fromRedis.isStale || needsRichIpMetadataBackfill(fromRedis) || isPlayerAutoRefreshDue(fromRedis)) {
       refreshPlayerData(steamId, orgId, candidateOrgIds).catch((err) =>
         console.error(`[player] bg refresh error for ${steamId}:`, err.message),
       );
@@ -13033,7 +13039,7 @@ async function handleGetPlayer(request, steamId) {
     return json({ fetching: true });
   }
 
-  if (cached.isStale || needsRichIpMetadataBackfill(cached)) {
+  if (cached.isStale || needsRichIpMetadataBackfill(cached) || isPlayerAutoRefreshDue(cached)) {
     // Return stale data immediately; refresh in the background
     refreshPlayerData(steamId, orgId, candidateOrgIds).catch((err) =>
       console.error(`[player] bg refresh error for ${steamId}:`, err.message),

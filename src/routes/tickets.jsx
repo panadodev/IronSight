@@ -69,10 +69,16 @@ const STRUCTURAL_KINDS = {
     color: "text-sky-400",
     dot: "bg-sky-400",
   },
+  F7: {
+    key: "F7",
+    label: "F7",
+    color: "text-amber-400",
+    dot: "bg-amber-400",
+  },
 };
 
 // Order structural kinds ahead of generic ones in the filter row.
-const STRUCTURAL_ORDER = ["REPORT", "APPLY", "AUTO", "CASE"];
+const STRUCTURAL_ORDER = ["F7", "REPORT", "APPLY", "AUTO", "CASE"];
 
 // Palette for generic ticket types, picked so none collide with the structural
 // kind colours above.
@@ -239,11 +245,21 @@ function TicketsPage() {
     return Array.from(ids).filter((id) => selectedOrgIds.includes(id));
   }, [adminableOrgIds, orgs, sessionOrgPermissions, selectedOrgIds]);
 
+  const f7OrgIds = useMemo(() => {
+    const ids = new Set(adminableOrgIds);
+    for (const org of orgs) {
+      const perms = sessionOrgPermissions[org.id] ?? [];
+      if (perms.includes("players_view")) ids.add(org.id);
+    }
+    return Array.from(ids).filter((id) => selectedOrgIds.includes(id));
+  }, [adminableOrgIds, orgs, sessionOrgPermissions, selectedOrgIds]);
+
   const [tab, setTab] = useState("active");
   const [assignee, setAssignee] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [selectedKinds, setSelectedKinds] = useState(new Set());
   const [search, setSearch] = useState("");
   const [tickets, setTickets] = useState([]);
+  const [f7Reports, setF7Reports] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [selectedMedia, setSelectedMedia] = useState([]);
@@ -304,6 +320,31 @@ function TicketsPage() {
       cancelled = true;
     };
   }, [orgsLoaded, ticketOrgIds, applicationOrgIds]);
+
+  useEffect(() => {
+    if (!orgsLoaded || !f7OrgIds.length) return;
+    let cancelled = false;
+    const since = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
+    Promise.all(
+      f7OrgIds.map((orgId) =>
+        fetch(
+          `/api/orgs/${encodeURIComponent(orgId)}/recent-reports?limit=100&since=${since}`,
+          { credentials: "include" },
+        )
+          .then((r) => (r.ok ? r.json() : { reports: [] }))
+          .then((data) =>
+            (data.reports ?? []).map((r) => ({ ...r, org_id: orgId })),
+          )
+          .catch(() => []),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      setF7Reports(results.flat().sort((a, b) => b.createdAt - a.createdAt));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgsLoaded, f7OrgIds]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -400,23 +441,57 @@ function TicketsPage() {
     [tickets, applicationOrgIds],
   );
 
+  const f7Items = useMemo(
+    () =>
+      f7Reports.map((r) => ({
+        type: "f7",
+        f7Id: r.id,
+        kind: STRUCTURAL_KINDS.F7,
+        org_id: r.org_id,
+        reportType: r.reportType,
+        reportReason: r.reportReason,
+        reportDescription: r.reportDescription,
+        reporterName: r.reporterName,
+        reporterSteamId: r.reporterSteamId,
+        reportedSteamId: r.reportedSteamId,
+        serverName: r.serverName,
+        created_at: r.createdAt,
+        status: "open",
+      })),
+    [f7Reports],
+  );
+
+  const allVisibleItems = useMemo(() => {
+    const merged = [...visibleTickets, ...f7Items];
+    merged.sort((a, b) => b.created_at - a.created_at);
+    return merged;
+  }, [visibleTickets, f7Items]);
+
   const totalNonClosed = useMemo(
-    () => visibleTickets.filter((t) => NON_CLOSED.has(t.status)).length,
-    [visibleTickets],
+    () => allVisibleItems.filter((t) => NON_CLOSED.has(t.status)).length,
+    [allVisibleItems],
   );
 
   // Tab + search narrowing, before the assignee and type filters — so the
   // "My tickets" and per-type counts stay live for the current view.
-  const baseTickets = useMemo(() => {
+  const baseItems = useMemo(() => {
     const statuses = TAB_STATUSES[tab];
     const q = search.trim().toLowerCase();
-    return visibleTickets.filter((t) => {
-      if (!statuses.has(t.status)) return false;
+    return allVisibleItems.filter((item) => {
+      if (!statuses.has(item.status)) return false;
       if (q) {
-        const name = (t.created_by_username ?? "").toLowerCase();
-        const steamId = t.created_by_steam_id ?? "";
+        if (item.type === "f7") {
+          return (
+            (item.reporterName ?? "").toLowerCase().includes(q) ||
+            (item.reportedSteamId ?? "").includes(q) ||
+            (item.reportType ?? "").toLowerCase().includes(q) ||
+            (item.serverName ?? "").toLowerCase().includes(q)
+          );
+        }
+        const name = (item.created_by_username ?? "").toLowerCase();
+        const steamId = item.created_by_steam_id ?? "";
         if (
-          !t.title.toLowerCase().includes(q) &&
+          !item.title.toLowerCase().includes(q) &&
           !name.includes(q) &&
           !steamId.includes(q)
         )
@@ -424,42 +499,48 @@ function TicketsPage() {
       }
       return true;
     });
-  }, [tab, search, visibleTickets]);
+  }, [tab, search, allVisibleItems]);
 
   const myTicketCount = useMemo(
     () =>
       sessionUser?.userId
-        ? baseTickets.filter((t) => t.assigned_to === sessionUser.userId).length
+        ? baseItems.filter(
+            (item) =>
+              item.type !== "f7" && item.assigned_to === sessionUser.userId,
+          ).length
         : 0,
-    [baseTickets, sessionUser],
+    [baseItems, sessionUser],
   );
 
-  const scopedTickets = useMemo(
+  const scopedItems = useMemo(
     () =>
       assignee === "mine"
-        ? baseTickets.filter((t) => t.assigned_to === sessionUser?.userId)
-        : baseTickets,
-    [assignee, baseTickets, sessionUser],
+        ? baseItems.filter(
+            (item) =>
+              item.type !== "f7" && item.assigned_to === sessionUser?.userId,
+          )
+        : baseItems,
+    [assignee, baseItems, sessionUser],
   );
 
   const typeCounts = useMemo(() => {
     const counts = {};
-    for (const t of scopedTickets)
-      counts[t.kind.key] = (counts[t.kind.key] ?? 0) + 1;
+    for (const item of scopedItems)
+      counts[item.kind.key] = (counts[item.kind.key] ?? 0) + 1;
     return counts;
-  }, [scopedTickets]);
+  }, [scopedItems]);
 
   // Filter chips are built from the kinds actually present: structural kinds in
   // a fixed order, then generic types alphabetically. No hardcoded taxonomy, so
   // any custom ticket type gets its own chip automatically.
   const typeFilters = useMemo(() => {
     const byKey = new Map();
-    for (const t of scopedTickets) {
-      if (!byKey.has(t.kind.key))
-        byKey.set(t.kind.key, {
-          key: t.kind.key,
-          label: t.kind.label,
-          dot: t.kind.dot,
+    for (const item of scopedItems) {
+      if (!byKey.has(item.kind.key))
+        byKey.set(item.kind.key, {
+          key: item.kind.key,
+          label: item.kind.label,
+          dot: item.kind.dot,
         });
     }
     const structural = STRUCTURAL_ORDER.filter((k) => byKey.has(k)).map((k) =>
@@ -468,20 +549,21 @@ function TicketsPage() {
     const generic = [...byKey.values()]
       .filter((f) => !STRUCTURAL_ORDER.includes(f.key))
       .sort((a, b) => a.label.localeCompare(b.label));
-    return [{ key: "ALL", label: "All", dot: null }, ...structural, ...generic];
-  }, [scopedTickets]);
+    return [...structural, ...generic];
+  }, [scopedItems]);
 
   const filtered = useMemo(() => {
-    if (typeFilter === "ALL") return scopedTickets;
-    return scopedTickets.filter((t) => t.kind.key === typeFilter);
-  }, [typeFilter, scopedTickets]);
+    if (selectedKinds.size === 0) return scopedItems;
+    return scopedItems.filter((item) => selectedKinds.has(item.kind.key));
+  }, [selectedKinds, scopedItems]);
 
-  // If the selected type chip no longer has any tickets (e.g. after switching
-  // tab/scope), fall back to "All" so the queue never looks mysteriously empty.
+  // Drop any selected kind that's no longer present in the current view.
   useEffect(() => {
-    if (typeFilter !== "ALL" && !typeFilters.some((f) => f.key === typeFilter))
-      setTypeFilter("ALL");
-  }, [typeFilters, typeFilter]);
+    if (selectedKinds.size === 0) return;
+    const available = new Set(typeFilters.map((f) => f.key));
+    const still = new Set([...selectedKinds].filter((k) => available.has(k)));
+    if (still.size !== selectedKinds.size) setSelectedKinds(still);
+  }, [typeFilters, selectedKinds]);
 
   const selectedTicket =
     tickets.find((t) => t.ticket_id === selectedId) ?? null;
@@ -795,18 +877,20 @@ function TicketsPage() {
           </div>
           <div className="px-2 py-1.5 border-b border-border flex gap-1 flex-wrap shrink-0">
             {typeFilters.map((f) => {
-              const isAll = f.key === "ALL";
-              const count = isAll
-                ? scopedTickets.length
-                : (typeCounts[f.key] ?? 0);
-              const active = typeFilter === f.key;
-              // Hide empty type chips to keep the row scannable, but never
-              // hide "All" or the chip that is currently selected.
-              if (count === 0 && !active && !isAll) return null;
+              const count = typeCounts[f.key] ?? 0;
+              const active = selectedKinds.has(f.key);
+              if (count === 0 && !active) return null;
               return (
                 <button
                   key={f.key}
-                  onClick={() => setTypeFilter(f.key)}
+                  onClick={() =>
+                    setSelectedKinds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(f.key)) next.delete(f.key);
+                      else next.add(f.key);
+                      return next;
+                    })
+                  }
                   className={`flex items-center gap-1 text-[0.625rem] font-mono px-1.5 py-0.5 rounded transition-colors ${
                     active
                       ? "bg-brand text-brand-foreground"
@@ -842,15 +926,23 @@ function TicketsPage() {
                   : "No tickets"}
               </div>
             ) : (
-              filtered.map((ticket) => (
-                <TicketListItem
-                  key={ticket.ticket_id}
-                  ticket={ticket}
-                  orgs={orgs}
-                  selected={ticket.ticket_id === selectedId}
-                  onClick={() => setSelectedId(ticket.ticket_id)}
-                />
-              ))
+              filtered.map((item) =>
+                item.type === "f7" ? (
+                  <F7ListItem
+                    key={`f7-${item.f7Id}`}
+                    item={item}
+                    orgs={orgs}
+                  />
+                ) : (
+                  <TicketListItem
+                    key={item.ticket_id}
+                    ticket={item}
+                    orgs={orgs}
+                    selected={item.ticket_id === selectedId}
+                    onClick={() => setSelectedId(item.ticket_id)}
+                  />
+                ),
+              )
             )}
           </div>
         </aside>
@@ -933,6 +1025,41 @@ function TicketsPage() {
 function getOrgPrefix(orgId, orgs) {
   const org = orgs.find((o) => o.id === orgId);
   return org ? org.short : (orgId ?? "??").slice(0, 2).toUpperCase();
+}
+
+function F7ListItem({ item, orgs }) {
+  const prefix = getOrgPrefix(item.org_id, orgs);
+  const kind = item.kind;
+  return (
+    <Link
+      to="/player-lookup"
+      search={{ steam: item.reportedSteamId }}
+      className="w-full text-left px-2 py-1.5 border-b border-border transition-colors flex items-start gap-1.5 min-w-0 hover:bg-surface/60"
+    >
+      <span className="text-[0.625rem] font-mono font-bold text-muted-foreground shrink-0 mt-0.5 w-4 text-center">
+        {prefix}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1 min-w-0">
+          <span className={`text-[0.625rem] font-mono font-bold shrink-0 ${kind.color}`}>
+            {kind.label}
+          </span>
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">·</span>
+          <span className="text-[0.625rem] font-medium truncate min-w-0" title={item.reportReason}>
+            {item.reportType}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 mt-0.5 min-w-0">
+          <span className="text-[0.5625rem] font-mono text-muted-foreground truncate">
+            by {item.reporterName}
+          </span>
+          <span className="text-[0.625rem] font-mono text-muted-foreground ml-auto shrink-0">
+            {formatRelativeTime(item.created_at)}
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
 }
 
 function TicketListItem({ ticket, orgs, selected, onClick }) {

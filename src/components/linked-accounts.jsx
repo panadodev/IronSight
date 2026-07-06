@@ -1,6 +1,5 @@
 import { Hint } from "@/components/hint";
 import { PlayerLinks } from "@/components/player-links";
-import { ServerOverlapSection } from "@/components/server-overlap-section";
 import {
   Dialog,
   DialogContent,
@@ -406,6 +405,7 @@ function LinkedAccountIntelSection({ subjectId, relatedAccounts }) {
 function LinkedAccountsSection({
   subjectName,
   relatedAccounts,
+  subjectIpHistory = [],
   sessionRelated = [],
   friendSteamIds = new Set(),
 }) {
@@ -768,6 +768,7 @@ function LinkedAccountsSection({
         onClose={() => setOpenId(null)}
         subjectName={subjectName}
         account={openAccount}
+        subjectIpHistory={subjectIpHistory}
       />
 
       {/* Playing Partners — cross-server co-players from BM sessions */}
@@ -869,8 +870,15 @@ function PlayingPartnersSection({ sessionRelated, friendSteamIds }) {
   );
 }
 
-function ComparisonDialog({ open, onClose, subjectName, account }) {
+function ComparisonDialog({ open, onClose, subjectName, account, subjectIpHistory = [] }) {
   const [copied, setCopied] = useState(false);
+  const historyByHash = useMemo(() => {
+    const map = new Map();
+    for (const entry of subjectIpHistory) {
+      if (entry?.ipHash) map.set(entry.ipHash, entry);
+    }
+    return map;
+  }, [subjectIpHistory]);
   if (!account) return null;
 
   const name = displayNameOf(account);
@@ -1214,13 +1222,97 @@ function ComparisonDialog({ open, onClose, subjectName, account }) {
             </Block>
           )}
 
-          {/* Previous connection points with EAC/BM ban checks */}
-          <ServerOverlapSection
-            serverOverlap={account.serverOverlap}
-            relatedBmId={account.relatedBmId}
-            subjectName={subjectName}
-            relatedName={name}
-          />
+          {/* Previous connection points — shared IPs with subject's timestamps */}
+          {(account.sharedIps ?? []).length > 0 && (
+            <Block
+              icon={<Wifi className="size-3" />}
+              title={`Previous Connection Points (${account.sharedIps.length})`}
+            >
+              <ul className="divide-y divide-border/40 ring-1 ring-border/60 rounded">
+                {account.sharedIps.map((ip) => {
+                  const subjectEntry = historyByHash.get(ip.ipHash);
+                  const events = (subjectEntry?.connectionHistory ?? [])
+                    .filter(
+                      (e) =>
+                        Number.isFinite(Number(e?.seenAt)) &&
+                        Number(e.seenAt) > 0,
+                    )
+                    .map((e) => ({
+                      seenAt: Number(e.seenAt),
+                      serverName:
+                        typeof e.serverName === "string" ? e.serverName : null,
+                    }))
+                    .sort((a, b) => b.seenAt - a.seenAt)
+                    .slice(0, 5);
+                  const firstSeen = subjectEntry?.firstSeen
+                    ? Number(subjectEntry.firstSeen)
+                    : null;
+                  const lastSeen = subjectEntry?.lastSeen
+                    ? Number(subjectEntry.lastSeen)
+                    : null;
+                  return (
+                    <li
+                      key={ip.ipHash ?? ip.ipHashShort}
+                      className="px-2 py-2 space-y-1.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <IpChip
+                          ipHashShort={ip.ipHashShort}
+                          connType={ip.connType}
+                        />
+                        {(ip.isp || ip.country) && (
+                          <span className="text-[0.625rem] font-mono text-muted-foreground truncate">
+                            {[ip.isp, ip.country].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
+                      </div>
+                      {events.length > 0 ? (
+                        <div className="space-y-0.5 pl-0.5">
+                          {events.map((ev, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center gap-2 text-[0.625rem] font-mono text-muted-foreground"
+                            >
+                              <span className="text-muted-foreground/40">·</span>
+                              <span className="tabular-nums">
+                                {new Date(ev.seenAt * 1000).toLocaleString()}
+                              </span>
+                              {ev.serverName && (
+                                <span
+                                  className="truncate opacity-60"
+                                  title={ev.serverName}
+                                >
+                                  {ev.serverName}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : firstSeen || lastSeen ? (
+                        <div className="flex items-center gap-2 text-[0.625rem] font-mono text-muted-foreground pl-0.5">
+                          {firstSeen && (
+                            <span>
+                              first{" "}
+                              {new Date(firstSeen * 1000).toLocaleDateString()}
+                            </span>
+                          )}
+                          {lastSeen && lastSeen !== firstSeen && (
+                            <>
+                              <span>·</span>
+                              <span>
+                                last{" "}
+                                {new Date(lastSeen * 1000).toLocaleDateString()}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Block>
+          )}
 
           <div className="flex justify-end pt-2">
             {account.relatedSteamId ? (

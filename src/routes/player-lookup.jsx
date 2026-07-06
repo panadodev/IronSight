@@ -2165,6 +2165,7 @@ function PlayerLookupPage() {
                           playerData.displayName ?? playerData.steamId
                         }
                         relatedAccounts={playerData.relatedAccounts}
+                        subjectIpHistory={visibleIpHistory}
                         sessionRelated={
                           canViewSessionHistory
                             ? (playerData.sessionRelated ?? [])
@@ -3474,26 +3475,6 @@ function ConnectionPointsSection({
                         </dd>
                       </div>
                     )}
-                    {entry.riskScore != null && (
-                      <div>
-                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          Risk Score
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {entry.riskScore}%
-                        </dd>
-                      </div>
-                    )}
-                    {entry.riskConfidence && (
-                      <div>
-                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          Confidence
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {entry.riskConfidence}
-                        </dd>
-                      </div>
-                    )}
                     {entry.estimate && (
                       <div>
                         <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
@@ -3531,16 +3512,6 @@ function ConnectionPointsSection({
                         </dt>
                         <dd className="font-mono text-foreground">
                           {delistAt}
-                        </dd>
-                      </div>
-                    )}
-                    {entry.lastUpdate && (
-                      <div>
-                        <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
-                          Last Update
-                        </dt>
-                        <dd className="font-mono text-foreground">
-                          {entry.lastUpdate}
                         </dd>
                       </div>
                     )}
@@ -3728,20 +3699,6 @@ function ConnectionPointsSection({
                         </dd>
                       </div>
                     )}
-                    <div>
-                      <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
-                        Flagged
-                      </dt>
-                      <dd
-                        className={`font-mono ${entry.isProxy || entry.isVpn ? "text-danger" : "text-success"}`}
-                      >
-                        {entry.isVpn
-                          ? "VPN"
-                          : entry.isProxy
-                            ? "Proxy"
-                            : "Clean"}
-                      </dd>
-                    </div>
                     <div>
                       <dt className="text-[0.625rem] text-muted-foreground uppercase tracking-wider mb-0.5">
                         Shared
