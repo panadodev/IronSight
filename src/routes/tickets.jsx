@@ -606,9 +606,12 @@ function TicketsPage() {
     return scopedItems.filter((item) => selectedKinds.has(item.kind.key));
   }, [selectedKinds, scopedItems]);
 
-  // Drop any selected kind that's no longer present in the current view.
+  // Drop any selected kind that's no longer present in the current view. Skip
+  // this while no filter types exist yet (e.g. right after navigating back,
+  // before tickets have loaded) — otherwise it would prune the just-restored
+  // selection against an empty set and persist the empty result over it.
   useEffect(() => {
-    if (selectedKinds.size === 0) return;
+    if (selectedKinds.size === 0 || typeFilters.length === 0) return;
     const available = new Set(typeFilters.map((f) => f.key));
     const still = new Set([...selectedKinds].filter((k) => available.has(k)));
     if (still.size !== selectedKinds.size) setSelectedKinds(still);
