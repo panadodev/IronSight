@@ -2598,6 +2598,74 @@ async function handleTodoBootstrap(request) {
   });
 }
 
+// ── Per-user ticket queue filter persistence (Redis) ──────────────────────────
+// The ticket queue's filter selection (tab / assignee / type chips / last-open
+// ticket) is a small per-user UI preference. It lives server-side in Redis so it
+// survives navigation and reloads reliably — the previous localStorage approach
+// was racy on remount and intermittently cleared the selection.
+const TICKET_FILTERS_TTL_SECONDS = 60 * 60 * 24 * 180; // 180d, refreshed on save
+const TICKET_FILTER_TABS = new Set(["active", "waiting", "closed"]);
+const TICKET_FILTER_ASSIGNEES = new Set(["all", "mine"]);
+
+function ticketFiltersKey(userId) {
+  return `ticket-filters:${userId}`;
+}
+
+async function handleGetTicketFilters(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+  let filters = null;
+  try {
+    const raw = await redis.get(ticketFiltersKey(session.userId));
+    if (raw) filters = JSON.parse(raw);
+  } catch {
+    filters = null;
+  }
+  return json({ filters });
+}
+
+async function handleSaveTicketFilters(request) {
+  const { session, error } = await requireSession(request);
+  if (error) return error;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  // Whitelist + clamp every field; never trust the client blob verbatim.
+  const filters = {};
+  if (TICKET_FILTER_TABS.has(body?.tab)) filters.tab = body.tab;
+  if (TICKET_FILTER_ASSIGNEES.has(body?.assignee))
+    filters.assignee = body.assignee;
+  if (Array.isArray(body?.selectedKinds)) {
+    filters.selectedKinds = body.selectedKinds
+      .filter((k) => typeof k === "string")
+      .slice(0, 50)
+      .map((k) => k.slice(0, 100));
+  }
+  if (typeof body?.selectedId === "number" && Number.isFinite(body.selectedId))
+    filters.selectedId = body.selectedId;
+  else if (typeof body?.selectedId === "string")
+    filters.selectedId = body.selectedId.slice(0, 100);
+  else filters.selectedId = null;
+
+  try {
+    await redis.set(
+      ticketFiltersKey(session.userId),
+      JSON.stringify(filters),
+      "EX",
+      TICKET_FILTERS_TTL_SECONDS,
+    );
+  } catch {
+    return json({ error: "Failed to save filters" }, 500);
+  }
+
+  return json({ ok: true, filters });
+}
+
 async function handleCreateTodo(request) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -13703,8 +13771,40 @@ async function handleSearchOrgPlayers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
 
-  if (!orgHasPermission(session, orgId, "players_view"))
-    return json({ error: "Forbidden: players_view permission required" }, 403);
+  // Staff with players_view get unrestricted search. Public ticket submitters
+  // (Steam-linked, no org permission) reach this from the "report a player"
+  // step of the public portal — allow them, but only for orgs that actually
+  // expose a player-report ticket type, and only when rate-limited. This keeps
+  // the endpoint from becoming a cross-org player-enumeration oracle for any
+  // authenticated user (the reason players_view was added here on 2026-07-07).
+  const isStaff = orgHasPermission(session, orgId, "players_view");
+  if (!isStaff) {
+    if (!session.steamId)
+      return json({ error: "Forbidden: players_view permission required" }, 403);
+
+    const acceptsPublicReports = await pool.query(
+      `SELECT 1 FROM ticket_types
+       WHERE org_id = $1 AND is_enabled = true
+         AND ticket_type_category IN ('player_single', 'player_multi')
+       LIMIT 1`,
+      [orgId],
+    );
+    if (!acceptsPublicReports.rows[0])
+      return json({ error: "Forbidden: players_view permission required" }, 403);
+
+    const rlUser = await checkRateLimit(
+      `rl:public-player-search:${session.userId}`,
+      PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
+      60,
+    );
+    if (rlUser) return rlUser;
+    const rlIp = await checkRateLimit(
+      `rl:public-player-search:${getClientIp(request)}`,
+      PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
+      60,
+    );
+    if (rlIp) return rlIp;
+  }
 
   const url = new URL(request.url);
   const q = String(url.searchParams.get("q") ?? "").trim();
@@ -14359,6 +14459,13 @@ async function _handleApiRequest(request) {
 
     if (pathname === "/api/todo/bootstrap" && request.method === "GET") {
       return handleTodoBootstrap(request);
+    }
+
+    if (pathname === "/api/ticket-filters" && request.method === "GET") {
+      return handleGetTicketFilters(request);
+    }
+    if (pathname === "/api/ticket-filters" && request.method === "PUT") {
+      return handleSaveTicketFilters(request);
     }
 
     if (pathname === "/api/todo" && request.method === "POST") {

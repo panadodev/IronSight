@@ -286,58 +286,103 @@ function TicketsPage() {
   // null = blacklist manager closed; otherwise the prefill for the add form.
   const [blacklistPrefill, setBlacklistPrefill] = useState(null);
 
-  const restoredFromStorage = useRef(false);
-  // `hydrated` is state (not the ref) so it commits in the SAME render as the
-  // restored values. The persist effect below gates on it, so there is never a
-  // render where persisting is enabled but the values are still the empty
-  // defaults — which would otherwise clobber the saved settings on remount.
+  const restoreStarted = useRef(false);
+  // `hydrated` gates persistence: we only start saving once the server-side
+  // filters have been read back in, so the empty defaults can never overwrite
+  // the saved selection on (re)mount.
   const [hydrated, setHydrated] = useState(false);
-  const ticketStorageKey = sessionUser?.userId
-    ? `iron_tickets_v1_${sessionUser.userId}`
-    : null;
-
-  // Restore the last-open ticket and filter settings (tab, assignee, type
-  // chips) from localStorage once the userId is known. Defined before the write
-  // effect so React runs it first — otherwise the initial empty state would be
-  // written back and clobber the saved values.
+  const hydratedRef = useRef(false);
   useEffect(() => {
-    if (!ticketStorageKey || restoredFromStorage.current) return;
-    restoredFromStorage.current = true;
-    try {
-      const stored = JSON.parse(localStorage.getItem(ticketStorageKey) ?? "{}");
-      if (stored.selectedId != null) setSelectedId(stored.selectedId);
-      if (
-        stored.tab &&
-        Object.prototype.hasOwnProperty.call(TAB_STATUSES, stored.tab)
-      )
-        setTab(stored.tab);
-      if (stored.assignee === "all" || stored.assignee === "mine")
-        setAssignee(stored.assignee);
-      if (
-        Array.isArray(stored.selectedKinds) &&
-        stored.selectedKinds.length > 0
-      )
-        setSelectedKinds(new Set(stored.selectedKinds));
-    } catch {}
-    setHydrated(true);
-  }, [ticketStorageKey]);
+    hydratedRef.current = hydrated;
+  }, [hydrated]);
+  const userId = sessionUser?.userId ?? null;
 
-  // Persist the last-open ticket + filter settings. Gated on `hydrated` so it
-  // can't fire before we've read the saved state back in (see note above).
+  // Restore the last-open ticket + filter settings (tab, assignee, type chips)
+  // from Redis (per-user, server-side) once the userId is known. Stored in
+  // Redis rather than localStorage because the localStorage restore/persist pair
+  // raced on remount and intermittently cleared the selection.
   useEffect(() => {
-    if (!ticketStorageKey || !hydrated) return;
-    try {
-      localStorage.setItem(
-        ticketStorageKey,
-        JSON.stringify({
-          selectedId,
-          tab,
-          assignee,
-          selectedKinds: [...selectedKinds],
-        }),
-      );
-    } catch {}
-  }, [ticketStorageKey, hydrated, selectedId, tab, assignee, selectedKinds]);
+    if (!userId || restoreStarted.current) return;
+    restoreStarted.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/ticket-filters", {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const { filters } = await res.json();
+          if (!cancelled && filters) {
+            if (filters.selectedId != null) setSelectedId(filters.selectedId);
+            if (
+              filters.tab &&
+              Object.prototype.hasOwnProperty.call(TAB_STATUSES, filters.tab)
+            )
+              setTab(filters.tab);
+            if (filters.assignee === "all" || filters.assignee === "mine")
+              setAssignee(filters.assignee);
+            if (
+              Array.isArray(filters.selectedKinds) &&
+              filters.selectedKinds.length > 0
+            )
+              setSelectedKinds(new Set(filters.selectedKinds));
+          }
+        }
+      } catch {}
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Keep the latest payload in a ref so the unmount flush (below) can send the
+  // most recent selection even if a change happened inside the debounce window.
+  const latestFiltersRef = useRef(null);
+  latestFiltersRef.current = {
+    selectedId,
+    tab,
+    assignee,
+    selectedKinds: [...selectedKinds],
+  };
+
+  const saveTicketFilters = useCallback((payload, keepalive = false) => {
+    fetch("/api/ticket-filters", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive,
+    }).catch(() => {});
+  }, []);
+
+  // Persist to Redis on change (debounced to coalesce rapid clicks). Gated on
+  // `hydrated` so it can't fire before we've read the saved state back in.
+  useEffect(() => {
+    if (!hydrated || !userId) return;
+    const t = setTimeout(() => {
+      saveTicketFilters(latestFiltersRef.current);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [
+    hydrated,
+    userId,
+    selectedId,
+    tab,
+    assignee,
+    selectedKinds,
+    saveTicketFilters,
+  ]);
+
+  // Flush the latest selection on unmount (e.g. navigating away before the
+  // debounce fires). keepalive lets the request complete during teardown.
+  useEffect(() => {
+    return () => {
+      if (hydratedRef.current && latestFiltersRef.current) {
+        saveTicketFilters(latestFiltersRef.current, true);
+      }
+    };
+  }, [saveTicketFilters]);
 
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;
@@ -986,11 +1031,7 @@ function TicketsPage() {
             ) : (
               filtered.map((item) =>
                 item.type === "f7" ? (
-                  <F7ListItem
-                    key={`f7-${item.f7Id}`}
-                    item={item}
-                    orgs={orgs}
-                  />
+                  <F7ListItem key={`f7-${item.f7Id}`} item={item} orgs={orgs} />
                 ) : (
                   <TicketListItem
                     key={item.ticket_id}
@@ -1099,11 +1140,18 @@ function F7ListItem({ item, orgs }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 min-w-0">
-          <span className={`text-[0.625rem] font-mono font-bold shrink-0 ${kind.color}`}>
+          <span
+            className={`text-[0.625rem] font-mono font-bold shrink-0 ${kind.color}`}
+          >
             {kind.label}
           </span>
-          <span className="text-[0.625rem] text-muted-foreground shrink-0">·</span>
-          <span className="text-[0.625rem] font-medium truncate min-w-0" title={item.reportReason}>
+          <span className="text-[0.625rem] text-muted-foreground shrink-0">
+            ·
+          </span>
+          <span
+            className="text-[0.625rem] font-medium truncate min-w-0"
+            title={item.reportReason}
+          >
             {item.reportType}
           </span>
         </div>
@@ -2120,9 +2168,18 @@ function TicketDetail({
       {typingUsers?.size > 0 && (
         <div className="flex items-center gap-1.5 px-4 py-1.5 shrink-0 text-[0.625rem] font-mono text-muted-foreground border-b border-border/40">
           <span className="flex gap-0.5 items-center">
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "0.8s" }} />
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce" style={{ animationDelay: "150ms", animationDuration: "0.8s" }} />
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce" style={{ animationDelay: "300ms", animationDuration: "0.8s" }} />
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce"
+              style={{ animationDelay: "0ms", animationDuration: "0.8s" }}
+            />
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce"
+              style={{ animationDelay: "150ms", animationDuration: "0.8s" }}
+            />
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce"
+              style={{ animationDelay: "300ms", animationDuration: "0.8s" }}
+            />
           </span>
           {formatTypingText([...typingUsers.values()])}
         </div>
