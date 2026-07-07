@@ -287,6 +287,11 @@ function TicketsPage() {
   const [blacklistPrefill, setBlacklistPrefill] = useState(null);
 
   const restoredFromStorage = useRef(false);
+  // `hydrated` is state (not the ref) so it commits in the SAME render as the
+  // restored values. The persist effect below gates on it, so there is never a
+  // render where persisting is enabled but the values are still the empty
+  // defaults — which would otherwise clobber the saved settings on remount.
+  const [hydrated, setHydrated] = useState(false);
   const ticketStorageKey = sessionUser?.userId
     ? `iron_tickets_v1_${sessionUser.userId}`
     : null;
@@ -314,12 +319,13 @@ function TicketsPage() {
       )
         setSelectedKinds(new Set(stored.selectedKinds));
     } catch {}
+    setHydrated(true);
   }, [ticketStorageKey]);
 
-  // Persist the last-open ticket + filter settings. Gated on the restore having
-  // run so it can't fire before we've had a chance to read the saved state.
+  // Persist the last-open ticket + filter settings. Gated on `hydrated` so it
+  // can't fire before we've read the saved state back in (see note above).
   useEffect(() => {
-    if (!ticketStorageKey || !restoredFromStorage.current) return;
+    if (!ticketStorageKey || !hydrated) return;
     try {
       localStorage.setItem(
         ticketStorageKey,
@@ -331,7 +337,7 @@ function TicketsPage() {
         }),
       );
     } catch {}
-  }, [ticketStorageKey, selectedId, tab, assignee, selectedKinds]);
+  }, [ticketStorageKey, hydrated, selectedId, tab, assignee, selectedKinds]);
 
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;
