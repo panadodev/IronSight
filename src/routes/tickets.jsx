@@ -291,42 +291,47 @@ function TicketsPage() {
     ? `iron_tickets_v1_${sessionUser.userId}`
     : null;
 
-  // Restore selectedId and selectedKinds from localStorage when userId is known.
-  // Must be defined before the write effects so React runs it first.
+  // Restore the last-open ticket and filter settings (tab, assignee, type
+  // chips) from localStorage once the userId is known. Defined before the write
+  // effect so React runs it first — otherwise the initial empty state would be
+  // written back and clobber the saved values.
   useEffect(() => {
     if (!ticketStorageKey || restoredFromStorage.current) return;
     restoredFromStorage.current = true;
     try {
-      const stored = JSON.parse(
-        localStorage.getItem(ticketStorageKey) ?? "{}",
-      );
+      const stored = JSON.parse(localStorage.getItem(ticketStorageKey) ?? "{}");
       if (stored.selectedId != null) setSelectedId(stored.selectedId);
-      if (Array.isArray(stored.selectedKinds) && stored.selectedKinds.length > 0)
+      if (
+        stored.tab &&
+        Object.prototype.hasOwnProperty.call(TAB_STATUSES, stored.tab)
+      )
+        setTab(stored.tab);
+      if (stored.assignee === "all" || stored.assignee === "mine")
+        setAssignee(stored.assignee);
+      if (
+        Array.isArray(stored.selectedKinds) &&
+        stored.selectedKinds.length > 0
+      )
         setSelectedKinds(new Set(stored.selectedKinds));
     } catch {}
   }, [ticketStorageKey]);
 
+  // Persist the last-open ticket + filter settings. Gated on the restore having
+  // run so it can't fire before we've had a chance to read the saved state.
   useEffect(() => {
-    if (!ticketStorageKey) return;
+    if (!ticketStorageKey || !restoredFromStorage.current) return;
     try {
-      const current = JSON.parse(localStorage.getItem(ticketStorageKey) ?? "{}");
       localStorage.setItem(
         ticketStorageKey,
-        JSON.stringify({ ...current, selectedId }),
+        JSON.stringify({
+          selectedId,
+          tab,
+          assignee,
+          selectedKinds: [...selectedKinds],
+        }),
       );
     } catch {}
-  }, [selectedId, ticketStorageKey]);
-
-  useEffect(() => {
-    if (!ticketStorageKey) return;
-    try {
-      const current = JSON.parse(localStorage.getItem(ticketStorageKey) ?? "{}");
-      localStorage.setItem(
-        ticketStorageKey,
-        JSON.stringify({ ...current, selectedKinds: [...selectedKinds] }),
-      );
-    } catch {}
-  }, [selectedKinds, ticketStorageKey]);
+  }, [ticketStorageKey, selectedId, tab, assignee, selectedKinds]);
 
   useEffect(() => {
     if (!orgsLoaded || !ticketOrgIds.length) return;

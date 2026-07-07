@@ -157,6 +157,12 @@ const Route = createFileRoute("/player-lookup")({
         /^[a-fA-F0-9]{6,64}$/.test(s.ipHash))
         ? normalizePlayerLookupIpQuery(s.ipHash)
         : void 0,
+    // Free-text name / Discord-ID query, used to deep-link a name or Discord
+    // search into this page (e.g. from the Player List search bar).
+    q:
+      typeof s.q === "string" && s.q.trim().length >= 2
+        ? s.q.trim().slice(0, 100)
+        : void 0,
   }),
   component: PlayerLookupPage,
 });
@@ -359,11 +365,11 @@ function PlayerLookupPage() {
     if (nextHash !== ipHashQuery) {
       setIpHashQuery(nextHash);
     }
-    const nextInput = nextSteam ?? nextHash ?? "";
+    const nextInput = nextSteam ?? nextHash ?? search.q ?? "";
     if (nextInput !== input) {
       setInput(nextInput);
     }
-  }, [search.steam, search.ipHash]);
+  }, [search.steam, search.ipHash, search.q]);
 
   // Player lookup needs players_view; issuing bans needs the ban-create perm
   // (legacy bans_manage still implies it). Prefer a selected org the user has
@@ -705,6 +711,23 @@ function PlayerLookupPage() {
       setDiscordSearchLoading(false);
     }
   }, [steamId, ipHashQuery]);
+
+  // Deep-linked free-text search (`?q=`): run the same name / Discord-ID search
+  // the in-page form would, so navigating here from the Player List search bar
+  // lands on results. Steam/IP links use their own params and take precedence.
+  useEffect(() => {
+    const q = search.q;
+    if (!q || !orgsLoaded) return;
+    if (search.steam || search.ipHash) return;
+    if (canLookupStaffDiscord && q.startsWith("@")) {
+      searchStaffByDiscord(q.slice(1));
+    } else if (canLookupStaffDiscord && /^\d{18,20}$/.test(q)) {
+      searchStaffByDiscord(q);
+    } else {
+      searchPlayersByName(q);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.q, orgsLoaded, canLookupStaffDiscord]);
 
   useEffect(() => {
     if (!orgsLoaded) return;

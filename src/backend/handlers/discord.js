@@ -100,7 +100,10 @@ export async function discordFetch(path, opts = {}) {
   });
 }
 
-export async function sendDiscordDm(discordUserId, content) {
+// Discord message flag: suppress the push/ping notification for this message.
+const DISCORD_SUPPRESS_NOTIFICATIONS = 1 << 12;
+
+export async function sendDiscordDm(discordUserId, content, options = {}) {
   if (!env.discordBotToken) return;
   try {
     const dmRes = await discordFetch("/users/@me/channels", {
@@ -109,9 +112,11 @@ export async function sendDiscordDm(discordUserId, content) {
     });
     if (!dmRes.ok) return;
     const { id: channelId } = await dmRes.json();
+    const payload = { content };
+    if (options.silent) payload.flags = DISCORD_SUPPRESS_NOTIFICATIONS;
     await discordFetch(`/channels/${channelId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(payload),
     });
   } catch {
     // DMs can fail silently (user has DMs disabled, etc.)

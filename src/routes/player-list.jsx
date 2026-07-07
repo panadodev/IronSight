@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/popover";
 import { useAuth } from "@/lib/auth-context";
 import { usePersistentState } from "@/lib/persistent-prefs";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
@@ -19,6 +19,7 @@ import {
   Flag,
   KeyRound,
   RefreshCw,
+  Search,
   ShieldAlert,
   Trash2,
 } from "lucide-react";
@@ -52,6 +53,18 @@ function formatSus(s) {
   return n.toFixed(2).replace(/\.?0+$/, "");
 }
 
+const IP_ADDRESS_RE = /^(\d{1,3}\.){3}\d{1,3}$|^(?=.*:)[\da-fA-F:]+$/;
+
+// Mirror the Player Lookup page's IP / IP-hash normalization so the list search
+// bar can route those queries to /player-lookup?ipHash=.
+function normalizeLookupIpQuery(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (IP_ADDRESS_RE.test(raw)) return raw;
+  if (!/^[a-fA-F0-9]{6,64}$/.test(raw)) return "";
+  return raw.toUpperCase();
+}
+
 function steamIdAvatarColor(steamId) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < steamId.length; i++) {
@@ -63,6 +76,7 @@ function steamIdAvatarColor(steamId) {
 
 function PlayerListPage() {
   const { orgs, selectedOrgIds, hasOrgPermission, sessionUser } = useAuth();
+  const navigate = useNavigate();
   const canAccess = selectedOrgIds.some(
     (id) =>
       hasOrgPermission(id, "player_list") ||
@@ -98,6 +112,8 @@ function PlayerListPage() {
   const [copiedId, setCopiedId] = useState(null);
   const [cacheClearBusy, setCacheClearBusy] = useState(false);
   const [keyResetBusy, setKeyResetBusy] = useState(false);
+  const [bmResolving, setBmResolving] = useState(false);
+  const [lookupError, setLookupError] = useState("");
 
   const [recentReports, setRecentReports] = useState([]);
   const [recentReportsLoading, setRecentReportsLoading] = useState(false);
@@ -261,6 +277,68 @@ function PlayerListPage() {
     setServerIds(
       current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
     );
+  };
+
+  // Full player lookup from the list search bar. Classifies the query the same
+  // way the Player Lookup page does and routes there (Steam ID / IP / IP-hash /
+  // BattleMetrics ID or URL / player name). Typing still filters the table live;
+  // this only fires on submit (Enter or the Look up button).
+  const lookupOrgId =
+    orgs.find((o) => hasOrgPermission(o.id, "players_view"))?.id ?? null;
+
+  const submitLookup = (e) => {
+    e.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setLookupError("");
+
+    if (/^\d{17}$/.test(trimmed)) {
+      navigate({ to: "/player-lookup", search: { steam: trimmed } });
+      return;
+    }
+
+    const ip = normalizeLookupIpQuery(trimmed);
+    if (ip) {
+      navigate({ to: "/player-lookup", search: { ipHash: ip } });
+      return;
+    }
+
+    // BattleMetrics numeric ID or players URL → resolve to a Steam ID first.
+    const bmUrlMatch = trimmed.match(/battlemetrics\.com\/players\/([0-9]+)/i);
+    const bmId = bmUrlMatch
+      ? bmUrlMatch[1]
+      : /^[0-9]{1,15}$/.test(trimmed)
+        ? trimmed
+        : null;
+    if (bmId) {
+      setBmResolving(true);
+      const qp = lookupOrgId
+        ? `?orgId=${encodeURIComponent(lookupOrgId)}`
+        : "";
+      fetch(`/api/players/by-bm/${encodeURIComponent(bmId)}${qp}`, {
+        credentials: "include",
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.steamId) {
+            navigate({ to: "/player-lookup", search: { steam: data.steamId } });
+          } else {
+            setLookupError(
+              data.error ?? "Could not resolve BattleMetrics ID to a Steam ID.",
+            );
+          }
+        })
+        .catch(() =>
+          setLookupError("Network error resolving BattleMetrics ID."),
+        )
+        .finally(() => setBmResolving(false));
+      return;
+    }
+
+    // Otherwise treat it as a name / Discord-ID search on the lookup page.
+    if (trimmed.length >= 2) {
+      navigate({ to: "/player-lookup", search: { q: trimmed } });
+    }
   };
 
   const copySteamId = async (id) => {
@@ -452,13 +530,28 @@ function PlayerListPage() {
 
               {/* Filters */}
               <div className="flex items-center gap-2 flex-wrap">
-                <Input
-                  placeholder="Search name or Steam ID…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="h-9 max-w-xs"
-                />
+                <form
+                  onSubmit={submitLookup}
+                  className="flex items-center gap-2"
+                >
+                  <Input
+                    placeholder="Filter list — or enter Steam / BM / IP / name…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="h-9 w-72 max-w-full"
+                  />
+                  <button
+                    type="submit"
+                    disabled={bmResolving || !query.trim()}
+                    className="flex items-center gap-1.5 px-2.5 h-9 rounded ring-1 ring-border bg-surface/40 hover:bg-surface text-xs disabled:opacity-50 transition-colors"
+                    title="Look up any player by Steam ID, BattleMetrics ID/URL, IP, IP hash, or name"
+                  >
+                    <Search className="size-3" />
+                    {bmResolving ? "Resolving…" : "Look up"}
+                  </button>
+                </form>
                 <button
+                  type="button"
                   onClick={() => setOnlineOnly((v) => !v)}
                   aria-pressed={onlineOnly}
                   className={
@@ -502,6 +595,10 @@ function PlayerListPage() {
                   change
                 </div>
               </div>
+
+              {lookupError && (
+                <p className="text-[0.6875rem] text-danger">{lookupError}</p>
+              )}
 
               {/* Loading skeleton */}
               {loading && players.length === 0 && (

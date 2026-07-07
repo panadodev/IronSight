@@ -118,7 +118,6 @@ function SiteNav() {
   const canToxicity = anyOrgHas("toxicity_manage");
   const canBanConfigs = anyOrgHas("ban_configs_manage");
   const canTicketsManage = anyOrgHas("tickets_manage");
-  const canPlayersView = anyOrgHas("players_view");
   const canPlayerList = anyOrgHas("player_list") || anyOrgHas("players_view");
   const canBansManage =
     anyOrgHas("bans_manage") ||
@@ -522,8 +521,7 @@ function SiteNav() {
           label: "Tickets",
           show: canTicketsView,
         },
-        { to: "/player-lookup", label: "Player Lookup", show: canPlayersView },
-        { to: "/player-list", label: "Player List", show: canPlayerList },
+        { to: "/player-list", label: "Players", show: canPlayerList },
         { to: "/chat", label: "Chat", show: canChat },
         { to: "/bans-mutes", label: "Bans / Mutes", show: canBansManage },
         {

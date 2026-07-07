@@ -11477,6 +11477,34 @@ async function handleGetPlayerOffenses(request, steamId) {
   });
 }
 
+// When a player is banned, DM anyone who F7-reported them in-game (within this
+// org's servers) and has a Discord identity linked to the panel — either via
+// the public ticket portal (public_identity_links) or a staff account (users
+// joined through user_steam_accounts). Best-effort, silent notifications.
+async function notifyReportersOfBan(orgId, reportedSteamId) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT COALESCE(pil.discord_id, u.discord_id) AS discord_id
+       FROM player_reports pr
+       JOIN servers s ON s.server_id = pr.server_id
+       LEFT JOIN public_identity_links pil ON pil.steam_id = pr.reporter_steam_id
+       LEFT JOIN user_steam_accounts usa ON usa.steam_id = pr.reporter_steam_id
+       LEFT JOIN users u ON u.user_id = usa.user_id
+      WHERE s.owner_org_id = $1
+        AND pr.reported_steam_id = $2
+        AND pr.reporter_steam_id <> $2
+        AND COALESCE(pil.discord_id, u.discord_id) IS NOT NULL`,
+    [orgId, reportedSteamId],
+  );
+
+  for (const row of rows) {
+    await sendDiscordDm(
+      String(row.discord_id),
+      "A player you F7 reported has been banned.",
+      { silent: true },
+    );
+  }
+}
+
 async function handleCreateBan(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
@@ -11763,6 +11791,13 @@ async function handleCreateBan(request, orgId) {
         ],
       );
     }
+
+    // Notify players who F7-reported this player in-game, if they've linked
+    // their Discord to the panel (via the public portal or a staff account).
+    // Fire-and-forget silent DM so it never blocks or fails the ban response.
+    notifyReportersOfBan(orgId, rawIdentifier).catch((e) =>
+      console.error("[f7-ban-notify] failed:", e.message),
+    );
   }
 
   const bmSyncCheck = await pool.query(
@@ -13667,6 +13702,9 @@ async function handleGetPlayerReports(request, steamId) {
 async function handleSearchOrgPlayers(request, orgId) {
   const { session, error } = await requireSession(request);
   if (error) return error;
+
+  if (!orgHasPermission(session, orgId, "players_view"))
+    return json({ error: "Forbidden: players_view permission required" }, 403);
 
   const url = new URL(request.url);
   const q = String(url.searchParams.get("q") ?? "").trim();
