@@ -23,15 +23,19 @@ Copy `.env.example` to `.env` and set values:
 
 Optional runtime tuning:
 
-- `SESSION_TTL_SECONDS`
-- `LOGIN_RATE_LIMIT_PER_MINUTE`
-- `PG_POOL_MAX`
-- `PG_IDLE_TIMEOUT_MS`
-- `DISCORD_REDIRECT_URI`
-- `STEAM_REALM`
-- `STEAM_RETURN_URL`
-- `PTERODACTYL_ALLOWED_HOSTS`
-- `PTERODACTYL_ENCRYPTION_KEY`
+- `SESSION_TTL_SECONDS` — session lifetime in seconds (code default: 1,209,600 = 14 days)
+- `LOGIN_RATE_LIMIT_PER_MINUTE` — default 10
+- `PG_POOL_MAX` — PostgreSQL pool size, default 20
+- `PG_IDLE_TIMEOUT_MS` — pool idle timeout, default 30000
+- `PG_CONNECT_TIMEOUT_MS` — pool acquisition timeout, default 5000 (fails fast under load)
+- `DISCORD_REDIRECT_URI` — override OAuth callback URL
+- `STEAM_REALM` / `STEAM_RETURN_URL` — override Steam OpenID URLs
+- `PTERODACTYL_ENCRYPTION_KEY` — AES-256 key for Pterodactyl API keys; falls back to `JWT_SECRET`
+- `DISCORD_BOT_TOKEN` — required for `npm run bot` and Discord Gateway features
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` — Cloudflare R2 for media uploads
+- `PROXYCHECK_HMAC_KEY` — verify Proxycheck response signatures (HMAC-SHA256)
+- `PROXYCHECK_API_KEY` — fallback Proxycheck key (per-org panel UI keys take priority)
+- `RELAY_ALLOW_INSECURE` — set `true` in local dev only to allow `http://` BM relay URLs
 
 ## Login Flow
 
@@ -87,38 +91,114 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `organizations`        | Top-level tenant. `org_id` is a human slug; `guild_id` is the linked Discord server.                                                                   |
 | `organization_members` | Joins `users` → `organizations` with a `role_id`.                                                                                                      |
-| `roles`                | Seeded: `org_member`, `org_admin`, `org_owner` (+ legacy `sysadmin` for the global org).                                                               |
-| `permissions`          | Seeded: `todo_write`, `org_manage`, `role_create`.                                                                                                     |
+| `roles`                | Custom roles with a `position` integer (higher = more authority). Owner is the immutable top; `org_member`/`org_disabled` sit at 0.                    |
+| `permissions`          | Named capability flags (e.g. `players_view`, `bans_create`, `tickets_view`, `role_create`, `org_manage`, `media_upload`, etc.).                        |
 | `role_permissions`     | Many-to-many join between `roles` and `permissions`.                                                                                                   |
+| `role_discord_roles`   | Maps panel roles to Discord role IDs for sync-on-join.                                                                                                 |
+| `role_server_admin`    | Grants in-game server admin to holders of a given role.                                                                                                |
 | `api_keys`             | Org-scoped API keys (hashed). Used for server-to-panel ingest.                                                                                         |
 | `audit_logs`           | Append-only log of staff actions. Fields: actor, target, resource, action type/category, severity, before/after state, IP, user agent, correlation ID. |
+| `org_share_grants`     | Cross-org data-sharing grants (lets org A surface player intel from org B's servers).                                                                   |
 
 ### Tickets
 
-| Table               | Purpose                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `ticket_types`      | Per-org ticket categories (e.g. "Ban Appeal").                                                                      |
-| `ticket_type_roles` | Which roles can handle each ticket type.                                                                            |
-| `tickets`           | One row per ticket. Status: `open` / `waiting_response` / `closed`. Priority: `urgent` / `high` / `normal` / `low`. |
-| `ticket_messages`   | Thread messages. `is_internal` (added via migration) marks staff-only notes.                                        |
-| `ticket_audit_log`  | Per-ticket action history (status changes, assignments, etc.).                                                      |
+| Table                    | Purpose                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `ticket_types`           | Per-org ticket categories (e.g. "Ban Appeal"). Supports custom intake questions.                                     |
+| `ticket_type_roles`      | Which roles can handle each ticket type.                                                                             |
+| `ticket_type_questions`  | Custom form questions attached to a ticket type (free-text, select, etc.).                                           |
+| `ticket_blacklist`       | Steam IDs blocked from submitting tickets to an org.                                                                 |
+| `tickets`                | One row per ticket. Status: `open` / `waiting_response` / `closed`. Priority: `urgent` / `high` / `normal` / `low`. |
+| `ticket_messages`        | Thread messages. `is_internal` marks staff-only notes.                                                               |
+| `ticket_audit_log`       | Per-ticket action history (status changes, assignments, etc.).                                                       |
+| `ticket_media_links`     | Joins uploaded media objects to a ticket message.                                                                    |
+| `ticket_feedback`        | Post-close satisfaction ratings (1–5) + optional comment left by the ticket submitter.                               |
+| `ticket_staff_watches`   | Staff subscriptions to ticket notifications.                                                                         |
 
 ### Servers & Chat
 
-| Table            | Purpose                                                                                               |
-| ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `servers`        | Game servers registered to an org. Authenticated by `api_key_hash`.                                   |
-| `text_chat_log`  | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`.                 |
-| `pvp_log`        | Ingested PVP kill events. Indexed by `server_id`, `killer_steam_id`, and `created_at`.                |
-| `player_reports` | Player-submitted in-game reports. Indexed by `server_id`, `reported_steam_id`, and `created_at`.      |
-| `team_events`    | Team lifecycle events (`created`/`joined`/`left`/`invited`). Indexed by `server_id` and `created_at`. |
+| Table                    | Purpose                                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `servers`                | Game servers registered to an org. Authenticated by `api_key_hash`.                                             |
+| `text_chat_log`          | Ingested in-game chat messages. Indexed by `server_id`, `steam_id`, and `created_at`.                           |
+| `pvp_log`                | Ingested PVP kill events. Indexed by `server_id`, `killer_steam_id`, and `created_at`.                          |
+| `player_reports`         | Player-submitted in-game reports. Indexed by `server_id`, `reported_steam_id`, and `created_at`.                |
+| `team_events`            | Team lifecycle events (`created`/`joined`/`left`/`invited`). Indexed by `server_id` and `created_at`.           |
+| `server_logs`            | Admin actions ingested via `/api/ingest/server-log` (kicks, bans, RCON commands, noclip, etc.).                  |
+| `staff_notification_prefs` | Per-staff opt-in notification preferences (Discord DMs for server events, etc.).                               |
+| `server_alert_state`     | Tracks stale-ping state per server so recovery DMs fire only once per outage.                                    |
+| `server_player_sessions` | Per-server player session windows (connect → disconnect times) for time-on-server intel.                         |
+
+### Player Intelligence
+
+| Table                        | Purpose                                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `player_cache`               | 30-day cached player profile from BattleMetrics + Steam (name, avatar, country, playtime, ban counts, etc.).                  |
+| `player_bm_sessions`         | Cached BattleMetrics session windows for a player.                                                                            |
+| `player_friends_meta`        | Metadata about the last friends-list fetch for a player.                                                                      |
+| `player_friends`             | Steam friends list entries for a player.                                                                                      |
+| `player_ip_history`          | Deduplicated IP → player associations ingested from connect events.                                                           |
+| `ip_metadata`                | Cached Proxycheck results (VPN/proxy flag, country, ASN) per IP.                                                              |
+| `player_related_accounts`    | Computed alt-account relationships (shared IP, shared team, etc.) with relationship types and confidence.                     |
+| `player_ip_observations`     | Raw per-org IP observations used for alt-detection within an org's servers.                                                   |
+| `player_ip_connection_events`| Connection-event timeline keyed by IP + player for time-ordered alt-detection.                                                |
+| `player_bm_ban_observations` | BattleMetrics ban records observed for a player (game, reason, expiry).                                                       |
+| `player_session_windows`     | Cross-server play-session windows aggregated from server plugin events.                                                       |
+| `player_session_related`     | Players who were online at the same time on the same server (for team/alt-detection).                                         |
+| `player_notes`               | Staff-written notes on a player, scoped by org and subject Steam ID, with a `min_rank` visibility gate.                       |
+| `player_bm_bans_cache`       | Locally cached BattleMetrics ban list for a player.                                                                           |
+| `org_player_sightings`       | Per-org record of a player's last-seen server, name, and IP hash — powers the org Players page.                               |
+| `player_bans`                | Bans issued by org staff. Includes type (kick/ban/mute), reason, duration, appeal status, and BM sync state.                  |
+| `ban_server_targets`         | Which specific servers a ban applies to (null = org-wide).                                                                    |
+| `ban_media_links`            | Media attachments (clips, screenshots) linked to a ban record.                                                                |
+| `flagged_steam_groups`       | Steam group IDs flagged as suspicious; membership triggers intel warnings on the player page.                                  |
+
+### Org Configuration
+
+| Table                       | Purpose                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `org_scripts`               | Per-org RCON script library (named command sequences).                                               |
+| `org_predefines`            | Predefined ban reasons / durations for quick-ban UI.                                                 |
+| `org_toxicity_config`       | AI chat moderation config (thresholds, enabled flag) per org.                                        |
+| `org_ban_reasons`           | Org-specific ban reason presets.                                                                     |
+| `org_ban_note_formats`      | Org-specific ban note templates.                                                                     |
+| `org_plugins`               | Metadata about the Rust plugin installed on each server (version, last seen, config).                |
+| `org_external_api_keys`     | Per-org rotating API keys for BattleMetrics, Steam, Proxycheck, and OpenAI (stored encrypted).       |
+| `org_external_api_key_stats`| Per-key rate-limit stats and backoff state for automatic key rotation.                               |
+| `org_blacklisted_words`     | Per-org word blacklist; served to server plugins via `/api/blacklisted-words`.                       |
+| `org_globalping_config`     | Per-org Globalping configuration (enabled targets, RCON actions on high-latency detection).          |
+| `org_globalping_measurements`| Active Globalping measurement IDs pending result collection.                                        |
+| `org_globalping_results`    | Collected Globalping latency results per server.                                                     |
+| `org_ai_moderation_triggers`| Per-org AI moderation trigger rules (keywords, score thresholds, actions).                           |
+| `ai_chat_flags`             | Chat messages flagged by AI moderation, with scores and action taken.                                |
+| `threat_trigger_config`     | Per-org configurable threat triggers (regex/pattern rules on chat/reports).                          |
+
+### Discord Integration
+
+| Table                         | Purpose                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `discord_messages`            | Synced Discord messages (for the in-panel Discord feed and moderation log).                      |
+| `discord_mod_log`             | Moderation actions taken in Discord (bans, timeouts, kicks) synced to the panel.                 |
+| `discord_channel_sync`        | Per-org configuration of which Discord channels are synced into the panel feed.                  |
+| `discord_member_notify_cursor`| Cursor for the new-member notification bot to avoid double-DMs on restart.                       |
+
+### Media & Docs
+
+| Table                | Purpose                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `org_media`          | Media objects (clips, screenshots) uploaded to R2 by staff or public ticket submitters. Stores vetted MIME type, real size, R2 key, and quota usage. |
+| `doc_categories`     | Documentation section categories (org-scoped).                                                                      |
+| `doc_articles`       | Wiki / documentation articles (org-scoped), with title, content, and publish state.                                 |
+| `doc_article_versions` | Revision history for doc articles.                                                                                |
 
 ### Integrations
 
-| Table            | Purpose                                                                                                                                                        |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ptero_api_keys` | One row per org. Stores the Pterodactyl panel URL and AES-256-GCM encrypted API key. Plaintext `api_key` column is migrated to `api_key_encrypted` on startup. |
-| `todos`          | Legacy internal task tracker (todo/in_progress/completed/blocked).                                                                                             |
+| Table               | Purpose                                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ptero_api_keys`    | One row per org. Stores the Pterodactyl panel URL and AES-256-GCM encrypted API key. Plaintext `api_key` column is migrated to `api_key_encrypted` on startup. |
+| `api_relays`        | BattleMetrics API relay nodes (AES-256-GCM encrypted keys, public host validated for SSRF safety).                                                              |
+| `api_relay_stats`   | Per-relay request and error counters.                                                                                                                           |
+| `todos`             | Legacy internal task tracker (todo/in_progress/completed/blocked).                                                                                              |
 
 ## Redis Keys
 
@@ -145,6 +225,8 @@ All tables are created on startup via `ensureSchema()`. Additive migrations (ALT
 | `rl:player-note:<userId>`        | Counter       | 60 s                                 | Player-note creation limiter per user (30 req/min). Prevents note write-spam.                                                                                           |
 | `rl:public-servers:<ip>`         | Counter       | 60 s                                 | Per-IP limiter (60 req/min) on the unauthenticated public server list (ticket portal). Protects the DB pool from enumeration floods.                                    |
 | `rl:ticket-types:<ip>`           | Counter       | 60 s                                 | Per-IP limiter (60 req/min) on the unauthenticated ticket-types list. Applied only to anonymous callers.                                                                |
+| `rl:ban:<userId>`                | Counter       | 60 s                                 | Ban-issuance limiter per user.                                                                                                                                          |
+| `rl:ticket:<userId>`             | Counter       | 60 s                                 | Ticket-creation limiter per user (public + staff).                                                                                                                      |
 
 ## Security & Rate Limiting
 
@@ -443,12 +525,12 @@ Authenticated with the server API key (same headers as ingest endpoints). The or
   "muted": true,
   "permanent": false,
   "reason": "Excessive toxicity in voice chat",
-  "expiresAt": "2026-07-01T00:00:00.000Z",
+  "expiresAt": 1751328000,
   "expiresUnix": 1751328000
 }
 ```
 
-`permanent: true` when the mute has no expiry; in that case `expiresAt` and `expiresUnix` are both `null`.
+`permanent: true` when the mute has no expiry; in that case `expiresAt` and `expiresUnix` are both `null`. Both fields are always returned and are identical (Unix seconds).
 
 **Response — player is not muted (or mute has expired/been revoked):**
 
